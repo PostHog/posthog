@@ -543,24 +543,36 @@ export class CyclotronV2Janitor {
         }
     }
 
+    /**
+     * Samples queue depth and head-of-line age. Runs ahead of the cleanup stages, so a failure here
+     * must not reject out of `runOnce` and take those stages with it. Reported to error tracking and
+     * swallowed, the same trade the conversion-watcher sweep makes. The gauges keep their last value
+     * on a failed sample, so error tracking is what makes a persistent one visible.
+     */
     async measureQueueDepths(): Promise<Map<string, number>> {
-        // EXTRACT(EPOCH ...) computes the age on the database's clock, so worker clock
-        // drift cannot make a queue look stuck or freshly drained.
-        const result = await this.pool.query<{ queue_name: string; count: string; oldest_age_seconds: string }>(
-            `SELECT queue_name, COUNT(*) as count,
-                    EXTRACT(EPOCH FROM (NOW() - MIN(scheduled))) as oldest_age_seconds
-             FROM cyclotron_jobs
-             WHERE status = 'available' AND scheduled <= NOW()
-             GROUP BY queue_name`
-        )
-
         const depths = new Map<string, number>()
-        for (const row of result.rows) {
-            const count = parseInt(row.count, 10)
-            depths.set(row.queue_name, count)
-            this.seenQueues.add(row.queue_name)
-            queueDepthGauge.labels({ queue: row.queue_name }).set(count)
-            oldestDueJobAgeGauge.labels({ queue: row.queue_name }).set(Math.max(0, Number(row.oldest_age_seconds)))
+        try {
+            // EXTRACT(EPOCH ...) computes the age on the database's clock, so worker clock
+            // drift cannot make a queue look stuck or freshly drained.
+            const result = await this.pool.query<{ queue_name: string; count: string; oldest_age_seconds: string }>(
+                `SELECT queue_name, COUNT(*) as count,
+                        EXTRACT(EPOCH FROM (NOW() - MIN(scheduled))) as oldest_age_seconds
+                 FROM cyclotron_jobs
+                 WHERE status = 'available' AND scheduled <= NOW()
+                 GROUP BY queue_name`
+            )
+
+            for (const row of result.rows) {
+                const count = parseInt(row.count, 10)
+                depths.set(row.queue_name, count)
+                this.seenQueues.add(row.queue_name)
+                queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+                oldestDueJobAgeGauge.labels({ queue: row.queue_name }).set(Math.max(0, Number(row.oldest_age_seconds)))
+            }
+        } catch (err) {
+            logger.error('CyclotronV2Janitor queue depth sample failed', { error: String(err) })
+            captureException(err)
+            return depths
         }
 
         // GROUP BY returns no row for a queue that is empty. Without the write below,
