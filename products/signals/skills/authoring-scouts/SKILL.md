@@ -141,8 +141,9 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
   Applies from the scout's next run.
 - `output_destinations` — defaults to none.
+  When adding Slack to an existing scout, first read `output_destinations`, then send the full object with every key preserved. Updates replace the object, so sending only `slack` removes an existing `webhook` pointer.
   Set `slack` to deliver every report the scout emits to Slack as well as the inbox: an `integration_id` for the workspace, plus either a `channel` (`channel_id|#channel-name`) or up to five `users` to DM (`member_id|@display-name`), never both.
-  `thread_reports: true` posts a channel report as a short lead message with the rest split into replies at the summary's section labels, so a long report isn't clipped; it doesn't change how findings post.
+  `thread_reports: true` posts a report as a short lead message with the rest split into replies at the summary's section labels, so a long report isn't clipped; it doesn't change how findings post.
   Slack delivery is a firehose of that one scout's output — no priority filter, no reviewer routing — so it suits a scout whose bar is already tight rather than a chatty one you're still calibrating.
   A Slack-delivered scout is also exempt from the ignored-reports auto-pause, since consumption there isn't measurable.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
