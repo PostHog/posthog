@@ -364,9 +364,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "template_id"
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
 
-    def test_create_from_deprecated_template_is_blocked(self):
-        # Deprecated templates are excluded from the template listing but stay resolvable by id,
-        # so the create path must reject them explicitly.
+    def test_create_from_deprecated_template_is_allowed(self):
+        # Deprecated templates are hidden from the listing but stay resolvable by id, so the API must
+        # keep creating from them - integrations reference legacy plugin template ids directly.
         HogFunctionTemplate.objects.create(
             template_id="plugin-deprecated-transformation",
             sha="1.0.0",
@@ -389,10 +389,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "inputs": {},
             },
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "template_id"
-        assert "deprecated" in response.json()["detail"]
-        assert not HogFunction.objects.filter(template_id="plugin-deprecated-transformation").exists()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert HogFunction.objects.filter(template_id="plugin-deprecated-transformation").exists()
 
     @parameterized.expand(
         [
