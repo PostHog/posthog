@@ -44,6 +44,13 @@ async def eval_visualization_choice(ctx: EvalContext) -> None:
             events=["uploaded_file"],
         ),
         _case(
+            "trend_signups_week_by_week",
+            "How have signups changed week by week over the last 8 weeks?",
+            tool="query-trends",
+            display="ActionsLineGraph",
+            events=["signed_up"],
+        ),
+        _case(
             "funnel_steps_signup_to_upload",
             "What's the conversion rate from signing up to uploading a first file?",
             tool="query-funnel",

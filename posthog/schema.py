@@ -4532,12 +4532,14 @@ class AssistantTrendsFilter(BaseModel):
             " `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series"
             " area chart. `ActionsLineGraphCumulative` - cumulative time-series line"
             " chart; good for cumulative metrics. `Metric` - single large number with a"
-            " change pill and a sparkline. The default for any question that has a"
-            ' single-number answer over a period ("how many X in the last 30 days",'
+            " change pill and a sparkline. Use for a period summary or an explicit"
+            ' current-versus-previous-period comparison ("how many X in the last 30 days",'
             ' "what\'s our conversion rate this month", "how does this month compare to'
-            ' last"). Set `compareFilter.compare` to `true` to compare the current'
-            " period with the previous period. Without it, the pill compares the first"
-            " interval with the last interval. Configure the display with the `metric*`"
+            ' last"). Do not use for a question about change over time, a cadence, or a'
+            " pattern. Use `ActionsLineGraph` so the person can inspect each interval."
+            " Set `compareFilter.compare` to `true` to compare the current period with"
+            " the previous period. Without it, the pill compares the first interval with"
+            " the last interval. Configure the display with the `metric*`"
             " fields below. Single series, no breakdown. `BoldNumber` - single large"
             " number with no change or sparkline. Use instead of `Metric` only when a"
             " trend is meaningless, such as an all-time total or a fixed ratio. You"
