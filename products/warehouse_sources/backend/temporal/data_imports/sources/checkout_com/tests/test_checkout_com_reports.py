@@ -1,5 +1,5 @@
 import io
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
@@ -212,17 +212,17 @@ class TestParseReportFileRows:
         [
             pytest.param(
                 "Action ID,Amount,Payout ID\nact_1,10,pout_1,\nact_2,20,pout_2,\n",
-                [("act_1", "10", "pout_1"), ("act_2", "20", "pout_2")],
+                [("act_1", 10.0, "pout_1"), ("act_2", 20.0, "pout_2")],
                 id="trailing-delimiter-on-data-rows",
             ),
             pytest.param(
                 "Action ID,Amount,Payout ID,\nact_1,10,pout_1\nact_2,20,pout_2\n",
-                [("act_1", "10", "pout_1"), ("act_2", "20", "pout_2")],
+                [("act_1", 10.0, "pout_1"), ("act_2", 20.0, "pout_2")],
                 id="trailing-delimiter-on-header",
             ),
             pytest.param(
                 "Action ID,Amount,Payout ID\nact_1,10,pout_1\nact_2,20\n",
-                [("act_1", "10", "pout_1"), ("act_2", "20", "")],
+                [("act_1", 10.0, "pout_1"), ("act_2", 20.0, "")],
                 id="ragged-rows-omit-trailing-empty-fields",
             ),
         ],
@@ -280,6 +280,79 @@ class TestParseReportFileRows:
     def test_file_with_no_data_lines_is_empty_not_a_defect(self, text):
         assert list(_parse_report_file_rows(io.StringIO(text), {}, mock.MagicMock())) == []
 
+    def test_column_names_decide_cell_types(self):
+        text = (
+            "Holding Currency Amount,Processing Currency,Payout Fee,Fee Type,"
+            "Action ID,Processed On,Payout Date,Row Count\n"
+            '"1,234.50",GBP,-0.75,scheme,act_1,2024-01-02 03:04:05,2024-01-03,7\n'
+        )
+        logger = mock.MagicMock()
+
+        (row,) = list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, logger))
+
+        assert row["holding_currency_amount"] == 1234.50
+        assert row["payout_fee"] == -0.75
+        assert row["processed_on"] == datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
+        assert row["payout_date"] == date(2024, 1, 3)
+        # A currency code names the unit of the amounts beside it, so it is not a quantity.
+        assert row["processing_currency"] == "GBP"
+        assert row["fee_type"] == "scheme"
+        assert row["action_id"] == "act_1"
+        assert row["row_count"] == "7"
+        logger.warning.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            pytest.param("2024-01-02T03:04:05Z", datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), id="iso-with-zulu"),
+            pytest.param("2024-01-02 03:04:05", datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), id="space-separator-naive"),
+            pytest.param("2024-01-02T05:04:05+02:00", datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), id="offset-to-utc"),
+        ],
+    )
+    def test_timestamp_variants_all_land_in_utc(self, value, expected):
+        text = f"Action ID,Processed On\nact_1,{value}\n"
+
+        (row,) = list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, mock.MagicMock()))
+
+        assert row["processed_on"] == expected
+
+    def test_unparseable_typed_cell_nulls_and_counts_without_logging_the_value(self):
+        text = "Action ID,Amount\nact_1,nan\nact_2,20\nact_3,oops\n"
+        logger = mock.MagicMock()
+
+        rows = list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, logger))
+
+        assert [(row["action_id"], row["amount"]) for row in rows] == [
+            ("act_1", None),
+            ("act_2", 20.0),
+            ("act_3", None),
+        ]
+        logger.warning.assert_called_once()
+        assert logger.warning.call_args.kwargs["failures_by_column"] == {"amount": 2}
+        # Report bodies carry transaction data, so a failure is counted and never logged.
+        assert "oops" not in str(logger.warning.call_args)
+
+    def test_metadata_timestamps_are_typed_and_metadata_ids_stay_text(self):
+        metadata = {
+            "report_id": "rpt_1",
+            "report_created_on": "2024-02-01T00:00:00Z",
+            "report_from": "2024-01-01T00:00:00Z",
+            "report_to": None,
+            "report_entity_id": "ent_1",
+            "file_id": "file_1",
+        }
+
+        (row,) = list(_parse_report_file_rows(io.StringIO("Action ID\nact_1\n"), metadata, mock.MagicMock()))
+
+        assert row["report_created_on"] == datetime(2024, 2, 1, tzinfo=UTC)
+        assert row["report_from"] == datetime(2024, 1, 1, tzinfo=UTC)
+        # A report with no range sends a null `to`, which must not fail the file.
+        assert row["report_to"] is None
+        assert row["report_id"] == "rpt_1"
+        assert row["report_entity_id"] == "ent_1"
+        assert row["file_id"] == "file_1"
+        assert row["file_row_index"] == 0
+
     def test_missing_key_column_raises_rather_than_loading_undedupable_rows(self):
         # Without the key column the merge cannot match a restated row, so every
         # regenerated file would add another copy instead of updating one.
@@ -336,7 +409,7 @@ class TestReportsMetadataTable:
 class TestReportFileSync:
     @mock.patch(SESSION_PATCH)
     def test_syncs_matching_reports_and_follows_redirect_without_credentials(self, mock_make_session):
-        csv_text = 'Action ID,Amount\nact_1,"multi\nline"\nact_2,20\n'
+        csv_text = 'Action ID,Amount,Description\nact_1,10,"multi\nline"\nact_2,20,plain\n'
         api_session = _FakeSession(
             [
                 _listing(
@@ -378,22 +451,24 @@ class TestReportFileSync:
         assert rows == [
             {
                 "action_id": "act_1",
-                "amount": "multi\nline",
+                "amount": 10.0,
+                "description": "multi\nline",
                 "report_id": "rpt_1",
-                "report_created_on": "2024-02-01T00:00:00Z",
-                "report_from": "2024-01-01T00:00:00Z",
-                "report_to": "2024-01-02T00:00:00Z",
+                "report_created_on": datetime(2024, 2, 1, tzinfo=UTC),
+                "report_from": datetime(2024, 1, 1, tzinfo=UTC),
+                "report_to": datetime(2024, 1, 2, tzinfo=UTC),
                 "report_entity_id": "ent_1",
                 "file_id": "file_1",
                 "file_row_index": 0,
             },
             {
                 "action_id": "act_2",
-                "amount": "20",
+                "amount": 20.0,
+                "description": "plain",
                 "report_id": "rpt_1",
-                "report_created_on": "2024-02-01T00:00:00Z",
-                "report_from": "2024-01-01T00:00:00Z",
-                "report_to": "2024-01-02T00:00:00Z",
+                "report_created_on": datetime(2024, 2, 1, tzinfo=UTC),
+                "report_from": datetime(2024, 1, 1, tzinfo=UTC),
+                "report_to": datetime(2024, 1, 2, tzinfo=UTC),
                 "report_entity_id": "ent_1",
                 "file_id": "file_1",
                 "file_row_index": 1,
@@ -484,9 +559,9 @@ class TestReportFileSync:
         rows = _rows(_source("financial_actions_report"))
 
         assert [(row["file_id"], row["amount"]) for row in rows] == [
-            ("file_m", "10"),
-            ("file_a", "20"),
-            ("file_z", "30"),
+            ("file_m", 10.0),
+            ("file_a", 20.0),
+            ("file_z", 30.0),
         ]
 
     @pytest.mark.parametrize("location", [None, "http://files.example.com/signed"])
