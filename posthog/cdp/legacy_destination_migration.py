@@ -191,3 +191,41 @@ def migrate_legacy_destinations(
             created.append(row["id"])
 
     return MigrationResult(created=created, skipped=skipped, dropped_inputs=dropped_inputs)
+
+
+def disable_migrated_plugin_configs(
+    *,
+    dry_run: bool = True,
+    team_ids: list[int] | None = None,
+) -> list[int]:
+    """Disable each enabled onEvent plugin config that a migrated hog function already covers.
+
+    Run this only once the migrated rows are known good. Until then the plugin config stays enabled
+    as the rollback: the consumer prefers the hog function, so only one of the pair ever runs, and
+    deleting the hog function hands the work straight back.
+
+    A config is left alone unless an enabled legacy_destination exists for its team and template.
+    """
+    candidates = PluginConfig.objects.filter(
+        enabled=True, deleted=False, plugin__capabilities__methods__contains=["onEvent"]
+    )
+    if team_ids:
+        candidates = candidates.filter(team_id__in=team_ids)
+
+    covered_pairs = set(
+        HogFunction.objects.filter(type=HogFunctionType.LEGACY_DESTINATION, enabled=True, deleted=False).values_list(
+            "team_id", "template_id"
+        )
+    )
+
+    to_disable = [
+        row["id"]
+        for row in candidates.values("id", "team_id", "plugin__url")
+        if (row["team_id"], f"plugin-{plugin_id_from_url(row['plugin__url'] or '')}") in covered_pairs
+    ]
+
+    if to_disable and not dry_run:
+        # nosemgrep: idor-lookup-without-team (internal migration; ids come from the team-scoped query above)
+        PluginConfig.objects.filter(id__in=to_disable).update(enabled=False)
+
+    return to_disable

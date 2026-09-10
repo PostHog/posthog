@@ -2,7 +2,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
-from posthog.cdp.legacy_destination_migration import migrate_legacy_destinations
+from posthog.cdp.legacy_destination_migration import disable_migrated_plugin_configs, migrate_legacy_destinations
 
 
 def _int_list(value: str | None) -> list[int] | None:
@@ -21,10 +21,23 @@ class Command(BaseCommand):
             action="store_true",
             help="Skip a config carrying inputs the template schema does not declare, rather than dropping them",
         )
+        parser.add_argument(
+            "--disable-migrated",
+            action="store_true",
+            help="Disable plugin configs a migrated hog function already covers, instead of migrating",
+        )
         parser.add_argument("--batch-size", type=int, default=100, help="Plugin configs to load per batch")
         parser.add_argument("--limit", type=int, default=None, help="Stop after this many plugin configs")
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if options["disable_migrated"]:
+            disabled = disable_migrated_plugin_configs(
+                dry_run=options["dry_run"], team_ids=_int_list(options["team_ids"])
+            )
+            prefix = "Would disable" if options["dry_run"] else "Disabled"
+            self.stdout.write(f"{prefix} {len(disabled)} plugin config(s) already covered by a hog function")
+            return
+
         result = migrate_legacy_destinations(
             dry_run=options["dry_run"],
             team_ids=_int_list(options["team_ids"]),

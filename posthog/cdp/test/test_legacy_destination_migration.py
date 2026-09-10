@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.cdp.legacy_destination_migration import migrate_legacy_destinations
+from posthog.cdp.legacy_destination_migration import disable_migrated_plugin_configs, migrate_legacy_destinations
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -179,3 +179,45 @@ class TestLegacyDestinationMigration(BaseTest):
         result = migrate_legacy_destinations(dry_run=False, team_ids=[self.team.id + 1])
 
         assert result.created == []
+
+
+class TestDisableMigratedPluginConfigs(TestLegacyDestinationMigration):
+    def _disable(self, dry_run=False):
+        return disable_migrated_plugin_configs(dry_run=dry_run, team_ids=[self.team.id])
+
+    def test_disables_only_a_config_a_migrated_hog_function_covers(self):
+        covered = self._plugin_config()
+        uncovered = self._plugin_config(plugin=self._plugin(url="https://github.com/PostHog/not-bundled"))
+
+        self._migrate()
+        disabled = self._disable()
+
+        assert disabled == [covered.id]
+        covered.refresh_from_db()
+        uncovered.refresh_from_db()
+        assert covered.enabled is False
+        assert uncovered.enabled is True
+
+    def test_leaves_everything_enabled_before_the_migration_runs(self):
+        plugin_config = self._plugin_config()
+
+        assert self._disable() == []
+        plugin_config.refresh_from_db()
+        assert plugin_config.enabled is True
+
+    def test_dry_run_reports_without_disabling(self):
+        plugin_config = self._plugin_config()
+        self._migrate()
+
+        assert self._disable(dry_run=True) == [plugin_config.id]
+        plugin_config.refresh_from_db()
+        assert plugin_config.enabled is True
+
+    def test_ignores_a_migrated_row_that_is_disabled(self):
+        plugin_config = self._plugin_config()
+        self._migrate()
+        self._hog_functions().update(enabled=False)
+
+        assert self._disable() == []
+        plugin_config.refresh_from_db()
+        assert plugin_config.enabled is True
