@@ -276,10 +276,9 @@ describe('RateLimiterService', () => {
         })
 
         it('hands successive reserved denials distinct, later slots, paced by the slower bucket', async () => {
-            // Both buckets are short. The slower one (0.5/s) decides: the first caller waits
-            // only its 40s deficit, the caller behind it chains a further requested/refill
-            // (60s) on top, so denied callers park at distinct times instead of all waking
-            // at the shared deficit horizon and re-herding.
+            // Both buckets are short, so the slower one (0.5/s) sets the pace. The first
+            // caller waits 40s (its missing tokens). The next one gets the slot after
+            // that, a full 60s later. Nobody wakes at the same time.
             const buckets: [
                 { key: string; capacity: number; refillPerSecond: number },
                 { key: string; capacity: number; refillPerSecond: number },
@@ -292,7 +291,7 @@ describe('RateLimiterService', () => {
 
             expect(first.granted).toBe(false)
             expect(first.reserved).toBe(true)
-            // Cold cursor: the first slot is the 40s deficit, not a full 60s spacing.
+            // First in line pays only the 40s shortfall, not a full 60s slot.
             expect(first.retryAfterMs).toBe(40_000)
             expect(second.reserved).toBe(true)
             expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
@@ -307,9 +306,8 @@ describe('RateLimiterService', () => {
                 { key: `${KEY_A}/resv-cap`, capacity: 50, refillPerSecond: 0 },
                 { key: `${KEY_B}/resv-cap`, capacity: 10, refillPerSecond: 2 },
             ]
-            // The 10s deficit slot fits the 20s horizon; the next slot (deficit + 15s
-            // spacing) does not, so everyone after the first gets the horizon back,
-            // un-reserved, and must spread its own wake.
+            // The first slot (10s) fits inside the 20s horizon. The next one would not,
+            // so everyone after the first just gets "come back in 20s" with no slot.
             const first = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
             const second = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
             const third = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
