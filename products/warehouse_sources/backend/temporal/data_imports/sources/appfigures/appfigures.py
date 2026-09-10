@@ -1,4 +1,5 @@
 import dataclasses
+from collections import defaultdict
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -22,6 +23,11 @@ APPFIGURES_BASE_URL = "https://api.appfigures.com/v2"
 # capped at 30 days per request. So the first sync backfills this many days, then incremental syncs
 # advance from the stored date watermark.
 REPORT_BACKFILL_DAYS = 365
+
+# /ranks needs product ids in its path, so the fan-out reads the account catalog first. In-app
+# purchases never hold a store category rank, so they are left out of the request.
+PRODUCTS_PATH = "/products/mine"
+NON_RANKABLE_PRODUCT_TYPES = frozenset({"inapp"})
 
 
 class AppfiguresRetryableError(Exception):
@@ -181,6 +187,24 @@ def _iter_paged(
         manager.save_state(AppfiguresResumeConfig(next_page=page))
 
 
+def _initial_window_start(
+    manager: ResumableSourceManager[AppfiguresResumeConfig],
+    today: date,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> date:
+    """Where a date-windowed walk picks up: saved resume state, then the incremental watermark, then
+    the backfill horizon."""
+    resume = manager.load_state() if manager.can_resume() else None
+    if resume and resume.window_start:
+        return date.fromisoformat(resume.window_start)
+    if should_use_incremental_field and db_incremental_field_last_value:
+        last = _to_date_str(db_incremental_field_last_value)
+        if last:
+            return date.fromisoformat(last)
+    return today - timedelta(days=REPORT_BACKFILL_DAYS)
+
+
 def _flatten_report(data: Any) -> list[dict[str, Any]]:
     """Turn a group_by=dates report body ({"2024-01-01": {..metrics..}, ...}) into dated rows.
 
@@ -209,14 +233,7 @@ def _iter_report(
     today = datetime.now(UTC).date()
     window_days = config.window_days or 30
 
-    resume = manager.load_state() if manager.can_resume() else None
-    if resume and resume.window_start:
-        window_start = date.fromisoformat(resume.window_start)
-    elif should_use_incremental_field and db_incremental_field_last_value:
-        last = _to_date_str(db_incremental_field_last_value)
-        window_start = date.fromisoformat(last) if last else today - timedelta(days=REPORT_BACKFILL_DAYS)
-    else:
-        window_start = today - timedelta(days=REPORT_BACKFILL_DAYS)
+    window_start = _initial_window_start(manager, today, should_use_incremental_field, db_incremental_field_last_value)
 
     url = f"{APPFIGURES_BASE_URL}{config.path}"
     while window_start <= today:
@@ -240,6 +257,113 @@ def _iter_report(
         manager.save_state(AppfiguresResumeConfig(window_start=window_start.isoformat()))
 
 
+def _flatten_ranks(data: Any) -> list[dict[str, Any]]:
+    """Turn a columnar /ranks body into one row per product, country, category, and date.
+
+    The body holds a `dates` array plus a series per product/country/category whose `positions` and
+    `deltas` arrays line up with it by index.
+    """
+    if not isinstance(data, dict):
+        return []
+    dates = data.get("dates") or []
+    rows: list[dict[str, Any]] = []
+    for series in data.get("data") or []:
+        if not isinstance(series, dict):
+            continue
+        category = series.get("category") or {}
+        positions = series.get("positions") or []
+        deltas = series.get("deltas") or []
+        for index, day in enumerate(dates):
+            position = positions[index] if index < len(positions) else None
+            # A null position means the product held no rank in that chart that day. The default rank
+            # depth makes that the common case, so skipping keeps the table to real observations.
+            if position is None:
+                continue
+            rows.append(
+                {
+                    "date": day,
+                    "product_id": series.get("product_id"),
+                    "country": series.get("country"),
+                    "category_id": category.get("id"),
+                    "category_name": category.get("name"),
+                    "category_subtype": category.get("subtype"),
+                    "category_parent_id": category.get("parent_id"),
+                    "category_device": category.get("device"),
+                    "store": category.get("store"),
+                    "position": position,
+                    # Appfigures documents this delta as the change from the prior hour even at daily
+                    # granularity, so it is not a day-over-day move.
+                    "delta": deltas[index] if index < len(deltas) else None,
+                }
+            )
+    return rows
+
+
+def _rankable_product_ids(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+) -> list[str]:
+    data = _fetch(session, f"{APPFIGURES_BASE_URL}{PRODUCTS_PATH}", {}, logger)
+    products = data.values() if isinstance(data, dict) else data or []
+    ids = {
+        str(product["id"])
+        for product in products
+        if isinstance(product, dict)
+        and product.get("id") is not None
+        and product.get("type") not in NON_RANKABLE_PRODUCT_TYPES
+    }
+    # Sorted so the request chunks are stable across syncs and resumes.
+    return sorted(ids)
+
+
+def _iter_ranks(
+    session: requests.Session,
+    config: AppfiguresEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfiguresResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """/ranks, fanned out over the account's products in chunks and walked in date windows."""
+    product_ids = _rankable_product_ids(session, logger)
+    if not product_ids:
+        logger.info("Appfigures: account has no rankable products, skipping ranks")
+        return
+
+    chunk_size = config.products_per_request
+    chunks = [product_ids[index : index + chunk_size] for index in range(0, len(product_ids), chunk_size)]
+
+    today = datetime.now(UTC).date()
+    window_days = config.window_days or 30
+
+    window_start = _initial_window_start(manager, today, should_use_incremental_field, db_incremental_field_last_value)
+
+    while window_start <= today:
+        window_end = min(window_start + timedelta(days=window_days - 1), today)
+
+        # Collect the whole window across product chunks before yielding, so rows still leave this
+        # iterator in ascending date order and the incremental watermark checkpoints correctly.
+        rows_by_date: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for chunk in chunks:
+            url = (
+                f"{APPFIGURES_BASE_URL}{config.path}/{','.join(chunk)}/{config.granularity}"
+                f"/{window_start.isoformat()}/{window_end.isoformat()}"
+            )
+            for row in _flatten_ranks(_fetch(session, url, {}, logger)):
+                rows_by_date[row["date"]].append(row)
+
+        for day in sorted(rows_by_date):
+            yield rows_by_date[day]
+
+        if window_end >= today:
+            break
+
+        window_start = window_end + timedelta(days=1)
+        # Save AFTER yielding the window so a crash re-fetches it rather than skipping; merge dedupes
+        # the re-pulled rows on the primary key.
+        manager.save_state(AppfiguresResumeConfig(window_start=window_start.isoformat()))
+
+
 def get_rows(
     token: str,
     endpoint: str,
@@ -255,6 +379,15 @@ def get_rows(
         yield from _iter_object(session, config, logger)
     elif config.kind == "paged":
         yield from _iter_paged(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif config.kind == "ranks":
+        yield from _iter_ranks(
             session,
             config,
             logger,
@@ -299,7 +432,8 @@ def appfigures_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Reviews are paged ascending by `date`; reports are emitted oldest-window-first. Both arrive
-        # in ascending order so the incremental watermark checkpoints correctly.
+        # Reviews are paged ascending by `date`; reports and ranks are emitted oldest-window-first,
+        # ranks buffering each window so its product chunks merge back into date order. All arrive
+        # ascending so the incremental watermark checkpoints correctly.
         sort_mode="asc",
     )

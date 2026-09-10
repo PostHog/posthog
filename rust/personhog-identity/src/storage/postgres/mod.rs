@@ -8,10 +8,12 @@ mod resolve;
 mod stub_create;
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use async_trait::async_trait;
+use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgPool, PgRow};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 
@@ -21,6 +23,38 @@ use crate::storage::types::{AttachOutcome, DistinctIdMapping, Person, PersonStub
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
 const POOL_LABEL: &str = "primary";
+
+/// Wait for a pool connection. Connection churn shows up here while
+/// every other layer reads idle.
+const DB_POOL_ACQUIRE_DURATION: &str = "personhog_identity_db_pool_acquire_duration_ms";
+
+fn record_acquire(start: Instant) {
+    common_metrics::histogram(
+        DB_POOL_ACQUIRE_DURATION,
+        &[
+            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ],
+        start.elapsed().as_secs_f64() * 1000.0,
+    );
+}
+
+/// Acquire a primary connection, recording the wait.
+pub(super) async fn acquire_timed(pool: &PgPool) -> sqlx::Result<PoolConnection<Postgres>> {
+    let start = Instant::now();
+    let conn = pool.acquire().await;
+    record_acquire(start);
+    conn
+}
+
+/// Begin a primary transaction, recording the acquire wait it contains.
+pub(super) async fn begin_timed(pool: &PgPool) -> sqlx::Result<Transaction<'_, Postgres>> {
+    let start = Instant::now();
+    let tx = pool.begin().await;
+    record_acquire(start);
+    tx
+}
 
 /// Decode a person from a row whose SELECT list uses the canonical aliases
 /// (`team_id::bigint AS team_id`, `properties::text AS properties`, the

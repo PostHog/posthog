@@ -10,9 +10,9 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, setup-python-cached, and paths-filter mirror the canonical
-#   composites; any deltas are documented in each mirror's header). setup-turbo has no
-#   mirror because there is nothing Depot needs to strip from it.
+#   setup-sqlx-cli, setup-python-cached, setup-uv, and paths-filter mirror the canonical
+#   composites; any deltas are documented in each mirror's header). Keep the local
+#   action mirrors available in .depot/actions so Depot can resolve their manifests.
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -301,6 +301,7 @@ jobs:
             legacy: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.legacy || 'true') }}
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
+            repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -407,6 +408,7 @@ jobs:
                         - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
+                        - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
@@ -457,6 +459,7 @@ jobs:
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
                         - .depot/workflows/ci-backend.yml
+                        - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
@@ -520,6 +523,17 @@ jobs:
                         - 'posthog/product_db_router.py'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      repo_invariants:
+                        # posthog/test/repo_invariants/ reads AGENTS.md and the semgrep
+                        # rule ids it names. Both are excluded from the backend filter
+                        # (markdown is dropped outright, .semgrep is not listed), so a
+                        # change to either would skip repo-checks and report green while
+                        # leaving a tag pointing at a rule that no longer exists.
+                        - 'AGENTS.md'
+                        - '.semgrep/**'
+                        - 'pyproject.toml'
+                        - 'products/ruff.toml'
+                        - '.github/scripts/**'
                       product_yamls:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'
@@ -532,7 +546,14 @@ jobs:
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
-                        # Generation tooling - changes here could affect output
+                        # Task run model catalog: one Python module projected into a
+                        # checked-in .generated.ts per workspace. Only the outputs are
+                        # named — neither sits in a generated/ directory, and the
+                        # desktop one is under products/desktop, which the backend
+                        # filter excludes. The catalog and its generator are .py under
+                        # products/, so the backend filter already catches both.
+                        - 'products/tasks/frontend/modelCatalog.generated.ts'
+                        - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
                         - 'tools/openapi-codegen/**/*'
                         - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
@@ -707,10 +728,10 @@ jobs:
             # --no-project` for the dependent cascade; the script pins tach, so no
             # Python project sync is needed. A missing uv widens the cascade to
             # every product rather than failing the job.
-            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              continue-on-error: true
+            - uses: ./.depot/actions/setup-uv
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
+              continue-on-error: true
             - name: Restore test durations from cache
               # Restore fresh timings so shard counts match GitHub Actions; miss falls back to committed.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -762,9 +783,9 @@ jobs:
               # selector failure does, not fail the job that gates every test job.
               continue-on-error: true
               if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.depot/actions/setup-uv
               with:
-                  version: '0.11.28'
+                  enable-cache: false
 
             - name: Run the backend test selector
               id: select
@@ -922,12 +943,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.depot/actions/setup-uv
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
@@ -1126,7 +1142,7 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'push'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'push'
         timeout-minutes: 10
         permissions:
             contents: read
@@ -1150,9 +1166,9 @@ jobs:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.depot/actions/setup-uv
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Bootstrap scaffold product
@@ -1234,9 +1250,9 @@ jobs:
                   python-version: 3.13.13
                   token: ${{ steps.app-token.outputs.token || github.token }}
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.depot/actions/setup-uv
               with:
-                  version: '0.11.28'
+                  enable-cache: false
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Validate changed product.yaml owners
@@ -1317,12 +1333,7 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.depot/actions/setup-uv
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -1578,6 +1589,7 @@ jobs:
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # Direct install: Generated changes target the PR head, which may predate the local action.
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -2054,11 +2066,12 @@ jobs:
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
+            # Direct install: Tests run the explicit PR head, which may predate the local action.
             - name: Install uv
               id: setup-uv-tests
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -2649,6 +2662,7 @@ jobs:
                 turbo-discover,
                 build-product-test-matrix,
                 turbo-tests,
+                detect-snapshot-mode,
                 repo-checks,
             ]
         name: '[optional, does not block merge] Django Tests Pass'
@@ -2703,6 +2717,7 @@ jobs:
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
+                  check_required_result "Snapshot mode detection" "${{ needs.detect-snapshot-mode.result }}"
 
                   echo "All backend and product checks passed."
     # Depot shadow: calculate-running-time is omitted so shadow runs are not recorded as canonical CI data.

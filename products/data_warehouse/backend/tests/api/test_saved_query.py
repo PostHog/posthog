@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
@@ -2162,9 +2162,9 @@ class TestSavedQuery(APIBaseTest):
             )
             for i in range(2)
         ]
-        with freeze_time("2026-07-01T00:00:00Z"):
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False):
             mark_node_suspended(nodes[0], engine="clickhouse", reason="first failure", job_id="job-1")
-        with freeze_time("2026-07-02T00:00:00Z"):
+        with time_machine.travel("2026-07-02T00:00:00Z", tick=False):
             mark_node_suspended(nodes[1], engine="clickhouse", reason="later failure", job_id="job-2")
         for node in nodes:
             node.save()
