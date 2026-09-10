@@ -1215,6 +1215,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 captureInboxReportAction({ report: values.report, actionType: 'view_diff', surface: 'detail_pane' })
             }
         },
+        expandEvidence: () => {
+            // The two-card default is a guess. This is the only signal for how often a reader wants
+            // the rest of the evidence, so it carries how much there was to reach for.
+            if (values.report) {
+                captureInboxReportAction({
+                    report: values.report,
+                    actionType: 'show_more',
+                    surface: 'detail_pane',
+                    extra: { section: 'evidence', signal_count: values.reportSignals?.length ?? 0 },
+                })
+            }
+        },
         rateReport: ({ sentiment }) => {
             if (!values.report) {
                 return

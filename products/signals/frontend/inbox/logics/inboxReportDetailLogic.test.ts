@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -7,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
+import { INBOX_EVENTS } from '../inboxAnalytics'
 import { SignalReport } from '../types'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
 
@@ -64,7 +66,9 @@ describe('inboxReportDetailLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
-                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/:id/signals/': {
+                        signals: [{ signal_id: 's1' }, { signal_id: 's2' }, { signal_id: 's3' }],
+                    },
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
                 },
             })
@@ -87,6 +91,21 @@ describe('inboxReportDetailLogic', () => {
 
             logic.actions.collapseEvidence()
             expect(logic.values.evidenceExpanded).toBe(false)
+        })
+
+        // Reaching past the two shown cards is the only evidence that the limit is set too low, so
+        // a silently dropped event would leave the default untestable.
+        it('reports the expansion with the number of cards there were to reach for', async () => {
+            await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess'])
+            ;(posthog.capture as jest.Mock).mockClear()
+
+            logic.actions.expandEvidence()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const reported = (posthog.capture as jest.Mock).mock.calls
+                .filter(([event]) => event === INBOX_EVENTS.REPORT_ACTION)
+                .map(([, properties]) => [properties.action_type, properties.section, properties.signal_count])
+            expect(reported).toEqual([['show_more', 'evidence', 3]])
         })
     })
 
