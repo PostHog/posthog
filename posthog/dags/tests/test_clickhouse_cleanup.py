@@ -1089,9 +1089,8 @@ def test_the_sweep_sensor_launches_a_real_run_after_deletes():
 
 
 def test_the_job_carries_the_operational_tags():
-    # The concurrency tag is what the charts run-queue limit matches, and the janitor's
-    # unconditional reap is only safe while no sibling run can be live. max_runtime is the only
-    # bound on total runtime: the per-wait timeouts can each fire without the run ever ending.
+    # The charts run-queue limit matches the concurrency tag, and the janitor's unconditional reap
+    # depends on it. max_runtime is the only bound on total runtime.
     tags = clickhouse_deletion_sweep_job.tags
     assert tags["clickhouse_deletion_sweep_concurrency"] == "v1"
     assert int(tags["dagster/max_runtime"]) == 43200

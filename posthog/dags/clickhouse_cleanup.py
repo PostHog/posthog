@@ -1355,11 +1355,8 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
         # Matched by a run-queue limit of 1 in charts (argocd/dagster/deployment_settings), so a
         # second sweep run queues instead of running concurrently. The janitor depends on this.
         "clickhouse_deletion_sweep_concurrency": "v1",
-        # A runaway catcher, not a target. The scheduled config runs ~40 min in prod-EU and ~2 h in
-        # prod-US, and the slowest live run so far was 5 h 51 m at a cohort cap 20x the scheduled
-        # one. Nothing else bounds total runtime: the per-wait timeouts can each fire without the
-        # run ever ending. A killed run is safe to lose, since every op is idempotent and the
-        # failure hook drops its assets.
+        # Nothing else bounds total runtime: the per-wait timeouts can each fire without the run
+        # ending. Safe to lose a killed run, since every op is idempotent.
         "dagster/max_runtime": 43200,
     },
 )
@@ -1380,17 +1377,8 @@ def clickhouse_deletion_sweep_job():
     drop_snapshot_assets(delete_persons(run))
 
 
-# What the sensor launches with. Every field is pinned rather than left to the field defaults, so a
-# change to a default cannot silently move production and the scheduled settings are reviewable in
-# one place.
-#
-# One config serves both deployments. Every field here is a ceiling rather than a target, so the
-# larger region's value is safe in the smaller one: prod-EU under a prod-US memory cap simply never
-# reaches it.
-#
-# Memory and the mutation deadline come from prod-US live runs. The orphaned distinct id populate,
-# not the persons populate, is the memory ceiling: it peaked at 82.64 GiB on prod-US, where the
-# persons populate peaked at 42.38 GiB. A 64 GiB cap failed that op outright.
+# What the sensor launches with. Every field is pinned so a changed default cannot move production,
+# and every value is a ceiling, which is what lets one config serve both regions.
 SCHEDULED_RUN_CONFIG = {
     "ops": {
         "clear_removed_cohort_data": {
@@ -1398,25 +1386,21 @@ SCHEDULED_RUN_CONFIG = {
                 "dry_run": False,
                 "cleanup": True,
                 "cohort_sweep": True,
-                # 100, not DEFAULT_MAX_COHORTS. At 2,000 the cohort sweep measured 131 min on
-                # prod-EU and 209 min on prod-US, 60-68% of the whole run, and still needed ~24 US
-                # runs to drain the backlog. Cost tracks the mutation count, so this is the only
-                # lever on it. Draining is a deliberate attended campaign at a higher value, not
-                # something an unattended weekly run should carry.
+                # Not DEFAULT_MAX_COHORTS: at 2,000 this op is two thirds of the run and still
+                # needs ~24 US runs to drain. Draining is an attended campaign, not weekly work.
                 "max_cohorts": 100,
                 "team_batches": DEFAULT_TEAM_BATCHES,
-                # Never 0 here. Unbounded, one run takes every tombstone in the backlog, and a
-                # caller can grow that backlog faster than a run can drain it. 30M exceeds both
-                # regions' weekly arrivals, so the backlog converges instead of growing.
+                # Never 0: unbounded takes the whole backlog in one run. 30M outpaces both
+                # regions' weekly arrivals, so the backlog converges.
                 "max_persons": 30_000_000,
                 "shards": 16,
                 "max_execution_time": 1800,
+                # The orphaned distinct id populate, not the persons one, sets this. 64 GiB failed it.
                 "max_memory_usage": 128 * 1024**3,
                 "dictionary_load_timeout": 1800,
                 "mutation_stall_timeout": 1800,
                 "mutation_capacity_timeout": 3600,
-                # The longest single mutation measured on prod-US ran 5,844 s, so 7200 left only
-                # 1.2x. Nothing here bounds a slow-but-healthy mutation except this.
+                # The only bound on a slow but healthy mutation. Worst measured: 5,844 s.
                 "mutation_wait_deadline": 21600,
                 "min_team_id": 0,
                 "max_team_id": 0,
