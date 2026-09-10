@@ -16,8 +16,9 @@ function nextId(): string {
 }
 
 export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
+    const id = overrides.id ?? nextId()
     return {
-        id: nextId(),
+        id,
         title: 'Untitled report',
         summary: null,
         status: SignalReportStatus.READY,
@@ -45,7 +46,12 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
                       merged: overrides.implementation_pr_merged ?? false,
                       claim_id: null,
                       attached_at: BASE_DATE,
-                      attached_by: null,
+                      attached_by: {
+                          kind: 'task',
+                          user: null,
+                          agent: null,
+                          task_id: `${id}-task-impl`,
+                      },
                   },
               ]
             : [],
