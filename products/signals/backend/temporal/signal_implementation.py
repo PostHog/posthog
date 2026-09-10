@@ -49,8 +49,19 @@ async def finalize_signal_implementation_activity(input: SignalImplementationInp
             return False
         await record_task_cost(input.signal_keys[0], input.team_id, str(run.task_id), "implementation")
 
+    failures: list[tuple[str, Exception]] = []
     for signal_key in input.signal_keys:
-        await publish_handoff(signal_key, input.team_id)
+        try:
+            await publish_handoff(signal_key, input.team_id)
+        except Exception as error:
+            # Publication is idempotent, so a key that cannot publish fails on its own instead of
+            # holding back the rest of its batch. A retry re-reads and skips whatever already went out.
+            failures.append((signal_key, error))
+    if failures:
+        raise RuntimeError(
+            f"Failed to publish {len(failures)} of {len(input.signal_keys)} signal handoffs: "
+            + ", ".join(signal_key for signal_key, _ in failures)
+        ) from failures[0][1]
     return True
 
 

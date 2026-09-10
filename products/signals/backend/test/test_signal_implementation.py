@@ -79,6 +79,23 @@ async def test_finalizer_charges_a_task_once_when_the_finish_activity_retries() 
 
 
 @pytest.mark.asyncio
+async def test_one_unpublishable_key_does_not_hold_back_its_batch() -> None:
+    keys = tuple(f"signal-{i}" for i in range(5))
+
+    async def publish(signal_key: str, team_id: int) -> None:
+        if signal_key == "signal-2":
+            raise ValueError("Signal handoff is missing")
+
+    with patch(
+        "products.signals.backend.temporal.signal_implementation.publish_handoff", AsyncMock(side_effect=publish)
+    ) as publish_handoff:
+        with pytest.raises(RuntimeError, match="signal-2"):
+            await finalize_signal_implementation_activity(SignalImplementationInput(team_id=1, signal_keys=keys))
+
+    assert [call.args[0] for call in publish_handoff.await_args_list] == list(keys)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "keys,run_id,answers",
     [(("owner",), "run-id", (False, True)), (tuple(f"signal-{i}" for i in range(20)), None, (True,))],
