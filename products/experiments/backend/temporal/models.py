@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Final, Literal
 
+from posthog.dataclasses import frozen
+
 # Shared by the workflow definition, the schedule, and the management command.
 CANARY_WORKFLOW_NAME = "experiment-precompute-canary"
 
@@ -138,7 +140,7 @@ class CanaryVariantStats:
     number_of_samples: int
 
 
-@dataclasses.dataclass
+@frozen
 class CanaryRunSnapshot:
     """Per-variant aggregates from one execution of the metric query."""
 
