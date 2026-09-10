@@ -405,12 +405,18 @@ _MAX_SETUP_CONNECTION_DROP_ATTEMPTS = 3
 # Substrings psycopg uses for a transient socket drop around sync setup. "the connection is lost"
 # is the message libpq gives when an already-open connection dies. "server closed the connection
 # unexpectedly" is the message when the socket dies during the connect handshake ("connection
-# failed: ... server closed the connection unexpectedly"). Both are the same transient class — a
-# network blip or a cluster pause/resize — and recover by reconnecting. Keep this narrow so a
+# failed: ... server closed the connection unexpectedly"). "consuming input failed" is libpq's
+# wrapper when the drop is detected while reading a query's response (e.g. `get_table_metadata`'s
+# `information_schema.columns` lookup) rather than at connect time — it also prefixes "ssl syscall
+# error", the socket-level form of a TLS drop (handshake or read EOF). All are the same transient
+# class — a network blip or a cluster pause/resize — and recover by reconnecting. Mirrors the
+# equivalent Postgres source's `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`. Keep this narrow so a
 # permanent failure such as "password authentication failed" is never retried in-process.
 _TRANSIENT_CONNECTION_DROP_SUBSTRINGS = (
     "the connection is lost",
     "server closed the connection unexpectedly",
+    "consuming input failed",
+    "ssl syscall error",
 )
 
 
@@ -423,7 +429,7 @@ def _is_transient_connection_drop_error(error: BaseException) -> bool:
     """
     if not isinstance(error, psycopg.OperationalError):
         return False
-    message = str(error)
+    message = str(error).lower()
     return any(substring in message for substring in _TRANSIENT_CONNECTION_DROP_SUBSTRINGS)
 
 
