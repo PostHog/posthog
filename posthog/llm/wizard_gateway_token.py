@@ -474,7 +474,11 @@ def _ttl_seconds(posture: WizardPosture | None, override: int | None = None) -> 
         ttl = wizard_tier_limits(posture).ttl_seconds if posture is not None else None
     if ttl is None:
         ttl = int(settings.WIZARD_GATEWAY_TOKEN_TTL_SECONDS)
-    return max(_MIN_TTL_SECONDS, min(ttl, _MAX_TTL_SECONDS))
+    clamped = max(_MIN_TTL_SECONDS, min(ttl, _MAX_TTL_SECONDS))
+    if clamped != ttl:
+        # Counted: the lifetime minted is not the one the operator set.
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="ttl_seconds_clamped").inc()
+    return clamped
 
 
 def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPosture | None) -> str:
@@ -530,7 +534,8 @@ def _parse_cap(raw: object) -> Decimal | None:
     return cap
 
 
-# A smoke test is one short run, so this is well under every posture's cap.
+# The fallback for a rejected WIZARD_CI_CAP_USD: low, so a bad value stops costly runs
+# rather than widening what one CI token can spend.
 _CI_CAP_FLOOR = Decimal("2")
 
 

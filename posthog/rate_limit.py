@@ -14,7 +14,7 @@ from django.urls import resolve
 from django.utils import timezone
 
 from prometheus_client import Counter
-from rest_framework import exceptions
+from rest_framework import exceptions, status
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
 
@@ -1330,22 +1330,49 @@ def reserve_wizard_ci_verify(ip: str | None, limit: int) -> None:
 
 
 WIZARD_CI_MINT_WINDOW_SECONDS = 3600
+WIZARD_CI_MINT_DAY_SECONDS = 86400
 
 
-def reserve_wizard_ci_mint(repository: str, limit: int) -> str | None:
-    """Atomically consume one of this repository's hourly CI mints, or raise.
+class WizardCiAccountingUnavailable(exceptions.APIException):
+    """The CI mint counters could not be charged. Retryable, so the CLI keeps a live token."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Wizard CI mint accounting is unavailable."
+
+
+class WizardCiDailyLimitReached(exceptions.Throttled):
+    """A repository's daily CI mints are spent. It clears at 00:00 UTC, not at the next hour."""
+
+
+def reserve_wizard_ci_mint(repository: str, *, per_hour: int, per_day: int) -> list[str]:
+    """Atomically consume one of this repository's hourly and daily CI mints, or raise.
 
     Keyed on the verified repository claim, because a CI run has no user to key on.
-    Returns the same refundable handle as reserve_wizard_mint.
+    Returns every counter charged, for refund_wizard_ci_mint.
     """
-    charged = _charge_mint_slot(f"wizard_ci_mint:{repository}", WIZARD_CI_MINT_WINDOW_SECONDS)
+    hour = _reserve_ci_window(
+        f"wizard_ci_mint:{repository}", WIZARD_CI_MINT_WINDOW_SECONDS, per_hour, exceptions.Throttled, "hourly"
+    )
+    try:
+        day = _reserve_ci_window(
+            f"wizard_ci_mint_day:{repository}", WIZARD_CI_MINT_DAY_SECONDS, per_day, WizardCiDailyLimitReached, "daily"
+        )
+    except exceptions.APIException:
+        # So the hour counts only mints that pass both.
+        refund_wizard_mint(hour)
+        raise
+    return [hour, day]
+
+
+def _reserve_ci_window(key: str, duration: int, limit: int, refusal: type[exceptions.Throttled], period: str) -> str:
+    charged = _charge_mint_slot(key, duration)
     if charged is None:
-        # Fails closed: a CI run carries no person and no posture, so this counter
+        # Fails closed: a CI run carries no person and no posture, so these counters
         # and the replay guard are the whole bound on one captured token.
-        raise exceptions.Throttled(detail="Wizard CI mint accounting is unavailable.")
+        raise WizardCiAccountingUnavailable()
     counter, count = charged
     if count > limit:
-        raise exceptions.Throttled(detail="This repository has used its hourly wizard CI mint limit.")
+        raise refusal(detail=f"This repository has used its {period} wizard CI mint limit.")
     return counter
 
 
@@ -1367,6 +1394,12 @@ def refund_wizard_mint(counter: str | None) -> None:
         # A lost refund costs the user a slot until the window rolls, and looks
         # identical to a moot one; the sibling reserve reports its errors the same way.
         capture_exception(e)
+
+
+def refund_wizard_ci_mint(counters: list[str]) -> None:
+    """Return every slot reserve_wizard_ci_mint charged, after a failure that issued no token."""
+    for counter in counters:
+        refund_wizard_mint(counter)
 
 
 class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):

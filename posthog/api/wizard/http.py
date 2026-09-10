@@ -64,6 +64,9 @@ from posthog.rate_limit import (
     SetupWizardCloudRunSustainedRateThrottle,
     SetupWizardGatewayTokenRateThrottle,
     SetupWizardQueryRateThrottle,
+    WizardCiAccountingUnavailable,
+    WizardCiDailyLimitReached,
+    refund_wizard_ci_mint,
     refund_wizard_mint,
     reserve_wizard_ci_mint,
     reserve_wizard_ci_verify,
@@ -109,7 +112,8 @@ WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "reports its own outcomes under a ci_ prefix, so it stays separable without a "
     "second label changing every existing query: ci_minted/ci_invalid_token/"
     "ci_verify_unavailable/ci_verify_throttled/ci_unconfigured/ci_program_unknown/"
-    "ci_team_missing/ci_not_rolled_out/ci_throttled/ci_token_replayed/ci_mint_failed.",
+    "ci_team_missing/ci_not_rolled_out/ci_throttled/ci_throttled_daily/"
+    "ci_accounting_unavailable/ci_token_replayed/ci_mint_failed.",
     labelnames=["outcome"],
 )
 
@@ -229,8 +233,9 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     if not settings.WIZARD_CI_TEAM_ID:
         refuse("ci_unconfigured", exceptions.PermissionDenied("Wizard CI minting is not configured."))
 
-    # A program missing from either has nowhere to bill.
-    if product is None or not isinstance(program, str) or program not in set(settings.WIZARD_CI_PROGRAM_IDS):
+    # A program missing from either has nowhere to bill. An identity's own list replaces the global one.
+    ci_programs = settings.WIZARD_CI_PROGRAM_IDS if claims.program_ids is None else claims.program_ids
+    if product is None or not isinstance(program, str) or program not in set(ci_programs):
         refuse("ci_program_unknown", exceptions.PermissionDenied("This wizard program cannot mint from CI."))
 
     team = Team.objects.select_related("organization").filter(id=settings.WIZARD_CI_TEAM_ID).first()
@@ -243,14 +248,27 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
         refuse("ci_not_rolled_out", exceptions.PermissionDenied("Wizard gateway tokens are switched off."))
 
     try:
-        reserved = reserve_wizard_ci_mint(claims.repository, settings.WIZARD_CI_MINTS_PER_HOUR)
+        reserved = reserve_wizard_ci_mint(
+            claims.repository,
+            per_hour=settings.WIZARD_CI_MINTS_PER_HOUR if claims.mints_per_hour is None else claims.mints_per_hour,
+            per_day=settings.WIZARD_CI_MINTS_PER_DAY if claims.mints_per_day is None else claims.mints_per_day,
+        )
+    except WizardCiAccountingUnavailable as e:
+        refuse("ci_accounting_unavailable", e)
+    except WizardCiDailyLimitReached as e:
+        refuse("ci_throttled_daily", e)
     except exceptions.Throttled as e:
         refuse("ci_throttled", e)
 
     # Spent at the mint so a refused mint can hand it back and let the run retry.
-    if not consume_token_id(claims):
-        # Or one captured token burns the hour and refuses the runs it came from.
-        refund_wizard_mint(reserved)
+    try:
+        first_use = consume_token_id(claims)
+    except WizardCiOidcUnavailable as e:
+        refund_wizard_ci_mint(reserved)
+        refuse("ci_accounting_unavailable", WizardCiAccountingUnavailable(str(e)))
+    if not first_use:
+        # Or one captured token spends the repository's mints and refuses the runs it came from.
+        refund_wizard_ci_mint(reserved)
         refuse("ci_token_replayed", AuthenticationFailed("This CI token has already been used."))
 
     try:
@@ -259,13 +277,13 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
             # No person owns this run, so the repository is what the spend reads as.
             user=f"wizard-ci:{claims.repository}",
             product=product,
-            cap_usd=wizard_ci_cap_usd(),
+            cap_usd=wizard_ci_cap_usd() if claims.cap_usd is None else claims.cap_usd,
             program=program,
             ttl_seconds=settings.WIZARD_CI_TTL_SECONDS,
         )
     except WizardGatewayMintError as e:
         if not e.token_may_exist:
-            refund_wizard_mint(reserved)
+            refund_wizard_ci_mint(reserved)
             release_token_id(claims)
         WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="ci_mint_failed").inc()
         capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
@@ -639,8 +657,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         The CLI uses the returned phe_ (pinned product=wizard / obo=<customer org>,
         capped, expiring) as its gateway bearer and re-calls near expiry. There is
-        no other gateway: every refusal ends the run, with the body's `detail`
-        shown to the user and its `code` naming the outcome.
+        no other gateway: a refusal ends the run, except that a throttled renewal keeps
+        its live token. The body's `detail` is shown to the user and its `code` names the outcome.
         """
         # Resolved above the first gate so every refusal names the program.
         body = request.data if isinstance(request.data, dict) else {}

@@ -1,4 +1,4 @@
-"""Verify the GitHub Actions OIDC token the wizard CI smoke test presents.
+"""Verify the GitHub Actions OIDC token a pinned wizard CI workflow presents.
 
 CI holds no standing credential: the signed claims are the identity check a
 user-bound mint gets from the blocklist and email verification.
@@ -6,6 +6,7 @@ user-bound mint gets from the blocklist and email verification.
 
 import time
 import threading
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
@@ -16,6 +17,7 @@ import requests
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.llm.wizard_gateway_token import WIZARD_GATEWAY_CONFIG_REJECTS, _parse_cap
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +35,10 @@ _JWKS_MIN_FETCH_INTERVAL_SECONDS = 60
 _JTI_CLOCK_SKEW_SECONDS = 60
 # A token valid for longer is refused: the replay marker has to outlive it.
 _MAX_TOKEN_LIFETIME_SECONDS = 3600
+# The claims one WIZARD_CI_IDENTITIES entry pins, in the order they are compared.
+_IDENTITY_FIELDS = ("repository", "repository_id", "workflow_path", "subject")
+# Optional per-entry overrides of the WIZARD_CI_* settings of the same name.
+_IDENTITY_KEYS = frozenset((*_IDENTITY_FIELDS, "mints_per_hour", "mints_per_day", "program_ids", "cap_usd"))
 
 
 class WizardCiOidcError(Exception):
@@ -40,7 +46,7 @@ class WizardCiOidcError(Exception):
 
 
 class WizardCiOidcUnavailable(WizardCiOidcError):
-    """No signing key was available to decide. Retryable, unlike a refusal."""
+    """A dependency needed to decide was unavailable. Retryable, unlike a refusal."""
 
 
 @frozen
@@ -54,6 +60,19 @@ class GitHubOidcClaims:
     run_id: str
     token_id: str
     expires_at: int
+    # From the matched entry; None means the global setting applies.
+    mints_per_hour: int | None = None
+    mints_per_day: int | None = None
+    program_ids: tuple[str, ...] | None = None
+    cap_usd: Decimal | None = None
+
+
+@frozen
+class _IdentityLimits:
+    mints_per_hour: int | None
+    mints_per_day: int | None
+    program_ids: tuple[str, ...] | None
+    cap_usd: Decimal | None
 
 
 _key_set: jwt.PyJWKSet | None = None
@@ -138,9 +157,8 @@ def _jti_key(token_id: str) -> str:
 def consume_token_id(claims: GitHubOidcClaims) -> bool:
     """Whether this token is being presented for the first time.
 
-    False when the cache is unreachable. The hourly mint limit lives in the same
-    cache, so failing open here would leave a captured token bounded by nothing
-    at all; a CI run that fails while Redis is down is the cheaper outcome.
+    Raises WizardCiOidcUnavailable when the cache is unreachable: failing open would leave a
+    captured token unbounded, and a refusal would end a run that still holds a live token.
     """
     remaining = min(claims.expires_at - int(time.time()), _MAX_TOKEN_LIFETIME_SECONDS)
     ttl = max(1, remaining + _JTI_CLOCK_SKEW_SECONDS)
@@ -148,7 +166,7 @@ def consume_token_id(claims: GitHubOidcClaims) -> bool:
         return bool(cache.add(_jti_key(claims.token_id), "1", ttl))
     except Exception as e:
         logger.warning("wizard_ci_oidc: replay cache unavailable", error=str(e))
-        return False
+        raise WizardCiOidcUnavailable("the CI token replay check is unavailable right now")
 
 
 def release_token_id(claims: GitHubOidcClaims) -> None:
@@ -159,16 +177,75 @@ def release_token_id(claims: GitHubOidcClaims) -> None:
         logger.warning("wizard_ci_oidc: replay cache unavailable", error=str(e))
 
 
+def _is_count(value: object) -> bool:
+    return value is None or (isinstance(value, int) and not isinstance(value, bool) and value >= 1)
+
+
+def _identity_limits(entry: dict) -> _IdentityLimits | None:
+    """An entry's optional limits, or None when one is present but malformed."""
+    per_hour, per_day = entry.get("mints_per_hour"), entry.get("mints_per_day")
+    if not _is_count(per_hour) or not _is_count(per_day):
+        return None
+    programs = entry.get("program_ids")
+    if programs is not None and (
+        not isinstance(programs, list) or not programs or not all(isinstance(p, str) and p for p in programs)
+    ):
+        return None
+    raw_cap = entry.get("cap_usd")
+    cap = None if raw_cap is None else _parse_cap(raw_cap)
+    if raw_cap is not None and cap is None:
+        return None
+    return _IdentityLimits(
+        mints_per_hour=per_hour,
+        mints_per_day=per_day,
+        program_ids=None if programs is None else tuple(programs),
+        cap_usd=cap,
+    )
+
+
+def _parse_identities(entries: object) -> dict[tuple[str, ...], _IdentityLimits] | None:
+    """Each entry's identity tuple with its limits, or None when any entry is malformed."""
+    if not isinstance(entries, list):
+        return None
+    pinned: dict[tuple[str, ...], _IdentityLimits] = {}
+    # Mints are counted per repository, so every entry for one must set the same counts.
+    counts: dict[str, tuple[int | None, int | None]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not set(entry) <= _IDENTITY_KEYS:
+            return None
+        identity: tuple[Any, ...] = tuple(entry.get(field) for field in _IDENTITY_FIELDS)
+        # Before the lookups below, which cannot hash a list or dict value.
+        if not all(isinstance(value, str) and value for value in identity):
+            return None
+        limits = _identity_limits(entry)
+        if limits is None or identity in pinned:
+            return None
+        entry_counts = (limits.mints_per_hour, limits.mints_per_day)
+        if counts.setdefault(identity[0], entry_counts) != entry_counts:
+            return None
+        pinned[identity] = limits
+    return pinned
+
+
+def _pinned_identities() -> dict[tuple[str, ...], _IdentityLimits]:
+    """The workflows allowed to mint, with their limits.
+
+    A malformed list configures none, so a typo cannot leave a partial list in force.
+    Counted, because CI then fails like any other refusal.
+    """
+    invalid = getattr(settings, "WIZARD_CI_IDENTITIES_INVALID", False)
+    if settings.WIZARD_CI_IDENTITIES == [] and not invalid:
+        return {}
+    pinned = None if invalid else _parse_identities(settings.WIZARD_CI_IDENTITIES)
+    if pinned is None:
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="ci_identities").inc()
+        return {}
+    return pinned
+
+
 def wizard_ci_oidc_configured() -> bool:
     """Every pin must be set: a missing one would widen the check it stands for."""
-    return bool(
-        settings.WIZARD_CI_OIDC_AUDIENCE
-        and settings.WIZARD_CI_REPOSITORY
-        and settings.WIZARD_CI_REPOSITORY_ID
-        and settings.WIZARD_CI_REPOSITORY_OWNER_ID
-        and settings.WIZARD_CI_WORKFLOW_PATH
-        and settings.WIZARD_CI_SUBJECT
-    )
+    return bool(settings.WIZARD_CI_OIDC_AUDIENCE and settings.WIZARD_CI_REPOSITORY_OWNER_ID and _pinned_identities())
 
 
 def looks_like_jwt(token: str) -> bool:
@@ -228,27 +305,21 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     if owner_id != str(settings.WIZARD_CI_REPOSITORY_OWNER_ID):
         raise WizardCiOidcError("token was issued to another repository owner")
 
-    repository = str(claims.get("repository") or "")
-    if repository != settings.WIZARD_CI_REPOSITORY:
-        raise WizardCiOidcError("token was issued to another repository")
-
     expires_at = int(claims["exp"])
     if expires_at - int(time.time()) > _MAX_TOKEN_LIFETIME_SECONDS:
         raise WizardCiOidcError("token is valid for longer than this path accepts")
 
-    # A rename frees both names for anyone to claim. The numeric ids never move.
+    repository = str(claims.get("repository") or "")
     repository_id = str(claims.get("repository_id") or "")
-    if repository_id != str(settings.WIZARD_CI_REPOSITORY_ID):
-        raise WizardCiOidcError("token was issued to another repository")
-
-    # Compared whole: `refs/heads/main` is a prefix of `refs/heads/main-x`.
     subject = str(claims.get("sub") or "")
-    if subject != settings.WIZARD_CI_SUBJECT:
-        raise WizardCiOidcError("token was issued to another workflow")
-
-    # workflow_ref is "<path>@<ref>"; a prefix match there accepts every ref.
     workflow_ref = str(claims.get("workflow_ref") or "")
-    if workflow_ref.split("@", 1)[0] != settings.WIZARD_CI_WORKFLOW_PATH:
+    # Whole values, all from one entry: a rename frees a name but never an id, and
+    # `refs/heads/main` is a prefix of `refs/heads/main-x`. A file name may hold "@", so
+    # the path ends at the last one; a pinned ref holding one only fails closed.
+    presented = (repository, repository_id, workflow_ref.rsplit("@", 1)[0], subject)
+    limits = _pinned_identities().get(presented)
+    if limits is None:
+        logger.warning("wizard_ci_oidc: no pinned workflow matches", repository=repository, workflow_ref=workflow_ref)
         raise WizardCiOidcError("token was issued to another workflow")
 
     return GitHubOidcClaims(
@@ -259,4 +330,8 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
         run_id=str(claims.get("run_id") or ""),
         token_id=str(claims["jti"]),
         expires_at=expires_at,
+        mints_per_hour=limits.mints_per_hour,
+        mints_per_day=limits.mints_per_day,
+        program_ids=limits.program_ids,
+        cap_usd=limits.cap_usd,
     )

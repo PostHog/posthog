@@ -1,11 +1,14 @@
+import os
 import hmac
 import json
 import time
 import uuid
 import base64
 import hashlib
+import importlib
 import threading
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from unittest.mock import patch
@@ -28,6 +31,7 @@ from posthog.api.wizard.ci_oidc import (
     verify_github_oidc,
     wizard_ci_oidc_configured,
 )
+from posthog.llm.wizard_gateway_token import WIZARD_GATEWAY_CONFIG_REJECTS
 
 # One key for the module: generation dominates these tests.
 _PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -41,13 +45,24 @@ WORKFLOW_PATH = "PostHog/wizard/.github/workflows/smoke-test.yml"
 SUBJECT = "repo:PostHog/wizard:ref:refs/heads/main"
 KID = "github-signing-key-1"
 
+IDENTITY = {
+    "repository": REPOSITORY,
+    "repository_id": REPOSITORY_ID,
+    "workflow_path": WORKFLOW_PATH,
+    "subject": SUBJECT,
+}
+# A second pinned workflow, so matching runs against a list rather than one entry.
+WORKBENCH = {
+    "repository": "PostHog/wizard-workbench",
+    "repository_id": "1107199518",
+    "workflow_path": "PostHog/wizard-workbench/.github/workflows/wizard-ci.yml",
+    "subject": "repo:PostHog/wizard-workbench:ref:refs/heads/main",
+}
+
 CI_SETTINGS = {
     "WIZARD_CI_OIDC_AUDIENCE": AUDIENCE,
-    "WIZARD_CI_REPOSITORY": REPOSITORY,
-    "WIZARD_CI_REPOSITORY_ID": REPOSITORY_ID,
     "WIZARD_CI_REPOSITORY_OWNER_ID": OWNER_ID,
-    "WIZARD_CI_WORKFLOW_PATH": WORKFLOW_PATH,
-    "WIZARD_CI_SUBJECT": SUBJECT,
+    "WIZARD_CI_IDENTITIES": [IDENTITY, WORKBENCH],
 }
 
 
@@ -82,6 +97,15 @@ def token(kid: str = KID, **overrides) -> str:
     for key in [k for k, v in claims.items() if v is None]:
         del claims[key]
     return jwt.encode(claims, _PRIVATE_KEY, algorithm="RS256", headers={"kid": kid})
+
+
+def _claims_for(identity: dict) -> dict:
+    return {
+        "repository": identity["repository"],
+        "repository_id": identity["repository_id"],
+        "workflow_ref": f"{identity['workflow_path']}@refs/heads/main",
+        "sub": identity["subject"],
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -162,6 +186,28 @@ class TestVerifyGitHubOidc:
     def test_a_workflow_path_that_extends_the_pinned_one_is_refused(self):
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(token(workflow_ref=f"{WORKFLOW_PATH}.bak@refs/heads/main"))
+
+    def test_another_pinned_workflow_verifies(self):
+        assert verify_github_oidc(token(**_claims_for(WORKBENCH))).repository == WORKBENCH["repository"]
+
+    @pytest.mark.parametrize("field", ["repository", "repository_id", "workflow_path", "subject"])
+    def test_one_claim_taken_from_another_pinned_workflow_is_refused(self, field):
+        # Every claim matches some entry, but not the same one.
+        with pytest.raises(WizardCiOidcError):
+            verify_github_oidc(token(**_claims_for({**WORKBENCH, field: IDENTITY[field]})))
+
+    def test_a_workflow_file_named_after_the_pinned_one_plus_an_at_is_refused(self):
+        with pytest.raises(WizardCiOidcError):
+            verify_github_oidc(token(workflow_ref=f"{WORKFLOW_PATH}@x.yml@refs/heads/main"))
+
+    def test_an_entry_carries_its_limits_into_the_claims(self):
+        limits = {"mints_per_hour": 5, "mints_per_day": 9, "program_ids": ["warehouse-source"], "cap_usd": "20"}
+        with override_settings(WIZARD_CI_IDENTITIES=[IDENTITY, {**WORKBENCH, **limits}]):
+            workbench = verify_github_oidc(token(**_claims_for(WORKBENCH)))
+            wizard = verify_github_oidc(token())
+        carried = (workbench.mints_per_hour, workbench.mints_per_day, workbench.program_ids, workbench.cap_usd)
+        assert carried == (5, 9, ("warehouse-source",), Decimal("20"))
+        assert (wizard.mints_per_hour, wizard.mints_per_day, wizard.program_ids, wizard.cap_usd) == (None,) * 4
 
     def test_a_token_for_another_issuer_costs_no_fetch(self, _fetch):
         with pytest.raises(WizardCiOidcError):
@@ -297,12 +343,11 @@ class TestVerifyGitHubOidc:
         assert held >= claims.expires_at - int(time.time())
         assert held <= 3600 + 60
 
-    def test_an_unreachable_cache_refuses_the_single_use(self):
-        # The hourly mint limit lives in this same cache, so failing open here
-        # would leave a captured token bounded by nothing.
+    def test_an_unreachable_cache_is_unavailable_rather_than_a_replay(self):
         claims = verify_github_oidc(token())
         with patch("posthog.api.wizard.ci_oidc.cache.add", side_effect=Exception("redis down")):
-            assert not consume_token_id(claims)
+            with pytest.raises(WizardCiOidcUnavailable):
+                consume_token_id(claims)
 
     def test_another_repository_id_is_refused(self):
         with pytest.raises(WizardCiOidcError):
@@ -417,12 +462,112 @@ class TestConfiguration:
     def test_every_pin_set_is_configured(self):
         assert wizard_ci_oidc_configured()
 
-    @pytest.mark.parametrize("missing", list(CI_SETTINGS))
+    @pytest.mark.parametrize(
+        "missing",
+        [{"WIZARD_CI_OIDC_AUDIENCE": ""}, {"WIZARD_CI_REPOSITORY_OWNER_ID": ""}, {"WIZARD_CI_IDENTITIES": []}],
+    )
     def test_one_missing_pin_refuses(self, missing):
-        with override_settings(**{**CI_SETTINGS, missing: ""}):
+        with override_settings(**{**CI_SETTINGS, **missing}):
             assert not wizard_ci_oidc_configured()
             with pytest.raises(WizardCiOidcError):
                 verify_github_oidc(token())
+
+    @pytest.mark.parametrize("field", ["repository", "repository_id", "workflow_path", "subject"])
+    @pytest.mark.parametrize("value", ["", None, 938775588, ["refs/heads/main"], {"id": 1}])
+    def test_an_incomplete_entry_refuses_every_workflow(self, field, value):
+        # The token matches the complete entry and is still refused.
+        broken = {**WORKBENCH, field: value}
+        if value is None:
+            del broken[field]
+        with override_settings(**{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": [IDENTITY, broken]}):
+            assert not wizard_ci_oidc_configured()
+            with pytest.raises(WizardCiOidcError):
+                verify_github_oidc(token())
+
+    @pytest.mark.parametrize("identities", [None, 0, True, "[]", IDENTITY, [[REPOSITORY]], [None], [5]])
+    def test_a_malformed_list_refuses(self, identities):
+        with override_settings(**{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": identities}):
+            assert not wizard_ci_oidc_configured()
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            {"mints_per_hour": 0},
+            {"mints_per_hour": "5"},
+            {"mints_per_hour": True},
+            {"program_ids": []},
+            {"program_ids": "posthog-integration"},
+            {"program_ids": [""]},
+            {"program_ids": [5]},
+            {"mints_per_day": 0},
+            {"mints_per_day": "5"},
+            {"mints_per_day": True},
+            {"cap_usd": "0"},
+            {"cap_usd": "30.01"},
+            {"cap_usd": True},
+            {"cap_usd": ["20"]},
+            {"mint_per_hour": 5},
+        ],
+    )
+    def test_a_malformed_limit_or_unknown_key_refuses_every_workflow(self, extra):
+        with override_settings(**{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": [IDENTITY, {**WORKBENCH, **extra}]}):
+            assert not wizard_ci_oidc_configured()
+            with pytest.raises(WizardCiOidcError):
+                verify_github_oidc(token())
+
+    @pytest.mark.parametrize("count", ["mints_per_hour", "mints_per_day"])
+    def test_entries_for_one_repository_must_agree_on_their_counts(self, count):
+        # Another workflow file too, so only the repository is shared.
+        release = {
+            **IDENTITY,
+            "workflow_path": "PostHog/wizard/.github/workflows/release.yml",
+            "subject": "repo:PostHog/wizard:ref:refs/heads/release",
+        }
+        with override_settings(**{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": [IDENTITY, {**release, count: 5}]}):
+            assert not wizard_ci_oidc_configured()
+        with override_settings(
+            **{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": [{**IDENTITY, count: 5}, {**release, count: 5}]}
+        ):
+            assert wizard_ci_oidc_configured()
+
+    def test_a_duplicate_entry_refuses_every_workflow(self):
+        with override_settings(**{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": [IDENTITY, WORKBENCH, dict(IDENTITY)]}):
+            assert not wizard_ci_oidc_configured()
+
+    def test_a_malformed_list_is_counted_and_an_empty_one_is_not(self):
+        rejects = WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="ci_identities")
+        before = rejects._value.get()
+        with override_settings(**{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": [{**IDENTITY, "subject": ""}]}):
+            wizard_ci_oidc_configured()
+        with override_settings(**{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": []}):
+            wizard_ci_oidc_configured()
+        assert rejects._value.get() == before + 1
+
+    def test_an_identity_list_that_is_not_json_configures_none(self):
+        web_settings = importlib.import_module("posthog.settings.web")
+        try:
+            with patch.dict(os.environ, {"WIZARD_CI_IDENTITIES": "not json"}):
+                importlib.reload(web_settings)
+                assert (web_settings.WIZARD_CI_IDENTITIES, web_settings.WIZARD_CI_IDENTITIES_INVALID) == ([], True)
+        finally:
+            importlib.reload(web_settings)
+        rejects = WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="ci_identities")
+        before = rejects._value.get()
+        with override_settings(**{**CI_SETTINGS, "WIZARD_CI_IDENTITIES": [], "WIZARD_CI_IDENTITIES_INVALID": True}):
+            assert not wizard_ci_oidc_configured()
+        assert rejects._value.get() == before + 1
+
+    def test_the_ci_mint_limits_default_when_unset(self):
+        web_settings = importlib.import_module("posthog.settings.web")
+        unset = {
+            k: v for k, v in os.environ.items() if k not in ("WIZARD_CI_MINTS_PER_HOUR", "WIZARD_CI_MINTS_PER_DAY")
+        }
+        try:
+            with patch.dict(os.environ, unset, clear=True):
+                importlib.reload(web_settings)
+                assert (web_settings.WIZARD_CI_MINTS_PER_HOUR, web_settings.WIZARD_CI_MINTS_PER_DAY) == (20, 100)
+        finally:
+            importlib.reload(web_settings)
 
 
 class TestLooksLikeJwt:
