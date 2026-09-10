@@ -86,8 +86,8 @@ describe('calibrationActivationLogic', () => {
     })
 
     it('fetches the count once when the flag is already resolved at mount', async () => {
-        // `subscriptions` fires at mount when the flag is in hand, and `afterMount` fires too, so the
-        // guard has to hold synchronously. Without it the count is fetched twice on every page view.
+        // `subscriptions` fires at mount when the flag is already in hand, so this pins that the one
+        // mount costs one request rather than none.
         setFlag('badge')
         logic = calibrationActivationLogic({ scannerId: 'sid' })
         logic.mount()
