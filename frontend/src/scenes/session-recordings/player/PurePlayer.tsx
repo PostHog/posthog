@@ -95,6 +95,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
         hasLateFullSnapshot,
         leadingUnplayableMs,
+        hasUnrenderableWindow,
+        unrenderableWindowMs,
         hasOversizedMutations,
     } = useValues(sessionRecordingPlayerLogic)
 
@@ -168,6 +170,20 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [hasLateFullSnapshot]
+    )
+
+    useEffect(
+        () => {
+            if (hasUnrenderableWindow) {
+                posthog.capture('session loaded with unrenderable window', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionPlayerData?.start,
+                    unrenderableWindowMs,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [hasUnrenderableWindow]
     )
 
     // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
@@ -357,7 +373,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                         ) : (
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
-                                    {hasLateFullSnapshot && !hidePlayerElements ? (
+                                    {(hasLateFullSnapshot || hasUnrenderableWindow) && !hidePlayerElements ? (
                                         <LemonBanner
                                             type="warning"
                                             // The player column over-commits its height, so a flexible banner gets
@@ -365,10 +381,26 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             className="shrink-0"
                                             dismissKey={`late-full-snapshot-${sessionRecordingId}`}
                                         >
-                                            The first{' '}
-                                            {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} of this
-                                            recording can't be played. The first screen snapshot arrived late, so
-                                            playback starts at the first frame we can render.{' '}
+                                            {hasLateFullSnapshot ? (
+                                                <>
+                                                    The first{' '}
+                                                    {humanFriendlyDuration(leadingUnplayableMs / 1000, {
+                                                        maxUnits: 2,
+                                                    })}{' '}
+                                                    of this recording can't be played. The first screen snapshot arrived
+                                                    late, so playback starts at the first frame we can render.{' '}
+                                                </>
+                                            ) : null}
+                                            {hasUnrenderableWindow ? (
+                                                <>
+                                                    {humanFriendlyDuration(unrenderableWindowMs / 1000, {
+                                                        maxUnits: 2,
+                                                    })}{' '}
+                                                    of this recording can't be played. Another browser window opened
+                                                    without sending a screen snapshot, so the player stays blank while
+                                                    that window is on screen.{' '}
+                                                </>
+                                            ) : null}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>
