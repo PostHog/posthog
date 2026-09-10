@@ -1,4 +1,4 @@
-from random import randrange
+import zlib
 from typing import Any
 
 from django.conf import settings
@@ -185,6 +185,33 @@ def estimate_crontab_interval_seconds(schedule: crontab) -> int:
 
     # Weekly or more complex - default to daily for safety
     return 86400
+
+
+def instance_spread_minute(key: str, window_minutes: int) -> str:
+    """Pick a minute inside the window that holds still for this installation.
+
+    Beat rebuilds its schedule every time a beat process starts, and the new
+    schedule has no record of what already ran. A minute that comes from a random
+    draw therefore changes on every restart: a restart inside the scheduled hour
+    runs the task a second time that day, and a restart that draws an earlier
+    minute skips the day. This is why no periodic schedule in this file draws its
+    time at random, and why the beat-schedule-must-not-be-random semgrep rule
+    blocks it.
+
+    Use this helper only where separate installations must not share a minute,
+    such as a task that calls an endpoint PostHog hosts. A minute derived from
+    SITE_URL holds still across restarts and still differs between
+    installations. Installations that leave SITE_URL at its default share a
+    minute with each other. SECRET_KEY would serve as well but is deliberately
+    not used: `.agents/security.md` keeps new code off it, and this value ends
+    up observable in the schedule.
+
+    Every other task takes a fixed minute written at the call site, because a
+    reader can then tell when it runs. Pick an odd minute that is not a multiple
+    of 5 and that no other task in the same hour holds, which keeps it off both
+    the */2 and */5 entries and off its neighbours.
+    """
+    return str(zlib.crc32(f"{settings.SITE_URL}:{key}".encode()) % window_minutes)
 
 
 def add_periodic_task_with_expiry(
@@ -838,11 +865,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     if settings.EE_AVAILABLE:
         sender.add_periodic_task(
-            crontab(hour="0", minute=str(randrange(0, 40))),
+            # The minute differs between installations so that they do not all call
+            # license.posthog.com in the same minute past midnight.
+            crontab(hour="0", minute=instance_spread_minute("send license usage", 40)),
             clickhouse_send_license_usage.s(),
-        )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
+        )
         sender.add_periodic_task(
-            crontab(hour="4", minute=str(randrange(0, 40))),
+            crontab(hour="4", minute=instance_spread_minute("send license usage retry", 40)),
             clickhouse_send_license_usage.s(),
         )  # again a few hours later just to make sure
 
@@ -862,8 +891,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
         sender.add_periodic_task(
-            # once a day a random minute after midnight
-            crontab(hour="0", minute=str(randrange(0, 40))),
+            crontab(hour="0", minute="7"),
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
         )
@@ -871,7 +899,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         # Hourly rather than daily: until this runs, a dead video export still reads as in progress
         # to whoever is waiting on it.
         sender.add_periodic_task(
-            crontab(minute=str(randrange(0, 60))),
+            crontab(minute="33"),
             fail_stuck_video_exports.s(),
             name="fail stuck video exports",
         )
@@ -880,7 +908,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         # the delegator's onboarding, so a missed sweep strands delegators on the "waiting
         # for teammate" screen forever.
         sender.add_periodic_task(
-            crontab(hour="1", minute=str(randrange(0, 40))),
+            crontab(hour="1", minute="9"),
             delete_expired_delegation_invites.s(),
             name="delete expired delegation invites",
         )
@@ -903,7 +931,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="0", minute=str(randrange(0, 40))),
+        crontab(hour="0", minute="13"),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
     )
@@ -915,14 +943,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="0", minute=str(randrange(0, 40))),
+        crontab(hour="0", minute="19"),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
     )
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="1", minute=str(randrange(0, 40))),
+        crontab(hour="1", minute="27"),
         cleanup_canvas_builds.s(),
         name="apply canvas build artifact retention",
     )
@@ -1023,7 +1051,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="2", minute=str(randrange(0, 40))),
+        crontab(hour="2", minute="23"),
         sweep_visual_review_retention.s(),
         name="sweep visual review retention",
     )

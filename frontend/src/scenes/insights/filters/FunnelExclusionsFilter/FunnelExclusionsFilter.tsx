@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -11,6 +10,8 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { ActionsNode, EventsNode } from '~/queries/schema/schema-general'
 import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
+
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { ExclusionRow } from './ExclusionRow'
 import { ExclusionRowSuffix } from './ExclusionRowSuffix'
