@@ -8,21 +8,27 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     MAX_CURSOR_BYTES,
+    MAX_LOGGED_RUN_ID_CHARS,
+    MAX_LOGGED_RUN_IDS,
     LangSmithHostNotAllowedError,
     LangSmithPageLimitError,
+    LangSmithPaginationTooLargeError,
     LangSmithRepeatedCursorError,
     LangSmithResponseTooLargeError,
     LangSmithResumeConfig,
     LangSmithRunsPageTooLargeError,
+    _bounded_run_ids,
     _fetch_page,
     _read_capped_body,
     _resolve_window_start,
+    _runs_select_fields,
     get_rows,
     normalize_base_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.settings import (
     LANGSMITH_ENDPOINTS,
+    RUNS_HEAVY_SELECT_FIELDS,
     RUNS_SELECT_FIELDS,
 )
 
@@ -269,17 +275,78 @@ class TestRunsPageShrinking:
         assert [r["id"] for r in rows] == ["a"]
         assert limits == [100, 50, 25]  # halved on the same cursorless first page until it fits
 
-    def test_single_run_page_still_oversized_raises(self):
-        # If even a one-run page exceeds the cap, halving can't help; fail with the non-retryable
-        # error instead of re-hitting the same wall until the activity timeout.
+    def test_single_oversized_run_is_imported_without_its_heavy_fields(self):
         manager = FakeManager()
+        selects: list[list[str]] = []
 
         def fake_fetch(session, url, headers, log, json_body=None):
+            selects.append(json_body["select"])
+            if any(name in json_body["select"] for name in RUNS_HEAVY_SELECT_FIELDS):
+                raise LangSmithResponseTooLargeError("oversized")
+            return {"runs": [_run("huge")], "cursors": {"next": None}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert [r["id"] for r in rows] == ["huge"]
+        assert selects[-1] == [name for name in RUNS_SELECT_FIELDS if name not in RUNS_HEAVY_SELECT_FIELDS]
+
+    def test_logged_run_ids_are_bounded_in_count_and_length(self):
+        # The host chooses how many runs a page holds and how long each id is, so the warning that
+        # names them must not grow with the response.
+        runs = [{"id": "x" * 1_000} for _ in range(100)]
+
+        ids = _bounded_run_ids(runs)
+
+        assert len(ids) == MAX_LOGGED_RUN_IDS
+        assert all(len(run_id) == MAX_LOGGED_RUN_ID_CHARS for run_id in ids)
+
+    def test_single_run_page_oversized_without_heavy_fields_raises(self):
+        manager = FakeManager()
+        attempts = 0
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            nonlocal attempts
+            attempts += 1
             raise LangSmithResponseTooLargeError("oversized")
 
         with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
             with pytest.raises(LangSmithRunsPageTooLargeError):
                 _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        # 100 -> 50 -> 25 -> 12 -> 6 -> 3 -> 1, then one narrowed attempt.
+        assert attempts == 8
+
+
+class TestRunsColumnSelection:
+    @pytest.mark.parametrize(
+        "enabled_columns,expected",
+        [
+            (None, RUNS_SELECT_FIELDS),
+            # An empty selection means what it means downstream: the required columns only, never
+            # everything. Otherwise deselecting every column still downloads inputs and outputs.
+            ([], ["id", "start_time"]),
+            # The primary key and the partition key ride along whatever the user picked.
+            (["outputs"], ["id", "start_time", "outputs"]),
+            (["id", "name"], ["id", "name", "start_time"]),
+            (["not_a_run_field"], ["id", "start_time"]),
+        ],
+    )
+    def test_select_keeps_the_columns_the_load_needs(self, enabled_columns, expected):
+        assert _runs_select_fields(LANGSMITH_ENDPOINTS["runs"], enabled_columns) == expected
+
+    def test_enabled_columns_narrow_the_request_body(self):
+        manager = FakeManager()
+        bodies: list[dict[str, Any]] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            bodies.append(json_body)
+            return {"runs": [_run("a")], "cursors": {"next": None}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1, enabled_columns=["name"]))  # type: ignore[arg-type]
+
+        assert bodies[0]["select"] == ["id", "name", "start_time"]
 
 
 class TestOffsetPagination:
@@ -422,7 +489,7 @@ class TestPaginationAbuseGuards:
         page_size = LANGSMITH_ENDPOINTS["projects"].page_size
 
         with mock.patch(_FETCH_PAGE, return_value=[{"id": huge_id} for _ in range(page_size)]):
-            with pytest.raises(LangSmithResponseTooLargeError):
+            with pytest.raises(LangSmithPaginationTooLargeError):
                 _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
     def test_repeated_runs_cursor_raises(self):
@@ -447,7 +514,7 @@ class TestPaginationAbuseGuards:
             return {"runs": [_run("a")], "cursors": {"next": big_cursor}}
 
         with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
-            with pytest.raises(LangSmithResponseTooLargeError):
+            with pytest.raises(LangSmithPaginationTooLargeError):
                 _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
     def test_runs_page_limit_checkpoints_and_raises(self):
