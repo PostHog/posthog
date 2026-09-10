@@ -51,6 +51,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
+from products.canvas.backend.models import Canvas
 from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -466,7 +467,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills"})
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"})
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -1398,6 +1399,7 @@ def create_and_run_task(
     start_workflow: bool = True,
     branch: str | None = None,
     signal_report_id: str | None = None,
+    free_trial_enabled: bool | None = None,
     internal: bool = False,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
@@ -1412,6 +1414,10 @@ def create_and_run_task(
     ``channel_id`` files the task into a channel's feed; left NULL for non-channel surfaces.
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
+
+    ``free_trial_enabled`` is a free-trial verdict the caller already resolved. Auto-start reads
+    that flag before it takes the report row lock, so handing the result over keeps the flag
+    request out of the lock. Left NULL, the gate reads the flag itself.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1420,6 +1426,9 @@ def create_and_run_task(
         # auto-start pipeline, whose over-quota hits must not pollute the manual-path
         # dark-launch bucket.
         enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+        enforce_self_driving_free_trial(
+            team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
+        )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
         channel = _ensure_personal_channel(team.id, user_id)[0]
@@ -2291,6 +2300,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        # The OpenAI queue the run's Codex turns join; `priority` costs more than standard.
+        "service_tier",
         "claude_model_access",
         "claude_subscription_user_id",
         "rtk_effective",
@@ -2644,6 +2655,32 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
 
+def enforce_self_driving_free_trial(
+    team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
+) -> None:
+    """Refuse to create or start a PR-opening self-driving task while the team's org is on a
+    Self-driving free trial: a trial org gets reports, not pull requests, on any path (the
+    auto-start gate in products/signals/backend/auto_start.py holds the pipeline back the same
+    way). Emits `signal_report_free_trial_paused` at ``stage``. Raises
+    ``FreeTrialPullRequestRefused`` (402, code ``self_driving_free_trial``) so clients can show
+    the trial message.
+
+    ``enabled`` takes a verdict the caller already resolved, and then the gate reads no flag of
+    its own. A caller that holds a database lock resolves the flag before it takes the lock,
+    because the read does network I/O.
+    """
+    from products.signals.backend.free_trial import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        FreeTrialPullRequestRefused,
+        capture_signal_report_free_trial_paused,
+        self_driving_free_trial_enabled,
+    )
+
+    if not (self_driving_free_trial_enabled(team) if enabled is None else enabled):
+        return
+    capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
+    raise FreeTrialPullRequestRefused()
+
+
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
     """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
     credits quota with enforcement on. The implementation task is the step that leads to the
@@ -2706,6 +2743,14 @@ def update_task_run(
         # A human-driven status write on an analysis run is a way to buy another funded analysis:
         # marking it failed or cancelled frees the per-run idempotency slot. The workflow and the
         # run's own agent write status through paths that do not pass through here.
+        validated_data.pop("status")
+    if (
+        "status" in validated_data
+        and not caller_is_agent
+        and run.task.origin_product == Task.OriginProduct.WORKFLOW
+        and validated_data["status"] != TaskRun.Status.CANCELLED
+    ):
+        # A finished status wakes the workflow step with this run's output, so only the agent may set it.
         validated_data.pop("status")
 
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
@@ -6095,6 +6140,10 @@ def create_task(
     )
     if signal_report_id:
         enforce_self_driving_pr_quota(team, report_id=signal_report_id)
+        # Only Create PR is held back on a trial. Discuss keeps working, and a Discuss run can still
+        # open a PR that billing never counts. That is an accepted risk of a sales trial.
+        if signal_report_task_relationship in (None, "implementation"):
+            enforce_self_driving_free_trial(team, report_id=signal_report_id)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -6133,6 +6182,15 @@ def create_task(
             task_id=str(task.id),
             origin_product=task.origin_product,
             space_repositories=channel.repositories,
+        )
+
+    if signal_report_id and signal_report_task_relationship in (None, "implementation") and task.repository:
+        from products.signals.backend.tracker_issues import create_tracker_issue_for_report
+
+        create_tracker_issue_for_report(
+            team_id=team_id,
+            report_id=signal_report_id,
+            repository=task.repository,
         )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
@@ -7187,10 +7245,12 @@ def run_task(
 
     Returns ``None`` if the task isn't found/visible (the view raises 404). Otherwise a
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
-    gate (429) is applied by the view before calling this.
+    gate (429) is applied by the view before calling this. A report implementation raises
+    ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
     """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
+        is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
         get_task_run_artifacts_by_id,
@@ -7214,6 +7274,17 @@ def run_task(
         else None
     )
     if report_id_for_slot_check is not None:
+        # Free trial gate: the create-time gate refuses a new implementation, but a task created
+        # before sales turned the flag on can still be started or retried from here, and its pull
+        # request bills the trial org. Only the implementation relationship opens one, so a
+        # discussion keeps running. Outside the transaction below, because the flag read does
+        # network I/O and must not hold the report row lock.
+        if is_report_implementation_task(team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)):
+            enforce_self_driving_free_trial(
+                Team.objects.select_related("organization").get(id=team_id),
+                report_id=report_id_for_slot_check,
+                stage="task_run",
+            )
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
         # its runs all failed, so another implementation may hold it by now. Refusing here also
         # avoids the sandbox and repository lookups a doomed run would otherwise do first. The
@@ -8371,7 +8442,7 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
             return "general"
         if (
             channel.tasks.filter(deleted=False, archived=False).exists()
-            or channel.canvases.filter(deleted=False).exists()
+            or Canvas.objects.filter(channel=channel, deleted=False).exists()
         ):
             return "not_empty"
 

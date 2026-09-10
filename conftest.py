@@ -1,5 +1,6 @@
 import gc
 import warnings
+import importlib
 
 import pytest
 
@@ -229,6 +230,15 @@ def _cheapen_freezegun_module_hash() -> None:
     api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
 
 
+def _warm_urlconf() -> None:
+    # The URLconf builds the API router lazily on the first request. Under freeze_time that
+    # build fails for any pydantic model whose base was imported before the freeze: the
+    # inherited datetime annotation no longer matches the rebound datetime.datetime.
+    from django.conf import settings  # noqa: PLC0415 — deferred until collection finishes
+
+    importlib.import_module(settings.ROOT_URLCONF)
+
+
 def pytest_configure(config) -> None:
     _cache_reverse_rel_identity()
     _cache_select_masks()
@@ -238,7 +248,9 @@ def pytest_configure(config) -> None:
     _cheapen_freezegun_module_hash()
 
 
-def pytest_collection_finish() -> None:
+def pytest_collection_finish(session) -> None:
+    if session.items and not session.config.option.collectonly:
+        _warm_urlconf()
     _end_gc_boot_window()
 
 
