@@ -26,4 +26,9 @@ VERIFICATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VERIFICATION_INITIAL_PERMISSION_MODE: str | None = None
 MAX_VERIFICATIONS_PER_RUN = 20
 
+MAX_OPEN_REAPER_PRS = 3
+MAX_FILES_PER_PR = 15
+HARVEST_LABEL = "reaper-hog"
+HARVEST_NOTE_AUTHOR = "reaper-hog-harvest"
+
 REAPER_MCP_SCOPES: list[str] = ["llm_skill:read", "user:read"]

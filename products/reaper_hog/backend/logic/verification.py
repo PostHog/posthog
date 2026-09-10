@@ -147,11 +147,11 @@ def load_candidates(
                 inventory=inventory, status=ClusterStatus.CANDIDATE, blocked_reason__isnull=True
             ).order_by("rank", "root")[:limit]
         )
-        views = [_view(cluster) for cluster in clusters]
+        views = [cluster_view(cluster) for cluster in clusters]
     return inventory, views
 
 
-def _view(cluster: ReaperCluster) -> ClusterView:
+def cluster_view(cluster: ReaperCluster) -> ClusterView:
     latest_by_scout: dict[str, Hit] = {}
     for artefact in cluster.artefacts.filter(type="hit").order_by("created_at"):
         hit = Hit.model_validate_json(artefact.content)

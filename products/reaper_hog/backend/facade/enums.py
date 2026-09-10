@@ -17,6 +17,7 @@ class ClusterStatus(StrEnum):
     DEAD = "dead"
     ALIVE = "alive"
     UNDECIDED = "undecided"
+    HARVESTING = "harvesting"
     REAPED = "reaped"
     BURIED = "buried"
     DECLINED = "declined"
