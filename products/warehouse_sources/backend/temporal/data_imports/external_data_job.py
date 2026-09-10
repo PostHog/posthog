@@ -185,6 +185,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
         "then re-enable the sync."
     ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a batch carries
+    # rows that aren't objects, such as a REST resource whose selected response field holds arrays or
+    # scalars. Keyless rows carry no column names to build a table from, and the same shape comes back
+    # on every retry. Keep in step with `NON_MAPPING_ROW_ERROR` in arrow_utils.
+    "Rows from this table are not JSON objects": (
+        "This table's rows aren't objects with named fields, so PostHog has no columns to import. "
+        "If the source lets you choose which part of the response to read, point it at a list of "
+        "objects, then re-enable the sync."
+    ),
 }
 
 
@@ -482,7 +491,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
         elif not platform_failure:
-            transient_message = _transient_error_message(internal_error_normalized)
+            # A retryable failure that outlasted the whole retry budget lands here with
+            # `latest_error` still set to the raw driver text. The generic transient copy is
+            # consulted first; the source's own exhaustion messages cover the classes it does not
+            # name. Retryability is untouched: the schema is not disabled and the next scheduled
+            # run still tries.
+            transient_message = _transient_error_message(internal_error_normalized) or next(
+                (
+                    message
+                    for error, message in source_cls.get_retry_exhausted_errors().items()
+                    if error_message_matches(internal_error_normalized, [error])
+                ),
+                None,
+            )
             if transient_message is not None:
                 inputs.latest_error = transient_message
 

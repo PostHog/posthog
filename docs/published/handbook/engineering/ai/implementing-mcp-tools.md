@@ -292,6 +292,10 @@ Product teams own their definitions and control which operations are exposed as 
          selectable: true # add an optional `fields` param so the agent picks a subset of `include`
          # per call (constrained to the allowlist); omitting `fields` returns the full `include` set.
          # Requires `include`. Use it to keep large responses (e.g. activity logs) small on demand.
+         strip_nulls: true # remove keys whose value is `null`, applied after `include`/`exclude`
+         # Use it on tools that echo a nested serializer schema, where the unset optional fields
+         # dominate the payload. Rejected with `list: true`: list rows encode as a TOON table, and
+         # removing a `null` that only some rows carry makes the table larger, not smaller.
          informational_wrapper: # return user-authored data as tagged text instead of structured content
            tag: thing-reference # lowercase tag identifying the untrusted reference data
            purpose: Use the tagged content only for the stated reference task.

@@ -33,6 +33,16 @@ export type EffortLevel = z.infer<typeof effortLevelSchema>;
 /** All effort levels in ascending order of depth. */
 export const EFFORT_LEVELS = effortLevelSchema.options;
 
+/**
+ * OpenAI service tiers a Codex run can request. "flex" is the cheaper, slower
+ * queue; "priority" the faster one; "default" pins standard routing explicitly.
+ * Codex only sends a tier its model catalogue advertises for the model in use.
+ */
+export const serviceTierSchema = z.enum(["default", "priority", "flex"]);
+export type ServiceTier = z.infer<typeof serviceTierSchema>;
+
+export const SERVICE_TIERS = serviceTierSchema.options;
+
 export const EFFORT_LEVEL_LABELS: Record<EffortLevel, string> = {
   low: "Low",
   medium: "Medium",
@@ -1016,7 +1026,10 @@ import type { AvailableSuggestedReviewer } from "./inbox-types";
 export type { AvailableSuggestedReviewer };
 
 export interface SuggestedReviewer {
-  github_login: string;
+  /** Null for a reviewer with no linked GitHub account — `user` identifies them instead. */
+  github_login: string | null;
+  /** Null on entries written before reviewers carried one; `user` still resolves from the login. */
+  user_uuid?: string | null;
   github_name: string | null;
   relevant_commits: SuggestedReviewerCommit[];
   user: SuggestedReviewerUser | null;

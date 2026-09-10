@@ -5187,15 +5187,6 @@ export interface FileSystemViewLogEntry {
     viewed_at: string
 }
 
-export interface PersistedFolder {
-    id: string
-    type: string
-    protocol: string
-    path: string
-    created_at: string
-    updated_at: string
-}
-
 export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
@@ -9550,6 +9541,9 @@ export const externalDataSources = [
     'Tenjin',
     'Folk',
     'Cybersource',
+    'GoogleAdSense',
+    'Sequenzy',
+    'Skio',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
