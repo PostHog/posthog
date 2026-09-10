@@ -205,3 +205,24 @@ class TestRelinkTeamsIsolatesAWriteFailure(BaseTest):
         relinked = ({self.team.pk, other_team.pk} - {stranded}).pop()
         assert stored[stranded] == {"id": flag.id, "key": "gate-old"}
         assert stored[relinked] == {"id": flag.id, "key": "gate-new"}
+
+
+class TestRelinkTeamsAbsorbsALookupFailure(BaseTest):
+    def test_a_failed_team_lookup_does_not_fail_the_committed_rename(self) -> None:
+        # The relink runs after the rename has committed, and its own reads sit outside the
+        # per-team handler. A fault in them would reach the caller, so a rename that already
+        # landed would answer with an error the caller cannot act on.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-old")
+        set_linked_flag(self.team, {"id": flag.id, "key": "gate-old"})
+
+        flag.key = "gate-new"
+        with patch(
+            "products.feature_flags.backend.session_recording_links.teams_gating_replay_on_flag",
+            side_effect=Exception("simulated lookup failure"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                flag.save()
+
+        assert FeatureFlag.objects.get(pk=flag.pk).key == "gate-new"
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-old"}

@@ -274,18 +274,31 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
     Teams are found by `old_key` rather than the flag's current one, because a trigger group is
     matched by the key it still holds, which is the one the flag has just stopped having.
     """
-    # Two renames of the same flag committed close together fire their `on_commit` callbacks with
-    # no ordering guarantee between them. A callback that took its key from `feature_flag.key`
-    # would put an intermediate key back over a team a later callback had already brought up to
-    # date. Reading the stored key makes every callback converge on it.
-    # `objects_including_soft_deleted` also finds the tombstone that
-    # `_free_key_held_by_soft_deleted_flags` renames.
-    new_key = (
-        FeatureFlag.objects_including_soft_deleted.filter(pk=feature_flag.pk).values_list("key", flat=True).first()
-    )
-    if new_key is None:
-        # The row is gone entirely, not just soft-deleted, so there is no key to point teams at.
-        # `repair_replay_linked_flag_keys` reports these teams as flag_missing on its next run.
+    try:
+        # Two renames of the same flag committed close together fire their `on_commit` callbacks
+        # with no ordering guarantee between them. A callback that took its key from
+        # `feature_flag.key` would put an intermediate key back over a team a later callback had
+        # already brought up to date. Reading the stored key makes every callback converge on it.
+        # `objects_including_soft_deleted` also finds the tombstone that
+        # `_free_key_held_by_soft_deleted_flags` renames.
+        new_key = (
+            FeatureFlag.objects_including_soft_deleted.filter(pk=feature_flag.pk).values_list("key", flat=True).first()
+        )
+        if new_key is None:
+            # The row is gone entirely, not just soft-deleted, so there is no key to point teams
+            # at. `repair_replay_linked_flag_keys` reports these teams as flag_missing on its next
+            # run.
+            return
+        # Read into a list here rather than iterated straight in the loop below, because a queryset
+        # runs its query on the first step of the loop, where the per-team handler cannot catch it.
+        team_ids = list(teams_gating_replay_on_flag(feature_flag, key=old_key).values_list("pk", flat=True))
+    except Exception:
+        # Both reads run after the rename has committed, so a fault here, such as a connection a
+        # failover dropped, must not raise for the same reason a write failure below must not: it
+        # would fail a request that already succeeded. `repair_replay_linked_flag_keys` picks the
+        # linked flag column back up later.
+        logger.exception("replay_relink_lookup_failed", flag_id=feature_flag.pk)
+        capture_exception()
         return
 
     def rewrite(team: Team) -> ReplayGateRewrite:
@@ -298,7 +311,7 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
             trigger_groups=rewritten_trigger_groups(trigger_groups, moving),
         )
 
-    for team_id in teams_gating_replay_on_flag(feature_flag, key=old_key).values_list("pk", flat=True):
+    for team_id in team_ids:
         try:
             save_replay_gate_rewrites(team_id, rewrite)
         except Exception:
