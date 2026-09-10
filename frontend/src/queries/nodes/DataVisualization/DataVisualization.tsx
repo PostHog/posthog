@@ -36,7 +36,7 @@ import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { PieChart } from './Components/Charts/PieChart'
 import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
-import { SqlChart } from './Components/Charts/SqlChart'
+import { isSqlChartVisualizationType, SqlChart } from './Components/Charts/SqlChart'
 import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
@@ -260,12 +260,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 embedded={props.embedded}
             />
         )
-    } else if (
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    ) {
+    } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
@@ -281,6 +276,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     insightNumericId={insight?.id || 'new'}
                     showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
+                    embedded={props.embedded}
                 />
             </BindLogic>
         )
