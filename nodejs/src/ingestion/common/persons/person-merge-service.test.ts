@@ -180,16 +180,23 @@ describe('PersonMergeService store-owned merges', () => {
         await expect(service.handleIdentifyOrAlias()).rejects.toThrow(PersonMergeCallFailedError)
     })
 
-    it('a retriable dependency failure fails the batch instead of dropping the merge', async () => {
-        // handlePostgresError marks persons-pooler saturation retriable, and the
-        // retry framework redelivers the batch on it. An ack here would drop the
-        // merge for good and leave the person split across two records.
-        store.mergePersons.mockRejectedValue(
-            new DependencyUnavailableError('no more connections allowed', 'Postgres', new Error('pooler saturated'))
-        )
+    // An ack on either shape drops the merge for good and leaves the person split
+    // across two records. The raw case is not hypothetical: PostgresRouter.transaction
+    // acquires its client outside the try that runs handlePostgresError, so a saturated
+    // pooler reaches this catch with the message but no flag.
+    it.each([
+        [
+            'a flagged dependency failure',
+            new DependencyUnavailableError('no more connections allowed', 'Postgres', new Error('pooler saturated')),
+        ],
+        ['a raw transient Postgres failure', new Error('no more connections allowed')],
+    ])('%s fails the batch instead of dropping the merge', async (_case, error) => {
+        store.mergePersons.mockRejectedValue(error)
         const service = makeService()
 
-        await expect(service.handleIdentifyOrAlias()).rejects.toThrow(DependencyUnavailableError)
+        // Identity, not just type: the retry framework reads isRetriable off
+        // whatever this rethrows, so a wrapped error would change redelivery.
+        await expect(service.handleIdentifyOrAlias()).rejects.toBe(error)
     })
 
     it('an unflagged failure still acks so one bad event cannot stall the partition', async () => {

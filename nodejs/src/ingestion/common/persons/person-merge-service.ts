@@ -6,6 +6,7 @@ import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
 } from '~/common/persons/repositories/person-repository'
+import { isTransientPgError } from '~/common/utils/db/postgres'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -158,9 +159,12 @@ export class PersonMergeService {
             }
             // A retriable dependency failure (e.g. exhausted persons-Postgres client slots)
             // settles nothing either, so the batch must redeliver instead of dropping the merge
-            // for good. Only an explicit `isRetriable === true` rethrows: an unflagged error
-            // keeps the capture below, which reports a genuinely settled failure.
-            if ((e as { isRetriable?: boolean })?.isRetriable === true) {
+            // for good. The flag alone is not enough to find one: `PostgresRouter.transaction`
+            // acquires its client before the `try` that runs `handlePostgresError`, so a
+            // saturated pooler arrives here as a raw message with no flag. Test the message too.
+            // Anything else keeps the capture below, which reports a genuinely settled failure
+            // instead of stalling the partition on one bad event.
+            if ((e as { isRetriable?: boolean })?.isRetriable === true || isTransientPgError(e)) {
                 throw e
             }
             captureException(e, {
