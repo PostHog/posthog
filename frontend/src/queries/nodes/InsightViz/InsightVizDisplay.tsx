@@ -5,7 +5,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BoxPlotMissingPropertyState,
@@ -52,6 +54,7 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -143,13 +146,15 @@ export function InsightVizDisplay({
     inSharedMode?: boolean
     editMode?: boolean
 }): JSX.Element | null {
-    const { insightProps, canEditInsight, isInDashboardContext } = useValues(insightLogic)
+    const { insightProps, canEditInsight, editingDisabledReason, isInDashboardContext } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const {
         isFunnels,
         isPaths,
+        isTrends,
         hasDetailedResultsTable,
         showLegend,
         usesInChartLegend,
@@ -332,6 +337,17 @@ export function InsightVizDisplay({
     // (including pie) do when the quill in-chart legend is on (`usesInChartLegend`).
     const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
+    const showChartAlternatives =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] &&
+        !!editMode &&
+        !embedded &&
+        !inSharedMode &&
+        !isInDashboardContext &&
+        canEditInsight &&
+        !editingDisabledReason &&
+        isTrends &&
+        !!query &&
+        !!querySource
 
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
@@ -519,7 +535,15 @@ export function InsightVizDisplay({
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
-                {disableHeader ? null : <InsightDisplayConfig />}
+                {disableHeader ? null : <InsightDisplayConfig hideChartFilter={showChartAlternatives} />}
+                {showChartAlternatives && (
+                    <ChartAlternatives
+                        insightProps={insightProps}
+                        editMode={editMode}
+                        embedded={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )}
                 {showingResults && (
                     <>
                         {!embedded &&

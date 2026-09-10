@@ -27,7 +27,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 
 import { useInsightDisplayOptions } from './insightDisplayOptions'
 
-export function InsightDisplayConfig(): JSX.Element {
+export function InsightDisplayConfig({ hideChartFilter = false }: { hideChartFilter?: boolean }): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
 
     const {
@@ -147,7 +147,7 @@ export function InsightDisplayConfig(): JSX.Element {
                         </LemonMenu>
                     </>
                 )}
-                {supportsDisplay && (
+                {supportsDisplay && !hideChartFilter && (
                     <ConfigFilter>
                         <ChartFilter />
                     </ConfigFilter>
