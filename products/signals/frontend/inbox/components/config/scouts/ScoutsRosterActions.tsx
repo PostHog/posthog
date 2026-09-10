@@ -71,11 +71,16 @@ function showSuggestionsBusyReason({
     suggestionSetLoading: boolean
     runningChatType: ScoutChatType | null
 }): string | null {
+    // With picks waiting, the press only reopens the strip: no read, no task. Nothing else the
+    // header is doing holds that up, and every reason below would name work it never starts.
+    if (hasPicks) {
+        return null
+    }
     if (suggestionSetLoading) {
         return 'Reading the suggestions…'
     }
     // A scan already running is the answer to the press, so say so instead of opening a chat on top.
-    if (isRefreshing && !hasPicks) {
+    if (isRefreshing) {
         return 'Scanning the project…'
     }
     if (runningChatType === 'author_scout') {
