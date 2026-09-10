@@ -18,6 +18,7 @@ from temporalio.client import WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.dataclasses import frozen
 from posthog.models.temporal_scheduler import TemporalSchedulerState
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -126,6 +127,18 @@ class _DueSubscriptionsPage:
     oldest_due_at: dt.datetime | None
     discovery_cursor: str
     selected_team_ids: tuple[int, ...]
+
+
+@frozen
+class _ClaimReservations:
+    reservations: dict[str, tuple[str, str]]
+    capacity_deferred: bool
+
+
+@frozen
+class _ExpiredSchedulerClaimsSnapshot:
+    claims: list[tuple[uuid.UUID, uuid.UUID, str, dt.datetime]]
+    pruned: int
 
 
 def _subscription_child_workflow_id(subscription: DueSubscription) -> str:
@@ -438,7 +451,7 @@ async def _fetch_due_subscriptions(
     page = await get_subscriptions()
 
     @database_sync_to_async(thread_sensitive=False)
-    def reserve_candidates(candidates: list[DueSubscription]) -> tuple[dict[str, tuple[str, str]], bool]:
+    def reserve_candidates(candidates: list[DueSubscription]) -> _ClaimReservations:
         result = reserve_scheduler_claims(
             scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
             region=inputs.region,
@@ -456,12 +469,12 @@ async def _fetch_due_subscriptions(
                 lease_duration=_SUBSCRIPTION_RESERVATION_LEASE,
             ),
         )
-        return (
-            {
+        return _ClaimReservations(
+            reservations={
                 reservation.occurrence_key: (str(reservation.claim_id), str(reservation.claim_token))
                 for reservation in result.reservations
             },
-            result.deferred_for_capacity > 0,
+            capacity_deferred=result.deferred_for_capacity > 0,
         )
 
     covered_team_ids: set[int] = set()
@@ -492,12 +505,12 @@ async def _fetch_due_subscriptions(
                 break
             safe_candidates = candidates[:safe_candidate_count]
             candidate_index += safe_candidate_count
-            reservations, batch_capacity_deferred = await reserve_candidates(safe_candidates)
-            capacity_deferred = capacity_deferred or batch_capacity_deferred
-            if not batch_capacity_deferred:
+            reservation_result = await reserve_candidates(safe_candidates)
+            capacity_deferred = capacity_deferred or reservation_result.capacity_deferred
+            if not reservation_result.capacity_deferred:
                 covered_team_ids.update(candidate.team_id for candidate in safe_candidates)
             for candidate in safe_candidates:
-                claim = reservations.get(_subscription_occurrence_key(candidate))
+                claim = reservation_result.reservations.get(_subscription_occurrence_key(candidate))
                 if claim is not None:
                     claimed_subscriptions.append(
                         dataclasses.replace(
@@ -640,7 +653,7 @@ async def recover_subscription_scheduler_claims_activity(
         raise ValueError(f"limit must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
 
     @database_sync_to_async(thread_sensitive=False)
-    def load_expired_claims() -> tuple[list[tuple[uuid.UUID, uuid.UUID, str, dt.datetime]], int]:
+    def load_expired_claims() -> _ExpiredSchedulerClaimsSnapshot:
         now = tz.now()
         expired = [
             (claim.id, claim.claim_token, claim.workflow_id, claim.lease_expires_at)
@@ -658,9 +671,11 @@ async def recover_subscription_scheduler_claims_activity(
             available_before=now - dt.timedelta(days=1),
             limit=inputs.limit,
         )
-        return expired, pruned
+        return _ExpiredSchedulerClaimsSnapshot(claims=expired, pruned=pruned)
 
-    expired_claims, pruned = await load_expired_claims()
+    expired_snapshot = await load_expired_claims()
+    expired_claims = expired_snapshot.claims
+    pruned = expired_snapshot.pruned
     if not expired_claims:
         return {"released": 0, "renewed": 0, "retained": 0, "pruned": pruned}
 

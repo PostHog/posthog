@@ -453,9 +453,9 @@ async def test_subscription_delivery_scheduling(
     assert mock_send_email.call_count == 4
     delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
-    claim_statuses = await sync_to_async(list)(
-        TemporalSchedulerClaim.objects.filter(scheduler="subscriptions").values_list("status", flat=True)
-    )
+    claim_statuses: list[str] = await sync_to_async(
+        lambda: list(TemporalSchedulerClaim.objects.filter(scheduler="subscriptions").values_list("status", flat=True))
+    )()
     assert claim_statuses == [TemporalSchedulerClaim.Status.COMPLETED] * 2
 
 
