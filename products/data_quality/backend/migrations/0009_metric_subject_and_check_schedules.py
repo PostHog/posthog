@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("data_catalog", "0006_metric_name_partial_unique"),
         ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("data_quality", "0007_dataqualitycheck_failing_since"),
+        ("data_quality", "0008_alter_dataqualitycheck_team_and_more"),
         ("posthog", "1341_organization_uses_most_specific_access_resolution"),
         ("warehouse_sources", "0159_externaldatajob_destination_ids_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

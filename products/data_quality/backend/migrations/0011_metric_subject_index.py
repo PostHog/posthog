@@ -6,7 +6,7 @@ from posthog.migration_helpers import CreateIndexConcurrently, SafeAddIndexConcu
 class Migration(migrations.Migration):
     atomic = False
 
-    dependencies = [("data_quality", "0009_validate_metric_subject_binding")]
+    dependencies = [("data_quality", "0010_validate_metric_subject_binding")]
 
     operations = [
         migrations.SeparateDatabaseAndState(
