@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.signals.backend.signal_costs import add_cost
 from products.signals.backend.signal_handoffs import SignalHandoff
 from products.signals.backend.temporal.report_safety_judge import (
     SafetyJudgeInput,
@@ -198,7 +200,11 @@ async def test_finalizer_polls_with_a_timer_or_publishes_a_batch(
 
 
 @pytest.mark.asyncio
-async def test_safety_rejection_marks_handoff_deleted_before_it_is_saved() -> None:
+@pytest.mark.parametrize("safe", [False, True])
+@pytest.mark.parametrize("persist_failure", [False, True])
+async def test_safety_result_preserves_verdict_but_discards_failed_attempt_costs(
+    safe: bool, persist_failure: bool
+) -> None:
     handoff = SignalHandoff(
         team_id=1,
         signal=SignalData(
@@ -212,21 +218,29 @@ async def test_safety_rejection_marks_handoff_deleted_before_it_is_saved() -> No
         ),
     )
 
+    add_cost(handoff.signal.metadata, "grouping-model", token_cost=3)
+
+    async def judge(*, team_id: int, signals: list[SignalData], costs: dict) -> SafetyJudgeResponse:
+        add_cost(costs, "safety-model", token_cost=5)
+        return SafetyJudgeResponse(choice=safe, explanation="assessment")
+
     with (
+        patch("products.signals.backend.temporal.report_safety_judge.judge_report_safety", side_effect=judge),
         patch(
-            "products.signals.backend.temporal.report_safety_judge.judge_report_safety",
-            AsyncMock(return_value=SafetyJudgeResponse(choice=False, explanation="injection")),
+            "products.signals.backend.temporal.report_safety_judge.SignalReportArtefact.append_status",
+            side_effect=RuntimeError("artifact write failed") if persist_failure else None,
         ),
-        patch("products.signals.backend.temporal.report_safety_judge.SignalReportArtefact.append_status"),
         patch("products.signals.backend.temporal.report_safety_judge.read_handoff", AsyncMock(return_value=handoff)),
         patch("products.signals.backend.temporal.report_safety_judge.write_handoff", AsyncMock()) as write_handoff,
+        pytest.raises(RuntimeError, match="artifact write failed") if persist_failure else nullcontext(),
     ):
         await report_safety_judge_activity(
             SafetyJudgeInput(team_id=1, report_id="report-id", signals=[], signal_key="handoff")
         )
 
-    assert handoff.signal.metadata["deleted"] is True
-    assert write_handoff.await_count == 1
+    assert handoff.signal.metadata.get("deleted", False) is (not safe)
+    assert handoff.signal.metadata["token_cost"] == {"research": 3 if persist_failure else 8, "implementation": 0}
+    write_handoff.assert_awaited_once()
 
 
 @pytest.mark.asyncio

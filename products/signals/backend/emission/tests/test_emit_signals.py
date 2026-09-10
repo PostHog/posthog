@@ -390,15 +390,44 @@ class TestCheckActionability:
         assert '"author_login": "octocat"' in prompt
 
     @pytest.mark.asyncio
-    async def test_assumes_actionable_after_retries_exhausted(self):
+    @pytest.mark.parametrize("failure_stage", ["pricing", "model"])
+    @pytest.mark.parametrize("failures", [1, LLM_MAX_ATTEMPTS])
+    async def test_retries_failed_checks_before_assuming_actionable(
+        self, monkeypatch: pytest.MonkeyPatch, failure_stage: str, failures: int
+    ) -> None:
+        rates = {"prompt": "0.005", "completion": "0"}
+        response = _make_llm_response("NOT_ACTIONABLE")
+        pricing = AsyncMock(return_value=rates)
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
+        mock_client.messages.create = AsyncMock(return_value=response)
+        failing_call = pricing if failure_stage == "pricing" else mock_client.messages.create
+        failing_call.side_effect = [RuntimeError("unavailable")] * failures + [
+            rates if failure_stage == "pricing" else response
+        ]
+        monkeypatch.setattr(f"{PIPELINE_MODULE_PATH}.get_model_pricing", pricing)
+        output = _make_output()
 
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
-            is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.asyncio.sleep", new=AsyncMock()) as sleep,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as analytics,
+        ):
+            is_actionable = await check_actionability(mock_client, 1, output, "prompt {description}")
 
-        assert is_actionable is True
-        assert mock_client.messages.create.call_count == LLM_MAX_ATTEMPTS
+        recovered = failures < LLM_MAX_ATTEMPTS
+        attempts = min(failures + 1, LLM_MAX_ATTEMPTS)
+        assert is_actionable is (not recovered)
+        assert failing_call.await_count == attempts
+        assert mock_client.messages.create.await_count == (int(recovered) if failure_stage == "pricing" else attempts)
+        assert sleep.await_count == attempts - 1
+        assert analytics.capture_exception.call_count == failures
+        assert all(
+            call.kwargs["properties"]["error_type"] == "actionability_check_failed"
+            for call in analytics.capture_exception.call_args_list
+        )
+        if recovered:
+            assert output.metadata["token_cost"] == {"research": 1, "implementation": 0}
+        else:
+            assert output.metadata == {}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

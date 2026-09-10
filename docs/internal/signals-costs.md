@@ -24,8 +24,9 @@ Catalog rates remain strings; Decimal arithmetic stays local to conversion, with
 Catalog requests have a ten-second timeout without SDK retries.
 Prices are cached for one hour; failed refreshes reuse cached prices and retry after one minute.
 An unpriced model raises rather than silently reporting zero.
-Description summarization retries pricing failures through the same backoff and error handling as model-call failures, then falls back to truncation if retries are exhausted.
-It calls the model only after pricing succeeds.
+Description summarization and actionability checks retry pricing failures through the same backoff and error handling as model-call failures.
+If retries are exhausted, summarization truncates the description and the actionability check keeps the signal.
+Both call the model only after pricing succeeds.
 Embedding API usage is not priced by this mapping.
 
 `TaskRun.get_current_spend()` deliberately returns zero token and compute cents until task runtime accounting implements it.

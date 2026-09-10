@@ -320,11 +320,11 @@ async def check_actionability(
         description = f"{description}\n\n<record_metadata>\n{metadata}\n</record_metadata>"
     prompt = actionability_prompt.format(description=description)
     extra_headers = _signals_extra_headers(output, stage="actionability", gateway_mode=gateway_mode, team_id=team_id)
-    pricing = await get_model_pricing(LLM_MODEL)
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         try:
+            pricing = await get_model_pricing(LLM_MODEL)
             response = await asyncio.wait_for(
                 client.messages.create(
                     model=LLM_MODEL,

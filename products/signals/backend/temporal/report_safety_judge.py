@@ -161,6 +161,8 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
         )
         return SafetyJudgeOutput(safe=result.choice, explanation=result.explanation if not result.choice else None)
     except Exception as e:
+        # Do not persist costs from an activity attempt that failed.
+        costs.clear()
         logger.exception(
             f"Failed to run safety judge for report {input.report_id}: {e}",
             report_id=input.report_id,
