@@ -409,15 +409,15 @@ fn status_runs(changes: &[CohortMembershipChange], status: MembershipStatus) -> 
     runs
 }
 
-/// Drive a due wave larger than one sweep batch against a live lane that is already full, and return
-/// the changes the worker produced, in order.
+/// Drive a due wave larger than one sweep batch against a live lane that is already full, producing
+/// into `sink`, and return once the worker has drained both.
 async fn wave_against_a_full_live_lane(
     wave: usize,
     live_after: usize,
-) -> Vec<CohortMembershipChange> {
+    sink: Arc<dyn MembershipSink>,
+) {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![behavioral_leaf(7)]);
-    let sink = CaptureSink::new();
     let tracker = Arc::new(OffsetTracker::new());
 
     let ts = "2026-05-20 10:00:00.000000";
@@ -436,15 +436,8 @@ async fn wave_against_a_full_live_lane(
         }]
     }));
 
-    let worker = spawn_worker_prefilled(
-        &store,
-        catalog_of(filters),
-        Arc::new(sink.clone()),
-        tracker,
-        batches,
-    );
+    let worker = spawn_worker_prefilled(&store, catalog_of(filters), sink, tracker, batches);
     worker.join().await.unwrap();
-    sink.changes()
 }
 
 #[tokio::test]
@@ -825,7 +818,14 @@ async fn a_due_wave_drains_in_batches_that_alternate_with_live_traffic() {
     // A wave used to drain in one pass, holding the partition for its whole duration and allocating
     // every state value at once. Each batch now claims at most the target, and a live batch takes the
     // turn in between, so a tz-midnight wave costs live traffic one batch at a time.
-    let changes = wave_against_a_full_live_lane(INTERLEAVED_WAVE, INTERLEAVED_LIVE_AFTER).await;
+    let sink = CaptureSink::new();
+    wave_against_a_full_live_lane(
+        INTERLEAVED_WAVE,
+        INTERLEAVED_LIVE_AFTER,
+        Arc::new(sink.clone()),
+    )
+    .await;
+    let changes = sink.changes();
 
     assert_eq!(
         status_runs(&changes, MembershipStatus::Left),
@@ -859,7 +859,14 @@ async fn a_resumed_sweep_stamps_newer_than_the_live_output_it_yielded_to() {
     // A batch takes its `last_updated` when it runs, not when its request arrived. Stamping at request
     // time would give a resumed batch a timestamp older than the live change that ran in between, and
     // a last-write-wins consumer would then resurrect the membership that batch just retracted.
-    let changes = wave_against_a_full_live_lane(INTERLEAVED_WAVE, INTERLEAVED_LIVE_AFTER).await;
+    let sink = CaptureSink::new();
+    wave_against_a_full_live_lane(
+        INTERLEAVED_WAVE,
+        INTERLEAVED_LIVE_AFTER,
+        Arc::new(sink.clone()),
+    )
+    .await;
+    let changes = sink.changes();
 
     for pair in changes.windows(2) {
         assert!(
@@ -1004,6 +1011,41 @@ async fn a_later_batchs_produce_failure_leaves_the_earlier_batches_settled() {
             i + 1,
         );
     }
+}
+
+#[tokio::test]
+async fn a_live_lane_that_keeps_failing_its_produce_still_yields_the_sweep_its_turns() {
+    // The sweep's turn is claimed before a live batch runs, so a batch that fails its produce and
+    // skips the rest of the loop body still owes it. Claiming after the batch instead passes every
+    // test whose live lane succeeds, while a lane that keeps failing holds a due wave until it closes.
+    // Call 1 is the wave's own Entered; every live produce after it fails.
+    let sink = FailingLiveSink::new(2);
+    wave_against_a_full_live_lane(
+        INTERLEAVED_WAVE,
+        INTERLEAVED_LIVE_AFTER,
+        Arc::new(sink.clone()),
+    )
+    .await;
+
+    // `None` is a failed live produce. Each sweep batch after the first runs on the turn the failed
+    // live batch before it owed, rather than all of them once the lane has closed.
+    assert_eq!(
+        sink.outcomes(),
+        [
+            vec![
+                Some(MembershipStatus::Entered),
+                Some(MembershipStatus::Left)
+            ],
+            vec![
+                None,
+                Some(MembershipStatus::Left),
+                None,
+                Some(MembershipStatus::Left)
+            ],
+            vec![None; INTERLEAVED_LIVE_AFTER - 2],
+        ]
+        .concat(),
+    );
 }
 
 #[tokio::test]
@@ -1531,6 +1573,51 @@ impl MembershipSink for FailNthSink {
         let acks = changes.iter().map(|_| Ok(())).collect();
         self.changes.lock().unwrap().extend(changes);
         acks
+    }
+}
+
+/// A sink that fails every live produce from `fail_from` (1-based) on while letting sweep batches
+/// through, telling them apart by their changes being all `Left`. Records each call as the status of
+/// its first change, or `None` when it failed.
+#[derive(Clone)]
+struct FailingLiveSink {
+    outcomes: Arc<Mutex<Vec<Option<MembershipStatus>>>>,
+    fail_from: usize,
+}
+
+impl FailingLiveSink {
+    fn new(fail_from: usize) -> Self {
+        Self {
+            outcomes: Arc::default(),
+            fail_from,
+        }
+    }
+
+    fn outcomes(&self) -> Vec<Option<MembershipStatus>> {
+        self.outcomes.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl MembershipSink for FailingLiveSink {
+    async fn produce(
+        &self,
+        changes: Vec<CohortMembershipChange>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        let mut outcomes = self.outcomes.lock().unwrap();
+        let call = outcomes.len() + 1;
+        let is_sweep = changes
+            .iter()
+            .all(|change| change.status == MembershipStatus::Left);
+        if call >= self.fail_from && !is_sweep {
+            outcomes.push(None);
+            return changes
+                .iter()
+                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+                .collect();
+        }
+        outcomes.push(changes.first().map(|change| change.status));
+        changes.iter().map(|_| Ok(())).collect()
     }
 }
 

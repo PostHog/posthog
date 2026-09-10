@@ -41,7 +41,7 @@ pub(crate) struct EvictionResult {
     pub reschedule: Option<i64>,
 }
 
-/// Why the sweep dropped a selected key instead of evicting it.
+/// Why the sweep dropped a claimed key instead of evicting it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SweepDropReason {
     TeamDrift,
@@ -50,11 +50,6 @@ pub(crate) enum SweepDropReason {
     Decode,
     UnsupportedVariant,
     PersonProperty,
-    /// The key stopped being claimable between selection and claim: an event pushed its deadline
-    /// past the cutoff, or a merge cancelled it. Unlike every other reason this one is not a lost
-    /// eviction — a rescheduled key is still queued and a cancelled one was retired on purpose.
-    /// [`sweep_evict`] never returns it; the batching layer does, since it owns the claim.
-    NotDue,
 }
 
 impl SweepDropReason {
@@ -66,7 +61,6 @@ impl SweepDropReason {
             Self::Decode => "decode_error",
             Self::UnsupportedVariant => "unsupported_variant",
             Self::PersonProperty => "person_property",
-            Self::NotDue => "not_due",
         }
     }
 }

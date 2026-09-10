@@ -412,9 +412,14 @@ pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
 /// behind eviction. [`SWEEP_CYCLE_DURATION_SECONDS`] does not: it times the dispatch that hands each
 /// worker a request, and returns before any worker starts.
 pub const SWEEP_BATCH_DURATION_SECONDS: &str = "sweep_batch_duration_seconds";
+/// Time one sweep batch spent awaiting the acks of its single-leaf membership produce (histogram,
+/// seconds). Splits [`SWEEP_BATCH_DURATION_SECONDS`] between the store and the delivery report:
+/// every batch pays the producer's linger and a broker round trip whatever its size, which is the
+/// cost a larger batch target would amortize.
+pub const SWEEP_BATCH_PRODUCE_SECONDS: &str = "sweep_batch_produce_seconds";
 /// Keys one sweep batch claimed out of the queue (histogram). Bounded by the batch target, except
-/// where one person's leaves exceed it and run alone, so the upper quantiles are the wide-person
-/// signal.
+/// where one person's group does not fit and the batch takes it whole, so the upper quantiles are
+/// the wide-person signal.
 pub const SWEEP_BATCH_KEYS_CLAIMED: &str = "sweep_batch_keys_claimed";
 /// Raw value bytes one batched `cf_behavioral` read returned inside a sweep batch (histogram, bytes).
 /// **A key limit does not bound bytes**, because behavioral values grow with window length, so read
@@ -502,15 +507,17 @@ pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_unde
 /// `cf_stage2` keys a cohort-prefix scan could not decode and skipped (counter).
 pub const STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL: &str = "stage2_scan_undecodable_keys_total";
 
-/// Keys the sweep selected but did not evict, labelled by `reason` (counter). Over a pass whose
-/// batches all settle, every selected key lands here or under [`SWEEP_KEYS_EVICTED_TOTAL`]; a batch
-/// that fails its produce or commit is counted under neither until the request that retries it.
-///
-/// `not_due` is the one reason that is not a lost eviction: the key was selected as due, then an
-/// event rescheduled it past the cutoff (it stays queued on its new deadline) or a merge cancelled
-/// it (it was retired deliberately). Both are healthy on an active partition, so do not sum this
-/// counter across `reason` to size an eviction backlog — read [`SWEEP_QUEUE_LAG_SECONDS`] instead.
+/// Keys the sweep claimed but did not evict, labelled by `reason` (counter). Every reason here is a
+/// lost eviction. Conservation over a pass whose batches all settle: `claimed == evicted + dropped`;
+/// a batch that fails its produce or commit is counted under neither until the request that retries
+/// it. Keys selected but never claimed are counted under [`SWEEP_KEYS_NOT_CLAIMED_TOTAL`] instead,
+/// so this counter stays summable across `reason`.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
+/// Keys a sweep pass selected but could not claim (counter): an event rescheduled the key past the
+/// cutoff, so it stays queued on its new deadline, or a merge cancelled it, so it was retired on
+/// purpose. Not a lost eviction, and expected to be non-zero on an active partition. Read
+/// [`SWEEP_QUEUE_LAG_SECONDS`] to size an eviction backlog.
+pub const SWEEP_KEYS_NOT_CLAIMED_TOTAL: &str = "sweep_keys_not_claimed_total";
 
 /// Seed payloads consumed and decoded — tiles and ordered skips both (counter).
 pub const COHORT_STREAM_SEEDS_CONSUMED: &str = "cohort_stream_seeds_consumed_total";

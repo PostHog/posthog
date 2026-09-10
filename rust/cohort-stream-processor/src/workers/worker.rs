@@ -342,9 +342,13 @@ async fn run_worker(
                     re_keys.extend(effects.re_keys);
                 }
                 ShuffleMessage::Sweep { due_before_ms } => {
-                    // The eviction itself runs on a later turn, but the buffer still flushes here:
-                    // a request recorded past a failed flush would evict against state whose
-                    // `Entered` is still waiting to replay, putting the `Left` on the wire first.
+                    // The eviction runs on a later turn, but the buffer still flushes here, so this
+                    // batch's own `Entered` output precedes the request that may retract it. A
+                    // later live batch whose end-of-batch produce fails is not covered: its output
+                    // is dropped for replay while the sweep keeps its turn, so a `Left` can reach
+                    // the wire first. That converges, because the replayed `Entered` stamps newer
+                    // than the sweep's `Left`, and holding the sweep behind a failing lane instead
+                    // would starve eviction (see `live_batch_done`).
                     if flush_event_changes_before_inline(
                         &sink,
                         &mut buffer,
@@ -587,9 +591,8 @@ async fn flush_membership_buffer(
 /// `mark_processed` is skipped, causing Kafka to replay. Returns `false` (empty or all acked) to
 /// run the arm normally.
 ///
-/// The `Sweep` arm produces nothing inline, but flushes here for the reason at its call site: a
-/// request recorded past a failed flush would evict against state whose `Entered` is still waiting
-/// to replay.
+/// The `Sweep` arm produces nothing inline, but flushes here so the batch's own `Entered` output
+/// precedes the request that may retract it. Its call site says what that does not cover.
 async fn flush_event_changes_before_inline(
     sink: &Arc<dyn MembershipSink>,
     buffer: &mut OutputBuffer,

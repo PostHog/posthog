@@ -1,10 +1,10 @@
 //! Bounded, resumable eviction sweeps: turning one `Sweep` request into small batches the worker
 //! interleaves with live traffic.
 //!
-//! A `Sweep` message no longer evicts inline. It records a request on [`SweepSchedule`], which the
-//! worker's turn loop drains one [`SweepBatch`] at a time, alternating with live batches so a wave
-//! of tz-midnight deadlines cannot hold the partition. Each batch reads, produces, commits and
-//! recomposes on its own, so peak memory tracks the batch rather than the whole wave.
+//! A `Sweep` message records a request on [`SweepSchedule`], which the worker's turn loop drains one
+//! [`SweepBatch`] at a time, alternating with live batches so a wave of tz-midnight deadlines cannot
+//! hold the partition. Each batch reads, produces, commits and recomposes on its own, so peak memory
+//! tracks the batch rather than the whole wave.
 //!
 //! Selection and claim are split across [`EvictionQueue::due_keys`] and
 //! [`EvictionQueue::take_due`]: a pass plans over candidates but the queue stays authoritative, so
@@ -23,8 +23,8 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
 use crate::observability::metrics::{
     STAGE1_TRANSITIONS, SWEEP_BATCH_DURATION_SECONDS, SWEEP_BATCH_KEYS_CLAIMED,
-    SWEEP_KEYS_DROPPED_TOTAL, SWEEP_KEYS_EVICTED_TOTAL, SWEEP_QUEUE_LAG_SECONDS,
-    SWEEP_READ_CHUNK_BYTES,
+    SWEEP_BATCH_PRODUCE_SECONDS, SWEEP_KEYS_DROPPED_TOTAL, SWEEP_KEYS_EVICTED_TOTAL,
+    SWEEP_KEYS_NOT_CLAIMED_TOTAL, SWEEP_QUEUE_LAG_SECONDS, SWEEP_READ_CHUNK_BYTES,
 };
 use crate::producer::{map_transition, CohortMembershipChange, LastUpdatedClock, MembershipSink};
 use crate::stage1::key::LeafStateKey;
@@ -47,16 +47,22 @@ use crate::workers::worker::{
 /// Max eviction keys one request plans over. Daily-bucket deadlines cluster on tz-midnight, so a
 /// large team's whole wave can come due on one tick; capping selection bounds how far ahead of the
 /// queue a pass can plan. Leftover due keys stay scheduled and drain on the next request.
+///
+/// The budget is spent on selection, not on eviction: a candidate an event reschedules or a merge
+/// cancels between selection and claim still counts against it, so a pass on a churning partition
+/// can evict well under this many keys. Do not read it as a per-tick drain rate.
 const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
 /// Keys one batch aims to claim, and the widest `cf_behavioral` read it issues. Person groups pack
-/// whole, so a person with more leaves than this starts a batch and runs alone. This bounds the
-/// ordinary batch; it is not a byte limit, because one behavioral value grows with window length.
+/// whole, so a batch can overshoot this by one group: a batch under half full takes the next group
+/// whatever its size, and a person with more leaves than this otherwise starts a batch and runs
+/// alone. This bounds the ordinary batch; it is not a byte limit, because one behavioral value grows
+/// with window length.
 ///
 /// Whole-group packing holds **within** a pass. [`MAX_SWEEP_KEYS_PER_PASS`] cuts the flat,
 /// deadline-ordered candidate list before grouping, so a person whose leaves carry different
-/// deadlines can still straddle two passes and compose against half their eviction in between. That
-/// converges on the next pass, and the unbatched pop loop this replaced behaved the same way.
+/// deadlines can still straddle two passes and compose against half their eviction in between. The
+/// next pass picks up the rest and the composition converges.
 const SWEEP_BATCH_KEYS: usize = 256;
 
 /// The worker's eviction-sweep state: at most one pass in flight and one coalesced follow-up cutoff.
@@ -189,7 +195,7 @@ impl SweepPass {
     fn next_batch(&mut self, queue: &mut EvictionQueue<BehavioralKey>) -> Option<SweepBatch> {
         loop {
             let team_id = self.groups.front().map(|(prefix, _)| prefix.team_id)?;
-            let mut claimed: Vec<(BehavioralKey, i64)> = Vec::new();
+            let mut claimed: Vec<(BehavioralKey, i64)> = Vec::with_capacity(SWEEP_BATCH_KEYS);
             loop {
                 let Some((prefix, leaves)) = self.groups.front() else {
                     break;
@@ -198,12 +204,18 @@ impl SweepPass {
                 if prefix.team_id != team_id {
                     break;
                 }
-                // Whole groups only, so composition sees a person's combined eviction. A person
-                // wider than the target has an empty batch in front of it and runs alone.
-                if !claimed.is_empty() && claimed.len() + leaves.len() > SWEEP_BATCH_KEYS {
+                // Whole groups only, so composition sees a person's combined eviction. The cap
+                // applies once the batch is at least half full: `leaves` counts selections, not
+                // claims, so a run of persons whose keys mostly went stale would otherwise shrink
+                // a batch to a key or two. A person wider than the target therefore starts a batch
+                // and runs alone, unless an under-half batch takes it.
+                if claimed.len() >= SWEEP_BATCH_KEYS / 2
+                    && claimed.len() + leaves.len() > SWEEP_BATCH_KEYS
+                {
                     break;
                 }
                 let (prefix, leaves) = self.groups.pop_front().expect("the front was just read");
+                let mut not_claimed = 0u64;
                 for lsk in leaves {
                     let key = prefix.behavioral_key(lsk);
                     match queue.take_due(&key, self.due_before_ms) {
@@ -212,11 +224,12 @@ impl SweepPass {
                         // A rescheduled key stays queued on its live deadline and a cancelled one
                         // was retired deliberately, so either way this is a skipped plan rather
                         // than a lost eviction.
-                        None => {
-                            counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => SweepDropReason::NotDue.as_str())
-                                .increment(1);
-                        }
+                        None => not_claimed += 1,
                     }
+                }
+                // Once per person, not per key: this loop can walk a whole stale pass in one call.
+                if not_claimed > 0 {
+                    counter!(SWEEP_KEYS_NOT_CLAIMED_TOTAL).increment(not_claimed);
                 }
             }
             if !claimed.is_empty() {
@@ -358,6 +371,9 @@ async fn run_batch(
     // across two views of the team.
     let snapshot = catalog.load();
     let Some(filters) = snapshot.team(TeamId(batch.team_id as i32)) else {
+        // Terminal, unlike the three legs below: with the team gone from the snapshot there is
+        // nothing to evict against, and a rescheduled key would be re-selected and re-dropped on
+        // every pass.
         counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => SweepDropReason::TeamDrift.as_str())
             .increment(batch.claimed.len() as u64);
         return;
@@ -390,7 +406,9 @@ async fn run_batch(
     } = prepared;
 
     if !changes.is_empty() {
+        let produce_started = Instant::now();
         let errors = produce_membership(sink, changes).await;
+        histogram!(SWEEP_BATCH_PRODUCE_SECONDS).record(produce_started.elapsed().as_secs_f64());
         if errors > 0 {
             warn!(
                 partition_id,
@@ -473,9 +491,10 @@ async fn run_batch(
     }
 }
 
-/// Read the batch's states and fold them into the writes, changes and schedules they imply. Reads in
-/// chunks and decodes each chunk before fetching the next, so the raw rows a batch holds are bounded
-/// by one chunk rather than by the batch.
+/// Read the batch's states and fold them into the writes, changes and schedules they imply. An
+/// ordinary batch is one read, because it was packed to [`SWEEP_BATCH_KEYS`], which is also the read
+/// width. Only a batch that overshot the target reads in several chunks, each decoded and dropped
+/// before the next is fetched.
 async fn prepare(
     partition_id: u16,
     handle: &StoreHandle,
@@ -616,6 +635,33 @@ mod tests {
             "the wide person is not split"
         );
         assert_eq!(batches[1].claimed.len(), 1);
+    }
+
+    #[test]
+    fn stale_selections_do_not_count_against_the_batch_cap() {
+        // Four persons selected at the target width each, all but one leaf rescheduled since. A cap
+        // measured against selections would refuse the second person next to a single claim and
+        // ship four one-key batches.
+        let live: Vec<(BehavioralKey, i64)> =
+            (0..4).map(|person| (key(TEAM, person, 0), 100)).collect();
+        let stale: Vec<(BehavioralKey, i64)> = (0..4)
+            .flat_map(|person| {
+                (1..SWEEP_BATCH_KEYS).map(move |leaf| (key(TEAM, person, leaf as u128), 100))
+            })
+            .collect();
+        let mut queue = queue_of(&[live.clone(), stale.clone()].concat());
+        let mut pass = SweepPass::select(&queue, CUTOFF);
+        for &(key, _) in &stale {
+            queue.schedule(key, CUTOFF + 500);
+        }
+
+        let batches = drain_batches(&mut pass, &mut queue);
+        let sizes: Vec<usize> = batches.iter().map(|batch| batch.claimed.len()).collect();
+        assert_eq!(
+            sizes,
+            vec![live.len()],
+            "the four claims pack into one batch"
+        );
     }
 
     #[test]
