@@ -25,6 +25,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
+from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
@@ -39,6 +40,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
 )
+from products.warehouse_sources.backend.billing import billed_usage_for_job
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
@@ -116,6 +118,15 @@ MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
+    # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
+    # entry: a config problem only the customer can fix, so retrying just re-hits the same
+    # rejection. Match the stable prefix and exclude the volatile host details that follow it.
+    "Database host not allowed": (
+        "PostHog rejected this source's database host because it either couldn't be resolved, or "
+        "resolves to a private/internal address. Check the host is spelled correctly and reachable "
+        "from the public internet, then re-enable the sync."
+    ),
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
     # can't be parsed, or password auth is missing a username/password. Shared by every
     # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,
@@ -174,6 +185,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
         "then re-enable the sync."
     ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a batch carries
+    # rows that aren't objects, such as a REST resource whose selected response field holds arrays or
+    # scalars. Keyless rows carry no column names to build a table from, and the same shape comes back
+    # on every retry. Keep in step with `NON_MAPPING_ROW_ERROR` in arrow_utils.
+    "Rows from this table are not JSON objects": (
+        "This table's rows aren't objects with named fields, so PostHog has no columns to import. "
+        "If the source lets you choose which part of the response to read, point it at a list of "
+        "objects, then re-enable the sync."
+    ),
 }
 
 
@@ -193,6 +213,10 @@ TRANSIENT_POOLER_MESSAGE = (
 TRANSIENT_EGRESS_MESSAGE = (
     "PostHog couldn't reach your source over the network. This is on PostHog's side and usually "
     "clears on its own; the next sync runs on schedule."
+)
+
+TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
+    "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
 )
 
 # A retryable failure that outlives its retries keeps whatever the driver said, so `latest_error`
@@ -225,6 +249,14 @@ Transient_Error_Messages: dict[str, str] = {
     "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
+    # A vendor API that was down or overloaded, in the wording `requests.raise_for_status()` builds:
+    # "<status> Server Error: <reason> for url: <url>". REST sources retry these in their transport
+    # and again through Temporal, so reaching here means the outage outlasted both and the stored
+    # text is a bare status plus the vendor URL. Only the gateway statuses are mapped: a 500 can be
+    # one request the vendor mishandles every time, which is not an outage that clears on its own.
+    "502 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    "503 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    "504 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     # Mixpanel signals a server-side abort inside an already-committed 200 body, so the export
     # stops part-way through a day (mixpanel.py `EXPORT_TRUNCATED_ERROR`). The day is re-fetched
     # in-process first; this copy is what the customer reads once those retries run out.
@@ -240,6 +272,12 @@ UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 CANCELLED_RUN_MESSAGE = (
     "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
     "it or the source is paused. It will run again on its next schedule."
+)
+
+TRANSIENT_SOURCE_ERROR_MESSAGE = (
+    "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
+    "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
+    "again on its next schedule."
 )
 
 
@@ -263,6 +301,13 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # this one, the source was paused, or a worker was rolled). Give them something readable.
     if isinstance(cause, exceptions.CancelledError):
         return CANCELLED_RUN_MESSAGE
+    # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
+    # connection, or a timeout). Temporal records it as an ApplicationError typed
+    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # code means nothing to a customer, so replace it with a message that names the cause and says the
+    # sync retries on its next schedule.
+    if getattr(cause, "type", None) == "RESTClientRetryableError":
+        return TRANSIENT_SOURCE_ERROR_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 
@@ -453,7 +498,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
         elif not platform_failure:
-            transient_message = _transient_error_message(internal_error_normalized)
+            # A retryable failure that outlasted the whole retry budget lands here with
+            # `latest_error` still set to the raw driver text. The generic transient copy is
+            # consulted first; the source's own exhaustion messages cover the classes it does not
+            # name. Retryability is untouched: the schema is not disabled and the next scheduled
+            # run still tries.
+            transient_message = _transient_error_message(internal_error_normalized) or next(
+                (
+                    message
+                    for error, message in source_cls.get_retry_exhausted_errors().items()
+                    if error_message_matches(internal_error_normalized, [error])
+                ),
+                None,
+            )
             if transient_message is not None:
                 inputs.latest_error = transient_message
 
@@ -487,6 +544,35 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 "classified": has_non_retryable_error,
             },
         )
+
+    if inputs.status == ExternalDataJob.Status.COMPLETED:
+        # The status write above already committed, so nothing here may fail the finalization —
+        # not the read back, not the classification. A job we cannot bill for is worth less than
+        # a sync that has to run again.
+        try:
+            # Read the job back rather than trusting `inputs`: the status write is absorbing, so
+            # it can leave a job that stayed FAILED, and the row counter is written elsewhere.
+            completed_job = await database_sync_to_async_pool(
+                ExternalDataJob.objects.select_related("pipeline").filter(team_id=inputs.team_id, id=job_id).first
+            )()
+            billed = billed_usage_for_job(completed_job) if completed_job else None
+            if completed_job and billed:
+                usage_key, rows = billed
+                await areport_usage(
+                    [
+                        UsageRecord(
+                            record_id=str(completed_job.id),
+                            producer_id="warehouse-sources",
+                            team_id=completed_job.team_id,
+                            usage_key=usage_key,
+                            unit="rows",
+                            quantity=rows,
+                        )
+                    ],
+                    site="warehouse_rows",
+                )
+        except Exception:
+            logger.exception(f"Could not collect usage for external data job {job_id}")
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",

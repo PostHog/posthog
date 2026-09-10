@@ -51,6 +51,7 @@ jobs:
                   [ -f .github/scripts/check-commit-warnings.test.sh ] || exit 0
                   shellcheck .github/scripts/check-claude-hooks.sh \
                       .github/scripts/check-quill-agents-md.sh \
+                      .github/scripts/check-comment-density.sh \
                       .github/scripts/check-commit-warnings.test.sh
                   .github/scripts/check-commit-warnings.test.sh
 

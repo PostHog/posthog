@@ -15,7 +15,7 @@ import { secureRandomString } from "@posthog/ui/utils/random";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactElement, useCallback, useEffect, useState } from "react";
 
-export type ClaudeAuthAction = "login" | "logout";
+export type ClaudeAuthAction = "login" | "logout" | "setup-token";
 
 interface ClaudeAuthTerminalDialogProps {
   action: ClaudeAuthAction;
@@ -29,9 +29,17 @@ const SURFACE = {
 } as const;
 
 const COPY = {
+  "setup-token": {
+    title: "Create a Claude token",
+    lead: "Follow the steps in this terminal. Copy the token. Close this window, then paste the token into Cloud tasks.",
+    command: "claude setup-token",
+    ok: "Copy the token. Close this window, then paste the token into Cloud tasks.",
+    failed:
+      "Token setup did not finish. Read the terminal output, then try again.",
+  },
   login: {
     title: "Log in to Claude Code",
-    lead: "The CLI opens your browser. If it asks for a code, paste the code in the terminal.",
+    lead: "Claude opens your browser. If it asks for a code, paste it in this terminal.",
     command: "claude auth login",
     ok: "Claude Code is logged in. You can close this window.",
     failed: "The login did not complete. Read the output, then try again.",
@@ -67,8 +75,12 @@ export function ClaudeAuthTerminalDialog({
 }: ClaudeAuthTerminalDialogProps): ReactElement {
   const hostTRPC = useHostTRPC();
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
-  const [started, setStarted] = useState(action === "login");
-  const { data: terminal } = useQuery({
+  const [started, setStarted] = useState(action !== "logout");
+  const {
+    data: terminal,
+    isPending: terminalPending,
+    isError: terminalError,
+  } = useQuery({
     ...hostTRPC.agent.claudeAuthTerminal.queryOptions({ action }),
     enabled: started,
   });
@@ -76,24 +88,30 @@ export function ClaudeAuthTerminalDialog({
     () => `claude-auth-${action}-${secureRandomString(7)}`,
   );
   const [stopped, setStopped] = useState(false);
+  const [exitCode, setExitCode] = useState<number | undefined>();
 
   const statusQuery = useQuery({
     ...hostTRPC.agent.claudeSubscriptionStatus.queryOptions(),
-    enabled: stopped,
+    enabled: stopped && action !== "setup-token",
   });
   const loggedIn = statusQuery.data?.loginState === "logged-in";
   const statusKnown = statusQuery.data?.loginState !== undefined;
   const verified = ((): boolean | undefined => {
+    if (action === "setup-token") return stopped ? exitCode === 0 : undefined;
+    if (statusQuery.isError) return false;
     if (!stopped || statusQuery.isFetching || !statusKnown) {
       return undefined;
     }
-    return action === "login" ? loggedIn : !loggedIn;
+    return action === "login"
+      ? loggedIn
+      : statusQuery.data?.loginState === "logged-out";
   })();
 
   const copy = COPY[action];
   const surface = isDarkMode ? SURFACE.dark : SURFACE.light;
 
   const status = ((): Status => {
+    if (terminalError) return "failed";
     if (!stopped) return "running";
     if (verified === undefined) return "checking";
     return verified ? "done" : "failed";
@@ -101,15 +119,22 @@ export function ClaudeAuthTerminalDialog({
 
   const hint = ((): string => {
     if (!started) return "Nothing changes until you select Log out.";
+    if (terminalError)
+      return "Could not open the terminal. Close this window and try again.";
+    if (terminalPending) return "Opening the terminal.";
     if (status === "running") return "The command runs. Close to stop it.";
     if (status === "checking") return "Reading the login status.";
     return verified ? copy.ok : copy.failed;
   })();
 
-  const handleExit = useCallback(() => {
-    setStopped(true);
-    onFinished();
-  }, [onFinished]);
+  const handleExit = useCallback(
+    (code?: number) => {
+      setExitCode(code);
+      setStopped(true);
+      onFinished();
+    },
+    [onFinished],
+  );
 
   const handleClose = useCallback(() => {
     destroyTerminalSession(sessionId);
@@ -133,6 +158,16 @@ export function ClaudeAuthTerminalDialog({
             {copy.lead}
           </p>
 
+          {started && terminalPending ? (
+            <output className="text-muted-foreground text-xs">
+              Opening the terminal…
+            </output>
+          ) : null}
+          {started && terminalError ? (
+            <span role="alert" className="text-xs">
+              Could not open the terminal. Close this window and try again.
+            </span>
+          ) : null}
           {started && terminal ? (
             <div
               className="overflow-hidden rounded-(--radius-3) border border-(--gray-6) shadow-sm"

@@ -2487,6 +2487,9 @@ class TestMySQLSourceValidateCredentials:
         [
             "https://db.example.com/",
             "mysql://root:secret@db.example.com:3306/mydb",
+            # No scheme, so the guard has to match on the path and userinfo separators instead.
+            "db.example.com/mydb",
+            "root:secret@db.example.com",
         ],
     )
     def test_url_in_host_field_rejected_without_echoing_input(self, source, mocker, host):

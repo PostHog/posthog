@@ -384,7 +384,9 @@ function SignupProfilePanel(): JSX.Element {
                         <>
                             {' '}
                             <Link
-                                data-attr="login-error-contact-support"
+                                // The login banner uses `login-error-contact-support`. A shared
+                                // attribute would mix both pages into one autocapture funnel arm.
+                                data-attr="signup-error-contact-support"
                                 onClick={(e) => {
                                     e.preventDefault()
                                     openSupportForm({

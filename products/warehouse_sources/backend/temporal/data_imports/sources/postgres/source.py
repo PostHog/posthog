@@ -250,6 +250,46 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = (
     "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
 )
 
+# A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
+# fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
+# `require_tls` off is the supported way to reach such a server.
+_SSL_UNSUPPORTED_ERROR = (
+    "Your database doesn't support the encrypted connection PostHog requires. Enable SSL/TLS on "
+    "your database server, or connect through an SSH tunnel instead."
+)
+
+# Terminal messages for the transient classes in `get_retryable_errors`. Those stay retryable, but
+# once every retry is spent the job stores whatever the driver said — a raw libpq or pooler string
+# carrying the customer's host and IP and no next action. Each message below names the class and
+# what to check, and deliberately carries no connection detail. See `get_retry_exhausted_errors`.
+_CONNECTION_DROPPED_EXHAUSTED_MESSAGE = (
+    "PostHog's connection to your database kept closing before the sync could finish, and "
+    "reconnecting didn't help. The database, a connection pooler, a firewall, or an SSH tunnel is "
+    "ending the connection early. Check those for idle or connection lifetime timeouts, restarts, "
+    "and failovers. This sync is still enabled and will run again on its next schedule."
+)
+
+_SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
+    "Your database wasn't accepting connections, and it was still unavailable after every retry. It "
+    "reported that it's starting up, recovering, or shutting down. Check that the database is "
+    "running and healthy. This sync is still enabled and will run again on its next schedule."
+)
+
+_CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
+    "Your database had no free connection slots for PostHog, and none freed up before the retries "
+    "ran out. Raise the connection limit on the database or its pooler, or reduce how many other "
+    "clients connect at the same time. This sync is still enabled and will run again on its next "
+    "schedule."
+)
+
+_RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
+    "Your read replica kept canceling PostHog's reads because it had to apply changes from the "
+    "primary that removed rows the sync was still reading, and the conflict outlasted every retry. "
+    "Increase max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
+    "connection at the primary database. This sync is still enabled and will run again on its next "
+    "schedule."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
@@ -998,6 +1038,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "conflict with recovery",
         }
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Every substring `get_retryable_errors` keeps retryable, mapped to the message the job
+        # stores once Temporal's retries are spent. Without this the terminal `latest_error` is the
+        # raw driver text (for example libpq's "connection to server at "<host>" (<ip>), port <port>
+        # failed: server closed the connection unexpectedly"), which leaks the customer's connection
+        # detail, offers no next action, and reads the same whether a sync dropped once or has been
+        # failing all week.
+        #
+        # Built from the same tuples as `get_retryable_errors` so a substring added there can't
+        # silently fall back to raw driver text here.
+        return {
+            **dict.fromkeys(_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
+            **dict.fromkeys(_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
+            **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
+            **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
+            "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
+        }
+
     def reconcile_schema_metadata(
         self,
         source: "ExternalDataSource",
@@ -1271,6 +1329,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         team_id: int,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -1296,8 +1355,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
+            self.get_schemas(
+                config,
+                team_id,
+                names=[schema_name] if schema_name else None,
+                api_version=api_version,
+                require_ssl=require_ssl,
+            )
         except SSLRequiredError as e:
+            # Real callers only raise this when `require_ssl` is set (see `_connect_to_postgres`),
+            # so the setup-time actionable copy belongs here. A caller that explicitly probed with
+            # `require_ssl=False` and still got this exception (only reachable in tests that mock
+            # the connection directly) keeps the exception's own wording rather than claiming an SSH
+            # tunnel opt-out that was never relevant to the probe just made.
+            if require_ssl:
+                return False, _SSL_UNSUPPORTED_ERROR
             return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
@@ -1329,8 +1401,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         access_method: str,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
+        return self.validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )
 
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False

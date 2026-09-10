@@ -13,6 +13,7 @@ def governed_metrics_catalog_prompt() -> str:
 
 For any named business or operational measure, call `metric-list` before making a data-bearing call. It lists the complete governed catalog and outranks typed domain tools, `query-*` tools, product skills, and raw SQL. Use `metric-describe` to inspect any candidate's full definition, including its stored HogQL or SQL, before adapting it. When an approved, non-drifted metric exactly answers the request, run it with `data-catalog-metric-run` rather than re-deriving the number.
 
+- Treat these as named measures even when they are phrased descriptively: counts of active entities; failure and error rates; latency percentiles; ticket, submission, and hit volumes; cost per run; and conversion rates. A product skill's query recipe does not exempt the request from this catalog-first step.
 - For a request that needs a drill-down, run the canonical metric for the headline first. You may then provide a label-level breakdown, but describe that breakdown as noncanonical.
 - When materially different catalog matches could answer the request, ask one clarifying question and end your turn. Do not acknowledge ambiguity and then run one of the alternatives anyway.
 - If no metric matches, say that you consulted the catalog and label any derived result noncanonical.

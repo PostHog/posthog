@@ -14,11 +14,15 @@ import {
   formatScoutScheduleShort,
   getScoutOrigin,
   getScoutScheduleMode,
+  hasPendingScoutRun,
   isRunStuck,
   isScoutCreatedByUser,
   listScoutCreatorOptions,
+  listScoutsNeedingAttention,
+  nextRunAt,
   normalizeRunStatus,
   prettifyScoutSkillName,
+  resolveScoutRouteName,
   runDurationSeconds,
   runMatchesFilter,
   SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
@@ -30,9 +34,8 @@ import {
   scoutCreatorKey,
   scoutCronScheduleError,
   scoutRunOutcomeLabel,
-  scoutSkillNameFromSlug,
-  scoutSkillSlug,
   sortConfigsForDisplay,
+  summarizeRunWindow,
   weeklyCronToDayTime,
 } from "./scoutPresentation";
 
@@ -80,17 +83,39 @@ describe("naming", () => {
     expect(prettifyScoutSkillName("custom_thing")).toBe("Custom thing");
   });
 
-  it("round-trips slugs", () => {
-    expect(scoutSkillSlug("signals-scout-error-tracking")).toBe(
+  it.each<[string, string[], string]>([
+    [
+      "signals-scout-error-tracking",
+      ["signals-scout-error-tracking"],
+      "signals-scout-error-tracking",
+    ],
+    ["my-churn-watch", ["my-churn-watch"], "my-churn-watch"],
+    // A link copied before the route carried full names.
+    [
       "error-tracking",
-    );
-    expect(scoutSkillNameFromSlug("error-tracking")).toBe(
+      ["signals-scout-error-tracking"],
       "signals-scout-error-tracking",
-    );
-    expect(scoutSkillNameFromSlug("signals-scout-error-tracking")).toBe(
-      "signals-scout-error-tracking",
-    );
-  });
+    ],
+    // A bare name wins over the prefixed scout that shares its slug.
+    [
+      "error-tracking",
+      ["error-tracking", "signals-scout-error-tracking"],
+      "error-tracking",
+    ],
+    ["unknown-scout", ["signals-scout-error-tracking"], "unknown-scout"],
+  ])("resolves route value %s", (routeValue, skillNames, expected) =>
+    expect(
+      resolveScoutRouteName(
+        routeValue,
+        skillNames.map((skill_name) => ({ skill_name })),
+      ),
+    ).toBe(expected),
+  );
+
+  it("keeps the route value while configs are still loading", () =>
+    expect(resolveScoutRouteName("error-tracking", undefined)).toBe(
+      "error-tracking",
+    ));
 
   it.each<[Pick<ScoutConfig, "scout_origin"> | null | undefined, ScoutOrigin]>([
     [{ scout_origin: "canonical" }, "canonical"],
@@ -174,6 +199,14 @@ describe("run outcomes", () => {
     outcome: ReturnType<typeof deriveRunOutcome>;
   }>([
     { overrides: { emitted_count: 2 }, outcome: "emitted" },
+    {
+      overrides: { emitted_count: 0, emitted_report_ids: ["report-1"] },
+      outcome: "emitted",
+    },
+    {
+      overrides: { emitted_count: 0, edited_report_ids: ["report-1"] },
+      outcome: "emitted",
+    },
     { overrides: { emitted_count: 0 }, outcome: "quiet" },
     {
       overrides: { status: "failed", completed_at: "2026-06-10T11:00:30Z" },
@@ -205,8 +238,8 @@ describe("run outcomes", () => {
   });
 
   it.each<{ overrides: Partial<ScoutRun>; label: string }>([
-    { overrides: { emitted_count: 1 }, label: "1 signal emitted" },
-    { overrides: { emitted_count: 0 }, label: "0 signals emitted" },
+    { overrides: { emitted_count: 1 }, label: "1 output" },
+    { overrides: { emitted_count: 0 }, label: "no output" },
     {
       overrides: { status: "failed", completed_at: "2026-06-10T11:30:10Z" },
       label: "timed out",
@@ -294,7 +327,7 @@ describe("rollups", () => {
       makeRun({ emitted_count: 2 }),
       makeRun({ run_id: "x", status: "failed" }),
     ]);
-    const summary = computeFleetSummary(configs, rollups);
+    const summary = computeFleetSummary(configs, rollups, NOW);
     expect(summary).toMatchObject({
       totalCount: 2,
       enabledCount: 1,
@@ -407,8 +440,8 @@ describe("intervals and ordering", () => {
 
 describe("lifecycle", () => {
   it.each([
-    ["ignored", "unacted on"],
-    ["no_output", "stopped emitting"],
+    ["ignored", "nobody acted"],
+    ["no_output", "stopped sending"],
     ["repeated_failures", "3 runs in a row failed"],
   ] as const)("explains a %s system pause", (reason, fragment) => {
     const state = deriveScoutLifecycle(
@@ -442,7 +475,7 @@ describe("lifecycle", () => {
         pause_reason: "ignored",
       }),
     );
-    expect(state.explanation).toContain("can pause again later");
+    expect(state.explanation).toContain("Switch it back on");
     expect(state.explanation).not.toMatch(/retries|on its own|exempt/i);
   });
 
@@ -457,7 +490,7 @@ describe("lifecycle", () => {
         consecutive_failure_count: 6,
       }),
     );
-    expect(state.explanation).toContain("resumes on its own");
+    expect(state.explanation).toContain("resumes when a run succeeds");
   });
 
   it("flags an ignored warning as heading for a pause", () => {
@@ -772,5 +805,48 @@ describe("schedule modes", () => {
     ["0 9 * * @", "Enter a five-field cron expression, like 0 9 * * 1-5."],
   ])("refuses %s", (expression, expected) => {
     expect(scoutCronScheduleError(expression)).toBe(expected);
+  });
+});
+
+describe("agent schedule and history", () => {
+  it.each([
+    { overrides: { run_cron_schedule: "0 9 * * *" }, expected: null },
+    { overrides: { run_cron_schedule: "30 8 * * 4" }, expected: null },
+    { overrides: { last_run_at: null }, expected: NOW },
+    { overrides: { enabled: false, last_run_at: null }, expected: null },
+    { overrides: {}, expected: NOW },
+  ])(
+    "uses the available schedule fields: $overrides",
+    ({ overrides, expected }) => {
+      expect(nextRunAt(makeConfig(overrides), NOW)).toEqual(expected);
+    },
+  );
+
+  it.each(["in_progress", "queued"])(
+    "does not call a mixed %s window finished",
+    (status) => {
+      const runs = [
+        makeRun(),
+        makeRun({
+          run_id: "pending",
+          status,
+          started_at: "2026-06-10T11:59:00Z",
+          completed_at: null,
+        }),
+      ];
+      const rollup = computeScoutRollups(runs).get(runs[0].skill_name);
+      expect(summarizeRunWindow(rollup, NOW)).not.toContain("all finished");
+      expect(hasPendingScoutRun(rollup)).toBe(true);
+    },
+  );
+
+  it("keeps a failure streak visible without a loaded run", () => {
+    const attention = listScoutsNeedingAttention(
+      [makeConfig({ consecutive_failure_count: 3 })],
+      new Map(),
+      NOW,
+    );
+    expect(attention).toHaveLength(1);
+    expect(attention[0].kind).toBe("failing");
   });
 });

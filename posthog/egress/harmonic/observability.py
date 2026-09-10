@@ -13,10 +13,10 @@ Harmonic bills one account-wide rate limit rather than a per-installation one, s
 metric scope label) and ``_RATE_LIMIT_RESOURCE`` (the rate-limit resource) are two distinct
 constants that happen to both be singletons for this domain today.
 
-Harmonic's own rate-limit header names are not confirmed from public docs (their docs page is a
-client-rendered SPA). The parser below reads the GitHub-style ``X-RateLimit-*`` names plus the
-``X-Ratelimit-*-Second`` variants, and returns None for anything absent or unparseable rather than
-raising — telemetry must never break the request it is recording.
+Harmonic's API reference documents ``X-Ratelimit-Limit-Second`` and ``X-Ratelimit-Remaining-Second``
+on every response. The parser below reads those plus the GitHub-style ``X-RateLimit-*`` names, and
+returns None for anything absent or unparseable rather than raising: telemetry must never break the
+request it is recording.
 """
 
 from collections.abc import Mapping

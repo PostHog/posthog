@@ -435,8 +435,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
-        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
+        self,
+        config: MySQLSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
+        # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
+        # `config.using_ssl` inside `connect`.
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
@@ -444,7 +451,9 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # A pasted URL or connection string in the host field otherwise fails DNS resolution with a
         # misleading "check the spelling" message that echoes the raw value back (which can embed
         # credentials). Catch it early with an actionable message that never reflects the input.
-        if "://" in config.host:
+        # A scheme-less paste ("db.example.com/mydb", "user:secret@db.example.com") has no "://",
+        # so match the path and userinfo separators — neither is legal in a hostname anyway.
+        if "/" in config.host or "@" in config.host:
             return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
@@ -502,5 +511,8 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         access_method: str,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
+        return self.validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )

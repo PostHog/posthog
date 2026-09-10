@@ -33,9 +33,11 @@ const mockGetAccessControlDisabledReason = getAccessControlDisabledReason as jes
 
 describe('scout creation buttons', () => {
     let startedChatTypes: string[]
+    let refreshRequests: number
 
     beforeEach(() => {
         startedChatTypes = []
+        refreshRequests = 0
         mockGetAccessControlDisabledReason.mockReturnValue(null)
         useMocks({
             get: {
@@ -98,7 +100,7 @@ describe('scout creation buttons', () => {
         setSuggestionsFlag(true)
         const logic = scoutSuggestionsLogic()
         logic.mount()
-        await waitFor(() => expect(logic.values.hasBatch).toBe(true))
+        await waitFor(() => expect(logic.values.hasPicks).toBe(true))
         const { findByText, queryByText } = render(<ScoutsRosterActions />)
         expect(queryByText('Suggest a scout')).toBeNull()
 
@@ -108,6 +110,57 @@ describe('scout creation buttons', () => {
         expect(logic.values.stripHidden).toBe(false)
         expect(logic.values.collapsed).toBe(false)
         expect(startedChatTypes).toEqual([])
+        logic.unmount()
+    })
+
+    // Reopening is local, so it must not wait on whatever else the header is starting. A separate
+    // test because the setup differs: this one needs a sibling task in flight.
+    it('reopens the closed strip while another header task is starting', async () => {
+        setSuggestionsFlag(true)
+        const logic = scoutSuggestionsLogic()
+        logic.mount()
+        await waitFor(() => expect(logic.values.hasPicks).toBe(true))
+        const { container, findByText, getByText } = render(<ScoutsRosterActions />)
+        logic.actions.hideStrip()
+        await findByText('Suggest a scout')
+
+        fireEvent.click(getByText('Ask'))
+        fireEvent.click(getByText('How is my scout troop performing?'))
+
+        // Read before the task resolves and clears the state, the same window the spinner lives in.
+        const reopen = container.querySelector<HTMLButtonElement>('[data-attr="scout-suggestions-show"]')
+        expect(reopen?.getAttribute('aria-disabled')).not.toBe('true')
+        expect(reopen?.querySelector('.Spinner')).toBeNull()
+        fireEvent.click(reopen!)
+
+        expect(logic.values.stripHidden).toBe(false)
+        await waitFor(() => expect(startedChatTypes).toEqual(['fleet_overview']))
+        logic.unmount()
+    })
+
+    // A project with no picks has no strip to reopen, so the header button is the only entry point
+    // there. A headless scan would spend minutes with nothing on screen, so it opens the chat.
+    it('opens the authoring chat from the header on a project with no picks', async () => {
+        setSuggestionsFlag(true)
+        useMocks({
+            get: { '/api/projects/:team/signals/scout/suggestions/': mockScoutSuggestionSet({ items: [] }) },
+            post: {
+                '/api/projects/:team/signals/scout/suggestions/refresh/': () => {
+                    refreshRequests += 1
+                    return [200, { workflow_id: 'workflow-1' }]
+                },
+            },
+        })
+        const logic = scoutSuggestionsLogic()
+        logic.mount()
+        const { findByText } = render(<ScoutsRosterActions />)
+        // The button is busy until the batch is known, so a press before then does nothing.
+        await waitFor(() => expect(logic.values.suggestionSet).not.toBeNull())
+
+        fireEvent.click(await findByText('Suggest a scout'))
+
+        await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
+        expect(refreshRequests).toBe(0)
         logic.unmount()
     })
 

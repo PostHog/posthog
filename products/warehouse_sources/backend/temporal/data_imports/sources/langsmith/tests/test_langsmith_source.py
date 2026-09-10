@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     RESPONSE_TOO_LARGE_ERROR,
+    RETRYABLE_API_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source import LangSmithSource
 
@@ -119,6 +120,27 @@ class TestLangSmithSource:
         message = non_retryable["400 Client Error"]
         assert message is not None
         assert "Host field" in message
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "HTTPSConnectionPool(host='api.smith.langchain.com', port=443): Max retries exceeded with "
+            'url: /api/v1/runs/query (Caused by ReadTimeoutError("HTTPSConnectionPool('
+            "host='api.smith.langchain.com', port=443): Read timed out. (read timeout=60)\"))",
+            f"{RETRYABLE_API_ERROR}: status=429, url=https://api.smith.langchain.com/api/v1/runs/query",
+            "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
+            '("Connection broken: IncompleteRead(1048576 bytes read, 4194304 more expected)", '
+            "IncompleteRead(1048576 bytes read, 4194304 more expected))",
+        ],
+    )
+    def test_exhausted_inline_retries_are_classified_retryable(self, observed_error):
+        # `_fetch_page` retries a read timeout, a 429/5xx, and a dropped connection itself, and
+        # Temporal then retries the activity from the saved pagination checkpoint. The failure is
+        # self-recovering, so it must match here to be logged at warning instead of reaching error
+        # tracking. The last two cases carry no urllib3 wrapper: the shared retry policy skips the
+        # runs/query POST, and a drop while `_read_capped_body` streams the body happens after the
+        # headers arrive.
+        assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
 
     def test_documented_tables_render_from_static_catalog(self):
         # lists_tables_without_credentials must expose the table catalog (+ canonical descriptions)

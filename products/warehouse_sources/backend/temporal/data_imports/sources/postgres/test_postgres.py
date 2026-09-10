@@ -134,6 +134,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     get_leading_index_columns,
     get_postgres_row_count,
     get_schemas,
+    new_source_requires_ssl,
     postgres_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
@@ -599,6 +600,44 @@ class TestPostgresSourceNonRetryableErrors:
         # get_non_retryable_errors so the sync keeps retrying rather than being disabled.
         assert error_message_matches(error_msg, source.get_retryable_errors())
         assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
+
+    @pytest.mark.parametrize(
+        "error_msg,expected_phrase",
+        [
+            (
+                'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: server closed the connection unexpectedly',
+                "closing",
+            ),
+            (
+                'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: FATAL: the database system is starting up',
+                "accepting connections",
+            ),
+            (
+                'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: FATAL: sorry, too many clients already',
+                "connection slots",
+            ),
+        ],
+    )
+    def test_exhausted_retries_replace_raw_driver_text(self, source, error_msg, expected_phrase):
+        # Once Temporal's retries run out these land on the job as-is, so without a mapping the
+        # customer reads libpq's host and IP and gets no next action. Mirror the finalizer's
+        # first-match selection over get_retry_exhausted_errors.
+        message = next(
+            (
+                friendly
+                for pattern, friendly in source.get_retry_exhausted_errors().items()
+                if error_message_matches(error_msg, [pattern])
+            ),
+            None,
+        )
+        assert message is not None, f"Exhausted retryable error must surface a message: {error_msg}"
+        assert expected_phrase in message.lower()
+        assert "db.example.com" not in message and "10.0.0.1" not in message
+
+    def test_every_retryable_error_has_an_exhaustion_message(self, source):
+        # A transient substring added to postgres.py flows into get_retryable_errors automatically,
+        # so one missing here would silently fall back to storing the raw driver text.
+        assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -3980,7 +4019,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         assert valid is True
         assert error is None
-        validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None)
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None, require_ssl=False)
 
     def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
         config = source.parse_config(
@@ -3999,7 +4038,38 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         assert valid is True
         assert error is None
-        validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None)
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None, require_ssl=False)
+
+
+class TestNewSourceRequiresSSL:
+    def _config(self, ssh_tunnel: dict | None = None):
+        return PostgresSource().parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+                **({"ssh_tunnel": ssh_tunnel} if ssh_tunnel else {}),
+            }
+        )
+
+    def test_plain_connection_requires_ssl(self):
+        assert new_source_requires_ssl(self._config()) is True
+
+    @pytest.mark.parametrize("require_tls,expected", [(True, True), (False, False)])
+    def test_ssh_tunnel_can_opt_out_of_ssl(self, require_tls, expected):
+        config = self._config(
+            {
+                "enabled": True,
+                "host": "bastion.example.com",
+                "port": "22",
+                "auth": {"selection": "password", "username": "tunnel", "password": "tunnel"},
+                "require_tls": {"enabled": require_tls},
+            }
+        )
+        assert new_source_requires_ssl(config) is expected
 
 
 class TestValidateCredentialsErrorMapping:
@@ -4162,6 +4232,40 @@ class TestValidateCredentialsErrorMapping:
 
         assert valid is False
         assert error == expected
+
+    @pytest.mark.parametrize(
+        "require_ssl,expects_ssl_guidance",
+        [
+            # The wizard now probes with the same SSL requirement the sync will use, so a server
+            # built without SSL support is rejected during setup instead of at the first sync or
+            # direct query.
+            (True, True),
+            # Sources predating the SSL cutoff still connect permissively, so the same server keeps
+            # validating and the generic mapping applies.
+            (False, False),
+        ],
+    )
+    def test_unsupported_ssl_is_reported_while_setting_the_source_up(
+        self, source, config, require_ssl, expects_ssl_guidance
+    ):
+        connect_mock = mock.MagicMock(
+            side_effect=psycopg.OperationalError("server does not support SSL, but SSL was required")
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+                connect_mock,
+            ),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1, require_ssl=require_ssl)
+
+        assert valid is False
+        assert error is not None
+        assert ("SSH tunnel" in error) is expects_ssl_guidance
+        # The raw libpq wording is debugging detail, not something the wizard should show.
+        assert "server does not support SSL" not in error
 
     def test_ssh_gateway_session_error_maps_to_actionable_message(self, source, config):
         # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;

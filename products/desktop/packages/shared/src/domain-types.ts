@@ -33,6 +33,16 @@ export type EffortLevel = z.infer<typeof effortLevelSchema>;
 /** All effort levels in ascending order of depth. */
 export const EFFORT_LEVELS = effortLevelSchema.options;
 
+/**
+ * OpenAI service tiers a Codex run can request. "flex" is the cheaper, slower
+ * queue; "priority" the faster one; "default" pins standard routing explicitly.
+ * Codex only sends a tier its model catalogue advertises for the model in use.
+ */
+export const serviceTierSchema = z.enum(["default", "priority", "flex"]);
+export type ServiceTier = z.infer<typeof serviceTierSchema>;
+
+export const SERVICE_TIERS = serviceTierSchema.options;
+
 export const EFFORT_LEVEL_LABELS: Record<EffortLevel, string> = {
   low: "Low",
   medium: "Medium",
@@ -76,6 +86,9 @@ export interface Task {
   title: string;
   title_manually_set?: boolean;
   description: string;
+  // First characters of the description, present instead of the full body when the
+  // list was fetched with basic=true. Absent on the full and single-task responses.
+  description_preview?: string;
   created_at: string;
   updated_at: string;
   /**
@@ -102,13 +115,24 @@ export interface Task {
 
 export interface TaskSearchResult {
   id: string;
-  kind: "task" | "pull_request" | "artifact" | "channel";
+  kind: "task" | "pull_request" | "artifact" | "channel" | "canvas";
   title: string;
   subtitle: string;
   task_id: string | null;
   task_run_id: string | null;
   channel_id: string | null;
+  created_by?: UserBasic | null;
+  /** What created the containing task, e.g. "slack". */
+  origin_product?: string | null;
+  latest_run?: TaskSearchResultRun | null;
+  updated_at: string;
   metadata: Record<string, unknown>;
+}
+
+export interface TaskSearchResultRun {
+  id: string;
+  status: TaskRunStatus | null;
+  environment: TaskRunEnvironment | null;
 }
 
 /**
@@ -125,7 +149,7 @@ export interface ProvisionedTaskChannels {
 export interface TaskChannel {
   id: string;
   name: string;
-  channel_type: "public" | "personal";
+  channel_type: "public" | "personal" | "private";
   starred: boolean;
   github_integration?: number | null;
   repositories?: string[];
@@ -326,6 +350,7 @@ const storeSkillStubSchema = z.object({
 export type StoreSkillStub = z.infer<typeof storeSkillStubSchema>;
 
 const taskRunStateFields = {
+  ai_agent_name: optionalField(z.string()),
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
@@ -1001,7 +1026,10 @@ import type { AvailableSuggestedReviewer } from "./inbox-types";
 export type { AvailableSuggestedReviewer };
 
 export interface SuggestedReviewer {
-  github_login: string;
+  /** Null for a reviewer with no linked GitHub account — `user` identifies them instead. */
+  github_login: string | null;
+  /** Null on entries written before reviewers carried one; `user` still resolves from the login. */
+  user_uuid?: string | null;
   github_name: string | null;
   relevant_commits: SuggestedReviewerCommit[];
   user: SuggestedReviewerUser | null;

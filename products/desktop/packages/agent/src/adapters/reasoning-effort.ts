@@ -79,6 +79,7 @@ const CODEX_CAPABILITY_LADDER: CapabilityNotch[] = [
   { model: "gpt-5.6-sol", effort: "medium" },
   { model: "gpt-5.6-sol", effort: "high" },
   { model: "gpt-5.6-sol", effort: "xhigh" },
+  { model: "gpt-6-astra", effort: "max" },
 ];
 
 export function getCapabilityLadder(adapter: Adapter): CapabilityNotch[] {

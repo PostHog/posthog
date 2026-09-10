@@ -45,6 +45,7 @@ from posthog.models.activity_logging.activity_log import Detail, dict_changes_be
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
@@ -106,7 +107,6 @@ def create_event_definitions_sql(
     is_enterprise: bool = False,
     conditions: str = "",
     order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
-    paginated: bool = True,
 ) -> str:
     if order_expressions is None:
         order_expressions = []
@@ -141,13 +141,11 @@ def create_event_definitions_sql(
     # A `RawQuerySet` has no `count()`, so DRF's paginator counts it with `len()` and slices the
     # result in Python. Without this clause one page of 100 costs a read of every event definition
     # the project has, wide columns included.
-    limit_clause = "LIMIT %(limit)s OFFSET %(offset)s" if paginated else ""
-
     return f"""
             SELECT {",".join(selected_fields)}
             {_event_definitions_source_sql(event_type, is_enterprise, conditions)}
             ORDER BY {",".join(additional_ordering)}
-            {limit_clause}
+            LIMIT %(limit)s OFFSET %(offset)s
         """
 
 
@@ -379,17 +377,6 @@ class EventDefinitionViewSet(
         # Allows this endpoint to return lists of event definitions, actions, or both.
         event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
 
-        search = self.request.GET.get("search", None)
-        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
-
-        params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
-        order_expressions = self._ordering_params_from_request()
-        has_explicit_ordering = "ordering" in self.request.GET
-        has_search_terms = bool(search and search.strip())
-
-        if has_search_terms and not has_explicit_ordering:
-            order_expressions = [("length(name)", "ASC"), *order_expressions]
-
         event_definition_object_manager: Manager
         if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
@@ -397,6 +384,24 @@ class EventDefinitionViewSet(
             event_definition_object_manager = EnterpriseEventDefinition.objects
         else:
             event_definition_object_manager = EventDefinition.objects
+
+        search = self.request.GET.get("search", None)
+        has_search_terms = bool(search and search.strip())
+        plan = (
+            search_plan("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
+            if has_search_terms
+            else None
+        )
+        search_query, search_kwargs = term_search_filter_sql(
+            self.search_fields, search, avoid_trigram_index=plan == "project_scan"
+        )
+
+        params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
+        order_expressions = self._ordering_params_from_request()
+        has_explicit_ordering = "ordering" in self.request.GET
+
+        if has_search_terms and not has_explicit_ordering:
+            order_expressions = [("length(name)", "ASC"), *order_expressions]
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
@@ -442,19 +447,24 @@ class EventDefinitionViewSet(
             params["names"] = list(set(names))
 
         tags_list = self._tags_filter_from_request()
+        if tags_list:
+            # EXISTS, not a join: it keeps one row per definition, so the page stays a page and
+            # the count stays a count, with no DISTINCT over the whole result set.
+            search_query = (
+                search_query
+                + " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
+                + " JOIN posthog_tag ON posthog_tag.id = posthog_taggeditem.tag_id"
+                + " WHERE posthog_taggeditem.event_definition_id = posthog_eventdefinition.id"
+                + " AND posthog_tag.name = ANY(%(tags)s))"
+            )
+            params["tags"] = tags_list
+
         sql = create_event_definitions_sql(
             event_type,
             is_enterprise=EE_AVAILABLE,
             conditions=search_query,
             order_expressions=order_expressions,
-            paginated=not tags_list,
         )
-
-        if tags_list:
-            # The tags filter has to see every match before it can page, so this path keeps the
-            # unbounded fetch and lets the paginator page the resulting ORM queryset instead.
-            ids = [obj.id for obj in event_definition_object_manager.raw(sql, params=params)]
-            return event_definition_object_manager.filter(id__in=ids, tagged_items__tag__name__in=tags_list).distinct()
 
         paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)
