@@ -266,6 +266,9 @@ class TestReportMetric(SimpleTestCase):
             ("unknown series letter", {"formula": "B"}),
             ("function call", {"formula": "round(A)"}),
             ("invalid syntax", {"formula": "A +"}),
+            ("multi-statement body", {"formula": "A; A"}),
+            ("overflow to infinity", {"formula": "1e308 * 1e308"}),
+            ("overflow that raises", {"formula": "1e308 ** 2"}),
         ):
             with self.subTest(description=description):
                 content = _affected_users_metric().model_dump(mode="json")

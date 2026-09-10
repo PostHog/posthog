@@ -118,9 +118,16 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
 
     dummy_series = [[1.0] for _ in range(series_count)]
     try:
-        FormulaAST(dummy_series).call(formula)
-    except (BaseHogQLError, SyntaxError, ValueError, TypeError) as error:
+        replayed = FormulaAST(dummy_series).call(formula)
+    except (BaseHogQLError, SyntaxError, ValueError, TypeError, ArithmeticError) as error:
         raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
+    # Executing is not enough. A multi-statement body returns a list for every interval, and an
+    # overflowing expression returns infinity. Both only fail at refresh, where the aggregate is
+    # refused and the metric never gets a snapshot, so reject the shape while the metric is written.
+    if not isinstance(replayed, list) or any(
+        isinstance(point, bool) or not isinstance(point, int | float) or not math.isfinite(point) for point in replayed
+    ):
+        raise ValueError("a live metric formula must produce one finite number for each interval")
 
 
 class ReportMetricComparison(BaseModel):
