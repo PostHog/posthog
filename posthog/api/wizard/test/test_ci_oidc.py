@@ -155,8 +155,7 @@ class TestVerifyGitHubOidc:
             verify_github_oidc(token(workflow_ref="PostHog/wizard/.github/workflows/publish.yml@refs/heads/main"))
 
     def test_the_same_workflow_on_another_ref_is_refused(self):
-        # The bypass this pin exists for: both claims move to the attacker's ref
-        # together.
+        # The bypass this pin exists for: both claims move to the attacker's ref.
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(
                 token(
@@ -237,8 +236,6 @@ class TestVerifyGitHubOidc:
         assert _fetch.call_count == 1
 
     def test_a_failing_fetch_is_not_retried_until_the_interval_passes(self, _fetch):
-        # A failed attempt has to spend the interval too. Otherwise an unreachable
-        # GitHub puts one outbound request behind every request that arrives.
         _fetch.side_effect = Exception("github unreachable")
         for _ in range(5):
             with pytest.raises(WizardCiOidcError):
@@ -254,8 +251,7 @@ class TestVerifyGitHubOidc:
     def test_a_failed_refetch_keeps_serving_the_cached_key_set(self, _fetch):
         verify_github_oidc(token())
         _fetch.side_effect = Exception("github unreachable")
-        # Both clocks have to move, or the interval returns the cached set before
-        # the refetch this test is named for is ever attempted.
+        # Both clocks move, or the fetch interval serves the cached set before any refetch.
         with patch("posthog.api.wizard.ci_oidc._JWKS_TTL_SECONDS", -1):
             with patch("posthog.api.wizard.ci_oidc._JWKS_MIN_FETCH_INTERVAL_SECONDS", -1):
                 claims = verify_github_oidc(token())
@@ -263,14 +259,12 @@ class TestVerifyGitHubOidc:
         assert claims.repository == REPOSITORY
 
     def test_an_unrecognized_key_is_refused_rather_than_unresolvable(self, _fetch):
-        # A key set we hold and a kid that is not in it is the caller's problem.
         with pytest.raises(WizardCiOidcError) as refused:
             verify_github_oidc(token(kid="made-up"))
         assert not isinstance(refused.value, WizardCiOidcUnavailable)
 
     def test_a_caller_arriving_mid_fetch_serves_the_cached_set_instead_of_waiting(self, _fetch):
-        # Pins the non-blocking acquire. Taking the lock normally would park every
-        # arriving worker thread on a fetch that runs for up to ten seconds.
+        # Pins the non-blocking acquire.
         verify_github_oidc(token())
         started, release = threading.Event(), threading.Event()
 
@@ -295,7 +289,6 @@ class TestVerifyGitHubOidc:
         assert waited < 2
 
     def test_a_key_set_past_the_staleness_ceiling_stops_serving(self, _fetch):
-        # Otherwise an unreachable GitHub means a key it revoked verifies forever.
         verify_github_oidc(token())
         _fetch.side_effect = Exception("github unreachable")
         with patch("posthog.api.wizard.ci_oidc._JWKS_MAX_STALE_SECONDS", -1):
@@ -312,8 +305,6 @@ class TestVerifyGitHubOidc:
         assert _fetch.call_count == 2
 
     def test_verification_leaves_the_single_use_unspent(self):
-        # The mint spends it, so a refused mint can hand it back and let the same
-        # run retry with the token it already has.
         bearer = token()
         assert verify_github_oidc(bearer).repository == REPOSITORY
         assert verify_github_oidc(bearer).repository == REPOSITORY
@@ -330,7 +321,6 @@ class TestVerifyGitHubOidc:
         assert consume_token_id(claims)
 
     def test_a_token_valid_for_longer_than_we_track_is_refused(self):
-        # The replay marker would have to be held for as long.
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(token(exp=int(time.time()) + 10**9))
 
@@ -377,8 +367,7 @@ class TestVerifyGitHubOidc:
         _fetch.assert_not_called()
 
     def test_an_encryption_key_is_not_used_to_verify(self, _fetch):
-        # Same kid, wrong use: verifying with it would accept a key GitHub never
-        # offered for signatures.
+        # Same kid, wrong use: GitHub never offered this key for signatures.
         _fetch.return_value = key_set(_jwk(use="enc"))
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(token())

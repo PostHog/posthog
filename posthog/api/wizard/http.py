@@ -172,8 +172,7 @@ def _refuse_mint(
 
 
 def _ci_bearer(request: Request) -> str | None:
-    """The presented bearer when it is JWT-shaped. Routing only; verify_github_oidc
-    decides whether it is a wizard CI identity."""
+    """The presented bearer when it is JWT-shaped, for routing only."""
     header = request.META.get("HTTP_AUTHORIZATION", "")
     if not header.startswith("Bearer "):
         return None
@@ -184,9 +183,8 @@ def _ci_bearer(request: Request) -> str | None:
 def _wizard_gateway_switched_off(distinct_id: str, team: Team) -> bool:
     """Whether the kill switch refuses this mint.
 
-    A kill switch, not a rollout gate: only a literal False refuses. With the legacy
-    product off there is no second path, so reading a flag-service outage as "not
-    rolled out" would turn a blip into a global wizard outage.
+    Only a literal False refuses: the legacy product is off, so reading a flag-service
+    outage as switched off would turn a blip into a global wizard outage.
     """
     try:
         rolled_out = posthoganalytics.feature_enabled(
@@ -209,8 +207,7 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     """Mint one run's token for a verified GitHub Actions workflow.
 
     A workflow run has no user, so the signed claims are the identity check the
-    user-bound path gets from the blocklist and email verification. Outcomes carry a
-    `ci_` prefix so the existing counter keeps its shape.
+    user-bound path gets from the blocklist and email verification.
     """
 
     def refuse(outcome: str, exc: exceptions.APIException) -> NoReturn:
@@ -233,7 +230,7 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     if not settings.WIZARD_CI_TEAM_ID:
         refuse("ci_unconfigured", exceptions.PermissionDenied("Wizard CI minting is not configured."))
 
-    # A program missing from either has nowhere to bill. An identity's own list replaces the global one.
+    # A program missing from either has nowhere to bill.
     ci_programs = settings.WIZARD_CI_PROGRAM_IDS if claims.program_ids is None else claims.program_ids
     if product is None or not isinstance(program, str) or program not in set(ci_programs):
         refuse("ci_program_unknown", exceptions.PermissionDenied("This wizard program cannot mint from CI."))

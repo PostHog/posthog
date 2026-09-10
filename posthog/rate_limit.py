@@ -1283,10 +1283,7 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
 def _charge_mint_slot(key: str, duration: int) -> tuple[str, int] | None:
     """Atomically charge one slot in the current window; returns (counter, count).
 
-    Shared by the per-user and per-repository reservations so the ordering below
-    has one implementation. None on a cache error, which fails the caller open:
-    what this bounds is also bounded by the per-token cap and the wallet, and a
-    Redis blip must not turn a minted token into a 500.
+    Shared by every mint reservation. None on a cache error; each caller decides whether that fails open.
     """
     try:
         window = int(time.time()) // duration
@@ -1313,13 +1310,9 @@ WIZARD_CI_VERIFY_WINDOW_SECONDS = 60
 def reserve_wizard_ci_verify(ip: str | None, limit: int) -> None:
     """Charge one signature verification for this source address, or raise.
 
-    First line only. Cloud trusts every proxy, so the address is caller-written and
-    a client that rotates it buys a fresh bucket; the bound that survives that is
-    the fetch interval in `posthog.api.wizard.ci_oidc`. This keeps the cheap
-    repeat-offender case off the CPU. Nothing is refunded: it charges the attempt.
-
-    Fails open on a cache error, matching the reservation beside it: verification
-    still costs no outbound request beyond that interval.
+    A first line only: cloud trusts every proxy, so a client that rotates the address gets a
+    fresh bucket, and the fetch interval in `posthog.api.wizard.ci_oidc` is the real bound.
+    Fails open on a cache error, because that interval still bounds outbound requests.
     """
     charged = _charge_mint_slot(f"wizard_ci_verify:{ip or 'unknown'}", WIZARD_CI_VERIFY_WINDOW_SECONDS)
     if charged is None:
@@ -1341,7 +1334,7 @@ class WizardCiAccountingUnavailable(exceptions.APIException):
 
 
 class WizardCiDailyLimitReached(exceptions.Throttled):
-    """A repository's daily CI mints are spent. It clears at 00:00 UTC, not at the next hour."""
+    """A repository's daily CI mints are spent until 00:00 UTC."""
 
 
 def reserve_wizard_ci_mint(repository: str, *, per_hour: int, per_day: int) -> list[str]:

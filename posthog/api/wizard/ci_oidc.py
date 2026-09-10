@@ -1,8 +1,4 @@
-"""Verify the GitHub Actions OIDC token a pinned wizard CI workflow presents.
-
-CI holds no standing credential: the signed claims are the identity check a
-user-bound mint gets from the blocklist and email verification.
-"""
+"""Verify the GitHub Actions OIDC token a pinned wizard CI workflow presents."""
 
 import time
 import threading
@@ -22,15 +18,14 @@ from posthog.llm.wizard_gateway_token import WIZARD_GATEWAY_CONFIG_REJECTS, _par
 logger = structlog.get_logger(__name__)
 
 GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
-# Fixed and well-known, so there is no operator-supplied URL to SSRF-guard.
+# Fixed, so there is no operator-supplied URL to SSRF-guard.
 GITHUB_OIDC_JWKS_URL = f"{GITHUB_OIDC_ISSUER}/.well-known/jwks"
 
 _JWKS_TIMEOUT_SECONDS = 10
 _JWKS_TTL_SECONDS = 300
 # How long a key GitHub revoked still verifies, when refetches keep failing.
 _JWKS_MAX_STALE_SECONDS = 3600
-# The bound on outbound work an anonymous caller can force. The per-address
-# throttle is not one: cloud trusts every proxy, so that address is caller-written.
+# The bound on key fetches an anonymous caller can force.
 _JWKS_MIN_FETCH_INTERVAL_SECONDS = 60
 _JTI_CLOCK_SKEW_SECONDS = 60
 # A token valid for longer is refused: the replay marker has to outlive it.
@@ -46,7 +41,7 @@ class WizardCiOidcError(Exception):
 
 
 class WizardCiOidcUnavailable(WizardCiOidcError):
-    """A dependency needed to decide was unavailable. Retryable, unlike a refusal."""
+    """A dependency needed to decide was unavailable, so the caller may retry."""
 
 
 @frozen
@@ -88,10 +83,7 @@ def reset_key_set_cache() -> None:
 
 
 def _fetch_key_set() -> jwt.PyJWKSet:
-    """Fetch through `requests`, which is what routes the call via the egress proxy.
-
-    PyJWKClient reaches for `urllib`, which does not.
-    """
+    """Fetch through `requests`, which routes via the egress proxy; PyJWKClient's `urllib` does not."""
     response = requests.get(GITHUB_OIDC_JWKS_URL, timeout=_JWKS_TIMEOUT_SECONDS, allow_redirects=False)
     response.raise_for_status()
     return jwt.PyJWKSet.from_dict(response.json())
@@ -113,10 +105,8 @@ def _servable(now: float) -> jwt.PyJWKSet | None:
 def _current_key_set(kid: str) -> jwt.PyJWKSet | None:
     """The key set to verify against, refetching at most once per interval.
 
-    A failed attempt spends the interval too, or an unreachable GitHub puts a
-    fresh outbound request behind every inbound one. The lock is taken without
-    blocking, so a caller arriving mid-fetch serves what is cached rather than
-    parking a worker on a 10 second call.
+    A failed attempt spends the interval too, or an unreachable GitHub puts a fetch behind
+    every request. The lock is non-blocking, so a caller arriving mid-fetch serves the cache.
     """
     global _key_set, _key_set_fetched_at, _fetch_attempted_at
     now = time.monotonic()
@@ -254,11 +244,7 @@ def looks_like_jwt(token: str) -> bool:
 
 
 def _envelope_could_match(raw: str) -> bool:
-    """Whether a key lookup is worth spending on this token.
-
-    Never a trust decision: verify_github_oidc re-checks both against the signed
-    payload.
-    """
+    """Whether a key lookup is worth spending; never a trust decision, since verification re-checks both."""
     try:
         claims = jwt.decode(raw, options={"verify_signature": False})
     except jwt.PyJWTError:
@@ -269,10 +255,7 @@ def _envelope_could_match(raw: str) -> bool:
 
 
 def verify_github_oidc(raw: str) -> GitHubOidcClaims:
-    """Verify the signature and every workflow identity pin.
-
-    An unverifiable token refuses, a key set that does not resolve included.
-    """
+    """Verify the signature and every workflow identity pin."""
     if not wizard_ci_oidc_configured():
         raise WizardCiOidcError("wizard CI OIDC is not configured on this instance")
 
@@ -313,9 +296,8 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     repository_id = str(claims.get("repository_id") or "")
     subject = str(claims.get("sub") or "")
     workflow_ref = str(claims.get("workflow_ref") or "")
-    # Whole values, all from one entry: a rename frees a name but never an id, and
-    # `refs/heads/main` is a prefix of `refs/heads/main-x`. A file name may hold "@", so
-    # the path ends at the last one; a pinned ref holding one only fails closed.
+    # Whole values from one entry: a reused name has a new id, `refs/heads/main` prefixes
+    # `refs/heads/main-x`, and a file name may hold "@", so the path ends at the last one.
     presented = (repository, repository_id, workflow_ref.rsplit("@", 1)[0], subject)
     limits = _pinned_identities().get(presented)
     if limits is None:

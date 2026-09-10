@@ -466,8 +466,7 @@ def mint_wizard_gateway_token(
 def _ttl_seconds(posture: WizardPosture | None, override: int | None = None) -> int:
     """The requested token lifetime, clamped to the gateway's mint bounds.
 
-    The override outranks both tier and setting, for callers whose run is bounded
-    by something other than a posture. It is clamped like every other source.
+    The override outranks tier and setting, for callers whose run a posture does not bound.
     """
     ttl = override
     if ttl is None:
@@ -534,17 +533,12 @@ def _parse_cap(raw: object) -> Decimal | None:
     return cap
 
 
-# The fallback for a rejected WIZARD_CI_CAP_USD: low, so a bad value stops costly runs
-# rather than widening what one CI token can spend.
+# The fallback for a rejected WIZARD_CI_CAP_USD: low, so a bad value cannot widen spend.
 _CI_CAP_FLOOR = Decimal("2")
 
 
 def wizard_ci_cap_usd() -> Decimal:
-    """The per-run cap for a CI mint, falling back to the in-code floor.
-
-    A rejected setting degrades quietly toward the floor, so it is counted like
-    every other out-of-contract value rather than only logged.
-    """
+    """The per-run cap for a CI mint; a rejected setting falls back to the floor and is counted."""
     cap = _parse_cap(settings.WIZARD_CI_CAP_USD)
     if cap is None:
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="ci_cap_usd").inc()

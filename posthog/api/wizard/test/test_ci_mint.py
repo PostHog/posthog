@@ -275,7 +275,6 @@ class WizardCiMintTests(APIBaseTest):
 
         assert third.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert self._code(third) == "ci_verify_throttled"
-        # The refused third request must not have reached verification at all.
         assert verify.call_count == 2
 
     def test_the_verify_bucket_is_per_address(self):
@@ -305,8 +304,7 @@ class WizardCiMintTests(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_a_forwarded_header_does_buy_a_fresh_bucket_on_cloud(self):
-        # Cloud sets TRUST_ALL_PROXIES, so this throttle reads a caller-written
-        # address. Pinned so nobody reads the limit as the protection.
+        # Pinned so nobody reads this throttle as protection: cloud trusts every proxy.
         with self._settings(WIZARD_CI_VERIFY_PER_MINUTE=1, TRUST_ALL_PROXIES=True, USE_X_FORWARDED_HOST=True):
             with patch(
                 "posthog.api.wizard.http.verify_github_oidc",
@@ -331,8 +329,7 @@ class WizardCiMintTests(APIBaseTest):
         assert self._code(second) == "ci_token_replayed"
 
     def test_a_refunded_mint_failure_lets_the_same_token_retry(self):
-        # The slot and the single use are handed back together, or the retry the
-        # refund exists for would be refused as a replay.
+        # The slot and the single use go back together, or the retry is refused as a replay.
         fixed = _claims()
         with self._settings():
             with patch("posthog.api.wizard.http.release_token_id") as release:
@@ -359,7 +356,7 @@ class WizardCiMintTests(APIBaseTest):
         assert retried.status_code == status.HTTP_201_CREATED
 
     def test_an_unreachable_cache_is_retryable_rather_than_minting_unbounded(self):
-        # Not a 429: the CLI reads that as a refusal and ends a run that holds a live token.
+        # A 503: the counters could not be read, so no limit has been reached.
         with self._settings():
             with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch("posthog.rate_limit._charge_mint_slot", return_value=None):
@@ -386,8 +383,6 @@ class WizardCiMintTests(APIBaseTest):
         mint.assert_not_called()
 
     def test_a_replay_hands_back_the_slot_it_charged(self):
-        # Otherwise one captured token burns the hour and refuses the runs it was
-        # captured from.
         fixed = _claims()
         with self._settings(WIZARD_CI_MINTS_PER_HOUR=2):
             with patch("posthog.api.wizard.http.verify_github_oidc", return_value=fixed):
@@ -400,7 +395,6 @@ class WizardCiMintTests(APIBaseTest):
         refund.assert_called_once_with(list(_reservation_counters("PostHog/wizard")))
 
     def test_a_failure_that_may_have_issued_a_token_keeps_the_single_use(self):
-        # The token may be live, so the use it spent must stay spent.
         fixed = _claims()
         with self._settings():
             with patch("posthog.api.wizard.http.verify_github_oidc", return_value=fixed):
@@ -435,8 +429,6 @@ class WizardCiMintTests(APIBaseTest):
         mint.assert_not_called()
 
     def test_a_flag_outage_still_mints(self):
-        # Only a literal False refuses; the legacy path is gone, so reading an
-        # outage as "switched off" would be a global CI outage.
         with self._settings():
             with patch(
                 "posthog.api.wizard.http.posthoganalytics.feature_enabled",
@@ -459,8 +451,7 @@ class WizardCiMintTests(APIBaseTest):
         mint.assert_not_called()
 
     def test_a_mint_failure_returns_its_hourly_slot(self):
-        # Asserted on the refund itself: the hourly counter buckets on the wall
-        # clock, so a rollover could let a retry succeed with the refund deleted.
+        # Asserted on the refund call: an hour rollover would let the retry pass without it.
         with self._settings(WIZARD_CI_MINTS_PER_HOUR=1):
             with patch("posthog.api.wizard.http.refund_wizard_ci_mint") as refund:
                 with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
@@ -512,11 +503,7 @@ class WizardCiMintTests(APIBaseTest):
 
 
 class WizardCiMintEndToEndTests(APIBaseTest):
-    """Nothing stubs the verifier here, so the bearer really is verified.
-
-    The cases above patch `verify_github_oidc` to reach the gates behind it, which
-    leaves the wiring from Authorization header to pinned claims unexercised.
-    """
+    """Unstubbed verification, so the wiring from the Authorization header to pinned claims runs."""
 
     GATEWAY_TOKEN_URL = "/api/wizard/gateway_token"
 
