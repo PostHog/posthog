@@ -268,7 +268,7 @@ class TestSlackFormatting(SimpleTestCase):
         preformatted = slack_blocks[0]["elements"][0]
         assert preformatted["type"] == "rich_text_preformatted"
         assert preformatted["elements"] == [{"type": "text", "text": "print('hi')"}]
-        # Guard in tasks.py only posts when text or blocks are truthy - a code-only
+        # Guard in tasks/slack.py only posts when text or blocks are truthy - a code-only
         # message must produce non-empty fallback text so it isn't silently dropped.
         assert slack_text.strip() != ""
 

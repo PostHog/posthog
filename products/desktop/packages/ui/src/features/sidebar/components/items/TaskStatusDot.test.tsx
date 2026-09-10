@@ -8,7 +8,7 @@ const working: TaskDot = {
   style: "solid",
   pulse: false,
   spinner: true,
-  label: "Working",
+  label: "Loading",
 };
 
 const idle: TaskDot = {
@@ -18,17 +18,15 @@ const idle: TaskDot = {
   label: "All caught up",
 };
 
+const blocked: TaskDot = {
+  tone: "blue",
+  style: "solid",
+  pulse: false,
+  label: "Needs your input",
+};
+
 describe("TaskStatusDot", () => {
-  // The two halves of the same constraint, and the pair is the point: the ring
-  // has to outgrow the column to read as a ring at all, and the column has to
-  // stay the plain dot's or every working row's label steps right of its
-  // neighbours'. Measured against a rendered plain dot rather than a hardcoded
-  // 8px, so retuning the vocabulary's sizes moves both marks together.
-  //
-  // jsdom lays nothing out, so this reaches the sizes the component sets and
-  // stops there. Whether the ring is legible at that size, and whether it is
-  // clipped by anything upstream, is not a claim this test makes.
-  it("draws the working ring larger than the column it sits in", () => {
+  it("uses the braille spinner without changing the status column width", () => {
     render(
       <>
         <TaskStatusDot dot={working} />
@@ -38,12 +36,28 @@ describe("TaskStatusDot", () => {
 
     const column = screen.getByRole("img", { name: "All caught up" }).style
       .width;
-    const mark = screen.getByRole("img", { name: "Working" });
-    const ring = mark.firstElementChild as HTMLElement;
+    const mark = screen.getByRole("img", { name: "Loading" });
 
     expect(mark.style.width).toBe(column);
-    expect(Number.parseFloat(ring.style.width)).toBeGreaterThan(
-      Number.parseFloat(column),
+    expect(mark.querySelector(".ph-dots-frame")).toHaveTextContent("⠋");
+    expect(mark.querySelector("svg")).not.toBeInTheDocument();
+  });
+
+  it("grows a row's trigger past the dot without moving the mark", () => {
+    // Separate containers, so each dot's siblings are only its own.
+    render(<TaskStatusDot dot={idle} />);
+    render(<TaskStatusDot dot={blocked} hitArea="row" />);
+
+    const bare = screen.getByRole("img", { name: "All caught up" });
+    const mark = screen.getByRole("img", { name: "Needs your input" });
+
+    // The dot keeps the box it had, so the row's leading column doesn't shift.
+    expect(mark.style.width).toBe(bare.style.width);
+    // What grew is the trigger around it, and only for a row.
+    expect(mark.parentElement).toHaveClass("relative");
+    expect(mark.parentElement?.querySelector(".absolute")).toHaveClass(
+      "-inset-2",
     );
+    expect(bare.parentElement?.querySelector(".absolute")).toBeNull();
   });
 });

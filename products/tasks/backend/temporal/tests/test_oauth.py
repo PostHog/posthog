@@ -102,24 +102,34 @@ def test_built_in_agent_origin_keeps_member_token_until_gateway_flag_rollout(
     )
 
 
+@pytest.mark.parametrize(
+    ("origin_product", "slack_run"),
+    [
+        (Task.OriginProduct.USER_CREATED, False),
+        (Task.OriginProduct.SLACK, True),
+    ],
+)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> None:
+def test_array_task_mints_only_slack_runs_with_the_slack_provenance_marker(
+    mock_create: MagicMock, origin_product: Task.OriginProduct, slack_run: bool
+) -> None:
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
         team_id=123,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        origin_product=origin_product,
     )
 
     assert create_oauth_access_token(task) == "token"
 
-    mock_create.assert_called_once_with(
-        task.created_by,
-        123,
-        scopes="read_only",
-        application="array",
-        sandbox_task_id=task.id,
-    )
+    expected: dict[str, object] = {
+        "scopes": "read_only",
+        "application": "array",
+        "sandbox_task_id": task.id,
+    }
+    if slack_run:
+        expected["include_slack_run_scope"] = True
+    mock_create.assert_called_once_with(task.created_by, 123, **expected)
 
 
 # is_interactive_signals_run short-circuits on origin, so an omitted one reads as
@@ -452,11 +462,14 @@ def test_workflow_run_fails_closed_when_owner_is_not_a_current_org_member(mock_c
     [
         ("full", "read_only"),
         ("read_only", "full"),
+        # A snapshotted scout posture is a dict rather than a preset string. Skipping it would
+        # drop the snapshot leg of the intersection and grant the request in full.
+        ("full", {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write"]}),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_workflow_run_scopes_never_exceed_request_or_snapshot(
-    mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: str
+    mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: PosthogMcpScopes
 ) -> None:
     from posthog.models.organization import OrganizationMembership
     from posthog.temporal.oauth import resolve_scopes
@@ -473,10 +486,10 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
     create_oauth_access_token_for_run(task, state, scopes=requested)
 
     granted = set(mock_create.call_args.kwargs["scopes"])
-    read_only = set(resolve_scopes("read_only", include_internal_scopes=True))
     # Whichever side is narrower wins: a teammate rerun requesting full cannot exceed the
     # workflow's snapshot, and a narrow request is never widened to the snapshot.
-    assert granted <= read_only
+    assert granted <= set(resolve_scopes(requested, include_internal_scopes=True))
+    assert granted <= set(resolve_scopes(snapshot, include_internal_scopes=True))
 
 
 @pytest.mark.django_db

@@ -12,7 +12,13 @@ from datetime import date, datetime
 from typing import Any
 
 from .constants import SEPARATOR
-from .message_formatter import FormatterOptions, add_line_numbers, format_input_messages, format_output_messages
+from .message_formatter import (
+    FormatterOptions,
+    add_line_numbers,
+    format_input_messages,
+    format_output_messages,
+    sanitize_surrogates,
+)
 from .tool_formatter import format_tools
 
 
@@ -180,7 +186,7 @@ def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions 
 def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """
     Generate text representation of an evaluation event.
-    Shows the evaluation name, result (pass/fail/N/A), and reasoning.
+    Shows the evaluation name, result (true/false/N/A), and reasoning.
     """
     lines: list[str] = []
     props = event.get("properties", {})
@@ -196,9 +202,9 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     if applicable is False or applicable == "false":
         result_str = "N/A"
     elif result is True or result == "true":
-        result_str = "PASS"
+        result_str = "true"
     elif result is False or result == "false":
-        result_str = "FAIL"
+        result_str = "false"
     else:
         result_str = "UNKNOWN"
 
@@ -236,16 +242,16 @@ def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | No
         # Import here to avoid circular dependency
         from .span_formatter import format_span_text_repr
 
-        return format_span_text_repr(event, options)
+        formatted_text = format_span_text_repr(event, options)
+    elif event_type == "$ai_embedding":
+        formatted_text = format_embedding_text_repr(event, options)
+    elif event_type == "$ai_evaluation":
+        formatted_text = format_evaluation_text_repr(event, options)
+    else:
+        # Default to generation formatter for $ai_generation and other events
+        formatted_text = format_generation_text_repr(event, options)
 
-    if event_type == "$ai_embedding":
-        return format_embedding_text_repr(event, options)
-
-    if event_type == "$ai_evaluation":
-        return format_evaluation_text_repr(event, options)
-
-    # Default to generation formatter for $ai_generation and other events
-    return format_generation_text_repr(event, options)
+    return sanitize_surrogates(formatted_text)
 
 
 def _maybe_decode_json(value: Any) -> Any:

@@ -68,6 +68,23 @@ A factor of 2.5 in compute is too much for 6 minutes of wall time.
 
 `pytest-xdist` is still a development dependency, and it operates correctly on a local machine. CI does not use it in the shards.
 
+**Re-measured Sep 2026** · [#93810](https://github.com/PostHog/posthog/pull/93810)
+
+The 2025 test moved the runners from 2 cores to 8 at the same time.
+The 2.5x compute came from the larger runners, and not from xdist.
+
+Two workers on the current 2-core runner was never measured.
+It measures -21.9% of wall time over ten Core shards, and the runner size does not change, so the cost falls with the wall time.
+A shard uses about half of its runner, because the test phase waits on the service stack.
+
+That PR did not merge either. Product databases are never created for a worker.
+`posthog/conftest.py` points each product alias at `test_posthog_gwN_<product>`, and nothing creates that database.
+A single-worker run hides this, because both naming schemes then produce the same string.
+Fixing it means provisioning the test databases before pytest starts.
+
+Four other single-process assumptions surfaced first, and each one was deterministic rather than flaky.
+Read the PR before you start again.
+
 _Also asked as:_ parallelize tests within a shard, `-n auto`, use the idle cores on the runner, why is each shard single-process
 
 ### Change the `django_db_setup` fixture from package scope to session scope
@@ -217,6 +234,82 @@ That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) 
 Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
 _Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass
+
+## Python and pytest runtime
+
+### Tune the Python garbage collector to make the backend tests faster
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+The collector is already tuned.
+`conftest.py` freezes the heap after boot and sets the thresholds to (50000, 20, 20).
+That tuning is worth about 18% of test-phase wall time: the pre-June settings measure +21.6% against it.
+
+Nothing is left beyond it.
+Higher thresholds (200000, 50, 50) measure +0.5%. A collector disabled for the test phase measures +3.1%.
+Both are worse than the current setting.
+
+The suite does not wait on Python.
+CPU is 40% of test-phase wall time on the GitHub Actions runners and 43% on Depot CI.
+The rest waits on Postgres and ClickHouse.
+
+The PR holds the method and the full tables.
+Every variant ran back to back on one runner, and each block ran the baseline twice.
+Two identical baselines on one runner differ by up to 11.7%. Any result below that is noise.
+
+_Also asked as:_ gc.freeze, gc.set_threshold, disable GC during tests, tune Python GC, reduce GC frequency, Python GC cache contention
+
+### Set `PYTHONHASHSEED` to make pytest runtimes consistent
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`PYTHONHASHSEED=0` measures +1.1% on the GitHub Actions runners and -2.9% on Depot CI.
+It also does not reduce the spread, which is the property the proposal asks for.
+
+A constant seed does fix one real problem, and that problem is not a timing one.
+`parameterized.expand` over a set bakes the iteration order into the test ids, so the ids change per process.
+Fix that at the test with `sorted()`. A global seed hides the next one instead.
+
+_Also asked as:_ PYTHONHASHSEED, stabilize pytest runtimes, why do test times vary, make CI timings deterministic
+
+### Use jemalloc or cap `MALLOC_ARENA_MAX` for the backend tests
+
+**Verdict: rejected for speed. The memory result holds.** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+Both cut peak RSS by about 13% on both runner platforms. That part reproduces.
+Neither moves wall time outside the noise.
+
+A backend shard peaks at about 1.6 GB on a 7.6 GB runner, so 13% releases memory that nothing needs.
+Try this again only for a job that runs near its memory limit.
+
+_Also asked as:_ jemalloc, LD_PRELOAD libjemalloc, MALLOC_ARENA_MAX, glibc allocator, reduce pytest memory
+
+### Run the CI Postgres without fsync
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`fsync=off`, `synchronous_commit=off` and `full_page_writes=off` measure -0.0% and +2.4% on the two runner platforms.
+The experiment printed `show fsync` from the container, so the settings did apply.
+
+[#70891](https://github.com/PostHog/posthog/pull/70891) proposed the same settings for `docker-compose.dev.yml` in Jul 2026.
+A reviewer rejected that one for a different reason: an unclean shutdown can corrupt a developer's local database.
+
+_Also asked as:_ postgres fsync off, synchronous_commit off, full_page_writes, disable Postgres durability in CI
+
+### The Depot CI runners are more cache-contended than the GitHub Actions runners
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`lscpu` inside a Depot CI sandbox reports 2 vCPU, one thread per core, an AMD EPYC 9R45, and 32 MiB of L3.
+The `depot-ubuntu-24.04` GitHub Actions runners report the same.
+Measure this before you build on it. An earlier internal note claimed two threads per core on Depot CI, and that reading is wrong.
+
+`depot ci dispatch` needs the workflow on the default branch, the same as GitHub.
+Use `depot ci run --workflow <path>` for a workflow that lives on a branch.
+Depot Cache is separate from the GitHub cache, so the schema cache and `.test_durations` both miss and the shard runs a full migrate.
+Measure the test phase, not the job wall time.
+
+_Also asked as:_ Depot CI is slower, Depot CI hyperthreading, thread to core ratio, is Depot CI a fair comparison
 
 ## Docker and image builds
 
@@ -399,15 +492,20 @@ The entries below give the proposals that people repeat.
 
 ### Squash the Django migration history
 
-**Verdict: rejected** · Feb 2026 to Mar 2026 · [#48267](https://github.com/PostHog/posthog/pull/48267)
+**Verdict: landed on the third attempt** · Feb 2026 to Aug 2026 · [#48267](https://github.com/PostHog/posthog/pull/48267) · [#60518](https://github.com/PostHog/posthog/pull/60518)
 
-The PR added a squash planner, a policy for opaque operations, and 65 squashed migrations across the historical range. A zero-to-head migration on a fresh database was successful, and the schema comparison found no structural difference.
+Two designs failed first. [#48267](https://github.com/PostHog/posthog/pull/48267) used Django's optimizer per app; the effect was small because `RunPython`/`RunSQL` block the optimizer, and `state.clone()` runs per operation, so a squash only helps in proportion to the operation count it removes. [#60518](https://github.com/PostHog/posthog/pull/60518) rebuilt the final project state at a cutoff date from `CreateModel` operations; the approach was right but the trial went stale on CI blockers and a `replaces=` lineage flaw (it claimed names from its own never-merged predecessor, which no real database ever recorded).
 
-The problem is the value. The PR reports that the effect on the timing was small and noisy. The work to resolve each blocker is large, and the reviews are difficult.
+The third attempt reran the #60518 design with [django-nextgensquash](https://github.com/PostHog/django-nextgensquash) (started as `tools/nextgensquash` in this repo) after fixing the lineage rule and a set of structural gaps: idempotent finalize operations so existing databases can apply the squash tail as no-ops, a stub `replaces=` claim so `check_consistent_history` passes on live databases without `--skip-checks`, and forwarding for raw-SQL indexes and composite foreign keys. A fresh database migrate dropped from roughly 20 minutes to about 4, existing databases stamp the squashes on their next migrate, and `makemigrations --check` reports zero drift against the squashed state.
 
-[#60518](https://github.com/PostHog/posthog/pull/60518) tried a second angle three months later. It took the final project state at a cutoff date and rebuilt it as one set of `CreateModel` operations. The PR says that per-app squashing "only nibbles at it because the dep graph is cross-app". That PR also did not merge.
+To repeat with a newer cutoff, reset every migration directory to master first (the tool re-squashes from a clean tree, not on top of its own output), then run it from the repo root through uv; the project config lives in `NEXTGENSQUASH` in `posthog/settings/nextgensquash.py`:
 
-The migration replay in CI is a real cost. Two different squash designs did not decrease it enough. A different change must decrease it.
+```bash
+uv run --with git+https://github.com/PostHog/django-nextgensquash python -m nextgensquash emit --settings posthog.settings --cutoff 2026-09-07 --output-dir /tmp/squash
+uv run --with git+https://github.com/PostHog/django-nextgensquash python -m nextgensquash install --settings posthog.settings --input-dir /tmp/squash
+```
+
+The generated finalize files import `posthog/migration_helpers/squash_idempotent.py`, so the package is a dev-only tool and not a dependency of this repo. The emit gate refuses young migrations that touch deferred foreign-key fields; bump the cutoff past them. Keep the window between cutoff and merge short: every migration that lands on master in that window sits before `finalize_fks` on a fresh database, and one that touches a deferred column forces a re-squash. A dedicated migration test (`TestMigrations` with `migrate_from`) that targets a folded migration fails with "not a valid node", because the loader drops replaced nodes; delete those tests, since a folded migration has been applied everywhere by definition. A `schema_addons` file must not depend on an app routed to another database (`products/db_routing.yaml`): the CI schema restore forgets those apps' `django_migrations` rows so each environment applies them under its own routing, and a dependant of a forgotten row makes Django refuse to migrate at all. The tool skips apps on another database, and `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py` blocks the edge in review; forgetting more rows on restore is the wrong fix, because the caller's `migrate` then re-applies DDL the dump already holds.
 
 _Also asked as:_ squash the migrations, compress the migration history, why are there so many migrations, speed up the migration replay, nextgensquash
 
