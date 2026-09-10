@@ -1,10 +1,10 @@
-import { dayjs } from 'lib/dayjs'
+import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { AlertState } from '~/queries/schema/schema-general'
+import { AlertState, ForecastConditionType } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { AlertCheck, AlertCheckDelivery } from './types'
+import type { AlertCheck, AlertCheckDelivery, AlertType } from './types'
 
 export enum AlertsTab {
     INSIGHTS = 'insights',
@@ -112,4 +112,20 @@ export function isFailedDelivery(check: AlertCheck): boolean {
     }
     // Gated on an investigation: no dispatch has run yet, so there is nothing to blame.
     return check.investigation_status !== 'pending' && check.investigation_status !== 'running'
+}
+
+/** The server expires a target alert on the project's calendar date, so the label has to read the
+ * same clock. A browser in another timezone would otherwise disagree for part of every day. */
+export function isTargetDatePassed(alert: AlertType, projectTimezone: string): boolean {
+    const config = alert.forecast_config
+    if (config?.condition !== ForecastConditionType.TARGET_BY_DATE || !config.target_date) {
+        return false
+    }
+    const targetDate = dayjs(config.target_date)
+    // A stored date can be in an ISO form dayjs cannot read. With no date to compare, the tag would
+    // announce an expiry that may not have happened.
+    if (!targetDate.isValid()) {
+        return false
+    }
+    return !alert.enabled && !targetDate.isAfter(dayjsNowInTimezone(projectTimezone), 'day')
 }

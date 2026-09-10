@@ -1,8 +1,17 @@
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber, significantDecimalPlaces } from 'lib/utils/numbers'
+
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    ForecastConditionType,
+    ForecastTargetDirection,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 
 import { intervalDropdownPhrase } from 'products/alerts/frontend/components/editAlertModalUtils'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import { type AlertConfig, type AlertType } from 'products/alerts/frontend/types'
+import { alertModeOf, type AlertConfig, type AlertType } from 'products/alerts/frontend/types'
 
 export interface AlertSummaryParts {
     /** What the alert watches — e.g. "value below 100" or "anomalies". Empty when unknown. */
@@ -90,6 +99,32 @@ function detectorSummary(): string {
     return 'an anomaly'
 }
 
+function forecastSummary(config: AlertFormType['forecast_config']): string {
+    if (!config) {
+        return 'the forecast crosses your threshold'
+    }
+    if (config.condition === ForecastConditionType.TARGET_BY_DATE) {
+        // An empty target input is stored as NaN, which would otherwise format as the text "NaN".
+        // A target can be a rate or an average, and the default two decimals report anything under
+        // 0.005 as "0", so keep the decimals the value needs.
+        const target = Number.isFinite(config.target)
+            ? humanFriendlyNumber(config.target, significantDecimalPlaces(config.target))
+            : 'a target'
+        const direction = config.target_direction === ForecastTargetDirection.AT_MOST ? 'above' : 'below'
+        // An API client can store any ISO form the server reads, week dates included, and dayjs
+        // reads none of those. Show the stored value rather than the words "Invalid Date".
+        const targetDate = dayjs(config.target_date)
+        const on = config.target_date
+            ? ` on ${targetDate.isValid() ? targetDate.format('MMM D, YYYY') : config.target_date}`
+            : ''
+        return `the point forecast is ${direction} ${target}${on}`
+    }
+    // The server tests the latest completed value against the bounds and fires on it before it
+    // forecasts (`_actual_breach` in products/alerts/backend/evaluation/forecast.py), so a summary
+    // that named only the forecast would leave out a rule the alert runs.
+    return 'the latest value or the point forecast crosses your threshold'
+}
+
 /** Build a one-line human summary of what an alert does. Pure (no React) so it can feed a header
  *  string, a wizard review step, or a tooltip. Returns empty parts when the form is too incomplete
  *  to summarize — the caller decides whether to render them at all. */
@@ -98,11 +133,13 @@ export function buildAlertSummary(
     subscribedCount: number,
     destinationCount = 0
 ): AlertSummaryParts {
-    const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
+    const alertMode = alertModeOf(alertForm)
 
     let fires = ''
     if (alertMode === 'detector') {
         fires = detectorSummary()
+    } else if (alertMode === 'forecast') {
+        fires = forecastSummary(alertForm.forecast_config)
     } else {
         const bounds = alertForm.threshold?.configuration?.bounds
         fires = formatThresholdSummary(

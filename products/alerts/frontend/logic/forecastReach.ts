@@ -1,0 +1,322 @@
+import { dayjs } from 'lib/dayjs'
+import { getExcludedDaysOfWeek } from 'scenes/insights/filters/InsightDateFilter/daysOfWeekFilterUtils'
+
+import { AlertCalculationInterval, DateRange } from '~/queries/schema/schema-general'
+import { ChartDisplayType, IntervalType } from '~/types'
+
+import {
+    getDefaultSimulationRange,
+    getSimulationRangeOptions,
+    INSIGHT_INTERVAL_DURATION_MINUTES,
+} from './alertIntervalHelpers'
+
+export const MAX_FORECAST_REACH_DAYS = 92
+export const MAX_FORECAST_OUTPUT_POINTS = 250
+export const MAX_FORECAST_TRAINING_POINTS = 1000
+export const MAX_FORECAST_LOOKBACK_DAYS = 730
+
+const MINUTES_PER_DAY = 60 * 24
+const SUPPORTED_FORECAST_INTERVALS: ReadonlySet<IntervalType> = new Set(['hour', 'day', 'week', 'month'])
+
+export function intervalSupportsForecast(interval: IntervalType | null | undefined): boolean {
+    return interval == null || SUPPORTED_FORECAST_INTERVALS.has(interval)
+}
+
+/** Mirrors `validate_forecast_days_of_week` in products/alerts/backend/forecasting/engine.py: a
+ * daily insight that leaves days out charts a history with gaps, and the forecast fills them back
+ * in from a weekly shape the history never constrained. Coarser intervals keep every bucket. */
+export function dateRangeSupportsForecast(
+    dateRange: DateRange | null | undefined,
+    interval: IntervalType | null | undefined
+): boolean {
+    if (interval != null && interval !== 'day') {
+        return true
+    }
+    return getExcludedDaysOfWeek(dateRange).length === 0
+}
+
+/** Smoothing needs extra pre-range buckets to avoid a partial warm-up. Until the forecast query
+ * fetches and trims that warm-up explicitly, fitting the clipped values would disagree with the
+ * saved insight. */
+export function smoothingSupportsForecast(smoothingIntervals: number | null | undefined): boolean {
+    return smoothingIntervals == null || smoothingIntervals <= 1
+}
+
+/** Both displays keep the insight's interval, so they read as a time series, but neither returns
+ * one to fit: the box plot returns a distribution per bucket, and the slope keeps only the first
+ * and last bucket. */
+const UNFORECASTABLE_DISPLAYS: ReadonlySet<ChartDisplayType> = new Set([
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.BoxPlot,
+    ChartDisplayType.SlopeGraph,
+])
+
+export function displaySupportsForecast(display: ChartDisplayType | null | undefined): boolean {
+    return display == null || !UNFORECASTABLE_DISPLAYS.has(display)
+}
+
+/** Why the insight's chart type cannot carry a forecast, or null when it can. An insight can change
+ * display after its alert was saved, and both the save and simulate paths then refuse the stored
+ * config, so the reason has to land in the editor instead of a failed request. */
+export function forecastDisplayError(display: ChartDisplayType | null | undefined): string | null {
+    return displaySupportsForecast(display)
+        ? null
+        : 'Forecast alerts do not support cumulative, box plot, or slope graph charts. Change the insight to a line, bar, or area chart, or switch this alert to threshold mode.'
+}
+
+/** Why the insight's interval cannot carry a forecast, or null when it can. Mirrors
+ * `validate_forecast_interval` in products/alerts/backend/forecasting/engine.py. */
+export function forecastIntervalError(interval: IntervalType | null | undefined): string | null {
+    return intervalSupportsForecast(interval)
+        ? null
+        : "Forecast alerts support hourly, daily, weekly, and monthly insights. Change the insight's interval, or switch this alert to threshold mode."
+}
+
+/** Why the insight's date axis cannot carry a forecast, or null when it can. Mirrors
+ * `validate_forecast_days_of_week` in products/alerts/backend/forecasting/engine.py. */
+export function forecastDaysOfWeekError(
+    dateRange: DateRange | null | undefined,
+    interval: IntervalType | null | undefined
+): string | null {
+    return dateRangeSupportsForecast(dateRange, interval)
+        ? null
+        : 'Forecast alerts do not support a daily insight that excludes days of the week. Include all days, switch the insight to a weekly interval, or switch this alert to threshold mode.'
+}
+
+export interface ForecastEditingInput {
+    forecastAlertsEnabled: boolean
+    display: ChartDisplayType | null | undefined
+    interval: IntervalType | null | undefined
+    dateRange: DateRange | null | undefined
+    smoothingIntervals: number | null | undefined
+    isNonTimeSeries: boolean
+    isBreakdown: boolean
+}
+
+/** Why the editor cannot work on a forecast alert against the insight as it now stands, or null
+ * when it can. Every eligibility rule the save and simulate paths share belongs here: an insight
+ * that changed under a saved alert makes both refuse the stored config, and the backend revalidates
+ * it on every write, so a reason left out of here leaves a rename or a disable failing with nothing
+ * in the editor to explain it. */
+export function forecastEditingError({
+    forecastAlertsEnabled,
+    display,
+    interval,
+    dateRange,
+    smoothingIntervals,
+    isNonTimeSeries,
+    isBreakdown,
+}: ForecastEditingInput): string | null {
+    if (!forecastAlertsEnabled) {
+        return 'Forecast alerts are no longer enabled for this project. This alert will keep running. Disable it to stop it, or switch to another alert mode before editing.'
+    }
+    if (!smoothingSupportsForecast(smoothingIntervals)) {
+        return 'Forecast alerts do not support smoothed trends yet. Turn smoothing off on the insight, or switch this alert to threshold mode.'
+    }
+    const displayError = forecastDisplayError(display)
+    if (displayError) {
+        return displayError
+    }
+    if (isNonTimeSeries) {
+        return 'Forecast alerts need a time series insight. Change the insight to a line, bar, or area chart, or switch this alert to threshold mode.'
+    }
+    if (isBreakdown) {
+        return "Forecast alerts don't support breakdowns yet. Switch to threshold or anomaly detection, or remove the breakdown."
+    }
+    return forecastIntervalError(interval) ?? forecastDaysOfWeekError(dateRange, interval)
+}
+
+export function targetByDateSupportsForecast(interval: IntervalType | null | undefined): boolean {
+    return interval !== 'hour'
+}
+
+/** Why a target path cannot run on this insight, or null when it can. Mirrors the hourly guard the
+ * save and simulate paths share, so the reason lands in the editor instead of a failed request. */
+export function forecastTargetIntervalError(interval: IntervalType | null | undefined): string | null {
+    return targetByDateSupportsForecast(interval)
+        ? null
+        : 'Target-by-date forecasts need a daily, weekly, or monthly insight interval.'
+}
+
+/** Days per interval as the backend counts them, from `_INTERVAL_DAYS` in
+ * products/alerts/backend/forecasting/engine.py. A month is 30.4 days there, so the cap has to use
+ * the same lengths and round down, or the backend refuses the horizon this editor offers. */
+const FORECAST_INTERVAL_DAYS: Partial<Record<IntervalType, number>> = {
+    hour: 1 / 24,
+    day: 1,
+    week: 7,
+    month: 30.4,
+}
+
+export function maxHorizonForInterval(interval: IntervalType | null | undefined): number {
+    const days = FORECAST_INTERVAL_DAYS[interval ?? 'day'] ?? 1
+    return Math.min(MAX_FORECAST_OUTPUT_POINTS, Math.floor(MAX_FORECAST_REACH_DAYS / days))
+}
+
+/** The furthest a target date can sit and still pass `forecastTargetReachError`: 92 days of reach,
+ * and no more than 250 forecast points at the insight's interval. The point cap binds first on an
+ * hourly insight, where 92 days would need 2208 points. */
+export function maxTargetDaysForInterval(interval: IntervalType | null | undefined): number {
+    const intervalMinutes = INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day']
+    const byPoints = Math.floor((MAX_FORECAST_OUTPUT_POINTS * intervalMinutes) / MINUTES_PER_DAY)
+    return Math.max(1, Math.min(MAX_FORECAST_REACH_DAYS, byPoints))
+}
+
+/** Mirrors `DEFAULT_HORIZON` in products/alerts/backend/forecasting/engine.py. */
+export const DEFAULT_FORECAST_HORIZON = 7
+
+/** Mirrors `default_horizon` there: a config with no horizon looks 7 intervals ahead, or fewer
+ * when 7 intervals would reach past the limits. A monthly insight resolves to 3, not 7. */
+export function defaultHorizonForInterval(interval: IntervalType | null | undefined): number {
+    return Math.min(DEFAULT_FORECAST_HORIZON, maxHorizonForInterval(interval))
+}
+
+/** The horizon a stored config evaluates at. The API accepts a breach config without one, and the
+ * backend then resolves its own default, so fill in the same value here. Otherwise the editor
+ * offers a look-ahead the forecast beside it never used. An explicit value is left as stored,
+ * because that is the value the server still reads when a save leaves the config out. */
+export function defaultedHorizon<T extends { horizon?: number | null }>(
+    config: T,
+    interval: IntervalType | null | undefined
+): T {
+    if (config.horizon == null) {
+        return { ...config, horizon: defaultHorizonForInterval(interval) }
+    }
+    return config
+}
+
+/** The horizon the editor offers for a stored config: the resolved default, then the current
+ * interval's limits. Regrouping the insight to a coarser interval can leave a saved horizon
+ * reaching past those limits, so the clamp has to cover a stored value too, not only typed input. */
+export function resolveHorizon<T extends { horizon?: number | null }>(
+    config: T,
+    interval: IntervalType | null | undefined
+): T {
+    return clampHorizon(defaultedHorizon(config, interval), interval)
+}
+
+export function clampHorizon<T extends { horizon?: number | null }>(
+    config: T,
+    interval: IntervalType | null | undefined
+): T {
+    if (config.horizon == null) {
+        return config
+    }
+    // The backend takes whole intervals, so round a fractional entry here instead of failing the request.
+    const clamped = Math.round(Math.min(Math.max(config.horizon, 1), maxHorizonForInterval(interval)))
+    return clamped === config.horizon ? config : { ...config, horizon: clamped }
+}
+
+export function forecastTargetValueError(target: number | null | undefined): string | null {
+    return target != null && Number.isFinite(target) ? null : 'Enter a target value'
+}
+
+export function forecastTargetDateError(
+    targetDate: string | undefined,
+    today: dayjs.Dayjs,
+    interval?: IntervalType | null
+): string | null {
+    if (!targetDate) {
+        return 'Choose a target date'
+    }
+    if (dayjs(targetDate).startOf('day').diff(today.startOf('day'), 'day') <= 0) {
+        return 'The target date must be in the future.'
+    }
+    return forecastTargetReachError(targetDate, today, interval)
+}
+
+/** How far a target date reaches. Split out because a saved date keeps its past-date pass, the way
+ * the server does, while these limits still apply to it: both depend on the insight's interval,
+ * which can be regrouped to a finer bucket after the alert was saved. */
+export function forecastTargetReachError(
+    targetDate: string | undefined,
+    today: dayjs.Dayjs,
+    interval?: IntervalType | null
+): string | null {
+    if (!targetDate) {
+        return null
+    }
+    const days = dayjs(targetDate).startOf('day').diff(today.startOf('day'), 'day')
+    if (days > MAX_FORECAST_REACH_DAYS) {
+        return 'A forecast target must be within 92 days. Move the date closer, or use quarterly milestones.'
+    }
+    const intervalMinutes = INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day']
+    const outputPoints = Math.ceil((days * MINUTES_PER_DAY) / intervalMinutes)
+    if (outputPoints > MAX_FORECAST_OUTPUT_POINTS) {
+        return `This interval needs more than ${MAX_FORECAST_OUTPUT_POINTS} forecast points. Use a coarser insight interval.`
+    }
+    return null
+}
+
+export function minForecastPoints(interval: IntervalType | null | undefined): number {
+    return interval === 'hour' ? 48 : 14
+}
+
+export function pointsInSimulationRange(range: string, interval: IntervalType | null | undefined): number {
+    const match = /^-(\d+)([mhdwM])$/.exec(range)
+    if (!match) {
+        return Number.POSITIVE_INFINITY
+    }
+    const [, amount, unit] = match
+    const rangeMinutes = Number(amount) * (UNIT_MINUTES[unit] ?? 1)
+    return Math.floor(rangeMinutes / INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day'])
+}
+
+/** PostHog's relative-date units: lowercase `m` is months, uppercase `M` is minutes.
+ * See `get_delta_mapping_for` in posthog/utils.py. */
+const UNIT_MINUTES: Record<string, number> = {
+    M: 1,
+    h: 60,
+    d: MINUTES_PER_DAY,
+    w: 7 * MINUTES_PER_DAY,
+    m: 30 * MINUTES_PER_DAY,
+}
+
+export function usableSimulationRanges<T extends { value: string }>(
+    options: T[],
+    interval: IntervalType | null | undefined
+): T[] {
+    const required = minForecastPoints(interval)
+    const intervalDays = FORECAST_INTERVAL_DAYS[interval ?? 'day'] ?? 1
+    const maximumDays = Math.min(MAX_FORECAST_LOOKBACK_DAYS, Math.ceil(MAX_FORECAST_TRAINING_POINTS * intervalDays))
+    const maximumMinutes = maximumDays * MINUTES_PER_DAY
+    let addedMaximum = false
+    const usable: T[] = []
+    for (const option of options) {
+        const match = /^-(\d+)([mhdwM])$/.exec(option.value)
+        const rangeMinutes = match ? Number(match[1]) * (UNIT_MINUTES[match[2]] ?? 1) : Number.POSITIVE_INFINITY
+        if (pointsInSimulationRange(option.value, interval) < required) {
+            continue
+        }
+        if (
+            rangeMinutes > maximumMinutes ||
+            pointsInSimulationRange(option.value, interval) > MAX_FORECAST_TRAINING_POINTS
+        ) {
+            if (!addedMaximum) {
+                usable.push({
+                    ...option,
+                    value: `-${maximumDays}d`,
+                    ...('label' in option ? { label: `Last ${maximumDays}d (maximum)` } : {}),
+                } as T)
+                addedMaximum = true
+            }
+            continue
+        }
+        usable.push(option)
+    }
+    return usable.length > 0 ? usable : options.slice(-1)
+}
+
+/** The history range a forecast preview runs over. The stored range can sit outside the offered
+ * list, because the cadence changed under it or because it is too short for the insight's interval.
+ * The control and the request both resolve it here, so the chart cannot answer a different window
+ * from the one on screen. */
+export function resolveForecastSimulationRange(
+    storedRange: string | null,
+    cadence: AlertCalculationInterval,
+    insightInterval: IntervalType | null | undefined
+): string {
+    const options = usableSimulationRanges(getSimulationRangeOptions(cadence), insightInterval)
+    const selected = storedRange ?? getDefaultSimulationRange(cadence)
+    return options.some((option) => option.value === selected) ? selected : options[0].value
+}

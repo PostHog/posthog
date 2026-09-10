@@ -22,11 +22,18 @@ describe('buildWizardSteps', () => {
     it.each([
         ['missing name', { alertName: '' }, 'monitor', 'Enter an alert name.'],
         ['invalid threshold', { thresholdValidationError: 'Enter a threshold' }, 'monitor', 'Enter a threshold'],
+        ['invalid forecast', { forecastValidationError: 'Enter a target value' }, 'monitor', 'Enter a target value'],
         [
             'invalid schedule',
             { alertFormHasErrors: true, scheduleRestrictionFormError: 'Choose an end time' },
             'schedule',
             'Choose an end time',
+        ],
+        [
+            'an invalid forecast cadence',
+            { alertFormHasErrors: true, cadenceValidationError: 'Choose a slower cadence' },
+            'schedule',
+            'Choose a slower cadence',
         ],
     ])('blocks the step containing %s errors', (_name, overrides, stepKey, expectedReason) => {
         const steps = buildWizardSteps({ ...baseInput, ...overrides })

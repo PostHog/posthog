@@ -17,10 +17,18 @@ import {
 } from 'products/alerts/frontend/logic/funnelAlertOptions'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
-import { isFunnelsAlertConfig, isHogQLAlertConfig } from 'products/alerts/frontend/types'
+import { AlertMode, isFunnelsAlertConfig, isHogQLAlertConfig } from 'products/alerts/frontend/types'
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
+/** Forecast mode is excluded: a breakdown locks that mode out entirely, so its reason comes from
+ * `forecastEditingError` with the rest of the forecast eligibility rules. */
+export const breakdownDisabledReason = (alertMode: Exclude<AlertMode, 'forecast'>): string => {
+    if (alertMode === 'detector') {
+        return 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
+    }
+    return 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'
+}
 /** Trends: pick which series (or formula) to monitor. */
 export function TrendsDefinitionFields({
     alertSeries,
@@ -31,7 +39,7 @@ export function TrendsDefinitionFields({
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     isBreakdownValid: boolean
-    alertMode: 'detector' | 'threshold'
+    alertMode: AlertMode
 }): JSX.Element {
     if (isBreakdownValid) {
         return (

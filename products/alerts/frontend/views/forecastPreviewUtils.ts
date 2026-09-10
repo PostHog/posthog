@@ -1,0 +1,118 @@
+import type { GoalLineConfig, TimeInterval } from '@posthog/quill-charts'
+
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+import {
+    ForecastConditionType,
+    ForecastConfig,
+    ForecastTargetDirection,
+    InsightsThresholdBounds,
+} from '~/queries/schema/schema-general'
+
+import { ForecastTargetProjectionApi } from 'products/alerts/frontend/generated/api.schemas'
+import { hasThresholdBounds, valueBreachesBounds } from 'products/alerts/frontend/logic/alertPreviewShared'
+
+export function findFirstCrossing(forecastYhat: number[], bounds: InsightsThresholdBounds | null): number | null {
+    if (!hasThresholdBounds(bounds)) {
+        return null
+    }
+    for (let index = 0; index < forecastYhat.length; index++) {
+        if (valueBreachesBounds(forecastYhat[index], bounds)) {
+            return index
+        }
+    }
+    return null
+}
+
+/** The backend tests the latest completed value against the bounds and fires on it before it runs
+ *  the forecast engine (`_actual_breach` in products/alerts/backend/evaluation/forecast.py), so the
+ *  preview has to make the same test. Without it the preview reports all clear for an alert that
+ *  fires on the next evaluation. Only future-breach alerts get this pre-check, because a target
+ *  alert always waits for the forecast. */
+export function findObservedBreach(
+    data: number[],
+    bounds: InsightsThresholdBounds | null
+): { index: number; value: number } | null {
+    if (!hasThresholdBounds(bounds) || data.length === 0) {
+        return null
+    }
+    const index = data.length - 1
+    const value = data[index]
+    return valueBreachesBounds(value, bounds) ? { index, value } : null
+}
+
+/** An hourly forecast label arrives with the project's offset attached, because the engine
+ *  converts each hourly bucket back to the project timezone before serializing it
+ *  (`ProphetEngine.forecast` in products/alerts/backend/forecasting/prophet_engine.py). Every other
+ *  bucket timestamp, history included, is a project-local wall time with no zone. Dropping the zone
+ *  designator reads the wall time in both forms, so the label names the bucket the backend
+ *  evaluated whatever timezone the reader's browser is in. */
+const ZONE_SUFFIX = /(?:Z|[+-]\d{2}:\d{2})$/
+
+/** Names the bucket the backend evaluated. An hourly insight puts up to 24 buckets on one calendar
+ *  day, so the label has to keep the hour to say which bucket the value belongs to. */
+export function bucketLabel(value: string, interval: string | null | undefined): string {
+    const parsed = dayjs(value.replace(ZONE_SUFFIX, ''))
+    if (!parsed.isValid()) {
+        return value
+    }
+    return parsed.format(interval === 'hour' ? 'MMM D, YYYY HH:mm' : 'MMM D, YYYY')
+}
+
+const CHART_INTERVALS = new Set<string>(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
+
+/** The bucket size the chart formats a tooltip date against. The API types the interval as a plain
+ *  string, so a value the chart has no rule for becomes `undefined`, which leaves the chart to infer
+ *  the bucket size from the labels instead of formatting against a size it cannot read. */
+export function chartInterval(interval: string | null | undefined): TimeInterval | undefined {
+    return interval != null && CHART_INTERVALS.has(interval) ? (interval as TimeInterval) : undefined
+}
+
+export function targetSummary(projection: ForecastTargetProjectionApi, direction: ForecastTargetDirection): string {
+    if (!projection.misses_target) {
+        return direction === ForecastTargetDirection.AT_MOST
+            ? 'On track to stay at or under the target'
+            : 'On track to reach the target'
+    }
+    return direction === ForecastTargetDirection.AT_MOST
+        ? 'Projected to finish above the target'
+        : 'Projected to finish below the target'
+}
+
+/** The threshold and target lines for the preview chart. They go through the chart's `goalLines`
+ *  config rather than an overlay child, because only `goalLines` stretches the value axis — a line
+ *  outside the forecast range would otherwise be clipped away and never drawn. */
+export function forecastGoalLines(
+    thresholdBounds: InsightsThresholdBounds | null,
+    forecastConfig: ForecastConfig
+): GoalLineConfig[] {
+    const lines: GoalLineConfig[] = []
+    if (thresholdBounds?.upper != null) {
+        lines.push({
+            value: thresholdBounds.upper,
+            label: `More than ${humanFriendlyNumber(thresholdBounds.upper)}`,
+            labelPosition: 'start',
+            color: 'var(--danger)',
+        })
+    }
+    if (thresholdBounds?.lower != null) {
+        lines.push({
+            value: thresholdBounds.lower,
+            label: `Less than ${humanFriendlyNumber(thresholdBounds.lower)}`,
+            labelPosition: 'start',
+            color: 'var(--danger)',
+        })
+    }
+    if (forecastConfig.condition === ForecastConditionType.TARGET_BY_DATE) {
+        lines.push({
+            value: forecastConfig.target,
+            label: `Target ${humanFriendlyNumber(forecastConfig.target)}`,
+            labelPosition: 'start',
+            // The chart's own default for a goal line is a translucent black, which all but
+            // disappears on the dark surface. The axis-label token stays legible in both themes.
+            color: 'var(--color-graph-axis-label)',
+        })
+    }
+    return lines
+}

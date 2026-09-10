@@ -8,9 +8,11 @@ import { AvailableFeature } from '~/types'
 
 import {
     getDefaultSimulationRange,
+    getSimulationRangeOptions,
     isSubDailyAlertInterval,
     selectAlertCalculationInterval,
 } from './alertIntervalHelpers'
+import { pointsInSimulationRange } from './forecastReach'
 
 describe('alertIntervalHelpers', () => {
     beforeEach(() => {
@@ -27,6 +29,27 @@ describe('alertIntervalHelpers', () => {
             [AlertCalculationInterval.MONTHLY, '-12m'],
         ])('%s returns %s', (interval, expected) => {
             expect(getDefaultSimulationRange(interval)).toBe(expected)
+        })
+    })
+
+    describe('getSimulationRangeOptions', () => {
+        // Read each preset the way the query does, so a wrong unit letter cannot pass: PostHog
+        // reads lowercase `m` as months and uppercase `M` as minutes.
+        const rangeMinutes = (range: string): number => pointsInSimulationRange(range, 'minute')
+        const HOUR = 60
+        const DAY = 24 * HOUR
+
+        it.each([
+            [AlertCalculationInterval.REAL_TIME, [10, HOUR, 3 * HOUR]],
+            [AlertCalculationInterval.EVERY_15_MINUTES, [12 * HOUR, 24 * HOUR, 48 * HOUR, 72 * HOUR, 7 * DAY]],
+            [AlertCalculationInterval.HOURLY, [24 * HOUR, 48 * HOUR, 72 * HOUR, 7 * DAY]],
+            [AlertCalculationInterval.DAILY, [14 * DAY, 30 * DAY, 60 * DAY, 90 * DAY]],
+            [AlertCalculationInterval.WEEKLY, [8 * 7 * DAY, 12 * 7 * DAY, 26 * 7 * DAY, 52 * 7 * DAY]],
+            [AlertCalculationInterval.MONTHLY, [6 * 30 * DAY, 12 * 30 * DAY, 24 * 30 * DAY]],
+        ])('%s offers the windows its labels name', (interval, expectedMinutes) => {
+            expect(getSimulationRangeOptions(interval).map((option) => rangeMinutes(option.value))).toEqual(
+                expectedMinutes
+            )
         })
     })
 

@@ -4,8 +4,14 @@ import { LineChart, ReferenceLines, useChartTheme } from '@posthog/quill-charts'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import {
+    AlertConditionType,
+    ForecastConditionType,
+    InsightsThresholdBounds,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 
+import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
@@ -15,6 +21,7 @@ import {
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
+import { ForecastPreview } from 'products/alerts/frontend/views/ForecastPreview'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
@@ -75,6 +82,11 @@ export interface AlertPreviewCardProps {
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
+    forecast?: {
+        result: ForecastSimulateResponseApi
+        thresholdBounds: InsightsThresholdBounds | null
+        projectTimezone: string
+    }
     // Keeps the card visible with a skeleton while data loads instead of popping in once it arrives.
     loading?: boolean
 }
@@ -88,6 +100,7 @@ export function AlertPreviewCard({
     funnelPreview,
     hogqlPreview,
     checkPreview,
+    forecast,
     loading,
 }: AlertPreviewCardProps): JSX.Element {
     const config = alertForm.config
@@ -97,7 +110,12 @@ export function AlertPreviewCard({
         ? deriveTrendsAlertPreviewSeries(trendsValues, trendsLabels ?? undefined, conditionType, thresholdType)
         : null
     const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
-    const referenceLines = thresholdReferenceLines(alertForm)
+    // Keyed on the mode, not on a stored result: the card sits in forecast mode before the first
+    // run and after every edit, and its header has to describe the forecast even with no chart yet.
+    const isForecastMode = !!alertForm.forecast_config
+    const forecastReadsThreshold =
+        !alertForm.forecast_config || alertForm.forecast_config.condition === ForecastConditionType.FUTURE_BREACH
+    const referenceLines = forecastReadsThreshold ? thresholdReferenceLines(alertForm) : []
     const useLogScale = Boolean(
         !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
     )
@@ -114,6 +132,7 @@ export function AlertPreviewCard({
     const breakdownUseLogScale = shouldUseLogScale(breakdownPreviewValues, referenceLines)
     const isUnconfiguredAbsoluteThreshold =
         !alertForm.detector_config &&
+        forecastReadsThreshold &&
         alertForm.condition?.type === AlertConditionType.ABSOLUTE_VALUE &&
         alertForm.threshold?.configuration?.type === InsightThresholdType.ABSOLUTE &&
         referenceLines.length === 0
@@ -123,11 +142,29 @@ export function AlertPreviewCard({
         isTrendsAlertConfig(config) &&
         !trendsValues?.some((value) => value !== 0)
 
+    // The missing-threshold state is reported before the generic forecast prompt. An upcoming-breach
+    // forecast with no bound keeps its Preview forecast button disabled until a bound is set, so the
+    // generic prompt would name an action the user cannot take yet.
     let body: JSX.Element | null = null
-    if (isUnconfiguredAbsoluteThreshold) {
+    if (forecast && alertForm.forecast_config) {
+        body = (
+            <ForecastPreview
+                result={forecast.result}
+                thresholdBounds={forecast.thresholdBounds}
+                forecastConfig={alertForm.forecast_config}
+                projectTimezone={forecast.projectTimezone}
+            />
+        )
+    } else if (isUnconfiguredAbsoluteThreshold) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 Set less than or more than to preview this alert.
+            </div>
+        )
+    } else if (alertForm.forecast_config) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                Run Preview forecast to see it here.
             </div>
         )
     } else if (isBreakdownPreview && breakdownPreview && breakdownPreviewValues.length > 0) {
@@ -227,20 +264,29 @@ export function AlertPreviewCard({
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
-                    <span>{previewTitle}</span>
-                    <Tooltip title={previewTooltip} delayMs={0}>
+                    <span>{isForecastMode ? 'Forecast' : previewTitle}</span>
+                    <Tooltip
+                        title={
+                            isForecastMode
+                                ? 'History plus the point forecast and a contextual uncertainty range. Run the preview again after changing forecast settings.'
+                                : previewTooltip
+                        }
+                        delayMs={0}
+                    >
                         <IconInfo className="text-muted size-3.5" />
                     </Tooltip>
                 </div>
                 <div className="flex items-center gap-2">
-                    {useLogScale ? (
+                    {useLogScale && !isForecastMode ? (
                         <Tooltip title="A log scale keeps thresholds with very different values visually distinct.">
                             <LemonTag type="default" className="m-0">
                                 Log scale
                             </LemonTag>
                         </Tooltip>
                     ) : null}
-                    {lastValue != null ? (
+                    {/* The trends series still runs to today, so its last point is a partial day. That
+                        reads as a real drop next to a forecast, which carries its own summary anyway. */}
+                    {lastValue != null && !forecast ? (
                         <LemonTag type="default" className="m-0">
                             {checkPreview?.relative || trendsPreview?.relative ? 'Latest change:' : 'Latest:'}
                             <strong className="ml-1">{humanFriendlyNumber(lastValue)}</strong>

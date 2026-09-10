@@ -1,9 +1,66 @@
-import { AlertState } from '~/queries/schema/schema-general'
+import {
+    AlertState,
+    ForecastConditionType,
+    ForecastEngineType,
+    ForecastTargetDirection,
+} from '~/queries/schema/schema-general'
 
 import type { AlertCheck, AlertCheckDelivery } from './types'
-import { AlertsTab, getActiveAlertsTab, isFailedDelivery, summarizeDeliveries } from './utils'
+import type { AlertType } from './types'
+import { AlertsTab, getActiveAlertsTab, isFailedDelivery, isTargetDatePassed, summarizeDeliveries } from './utils'
 
 describe('alerts utils', () => {
+    describe('isTargetDatePassed', () => {
+        const targetAlert = (target_date: string, enabled: boolean): AlertType =>
+            ({
+                enabled,
+                forecast_config: {
+                    type: 'ForecastConfig',
+                    engine: ForecastEngineType.PROPHET,
+                    condition: ForecastConditionType.TARGET_BY_DATE,
+                    target: 100,
+                    target_direction: ForecastTargetDirection.AT_LEAST,
+                    target_date,
+                },
+            }) as AlertType
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        const pinClock = (instant: string): void => {
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(new Date(instant))
+        }
+
+        it.each([
+            ['finished once the date passed', '2026-01-01', false, true],
+            ['still running before the date', '2026-12-31', true, false],
+            ['disabled by hand before the date', '2026-12-31', false, false],
+            ['past date but still enabled', '2026-01-01', true, false],
+            ['finished on the date itself', '2026-06-01', false, true],
+            // The server accepts ISO week dates, which dayjs reads as an invalid date.
+            ['a stored date the client cannot read', '2026-W40-1', false, false],
+        ])('%s', (_name, date, enabled, expected) => {
+            pinClock('2026-06-01T12:00:00Z')
+            expect(isTargetDatePassed(targetAlert(date, enabled), 'UTC')).toBe(expected)
+        })
+
+        // Tests run on UTC, so each instant below puts the browser on the other side of midnight
+        // from the project. Both rows fail if the browser calendar decides the verdict.
+        it.each([
+            ['a project that already reached the target date', '2026-06-01T20:00:00Z', 'Pacific/Auckland', true],
+            ['a project that has not reached it yet', '2026-06-02T02:00:00Z', 'America/Los_Angeles', false],
+        ])('reads the target date on the project calendar: %s', (_name, instant, timezone, expected) => {
+            pinClock(instant)
+            expect(isTargetDatePassed(targetAlert('2026-06-02', false), timezone)).toBe(expected)
+        })
+
+        it('is false for a non-target alert', () => {
+            pinClock('2026-06-01T12:00:00Z')
+            expect(isTargetDatePassed({ enabled: false } as AlertType, 'UTC')).toBe(false)
+        })
+    })
+
     describe('getActiveAlertsTab', () => {
         it.each([
             {

@@ -9,7 +9,9 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -17,6 +19,8 @@ import { userLogic } from 'scenes/userLogic'
 import {
     AlertCalculationInterval,
     AlertConditionType,
+    ForecastConditionType,
+    ForecastConfig,
     GoalLine,
     HogQLAlertConfig,
     InsightThresholdType,
@@ -25,11 +29,18 @@ import {
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
+import { alertsSimulateForecastCreate } from 'products/alerts/frontend/generated/api'
+import { ForecastConfigApi, ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import {
+    defaultedHorizon,
+    resolveForecastSimulationRange,
+    resolveHorizon,
+} from 'products/alerts/frontend/logic/forecastReach'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 
 import {
@@ -43,7 +54,7 @@ import {
     isTrendsAlertConfig,
     supportsOngoingInterval,
 } from '../types'
-import { getAlertFormValidationErrors } from './alertFormSchema'
+import { getAlertFormValidationErrors, hasInvertedThresholdBounds, usesThresholdBounds } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
@@ -67,6 +78,7 @@ export type AlertFormType = Pick<
     | 'skip_weekend'
     | 'schedule_restriction'
     | 'detector_config'
+    | 'forecast_config'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
     | 'investigation_inconclusive_action'
@@ -85,6 +97,10 @@ export function canCheckOngoingInterval(
     // safe for an absolute/increase check above an upper bound.
     if (isFunnelsAlertConfig(alert?.config)) {
         return isTrendsFunnel
+    }
+    // A forecast is fitted on completed intervals only, so there is no ongoing period to check.
+    if (alert?.forecast_config) {
+        return false
     }
     const upper = alert?.threshold?.configuration?.bounds?.upper
     return (
@@ -111,10 +127,15 @@ export interface OngoingIntervalField {
 
 /** State of the "Check ongoing period" advanced-option, keyed on alert kind — so the per-kind
  * branching lives here rather than growing inside the component as more alert types are added. */
-export function ongoingIntervalField(config: AlertConfig | null | undefined, canCheck: boolean): OngoingIntervalField {
+export function ongoingIntervalField(
+    alert: { config?: AlertConfig | null; forecast_config?: object | null },
+    canCheck: boolean
+): OngoingIntervalField {
+    const config = alert.config
     return {
         // Trends alerts show the toggle even when ineligible (disabled); funnels only when eligible.
-        show: supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || canCheck),
+        // A forecast never reads it, so the option is left out of that mode entirely.
+        show: !alert.forecast_config && supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || canCheck),
         checked: supportsOngoingInterval(config) && !!config.check_ongoing_interval && canCheck,
         disabledReason: canCheck ? undefined : ONGOING_DISABLED_REASON,
         tooltip: isFunnelsAlertConfig(config) ? ONGOING_TOOLTIP_FUNNEL : ONGOING_TOOLTIP_TRENDS,
@@ -146,6 +167,7 @@ export interface AlertFormLogicProps {
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
+    projectTimezone?: string
     /** Selects the default config type for new alerts based on the insight's query kind. */
     insightAlertKind?: InsightAlertKind
     /** Start new alerts in anomaly detection mode when opened from an anomaly-specific entrypoint. */
@@ -233,9 +255,54 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
-function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+function invalidatesForecastSimulation(name: FieldName): boolean {
+    const field = Array.isArray(name) ? name[0] : name
+    // The cadence picks the offered history ranges, so changing it can move the range the preview ran.
+    // The threshold is not one of these: the run never receives it, and ForecastPreview draws the goal
+    // lines and the crossing marker from the bounds currently in the form, so a bound needs no refit.
+    return field === 'forecast_config' || field === 'config' || field === 'calculation_interval'
+}
+
+/** The inputs a forecast simulation is computed from. The form stays editable while the request
+ * runs, and the response echoes none of them back, so the loader compares this before and after. */
+function forecastSimulationInputs(alert: AlertFormType, dateFrom: string): string {
+    return JSON.stringify([alert.forecast_config, alert.config, dateFrom])
+}
+
+/** A stored forecast config as the editor holds it. A breach config gets the horizon the backend
+ * resolves for it, kept inside the current interval's limits, so the look-ahead on screen is one
+ * the forecast beside it can use. */
+function normalizedForecastConfig(
+    alert: AlertType,
+    insightInterval: IntervalType | null | undefined
+): ForecastConfig | null {
+    return alert.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
+        ? resolveHorizon(alert.forecast_config, insightInterval)
+        : (alert.forecast_config ?? null)
+}
+
+/** The config the server reads when a save leaves `forecast_config` out: the stored one, with only
+ * the horizon it resolves for a config saved without one. Opening the editor must not read as an
+ * edit, which is why the default is filled in here too. A stored horizon the editor had to clamp
+ * stays raw, so the clamp counts as an edit and the save carries it. Otherwise the server keeps
+ * validating a look-ahead it refuses, and every unrelated edit of the alert fails. */
+function omittableForecastConfig(
+    alert: AlertType,
+    insightInterval: IntervalType | null | undefined
+): ForecastConfig | null {
+    return alert.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
+        ? defaultedHorizon(alert.forecast_config, insightInterval)
+        : (alert.forecast_config ?? null)
+}
+
+function alertToFormType(
+    alert: AlertType,
+    insightId: QueryBasedInsightModel['id'],
+    insightInterval: IntervalType | null | undefined
+): AlertFormType {
     return {
         ...alert,
+        forecast_config: normalizedForecastConfig(alert, insightInterval),
         insight: insightId,
     }
 }
@@ -263,6 +330,7 @@ const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBou
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface alertFormLogicValues {
     insightData: Record<string, any> // insightVizDataLogic
+    currentTeamId: number | null // teamLogic
     goalLines: GoalLine[] | null | undefined // trendsDataLogic
     alertForm: AlertFormType
     alertFormAllErrors: Record<string, any>
@@ -275,6 +343,8 @@ export interface alertFormLogicValues {
     alertFormTouches: Record<string, boolean>
     alertFormValidationErrors: DeepPartialMap<AlertFormType, ValidationErrorType>
     clearSnoozeLoading: boolean
+    forecastSimulationResult: ForecastSimulateResponseApi | null
+    forecastSimulationResultLoading: boolean
     funnelAlertPreview: FunnelAlertPreview | null
     hogqlAlertPreview: HogQLAlertPreview | null
     hogqlConfigPrefill: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null
@@ -373,6 +443,27 @@ export interface alertFormLogicActions {
             value: true
         }
     }
+    simulateForecast: () => {
+        value: true
+    }
+    simulateForecastFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    simulateForecastSuccess: (
+        forecastSimulationResult: ForecastSimulateResponseApi | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        forecastSimulationResult: ForecastSimulateResponseApi | null
+        payload?: {
+            value: true
+        }
+    }
     snoozeAlert: (snoozeUntil: string) => {
         snoozeUntil: string
     }
@@ -466,6 +557,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
             ['goalLines'],
             insightVizDataLogic({ dashboardItemId: undefined, ...props.insightVizDataLogicProps }),
             ['insightData'],
+            teamLogic,
+            ['currentTeamId'],
         ],
     })),
 
@@ -474,6 +567,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
         clearSnooze: true,
         simulateAlert: true,
+        simulateForecast: true,
         clearSimulation: true,
         setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
         setAlertFormSubmitAttempted: true,
@@ -485,6 +579,19 @@ export const alertFormLogic = kea<alertFormLogicType>([
             null as string | null,
             {
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+        forecastSimulationResult: [
+            null as ForecastSimulateResponseApi | null,
+            {
+                clearSimulation: () => null,
+                // Drop the last chart when a run fails, so the failure toast isn't read against it.
+                simulateForecastFailure: () => null,
+                // The history range is an input to the run, so the last chart no longer answers it.
+                setSimulationDateFrom: () => null,
+                setAlertFormValue: (state, { name }) => (invalidatesForecastSimulation(name) ? null : state),
+                setAlertFormValues: (state, { values: changed }) =>
+                    Object.keys(changed).some((field) => invalidatesForecastSimulation(field)) ? null : state,
             },
         ],
         alertFormSubmitAttempted: [
@@ -527,12 +634,63 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 clearSimulation: () => null,
             },
         ],
+        forecastSimulationResult: [
+            null as ForecastSimulateResponseApi | null,
+            {
+                simulateForecast: async (_, breakpoint): Promise<ForecastSimulateResponseApi | null> => {
+                    const forecastConfig = values.alertForm.forecast_config
+                    if (!forecastConfig || !props.insightId || !values.currentTeamId) {
+                        lemonToast.error('Simulation is not available yet. Try again in a moment.')
+                        return null
+                    }
+                    const formConfig = values.alertForm.config
+                    const dateFrom = resolveForecastSimulationRange(
+                        values.simulationDateFrom,
+                        values.alertForm.calculation_interval,
+                        props.insightInterval
+                    )
+                    const requestedInputs = forecastSimulationInputs(values.alertForm, dateFrom)
+                    const settledInputs = (): string =>
+                        forecastSimulationInputs(
+                            values.alertForm,
+                            resolveForecastSimulationRange(
+                                values.simulationDateFrom,
+                                values.alertForm.calculation_interval,
+                                props.insightInterval
+                            )
+                        )
+                    // An edit during the request already cleared the preview, so a late answer must
+                    // neither put old forecast data back next to the new settings nor report a
+                    // failure about settings the user has since changed. A close and reopen needs a
+                    // separate guard, because the editor keys on the alert, so both sessions answer
+                    // to these same action types. Only the breakpoint kea bumps on unmount tells
+                    // them apart, which is why it runs outside the snapshot check below.
+                    let response: ForecastSimulateResponseApi
+                    try {
+                        response = await alertsSimulateForecastCreate(String(values.currentTeamId), {
+                            insight: props.insightId,
+                            forecast_config: forecastConfig as unknown as ForecastConfigApi,
+                            series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
+                            date_from: dateFrom,
+                        })
+                    } catch (error) {
+                        if (settledInputs() !== requestedInputs) {
+                            return null
+                        }
+                        breakpoint()
+                        throw error
+                    }
+                    breakpoint()
+                    return settledInputs() === requestedInputs ? response : null
+                },
+            },
+        ],
     })),
 
     forms(({ props, values, actions }) => ({
         alertForm: {
             defaults: props.alert
-                ? alertToFormType(props.alert, props.insightId)
+                ? alertToFormType(props.alert, props.insightId, props.insightInterval)
                 : (() => {
                       const calculationInterval = insightIntervalToAlertInterval(props.insightInterval)
                       return {
@@ -559,13 +717,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           detector_config: props.defaultToAnomalyDetection
                               ? getDefaultAnomalyDetectorConfig(calculationInterval)
                               : null,
+                          forecast_config: null,
                           investigation_agent_enabled: false,
                           investigation_gates_notifications: false,
                           investigation_inconclusive_action: 'notify',
                           insight: props.insightId,
                       } as AlertFormType
                   })(),
-            errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
+            errors: (alert: AlertFormType) =>
+                getAlertFormValidationErrors(alert, {
+                    savedTargetDate:
+                        props.alert?.forecast_config?.condition === ForecastConditionType.TARGET_BY_DATE
+                            ? props.alert.forecast_config.target_date
+                            : undefined,
+                    savedEnabled: props.alert?.enabled,
+                    insightInterval: props.insightInterval,
+                    projectTimezone: props.projectTimezone,
+                }),
             submit: async (alert) => {
                 const entitlementCheck = blockSubmitWithoutEntitlement(alert.calculation_interval, {
                     hasHighFrequencyAlertsEntitlement: userLogic.values.hasAvailableFeature(
@@ -581,8 +749,28 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw new Error(entitlementCheck.message)
                 }
 
+                // Against the config the server would fall back to, not the raw stored one. It
+                // refuses any request that carries `forecast_config` once the flag is off, apart
+                // from a plain disable, and a config stored without a horizon would otherwise
+                // always look edited.
+                const forecastConfigUnchanged =
+                    !!props.alert &&
+                    objectsEqual(
+                        alert.forecast_config ?? null,
+                        omittableForecastConfig(props.alert, props.insightInterval)
+                    )
+
+                // The server validates every threshold it receives, while a target alert hides the
+                // bounds and evaluates its target instead. An inverted pair left behind by the
+                // breach path would fail the save on a field the editor does not show.
+                const boundsUnusableAndHidden =
+                    !usesThresholdBounds(alert) && hasInvertedThresholdBounds(alert.threshold?.configuration?.bounds)
+
                 const payload: AlertTypeWrite = {
                     ...alert,
+                    threshold: boundsUnusableAndHidden
+                        ? { ...alert.threshold, configuration: { ...alert.threshold.configuration, bounds: {} } }
+                        : alert.threshold,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                     // can only skip weekends for sub-daily alerts
@@ -599,6 +787,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           }
                         : alert.config,
                     detector_config: alert.detector_config ?? null,
+                    forecast_config: alert.forecast_config ?? null,
                     // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
                     investigation_agent_enabled: alert.detector_config
                         ? (alert.investigation_agent_enabled ?? false)
@@ -613,6 +802,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
                             ? alert.schedule_restriction
                             : null,
+                }
+
+                if (forecastConfigUnchanged) {
+                    delete payload.forecast_config
                 }
 
                 // absolute value alert can only have absolute threshold
@@ -699,7 +892,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     lemonToast.success('Alert saved.')
                 }
 
-                return alertToFormType(updatedAlert, props.insightId)
+                return alertToFormType(updatedAlert, props.insightId, props.insightInterval)
             },
         },
     })),
@@ -996,6 +1189,43 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     date_from:
                         values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
                     error: error ?? 'Unknown error',
+                })
+                lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
+            },
+            simulateForecastSuccess: ({ forecastSimulationResult }) => {
+                if (!forecastSimulationResult) {
+                    return
+                }
+                const forecastConfig = values.alertForm.forecast_config
+                posthog.capture('alert simulation run', {
+                    success: true,
+                    forecast_engine: forecastConfig?.engine ?? null,
+                    forecast_condition: forecastConfig?.condition ?? null,
+                    date_from: resolveForecastSimulationRange(
+                        values.simulationDateFrom,
+                        values.alertForm.calculation_interval,
+                        props.insightInterval
+                    ),
+                    forecast_points: forecastSimulationResult.forecast_dates.length,
+                })
+            },
+            simulateForecastFailure: ({ error, errorObject }) => {
+                const forecastConfig = values.alertForm.forecast_config
+                posthog.capture('alert simulation run', {
+                    success: false,
+                    forecast_engine: forecastConfig?.engine ?? null,
+                    forecast_condition: forecastConfig?.condition ?? null,
+                    date_from: resolveForecastSimulationRange(
+                        values.simulationDateFrom,
+                        values.alertForm.calculation_interval,
+                        props.insightInterval
+                    ),
+                    // A saved query the schema rejects answers with the parser's own message, and
+                    // that message quotes the value it read, which can be a person-property filter
+                    // value. So the message goes to the toast only, and the event keeps the status
+                    // and the code, which name the failure without carrying query content.
+                    error_status: errorObject?.status ?? null,
+                    error_code: errorObject?.code ?? null,
                 })
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },

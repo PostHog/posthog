@@ -1,6 +1,11 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { InsightThresholdType } from '~/queries/schema/schema-general'
+import {
+    ForecastConditionType,
+    ForecastTargetDirection,
+    InsightThresholdType,
+    TargetByDateForecastConfig,
+} from '~/queries/schema/schema-general'
 
 import {
     AlertEvaluationHistoryChart,
@@ -103,6 +108,42 @@ function buildThresholds(context: ChartThresholdContext | null): AlertEvaluation
     return thresholds
 }
 
+/** A target alert is evaluated against its target and direction, never against threshold bounds,
+ * which survive on an alert converted from threshold mode. Draw the target on the side the
+ * evaluation compares against, so the chart states the rule that actually runs. */
+function forecastTargetThresholds(config: TargetByDateForecastConfig): AlertEvaluationThreshold[] {
+    if (!Number.isFinite(config.target)) {
+        return []
+    }
+    return [
+        {
+            direction: config.target_direction === ForecastTargetDirection.AT_MOST ? 'upper' : 'lower',
+            value: config.target,
+            label: `Target (${humanFriendlyNumber(config.target)})`,
+        },
+    ]
+}
+
+export function getAlertHistoryThresholds(
+    alert: AlertType,
+    chartPlotsAnomalyScore: boolean
+): AlertEvaluationThreshold[] {
+    if (alert.forecast_config?.condition === ForecastConditionType.TARGET_BY_DATE) {
+        return forecastTargetThresholds(alert.forecast_config)
+    }
+    return buildThresholds(getChartThresholdContext(alert, chartPlotsAnomalyScore))
+}
+
+export function getAlertHistoryPoints(alert: AlertType, points: AlertHistoryChartPoint[]): AlertHistoryChartPoint[] {
+    if (alert.forecast_config?.condition !== ForecastConditionType.TARGET_BY_DATE) {
+        return points
+    }
+    // A stored target forecast belongs to the target date configured when that check ran. The API
+    // does not expose that snapshot, so after an edit we cannot honestly compare old values with
+    // today's target date. Keep the historical fired state and suppress only the what-if overlay.
+    return points.map((point) => ({ ...point, wouldFireUnderCurrentConfiguration: null }))
+}
+
 export function AlertHistoryChart({
     points,
     valueLabel,
@@ -118,13 +159,11 @@ export function AlertHistoryChart({
     historyLimit: number
     checksTotal?: number | null
 }): JSX.Element {
-    const thresholdContext = getChartThresholdContext(alert, chartPlotsAnomalyScore)
-
     return (
         <AlertEvaluationHistoryChart
-            points={points}
+            points={getAlertHistoryPoints(alert, points)}
             valueLabel={valueLabel}
-            thresholds={buildThresholds(thresholdContext)}
+            thresholds={getAlertHistoryThresholds(alert, chartPlotsAnomalyScore)}
             historyLimit={historyLimit}
             evaluationsTotal={checksTotal}
             evaluationNoun="check"
