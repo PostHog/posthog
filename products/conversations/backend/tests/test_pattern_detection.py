@@ -20,7 +20,9 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.pattern_detection import (
     DEFAULT_MIN_REQUESTERS,
+    MAX_TOPIC_LENGTH,
     PatternSettings,
+    TopicCandidate,
     required_requesters,
     run_detection,
 )
@@ -79,6 +81,18 @@ class TestRequiredRequesters(SimpleTestCase):
     )
     def test_bar_moves_with_baseline(self, _name, settings, baseline, expected):
         assert required_requesters(settings, baseline, observed_tickets=10) == expected
+
+
+class TestFingerprintWidth(SimpleTestCase):
+    def test_widest_topic_still_fits_the_fingerprint_column(self):
+        widest = TopicCandidate(
+            topic="a" * MAX_TOPIC_LENGTH,
+            ticket_ids=(),
+            requester_count=0,
+            first_ticket_at=timezone.now(),
+        )
+
+        assert len(widest.fingerprint) <= TicketPattern._meta.get_field("fingerprint").max_length
 
 
 class TestRunDetection(BaseTest):

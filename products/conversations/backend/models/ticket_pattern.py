@@ -30,7 +30,8 @@ class TicketPattern(TeamScopedRootMixin, UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Stable key for the topic, e.g. "terms:login password". Dedupe keys on it, not on the title.
-    fingerprint = models.CharField(max_length=200)
+    # Wider than `topic` because it carries the source prefix on top of a full-length topic.
+    fingerprint = models.CharField(max_length=255)
     topic = models.CharField(max_length=200)
     source = models.CharField(max_length=16, choices=TicketPatternSource.choices, default=TicketPatternSource.TERMS)
     title = models.CharField(max_length=300)

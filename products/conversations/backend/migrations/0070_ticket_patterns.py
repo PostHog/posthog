@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("fingerprint", models.CharField(max_length=200)),
+                ("fingerprint", models.CharField(max_length=255)),
                 ("topic", models.CharField(max_length=200)),
                 (
                     "source",
