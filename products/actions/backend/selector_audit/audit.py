@@ -7,6 +7,7 @@ rewrite where measurement shows it is faithful. See the management command for
 the CLI surface.
 """
 
+import os
 import re
 import csv
 import json
@@ -172,6 +173,20 @@ def count_autocapture_events(team_id: int, days: int) -> int:
     return int(result[0][0])
 
 
+def count_autocapture_events_or_none(team_id: int, days: int, log: Callable[[str], object]) -> Optional[int]:
+    """The team's recent `$autocapture` total, or None when the query fails.
+
+    A fleet-wide run visits every team, so a transient ClickHouse error on one
+    team must not end it. The caller skips that team and its rows stay
+    not_measured for a later --resume, which is how a failed batch behaves.
+    """
+    try:
+        return count_autocapture_events(team_id, days)
+    except Exception as error:
+        log(f"team {team_id}: autocapture count failed, skipping team: {error}")
+        return None
+
+
 def measure_team_rows(
     team_id: int,
     rows: list[Row],
@@ -313,6 +328,11 @@ def decide_bucket(row: Row, tolerance: float, gain_tolerance: float = 0.1) -> No
             candidates.append((row["rewrite"], new_rewritten))
         closest = min(candidates, key=lambda candidate: abs(candidate[1] - old_original))
         row["suggestion"] = {"selector": closest[0], "new_count": closest[1]}
+
+
+def measured_row_count(report: Optional[Report]) -> int:
+    """How many rows in a report carry a complete set of counts."""
+    return sum(1 for row in iter_report_rows(report) if all(row["counts"].get(key) is not None for key in COUNT_KEYS))
 
 
 def prefill_counts_from_previous(rows: list[Row], previous: Optional[Report]) -> int:
@@ -461,11 +481,17 @@ def diff_reports(previous: Optional[Report], rows: list[Row]) -> dict[str, list[
 
 def save_report(path: Path, report: Report) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as file:
+    # Written through a temporary file and renamed, because this runs after every
+    # batch of a run an operator may interrupt. A write in place that is cut off
+    # leaves JSON that --resume cannot read, discarding the whole measurement.
+    json_tmp = path.with_name(path.name + ".tmp")
+    with open(json_tmp, "w") as file:
         json.dump(report, file, indent=2)
         file.write("\n")
+    os.replace(json_tmp, path)
     csv_path = path.with_suffix(".csv")
-    with open(csv_path, "w", newline="") as file:
+    csv_tmp = csv_path.with_name(csv_path.name + ".tmp")
+    with open(csv_tmp, "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(
             [
@@ -508,6 +534,7 @@ def save_report(path: Path, report: Report) -> Path:
             # to be opened in a spreadsheet, where a leading =, +, -, or @ executes
             # as a formula.
             writer.writerow([sanitize_formula_injection(cell) for cell in cells])
+    os.replace(csv_tmp, csv_path)
     return csv_path
 
 

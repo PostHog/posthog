@@ -14,13 +14,14 @@ from products.actions.backend.selector_audit.audit import (
     build_report,
     carry_over_previous,
     collect_references,
-    count_autocapture_events,
+    count_autocapture_events_or_none,
     decide_bucket,
     detect_live_compiler,
     diff_reports,
     discover_rows,
     load_report,
     measure_team_rows,
+    measured_row_count,
     prefill_counts_from_previous,
     save_report,
 )
@@ -120,6 +121,17 @@ class Command(BaseCommand):
             if options["resume"]:
                 resumed = prefill_counts_from_previous(rows, previous)
                 log(f"resume: reusing counts for {resumed} of {len(rows)} selector steps from {output_path}")
+            else:
+                # Every checkpoint rewrites the report from the rows in memory, so
+                # measuring without --resume replaces recorded counts with nulls.
+                already_measured = measured_row_count(previous)
+                if already_measured:
+                    log(
+                        self.style.WARNING(
+                            f"{output_path} already holds counts for {already_measured} selector steps, and this "
+                            "run discards them because --resume was not passed"
+                        )
+                    )
 
             def checkpoint() -> None:
                 # Persist progress after every batch, so a killed run loses at
@@ -130,7 +142,9 @@ class Command(BaseCommand):
 
             for team_id in team_ids:
                 team_rows = [row for row in rows if row["team_id"] == team_id]
-                total = count_autocapture_events(team_id, options["days"])
+                total = count_autocapture_events_or_none(team_id, options["days"], log)
+                if total is None:
+                    continue
                 team_totals[team_id] = total
                 if total == 0:
                     log(f"team {team_id}: no $autocapture in the last {options['days']} days, skipping measurement")

@@ -33,6 +33,7 @@ from products.actions.backend.selector_audit.audit import (
     build_report,
     carry_over_previous,
     count_autocapture_events,
+    count_autocapture_events_or_none,
     decide_bucket,
     detect_live_compiler,
     diff_reports,
@@ -264,6 +265,17 @@ class TestMeasureBatching(SimpleTestCase):
         assert self._regexes(queries[0]) == {compile_old(".btn"), compile_new(".btn")}
         assert rows[0]["counts"] == dict.fromkeys(COUNT_KEYS, 5)
         assert rows[1]["counts"] == dict.fromkeys(COUNT_KEYS, 7)
+
+
+class TestCountAutocaptureEventsOrNone(SimpleTestCase):
+    def test_a_failed_count_skips_the_team_instead_of_ending_the_run(self) -> None:
+        logged: list[str] = []
+        with patch(
+            "products.actions.backend.selector_audit.audit.count_autocapture_events",
+            side_effect=Exception("Queries are a little too busy right now"),
+        ):
+            assert count_autocapture_events_or_none(99, 7, logged.append) is None
+        assert "skipping team" in logged[0]
 
 
 class TestReportRoundtrip(SimpleTestCase):
