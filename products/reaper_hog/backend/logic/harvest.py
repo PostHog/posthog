@@ -27,6 +27,12 @@ _SLUG = re.compile(r"[^a-z0-9]+")
 
 
 @frozen
+class HarvestPrompt:
+    title: str
+    description: str
+
+
+@frozen
 class HarvestCandidate:
     view: ClusterView
     verdict: Verdict
@@ -140,7 +146,7 @@ def render_pr_body(candidate: HarvestCandidate) -> str:
     return "\n".join(lines)
 
 
-def build_harvest_prompt(candidate: HarvestCandidate) -> tuple[str, str]:
+def build_harvest_prompt(candidate: HarvestCandidate) -> HarvestPrompt:
     view, verdict = candidate.view, candidate.verdict
     title = pr_title(view)
     body = render_pr_body(candidate)
@@ -177,7 +183,7 @@ def build_harvest_prompt(candidate: HarvestCandidate) -> tuple[str, str]:
             body,
         ]
     )
-    return title, description
+    return HarvestPrompt(title=title, description=description)
 
 
 def load_dead_clusters(*, team_id: int, repository: str, scope: str) -> list[HarvestCandidate]:
@@ -216,11 +222,11 @@ def dispatch_harvest(request: HarvestRequest) -> HarvestResult:
         return result
     team = Team.objects.get(id=request.team_id)
     for candidate in selection.selected:
-        title, description = build_harvest_prompt(candidate)
+        prompt = build_harvest_prompt(candidate)
         created = tasks_facade.create_and_run_task(
             team=team,
-            title=title,
-            description=description,
+            title=prompt.title,
+            description=prompt.description,
             origin_product=tasks_facade.TaskOriginProduct.REAPER_HOG,
             user_id=request.user_id,
             repository=request.repository,
