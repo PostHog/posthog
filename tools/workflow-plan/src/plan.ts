@@ -52,6 +52,7 @@ export interface RawJob {
     outputs?: Record<string, unknown>
     steps?: RawStep[]
     strategy?: { matrix?: unknown }
+    'continue-on-error'?: unknown
 }
 
 export interface Workflow {
@@ -71,6 +72,7 @@ export interface StepPlan {
 
 export interface JobPlan {
     id: string
+    outcome: Outcome
     result: Outcome
     outputs: Record<string, string>
     steps: StepPlan[]
@@ -277,9 +279,11 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
 
         const allSteps = flattenSteps(job.steps)
         if (!runs) {
+            const outcome: Outcome = cancelled ? 'cancelled' : 'skipped'
             jobs[jobId] = {
                 id: jobId,
-                result: cancelled ? 'cancelled' : 'skipped',
+                outcome,
+                result: outcome,
                 outputs: {},
                 steps: allSteps.map((step, index) => toStepPlan(step, index, false)),
                 matrixCells: undefined,
@@ -308,9 +312,12 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
         for (const [key, value] of Object.entries(outputs)) {
             outputs[key] = value.trim()
         }
+        const outcome: Outcome = stepPlan.failed ? 'failure' : 'success'
+        const continueOnError = evaluateTemplate(job['continue-on-error'], context, status) === 'true'
         jobs[jobId] = {
             id: jobId,
-            result: stepPlan.failed ? 'failure' : 'success',
+            outcome,
+            result: outcome === 'failure' && continueOnError ? 'success' : outcome,
             outputs: { ...outputs, ...scenario.jobOutputs?.[jobId] },
             steps: stepPlan.steps,
             matrixCells,

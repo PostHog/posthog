@@ -14,6 +14,7 @@ outputs that scripts produce are empty unless src/scenarios.ts stubs them for th
 unstubbed matrix cannot be sized and a gate on one reads as skipped.`
 
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
+const WORKFLOW_SUFFIXES = ['.yml', '.yaml']
 
 // pnpm --filter runs this from the package directory; INIT_CWD is where the person typed the command.
 function resolveWorkflowPath(argument: string): string {
@@ -21,8 +22,9 @@ function resolveWorkflowPath(argument: string): string {
     if (existsSync(fromInvocation)) {
         return fromInvocation
     }
-    const byName = path.join(WORKFLOWS_DIR, argument.endsWith('.yml') ? argument : `${argument}.yml`)
-    return existsSync(byName) ? byName : fromInvocation
+    const hasSuffix = WORKFLOW_SUFFIXES.some((suffix) => argument.endsWith(suffix))
+    const names = hasSuffix ? [argument] : WORKFLOW_SUFFIXES.map((suffix) => `${argument}${suffix}`)
+    return names.map((name) => path.join(WORKFLOWS_DIR, name)).find(existsSync) ?? fromInvocation
 }
 
 // COLORFGBG is "<fg>;<bg>"; ANSI background 7 or 15 means the terminal is light.

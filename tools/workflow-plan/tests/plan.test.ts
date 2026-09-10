@@ -13,11 +13,12 @@ const scenario = (overrides: Partial<Scenario> = {}, github: Context = pullReque
 // Workflows write `!cancelled()` in a block scalar because a bare `!` starts a YAML tag.
 const block = (condition: string): string => `>-\n      ${condition.split('\n').join('\n      ')}`
 
-const twoJobs = (condition: string | undefined, upstreamRuns = true): string => `
+const twoJobs = (condition: string | undefined, upstreamRuns = true, upstreamTolerated = false): string => `
 on: push
 jobs:
   a:
     if: ${upstreamRuns}
+    continue-on-error: ${upstreamTolerated}
     runs-on: ubuntu-latest
     steps: [{ id: s, run: echo }]
   b:
@@ -28,8 +29,10 @@ jobs:
 `
 
 describe('planWorkflow', () => {
-    it.each<{ condition: string | undefined; upstream: Outcome; expected: Outcome }>([
+    it.each<{ condition: string | undefined; upstream: Outcome; tolerated?: boolean; expected: Outcome }>([
         { condition: "github.event_name == 'push'", upstream: 'failure', expected: 'skipped' },
+        { condition: "github.event_name == 'push'", upstream: 'failure', tolerated: true, expected: 'success' },
+        { condition: 'failure()', upstream: 'failure', tolerated: true, expected: 'skipped' },
         { condition: "!cancelled() && github.event_name == 'push'", upstream: 'failure', expected: 'success' },
         { condition: 'always()', upstream: 'failure', expected: 'success' },
         { condition: 'failure()', upstream: 'failure', expected: 'success' },
@@ -37,13 +40,17 @@ describe('planWorkflow', () => {
         { condition: undefined, upstream: 'skipped', expected: 'skipped' },
         { condition: '!cancelled()', upstream: 'skipped', expected: 'success' },
     ])(
-        'applies success() implicitly: if=$condition after upstream=$upstream gives $expected',
-        ({ condition, upstream, expected }) => {
+        'applies success() implicitly: if=$condition after upstream=$upstream tolerated=$tolerated gives $expected',
+        ({ condition, upstream, tolerated = false, expected }) => {
             const upstreamSteps = upstream === 'failure' ? { a: { s: { outcome: 'failure' as const } } } : {}
             const plan = planWorkflow(
-                parseWorkflow(twoJobs(condition, upstream !== 'skipped')),
+                parseWorkflow(twoJobs(condition, upstream !== 'skipped', tolerated)),
                 scenario({ steps: upstreamSteps }, push())
             )
+            expect(plan.jobs['a']).toMatchObject({
+                outcome: upstream,
+                result: upstream === 'failure' && tolerated ? 'success' : upstream,
+            })
             expect(plan.jobs['b']?.result).toBe(expected)
         }
     )

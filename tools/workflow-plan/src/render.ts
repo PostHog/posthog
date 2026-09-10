@@ -75,7 +75,7 @@ export function renderPlanTable(scenarioPlans: ScenarioPlan[], style?: TableStyl
         name: scenario.name,
         cells: jobIds.map((jobId) => {
             const job = plan.jobs[jobId]!
-            return job.matrixCells === 0 ? `${MARKS[job.result]}${EMPTY_MATRIX_SUFFIX}` : MARKS[job.result]
+            return job.matrixCells === 0 ? `${MARKS[job.outcome]}${EMPTY_MATRIX_SUFFIX}` : MARKS[job.outcome]
         }),
     }))
     const lines = [...renderGrid('job', jobIds, columns, style), '', LEGEND]

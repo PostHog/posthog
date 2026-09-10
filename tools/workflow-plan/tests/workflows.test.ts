@@ -14,6 +14,7 @@ import {
     planWorkflow,
     runningJobs,
 } from '../src/plan.ts'
+import { renderPlanTable } from '../src/render.ts'
 import {
     REPO_ROOT,
     allFiltersChanged,
@@ -277,7 +278,65 @@ const STEP_EXPECTATIONS: StepExpectation[] = ['ci-backend.yml', 'ci-frontend.yml
     },
 ])
 
+const planTable = (file: string, selectors: Stubs): string => {
+    const wf = workflow(file)
+    const scenarioPlans = defaultScenarios(wf, path.join(WORKFLOWS_DIR, file)).map((scenario) => {
+        const stubbed = { ...scenario, steps: { ...scenario.steps, ...selectors } }
+        return { scenario: stubbed, plan: planWorkflow(wf, stubbed) }
+    })
+    return renderPlanTable(scenarioPlans)
+}
+
 describe('.github/workflows run plans', () => {
+    it('ci-backend.yml plans every job under the built-in scenarios as pinned', () => {
+        expect(planTable('ci-backend.yml', backendSelectors)).toMatchInlineSnapshot(`
+          "job                                     draft ready fork queued merged scheduled dispatched
+          changes                                   ▶     ▶    ▶     ▶      ▶        ▶         ▶
+          detect-snapshot-mode                      ▶     ▶    ▶     ▶      .        ▶         ▶
+          turbo-discover                            ▶     ▶    ▶     ▶      .        ▶         ▶
+          build-product-test-matrix                 ▶     ▶    ▶     ▶      .        ▶         ▶
+          get_clickhouse_versions                   ▶     ▶    ▶     ▶      .        ▶         ▶
+          turbo-tests                               .     ▶    ▶     ▶      .        ▶         ▶
+          repo-checks                               ▶     ▶    ▶     ▶      ▶        .         ▶
+          cancel-backend-on-repo-check-failure      .     .    .     .      .        .         .
+          validate-product-yamls                    ▶     ▶    .     ▶      .        .         .
+          check-migrations                          ▶     ▶    ▶     ▶      ▶        .         ▶
+          mirror-schema-cache                       .     .    .     .      ▶        .         .
+          check-openapi-types                       ▶     ▶    ▶     ▶      ▶        .         ▶
+          cancel-backend-on-openapi-check-failure   .     .    .     .      .        .         .
+          build_django_matrix                       ▶     ▶    ▶     ▶      .        ▶         ▶
+          django                                    ▶     ▶    ▶     ▶      .        ▶         ▶
+          handle-snapshots                          .     .    .     .      .        .         .
+          django_tests                              ▶     ▶    ▶     ▶      ▶        ▶         ▶
+          test-selection-verdict                    ▶     ▶    ▶     ▶      .        .         .
+          calculate-running-time                    ▶     ▶    .     ▶      ▶        ▶         ▶
+          capture-test-selection                    .     .    .     .      .        .         .
+          report-test-timings                       ▶     ▶    .     ▶      .        ▶         ▶
+          backend-coverage-report                   .     ▶    .     .      .        .         .
+
+          ▶ = runs   ✗ = fails   ⊘ = cancelled   . = skipped   0 = no matrix expansion"
+        `)
+    })
+
+    it('ci-frontend.yml plans every job under the built-in scenarios as pinned', () => {
+        expect(planTable('ci-frontend.yml', frontendSelectors)).toMatchInlineSnapshot(`
+          "job                        draft ready fork queued merged scheduled dispatched
+          changes                      ▶     ▶    ▶     ▶      ▶        ▶         ▶
+          select-jest-tests            ▶     ▶    ▶     .      .        .         .
+          frontend-format              ▶     ▶    ▶     ▶      ▶        .         ▶
+          frontend-bundle-size         ▶     ▶    ▶     ▶      ▶        .         ▶
+          frontend-typescript-checks   ▶     ▶    ▶     ▶      ▶        .         ▶
+          jest                         ▶     ▶    ▶     ▶      .        ▶         ▶
+          jest-replay-shared           ▶     ▶    ▶     ▶      ▶        ▶         ▶
+          report-test-signals          ▶     ▶    .     ▶      .        ▶         ▶
+          frontend_tests               ▶     ▶    ▶     ▶      ▶        ▶         ▶
+          calculate-running-time       ▶     ▶    .     ▶      ▶        ▶         ▶
+          capture-jest-selection       ▶     ▶    .     ▶      .        .         .
+
+          ▶ = runs   ✗ = fails   ⊘ = cancelled   . = skipped   0 = no matrix expansion"
+        `)
+    })
+
     it.each(workflowFiles)('%s evaluates every job and step condition under the built-in scenarios', (file) => {
         const wf = workflow(file)
         const errors = defaultScenarios(wf, path.join(WORKFLOWS_DIR, file)).flatMap((scenario) =>
