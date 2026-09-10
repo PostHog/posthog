@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, Mock, patch
 
 import requests
@@ -258,7 +258,7 @@ class TestMetronomeSourceResponse:
         # An unaligned lower bound asks Metronome for part of a period the table already holds, and
         # the partial aggregate that comes back upserts as a second row, because the period start
         # is part of the primary key.
-        with freeze_time(NOW):
+        with time_machine.travel(NOW, tick=False):
             metronome_source(
                 api_key="tok",
                 endpoint=endpoint,

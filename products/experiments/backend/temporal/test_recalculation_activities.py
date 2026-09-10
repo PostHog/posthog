@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -241,7 +241,7 @@ class TestRecalculationActivities(BaseTest):
             ("sweep_leaves_completed_at_null", False),
         ]
     )
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_started_does_not_revive_a_force_failed_run(self, name: str, set_completed_at: bool):
         recalc = self._recalc(self._experiment(flag_key=f"progress-start-force-failed-{name}"))
         completed_at = timezone.now() if set_completed_at else None
@@ -276,7 +276,7 @@ class TestRecalculationActivities(BaseTest):
             ("backstop_stamps_failed", "failed"),
         ]
     )
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_completed_does_not_revive_a_force_failed_run(self, name: str, finish_status: str):
         # The staleness sweep force-fails a run with completed_at left NULL, and its workflow cancel is
         # best-effort. If the workflow survives to its finish write, the tombstone must win: without the
@@ -305,7 +305,7 @@ class TestRecalculationActivities(BaseTest):
         assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
         assert recalc.completed_at is None
 
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_started_returns_none_when_force_failed_after_query_to_pinned(self):
         # mark_started ran first and pinned query_to (run went IN_PROGRESS), then an admin force-failed it.
         # A retried mark_started loses the guard, but the read-back must NOT hand back the pinned query_to as a
@@ -344,7 +344,7 @@ class TestRecalculationActivities(BaseTest):
             ("future_end_uses_now", 5, False),
         ]
     )
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_started_query_to_is_data_window_end(self, name: str, end_date_offset_days, expect_end_date: bool):
         # query_to is the data-window end (experiment_window_end), not bare now. For a stopped experiment it
         # resolves to end_date — a fixed value — so reruns reuse the same result row instead of appending a
@@ -382,7 +382,7 @@ class TestRecalculationActivities(BaseTest):
             (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH, False),
         ]
     )
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_started_reuses_prior_window_only_for_metric_config_change(self, trigger: str, expect_reuse: bool):
         # A running experiment has no end_date, so advancing triggers pin now while metric_config_change copies
         # the latest completed run's query_to — the signal that keeps unchanged metrics on the cache.
@@ -411,7 +411,7 @@ class TestRecalculationActivities(BaseTest):
         recalc.refresh_from_db()
         assert recalc.query_to == (prior_window if expect_reuse else now)
 
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_started_reuses_partial_failure_window(self):
         # A run where one metric failed is marked FAILED but stamps completed_at and holds result rows for the
         # metrics that succeeded. Reuse must anchor on that newest terminal window, not fall back to an older
@@ -449,7 +449,7 @@ class TestRecalculationActivities(BaseTest):
         recalc.refresh_from_db()
         assert recalc.query_to == newer_partial
 
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_started_does_not_reuse_window_before_start_date(self):
         # After a reset and relaunch the prior run's rows survive with a query_to from before the new start_date.
         # Reusing that cutoff would begin the window before the experiment exists, so advance to now instead.
@@ -479,7 +479,7 @@ class TestRecalculationActivities(BaseTest):
         recalc.refresh_from_db()
         assert recalc.query_to == now
 
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_started_metric_config_change_clamps_to_end_date_when_stopped(self):
         # A stopped experiment has a fixed window: even metric_config_change resolves to end_date, so a stale
         # prior window (recorded before the stop) can never push the recompute window past end_date.
@@ -509,7 +509,7 @@ class TestRecalculationActivities(BaseTest):
         recalc.refresh_from_db()
         assert recalc.query_to == exp.end_date
 
-    @freeze_time("2026-06-23T05:00:00Z")
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_mark_started_metric_config_change_advances_when_no_prior_window(self):
         # First metric-scoped run: nothing to reuse, so it falls back to now rather than leaving query_to unset.
         now = timezone.now()
@@ -744,7 +744,7 @@ class TestCalculateActivity(BaseTest):
             ),
         ]
     )
-    @freeze_time("2026-05-29T13:00:00Z")
+    @time_machine.travel("2026-05-29T13:00:00Z", tick=False)
     def test_transient_attempt_records_retry_state_and_success_clears_it(
         self, name: str, exc: Exception, expected_error_type: str, expected_delay_seconds: int, expected_message: str
     ):

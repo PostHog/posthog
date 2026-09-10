@@ -9,7 +9,7 @@ from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import patch
 
@@ -369,7 +369,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_authorize_post_authorization_granted(self):
         response = self.client.post(
             "/oauth/authorize/",
@@ -467,7 +467,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_cannot_get_token_with_expired_code(self):
         expired_grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -717,7 +717,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_cimd_client_completes_token_exchange(self):
         # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
@@ -740,7 +740,7 @@ class TestOAuthAPI(APIBaseTest):
         # assertion path has to be what keeps its CIMD registration fresh.
         refresh.assert_called_once_with(app.client_id)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_exchange_survives_refresh_enqueue_failure(self):
         # Metadata freshness is best-effort: a broker outage must not fail a valid exchange.
@@ -761,7 +761,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_exchange_maps_redis_failure_to_retryable(self):
         # The assertion path reads Redis for the JWKS and jti caches, so an outage must
@@ -847,7 +847,7 @@ class TestOAuthAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_public_cimd_client_with_stored_jwks_completes_assertion_exchange(self):
         # A public CIMD client (never partner-registered) can start signing at any time — a
@@ -865,7 +865,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertIn("access_token", response.json())
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_public_cimd_client_with_forged_assertion_is_rejected(self):
         # The menu-semantics widening must not weaken verification: a public client's forged
@@ -902,7 +902,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertIn("access_token", response.json())
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_invalid_assertion_is_not_downgraded_to_the_credentialless_fallback(self):
         # A presented assertion must be verified, never ignored: an assertion signed by a
@@ -962,7 +962,7 @@ class TestOAuthAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_endpoint_invalid_client_credentials(self):
         grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -1363,7 +1363,7 @@ class TestOAuthAPI(APIBaseTest):
 
     # Revoking tokens
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_revoke_refresh_token_for_application(self):
         token_value = f"test_refresh_token_to_revoke"
 
@@ -1411,7 +1411,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIsNone(refresh_token.revoked)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_revoke_refresh_token_for_public_application_without_client_secret(self):
         token_value = f"test_refresh_token_to_revoke_without_client_secret"
 
@@ -1747,7 +1747,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_racing_app_revoke_is_rejected(self):
         # A refresh validates its token in autocommit, before save_bearer_token takes the row
         # lock, so revoke_application_sessions can commit in between and the refresh would mint
@@ -1756,7 +1756,7 @@ class TestOAuthAPI(APIBaseTest):
         # valid through validate_refresh_token.
         refresh_token = self._create_refreshable_token_pair("openid")
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             revoke_application_sessions(self.confidential_application)
 
             response = self.post(
@@ -1776,7 +1776,7 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
         )
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_racing_user_session_revoke_is_rejected(self):
         # Same race as the app-wide case, on the per-connection revoke behind the connected-apps
         # UI and RFC 7009. revoke_oauth_session deletes the pair's refresh tokens, so a refresh
@@ -1786,7 +1786,7 @@ class TestOAuthAPI(APIBaseTest):
         # already-revoked row, so DOT went on to mint a fresh access and refresh token.
         refresh_token = self._create_refreshable_token_pair("openid")
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             revoke_oauth_session(refresh_token=refresh_token)
 
             response = self.post(
@@ -1803,7 +1803,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid_grant")
         self._assert_no_live_tokens()
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_whose_token_is_deleted_while_waiting_for_the_lock_is_rejected(self):
         # The reverse interleaving: the request passes validate_refresh_token in autocommit, then a
         # revoke commits while it waits for the connection lock. Deleting the row from inside the
@@ -1828,13 +1828,13 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_succeeds_for_token_issued_after_revoke(self):
         # A token minted after the revoke stamp (i.e. the client re-authorized) refreshes normally.
         self.confidential_application.sessions_revoked_at = timezone.now()
         self.confidential_application.save()
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             refresh_token = self._create_refreshable_token_pair("openid")
             data = self._refresh(refresh_token.token)
 
@@ -1854,14 +1854,14 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
         )
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_code_exchange_racing_app_revoke_is_rejected(self):
         # The race leaves this committed state at mint time: sessions_revoked_at stamped, grant
         # predating it. Stamping without the full revoke (which also deletes the grant — covered
         # by the validate-then-revoke test below) exercises the timestamp branch.
         code = self._authorize_and_get_code()
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             self.confidential_application.sessions_revoked_at = timezone.now()
             self.confidential_application.save()
 
@@ -1872,7 +1872,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response["Content-Type"], "application/json")
         self._assert_no_live_tokens()
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_code_exchange_validated_before_app_revoke_is_rejected(self):
         # oauthlib validates the grant in autocommit, before save_bearer_token's transaction, so
         # revoke_application_sessions can commit (deleting the grant and stamping) after
@@ -1887,7 +1887,7 @@ class TestOAuthAPI(APIBaseTest):
             return real_save_bearer_token(validator, token, oauth_request, *args, **kwargs)
 
         with (
-            freeze_time("2026-01-01 00:00:05"),
+            time_machine.travel("2026-01-01 00:00:05", tick=False),
             patch.object(OAuthValidator, "save_bearer_token", revoke_then_save),
         ):
             response = self._exchange_code(code)
@@ -1896,13 +1896,13 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid_grant")
         self._assert_no_live_tokens()
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_code_exchange_succeeds_for_grant_issued_after_revoke(self):
         # A grant created after the revoke stamp (i.e. the user re-authorized) exchanges normally.
         self.confidential_application.sessions_revoked_at = timezone.now()
         self.confidential_application.save()
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             code = self._authorize_and_get_code()
             response = self._exchange_code(code)
 
@@ -1962,7 +1962,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(set(result), {"openid", "experiment:read"})
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_narrowed_scopes_persist_across_multiple_refreshes(self):
         # After a narrowed refresh, the rotated token already carries the narrowed
         # set, so a second refresh must hold steady rather than re-broaden.
@@ -1979,7 +1979,7 @@ class TestOAuthAPI(APIBaseTest):
         second_scopes = set(OAuthAccessToken.objects.get(token=second["access_token"]).scope.split())
         self.assertEqual(second_scopes, {"openid", "experiment:read"})
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_rejected_outside_ceiling_does_not_revoke_token(self):
         # The zero-overlap rejection bounces the single request without revoking the
         # token: re-widening the ceiling lets the very same refresh token work again.
@@ -2047,7 +2047,7 @@ class TestOAuthAPI(APIBaseTest):
         db_token = OAuthAccessToken.objects.get(token=new_access_token)
         self.assertEqual(db_token.scoped_teams, [self.team.id])
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_succeeds_when_only_scoped_teams_is_set(self):
         """scoped_teams and scoped_organizations are both nullable ArrayFields. Historically
         they could be set independently — a token scoped to a team often had
@@ -2162,7 +2162,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_rotation_invalidates_old_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -2189,7 +2189,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(retry_old_token_within_grace.json()["refresh_token"], new_refresh_token)
 
         # After grace period, old token should be invalid
-        with freeze_time("2025-01-01 00:03:00"):  # 3 minutes later, beyond grace period
+        with time_machine.travel("2025-01-01 00:03:00", tick=False):  # 3 minutes later, beyond grace period
             retry_old_token_after_grace = self.post("/oauth/token/", refresh_data)
             self.assertEqual(retry_old_token_after_grace.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(retry_old_token_after_grace.json()["error"], "invalid_grant")
@@ -2224,11 +2224,11 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotEqual(grant.user, self.user)
 
     def test_authorization_code_expires_correctly(self):
-        with freeze_time("2025-01-01 00:00:00") as frozen_time:
+        with time_machine.travel("2025-01-01 00:00:00", tick=False) as frozen_time:
             response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
             code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
 
             token_data = {**self.base_token_body, "code": code}
             response = self.post("/oauth/token/", token_data)
@@ -2270,7 +2270,7 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_userinfo_endpoint_with_expired_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -2879,7 +2879,7 @@ class TestOAuthAPI(APIBaseTest):
             response_text = response.content.decode()
             self.assertNotIn(access_token, response_text)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_reuse_within_grace_period(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -2900,14 +2900,14 @@ class TestOAuthAPI(APIBaseTest):
         new_access_token = first_refresh_response.json()["access_token"]
 
         # Reuse old refresh token within grace period (2 minutes by default)
-        with freeze_time("2025-01-01 00:01:00"):
+        with time_machine.travel("2025-01-01 00:01:00", tick=False):
             reuse_response = self.post("/oauth/token/", refresh_data)
             self.assertEqual(reuse_response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(reuse_response.json()["refresh_token"], new_refresh_token)
             self.assertEqual(reuse_response.json()["access_token"], new_access_token)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_reuse_after_grace_period_revokes_token_family(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -2928,7 +2928,7 @@ class TestOAuthAPI(APIBaseTest):
         new_refresh_token = first_refresh_response.json()["refresh_token"]
 
         # Try to reuse old refresh token after grace period (2 minutes by default)
-        with freeze_time("2025-01-01 00:03:00"):
+        with time_machine.travel("2025-01-01 00:03:00", tick=False):
             reuse_response = self.post("/oauth/token/", refresh_data)
             self.assertEqual(reuse_response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(reuse_response.json()["error"], "invalid_grant")
@@ -2945,7 +2945,7 @@ class TestOAuthAPI(APIBaseTest):
             # Some implementations may immediately revoke all tokens in the family,
             # while others may only mark them as suspicious for future use
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_reuse_detection_query_count_is_constant_in_family_size(self):
         # A rotating client grows its token family by one row per refresh, so a long-lived
         # session can sit on a family of hundreds. Detecting reuse of a stale token must
@@ -2979,7 +2979,7 @@ class TestOAuthAPI(APIBaseTest):
 
             # Present the stale token after the grace period: reuse detection fires and
             # the whole family is revoked. The query count must not scale with family size.
-            with freeze_time("2025-01-01 00:10:00"):
+            with time_machine.travel("2025-01-01 00:10:00", tick=False):
                 with self.assertNumQueries(FuzzyInt(12, 16)):
                     reuse_response = self.post("/oauth/token/", {**refresh_data, "refresh_token": stale_refresh_token})
                 self.assertEqual(reuse_response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -2988,7 +2988,7 @@ class TestOAuthAPI(APIBaseTest):
                 self.assertEqual(OAuthRefreshToken.objects.filter(token_family=family, revoked__isnull=True).count(), 0)
                 self.assertFalse(OAuthAccessToken.objects.filter(token=live_access_token).exists())
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_multiple_refresh_token_rotations_preserve_token_family(self):
         # Get initial tokens
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -3022,7 +3022,7 @@ class TestOAuthAPI(APIBaseTest):
             new_token_db = OAuthRefreshToken.objects.get(token=new_refresh_token)
             self.assertEqual(new_token_db.token_family, token_family)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_concurrent_refresh_token_requests_within_grace_period(self):
         # Get initial tokens
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -3044,7 +3044,7 @@ class TestOAuthAPI(APIBaseTest):
         first_new_tokens = first_refresh_response.json()
 
         # Simulate concurrent request with the same old refresh token within grace period
-        with freeze_time("2025-01-01 00:00:30"):  # 30 seconds later
+        with time_machine.travel("2025-01-01 00:00:30", tick=False):  # 30 seconds later
             concurrent_response = self.post("/oauth/token/", refresh_data)
             self.assertEqual(concurrent_response.status_code, status.HTTP_200_OK)
 
@@ -3052,7 +3052,7 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(concurrent_response.json()["refresh_token"], first_new_tokens["refresh_token"])
             self.assertEqual(concurrent_response.json()["access_token"], first_new_tokens["access_token"])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_reuse_with_different_client_fails(self):
         # Get initial tokens for first application
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -3492,7 +3492,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(body["error"], "invalid_scope")
         self.assertIn("experiment:read", body["error_description"])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_auto_approval_skipped_when_request_omits_required_scope(self):
         # An existing token covering the (optional-only) request must not auto-approve
         # below the required floor; the consent screen handles granting the full set.
@@ -3535,7 +3535,7 @@ class TestOAuthAPI(APIBaseTest):
         rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
         self.assertEqual(rejected, [])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_endpoint_with_json_payload(self):
         grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -4001,7 +4001,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_introspection_with_expired_token(self):
         access_token, _ = self._create_access_and_refresh_tokens()
 
@@ -4115,7 +4115,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_self_introspection_with_expired_token_returns_inactive(self):
         """An expired token can self-introspect and gets active: false per RFC 7662."""
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
@@ -4210,7 +4210,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_client_gets_extended_token_expiry(self):
         self.public_application.is_dcr_client = True
         self.public_application.save()
@@ -4286,7 +4286,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(data["expires_in"], 60 * 60)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_client_refresh_token_is_not_rotated(self):
         self.public_application.is_dcr_client = True
         self.public_application.save()
@@ -4342,7 +4342,7 @@ class TestOAuthAPI(APIBaseTest):
         db_refresh_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
         self.assertIsNone(db_refresh_token.revoked)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_refresh_does_not_invalidate_previously_issued_access_tokens(self):
         # Each refresh on a non-rotating client must issue a NEW OAuthAccessToken row, not
         # overwrite the existing one. Overwriting causes a body/DB token mismatch under
@@ -4438,7 +4438,7 @@ class TestOAuthAPI(APIBaseTest):
             ("with_wrong_access_token_hint", "access_token"),
         ]
     )
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_refresh_token_revoke_sweeps_all_refresh_issued_access_tokens(self, _name, hint):
         # Revoking a non-rotating refresh token via /oauth/revoke/ must invalidate every
         # access_token issued from it, not just the original authorization_code-issued
@@ -4509,7 +4509,7 @@ class TestOAuthAPI(APIBaseTest):
             "swept when their refresh token is revoked",
         )
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_refresh_token_revoke_from_other_client_does_not_sweep_session(self):
         # RFC 7009 §2.1: the server verifies the token was issued to the requesting
         # client. A different dynamic client presenting app A's refresh token must not
@@ -4584,7 +4584,7 @@ class TestOAuthAPI(APIBaseTest):
             "that app's (user, application) access-token family",
         )
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_dcr_non_rotating_refresh_racing_app_revoke_is_rejected(self):
         # The non-rotating (DCR) refresh path passes the presented token via
         # scope_source_refresh_token with source_refresh_token=None, so the mint-time revoke
@@ -4621,7 +4621,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         ).json()["refresh_token"]
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             revoke_application_sessions(self.public_application)
             refresh_response = self.post(
                 "/oauth/token/",
@@ -4638,7 +4638,7 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.public_application, revoked__isnull=True).exists()
         )
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_non_dcr_client_refresh_token_is_rotated(self):
         self.public_application.is_dcr_client = False
         self.public_application.save()
@@ -4719,7 +4719,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(response["Location"].startswith(f"{scheme}://posthog/callback"))
         self.assertIn("error=unsupported_response_type", response["Location"])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
     def test_token_response_includes_region_for_us_cloud(self):
         grant = OAuthGrant.objects.create(
@@ -4741,7 +4741,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["posthog_region"], "us")
         self.assertEqual(data["posthog_base_url"], "https://us.posthog.com")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(CLOUD_DEPLOYMENT="EU", SITE_URL="https://eu.posthog.com")
     def test_token_response_includes_region_for_eu_cloud(self):
         grant = OAuthGrant.objects.create(
@@ -4763,7 +4763,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["posthog_region"], "eu")
         self.assertEqual(data["posthog_base_url"], "https://eu.posthog.com")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(CLOUD_DEPLOYMENT=None)
     def test_token_response_excludes_region_for_self_hosted(self):
         grant = OAuthGrant.objects.create(
@@ -4799,7 +4799,7 @@ class TestOAuthAPI(APIBaseTest):
             is_first_party=is_first_party,
         )
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_response_derives_scoped_teams_for_first_party_app(self):
         app = self._create_first_party_app(slug="first-party-derive")
         grant = OAuthGrant.objects.create(
@@ -4832,7 +4832,7 @@ class TestOAuthAPI(APIBaseTest):
         access_token = OAuthAccessToken.objects.get(token=data["access_token"])
         self.assertEqual(access_token.scoped_teams, [])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_response_does_not_derive_scoped_teams_for_third_party_app(self):
         app = self._create_first_party_app(slug="third-party-no-derive", is_first_party=False)
         grant = OAuthGrant.objects.create(
@@ -4862,7 +4862,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
         self.assertEqual(data["scoped_teams"], [])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_response_preserves_stored_scoped_teams_for_first_party_app(self):
         app = self._create_first_party_app(slug="first-party-preserve")
         grant = OAuthGrant.objects.create(
@@ -4892,7 +4892,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
         self.assertEqual(data["scoped_teams"], [self.team.pk])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_first_party_app_gets_extended_token_expiry(self):
         app = self._create_first_party_app(slug="first-party-ttl")
         grant = OAuthGrant.objects.create(
@@ -4925,7 +4925,7 @@ class TestOAuthAPI(APIBaseTest):
         expected_expiry = timezone.now() + timedelta(days=7)
         self.assertLess(abs((access_token.expires - expected_expiry).total_seconds()), 60)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_first_party_app_refreshed_token_keeps_extended_expiry_and_rotates(self):
         app = self._create_first_party_app(slug="first-party-refresh-ttl")
         client_secret = "first_party_first-party-refresh-ttl_client_secret"
