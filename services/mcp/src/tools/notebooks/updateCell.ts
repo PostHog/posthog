@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
 import {
@@ -10,9 +11,25 @@ import {
     wrapRunResultAsInformational,
     type ShapedRunResult,
 } from './cellRuns'
-import { collectRunRefs, directDependents, findCellTag, parseCellTags, replaceCellTag, upsertProp } from './cellTags'
+import {
+    collectRunRefs,
+    directDependents,
+    findCellTag,
+    parseCellTags,
+    replaceCellTag,
+    startsComponentTag,
+    upsertProp,
+} from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
+
+/**
+ * Written by `_create_stable_markdown_prose_id` in `products/notebooks/backend/util.py`.
+ *
+ * Only sharpens an error, because the content parameter decides the branch. A prefix change in
+ * the backend therefore degrades one message and breaks nothing.
+ */
+const PROSE_NODE_ID_PREFIX = 'mdp-'
 
 const UpdateCellInputSchema = z
     .object({
@@ -22,6 +39,12 @@ const UpdateCellInputSchema = z
             .string()
             .optional()
             .describe('New SQL or Python source. Omit to re-run the cell as-is (e.g. a stale cell).'),
+        markdown: z
+            .string()
+            .optional()
+            .describe(
+                'New markdown for a markdown cell: prose, a heading, a table, or a fenced block. Use this instead of `code` when notebooks-get reports the cell as cell_type "markdown". Pass the replacement only; the surrounding cells are untouched.'
+            ),
     })
     .strict()
 
@@ -33,10 +56,99 @@ export interface UpdateCellResult {
     stale_dependents: { node_id: string; dataframe_name?: string }[]
 }
 
-export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, UpdateCellResult>['handler'] = async (
+export interface UpdateProseCellResult {
+    node_id: string
+    updated: true
+}
+
+/** Reject markdown that opens a component tag, so a cell can only be added by the tool that owns runs and identity. */
+function assertNoComponentTag(markdown: string): void {
+    const offending = markdown.split('\n').find((line) => startsComponentTag(line))
+    if (offending) {
+        throw new Error(
+            `markdown must not contain a component tag (found ${offending.trim().slice(0, 40)}). Add cells with notebooks-add-cell, which assigns identity, names the dataframe, and runs the cell.`
+        )
+    }
+}
+
+/**
+ * The offsets come from the state read, so they are right until the document moves under a
+ * retry. The source text is the fallback anchor for that case, and an ambiguous or absent
+ * match is reported rather than guessed, because a wrong span silently overwrites a neighbour.
+ */
+function resolveProseSpan(current: string, block: Schemas.NotebookCellState): { start: number; end: number } {
+    if (current.slice(block.start, block.end) === block.code) {
+        return { start: block.start, end: block.end }
+    }
+    const first = current.indexOf(block.code)
+    if (first === -1 || current.indexOf(block.code, first + block.code.length) !== -1) {
+        throw new Error(
+            `Cell ${block.node_id} moved or changed since it was read. Re-read the notebook with notebooks-get and retry with the id it returns.`
+        )
+    }
+    return { start: first, end: first + block.code.length }
+}
+
+async function updateProseCell(
     context: Context,
     params: z.infer<typeof NotebooksUpdateCellSchema>
-) => {
+): Promise<UpdateProseCellResult> {
+    if (params.code !== undefined) {
+        throw new Error(
+            `Cell ${params.node_id} is a markdown cell. Pass its replacement as \`markdown\`, not \`code\`.`
+        )
+    }
+    const next = params.markdown
+    if (next === undefined || !next.trim()) {
+        throw new Error('markdown must be non-empty. Remove a cell with notebooks-delete-cell.')
+    }
+    assertNoComponentTag(next)
+
+    const projectId = await context.stateManager.getProjectId()
+    const state = await context.api.request<{ cells: Schemas.NotebookCellState[] }>({
+        method: 'GET',
+        path: `${notebookPathFor(projectId, params.notebook_id)}sql_v2/state/`,
+    })
+    const block = state.cells.find((cell) => cell.node_id === params.node_id)
+    if (!block) {
+        throw new Error(
+            `No cell with node_id ${params.node_id} in notebook ${params.notebook_id}. Read the current ids with notebooks-get.`
+        )
+    }
+    if (block.cell_type !== 'markdown') {
+        throw new Error(`Cell ${params.node_id} is a ${block.cell_type} cell. Pass its replacement as \`code\`.`)
+    }
+    // A prose id counts occurrences of identical text, so a block that duplicates another one's
+    // text is only pinned by the position it held when the caller read it. A write arrives after
+    // that read, and an identical block inserted above in between shifts every later occurrence
+    // by one. The id would still resolve, and the fresh offsets would still validate, so the edit
+    // would land on a block the caller never saw.
+    const sameText = state.cells.filter((cell) => cell.cell_type === 'markdown' && cell.code === block.code)
+    if (sameText.length > 1) {
+        throw new Error(
+            `Cell ${params.node_id} has the same text as ${sameText.length - 1} other markdown cell(s) in notebook ${params.notebook_id}, so an id cannot name one of them. Edit this block in the notebook, or make the blocks differ first.`
+        )
+    }
+
+    await applyMarkdownEdit(context, params.notebook_id, (current) => {
+        const span = resolveProseSpan(current, block)
+        return current.slice(0, span.start) + next.trim() + current.slice(span.end)
+    })
+    return { node_id: params.node_id, updated: true }
+}
+
+export const updateCellHandler: ToolBase<
+    typeof NotebooksUpdateCellSchema,
+    UpdateCellResult | UpdateProseCellResult
+>['handler'] = async (context: Context, params: z.infer<typeof NotebooksUpdateCellSchema>) => {
+    if (params.code !== undefined && params.markdown !== undefined) {
+        throw new Error(
+            'Pass either code (a SQL or Python cell) or markdown (a markdown cell), not both. The cell type follows from node_id; read it from notebooks-get.'
+        )
+    }
+    if (params.node_id.startsWith(PROSE_NODE_ID_PREFIX) || params.markdown !== undefined) {
+        return await updateProseCell(context, params)
+    }
     if (params.code !== undefined && !params.code.trim()) {
         throw new Error('code must be non-empty; omit it to re-run the cell unchanged.')
     }
@@ -105,7 +217,7 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
     })
 }
 
-const tool = (): ToolBase<typeof NotebooksUpdateCellSchema, UpdateCellResult> => ({
+const tool = (): ToolBase<typeof NotebooksUpdateCellSchema, UpdateCellResult | UpdateProseCellResult> => ({
     name: 'notebooks-update-cell',
     schema: NotebooksUpdateCellSchema,
     handler: updateCellHandler,

@@ -53999,12 +53999,16 @@ export namespace Schemas {
     export interface NotebookCellState {
       /** Durable cell identity, used by the cell run and edit endpoints. */
       node_id: string;
-      /** Cell kind: 'sql', 'python', or 'saved_insight' (embedded insight, never runs). */
+      /** Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
       cell_type: string;
       /** Name other cells reference this cell's result by; blank means display-only. */
       dataframe_name: string;
-      /** The cell's source, truncated with a marker past 8KB. */
+      /** The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown. */
       code: string;
+      /** Character offset where the cell's source starts in the notebook's markdown. */
+      start: number;
+      /** Character offset just past the cell's source in the notebook's markdown, excluding the blank lines that separate it from the next cell. */
+      end: number;
       /** Derived cell state: 'never_run', 'running', 'done', 'failed', 'interrupted', or 'stale' — stale means re-running now would execute different code than the last completed run (the cell or an upstream dependency changed). */
       status: string;
       /** node_ids of cells whose dataframes this cell's code references. */

@@ -344,6 +344,164 @@ def iter_markdown_query_nodes(content: Any) -> Iterator[tuple[str, dict[str, Any
         yield node_id, query
 
 
+@frozen
+class MarkdownBlock:
+    """One addressable span of a markdown notebook, in document order.
+
+    Blocks never overlap and never include the blank lines between them, so replacing the
+    span `[start, end)` keeps the separators that group cells into cards.
+    """
+
+    kind: str
+    tag_name: str | None
+    node_id: str
+    explicit_node_id: str | None
+    source: str
+    start: int
+    end: int
+
+
+def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> Iterator[MarkdownBlock]:
+    """Walk every block of a markdown notebook, prose included.
+
+    Prose has no durable identity in the document, so its `node_id` is derived from the block
+    text. The id therefore changes when the block changes, which is why a caller must resolve
+    an id against the same read it edits.
+
+    `max_prose_blocks` bounds how many prose blocks this builds. A save accepts a body up to
+    `DATA_UPLOAD_MAX_MEMORY_SIZE`, and a body of that size holds millions of one-character
+    blocks, so an unbounded walk lets one request allocate for minutes. The walk continues past
+    the cap without building the extra prose, because component tags carry the cells that run
+    and must stay addressable wherever they sit in the document.
+    """
+    lines = markdown.split("\n")
+    line_starts = _markdown_line_start_offsets(lines)
+    occurrences: dict[str, int] = {}
+    line_index = 0
+    prose_built = 0
+
+    def prose_budget_left() -> bool:
+        return max_prose_blocks is None or prose_built < max_prose_blocks
+
+    while line_index < len(lines):
+        if not lines[line_index].strip():
+            line_index += 1
+            continue
+
+        if lines[line_index].strip().startswith("```"):
+            end_line_index = _get_markdown_code_block_end(lines, line_index)
+            if prose_budget_left():
+                prose_built += 1
+                yield _build_markdown_prose_block(lines, line_starts, line_index, end_line_index, occurrences)
+            line_index = end_line_index
+            continue
+
+        component = (
+            _read_markdown_component_block(lines, line_index)
+            if _opens_markdown_component_block(lines, line_index)
+            else None
+        )
+        if component is not None:
+            tag_name, raw, next_line_index = component
+            yield _build_markdown_component_block(
+                tag_name, raw, lines, line_starts, line_index, next_line_index, occurrences
+            )
+            line_index = next_line_index
+            continue
+
+        end_line_index = line_index + 1
+        while end_line_index < len(lines) and _continues_markdown_prose_block(lines, end_line_index):
+            end_line_index += 1
+        if prose_budget_left():
+            prose_built += 1
+            yield _build_markdown_prose_block(lines, line_starts, line_index, end_line_index, occurrences)
+        line_index = end_line_index
+
+
+def _continues_markdown_prose_block(lines: list[str], line_index: int) -> bool:
+    stripped = lines[line_index].strip()
+    if not stripped or stripped.startswith("```"):
+        return False
+    return not _opens_markdown_component_block(lines, line_index)
+
+
+def _opens_markdown_component_block(lines: list[str], line_index: int) -> bool:
+    """Whether a component block starts at this line.
+
+    The `<` test runs first because it settles every prose line with one string comparison. The
+    regex scan behind it costs enough to dominate the walk of a large document when every line
+    pays it.
+    """
+    stripped = lines[line_index].lstrip()
+    if not stripped.startswith("<") and not stripped.startswith("\\<"):
+        return False
+    return _read_markdown_component_block(lines, line_index) is not None
+
+
+def _markdown_line_start_offsets(lines: list[str]) -> list[int]:
+    """Character offset each line starts at, plus one entry past the end.
+
+    Every entry counts a trailing newline, the last line included even though it has none. A
+    block that ends at line `n` therefore ends at `offsets[n] - 1`, whether the document
+    continues after it or stops there.
+    """
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line) + 1)
+    return offsets
+
+
+def _build_markdown_prose_block(
+    lines: list[str],
+    line_starts: list[int],
+    start_line: int,
+    end_line: int,
+    occurrences: dict[str, int],
+) -> MarkdownBlock:
+    start = line_starts[start_line]
+    end = line_starts[end_line] - 1
+    source = "\n".join(lines[start_line:end_line])
+    occurrence = occurrences.get(source, 0)
+    occurrences[source] = occurrence + 1
+    return MarkdownBlock(
+        kind="prose",
+        tag_name=None,
+        node_id=_create_stable_markdown_prose_id(source, occurrence),
+        explicit_node_id=None,
+        source=source,
+        start=start,
+        end=end,
+    )
+
+
+def _build_markdown_component_block(
+    tag_name: str,
+    raw: str,
+    lines: list[str],
+    line_starts: list[int],
+    start_line: int,
+    end_line: int,
+    occurrences: dict[str, int],
+) -> MarkdownBlock:
+    start = line_starts[start_line]
+    end = line_starts[end_line] - 1
+    props = _parse_markdown_component_props(raw)
+    fingerprint = _get_markdown_component_fingerprint(tag_name, props)
+    occurrence = occurrences.get(fingerprint, 0)
+    occurrences[fingerprint] = occurrence + 1
+    explicit_node_id = props.get("nodeId")
+    explicit_node_id = explicit_node_id if isinstance(explicit_node_id, str) and explicit_node_id else None
+    return MarkdownBlock(
+        kind="component",
+        tag_name=tag_name,
+        node_id=explicit_node_id or _create_stable_markdown_node_id(fingerprint, occurrence),
+        explicit_node_id=explicit_node_id,
+        source="\n".join(lines[start_line:end_line]),
+        start=start,
+        end=end,
+    )
+
+
 def _get_markdown_notebook_markdown(content: Any) -> str | None:
     if not isinstance(content, dict):
         return None
@@ -714,6 +872,12 @@ def _sort_markdown_component_prop_value(value: Any) -> Any:
 
 def _create_stable_markdown_node_id(fingerprint: str, occurrence: int) -> str:
     return f"mdn-{_hash_markdown_node_id_seed(fingerprint)}-{occurrence}"
+
+
+def _create_stable_markdown_prose_id(source: str, occurrence: int) -> str:
+    # A separate prefix from `mdn-` keeps prose ids and component ids in disjoint spaces, so a
+    # caller can route an id to the right lookup without inspecting the document.
+    return f"mdp-{_hash_markdown_node_id_seed(source)}-{occurrence}"
 
 
 def _hash_markdown_node_id_seed(value: str) -> str:

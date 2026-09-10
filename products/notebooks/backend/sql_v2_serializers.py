@@ -419,13 +419,30 @@ class NotebookCellLastRunSerializer(serializers.Serializer):
 class NotebookCellStateSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="Durable cell identity, used by the cell run and edit endpoints.")
     cell_type = serializers.CharField(
-        help_text="Cell kind: 'sql', 'python', or 'saved_insight' (embedded insight, never runs)."
+        help_text=(
+            "Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or "
+            "'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph)."
+        )
     )
     dataframe_name = serializers.CharField(
         allow_blank=True,
         help_text="Name other cells reference this cell's result by; blank means display-only.",
     )
-    code = serializers.CharField(allow_blank=True, help_text="The cell's source, truncated with a marker past 8KB.")
+    code = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown."
+        ),
+    )
+    start = serializers.IntegerField(
+        help_text="Character offset where the cell's source starts in the notebook's markdown."
+    )
+    end = serializers.IntegerField(
+        help_text=(
+            "Character offset just past the cell's source in the notebook's markdown, excluding the "
+            "blank lines that separate it from the next cell."
+        )
+    )
     status = serializers.CharField(
         help_text=(
             "Derived cell state: 'never_run', 'running', 'done', 'failed', 'interrupted', or 'stale' — "
