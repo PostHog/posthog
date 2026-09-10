@@ -6,9 +6,6 @@ on:
             - .test_quarantine.json
             - tools/hogli-commands/hogli_commands/quarantine/**
             - .github/workflows/test-quarantine.yml
-    schedule:
-        - cron: '37 8 * * *'
-    workflow_dispatch:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -19,7 +16,6 @@ permissions:
 
 jobs:
     check-quarantine:
-        if: github.event_name == 'pull_request'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
@@ -40,84 +36,3 @@ jobs:
               # environment: the quarantine core is stdlib-only and the CLI needs
               # only click, so quarantine PRs stay decoupled from lockfile health.
               run: PYTHONPATH=tools/hogli-commands uv run --no-project --with click python -m hogli_commands.quarantine.cli check
-
-    # `check` starts failing on a calendar date rather than on a commit, so warn before the grace period ends.
-    alert-expiring:
-        if: github.event_name != 'pull_request'
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        env:
-            SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: |
-                      /.test_quarantine.json
-                      /pyproject.toml
-                      /tools/hogli-commands/hogli_commands/__init__.py
-                      /tools/hogli-commands/hogli_commands/quarantine/
-                  sparse-checkout-cone-mode: false
-
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28'
-
-            - name: List entries 7 days and 1 day from failing check
-              id: due
-              # Slack rejects a section block over 3000 characters, and one entry line can reach about 250.
-              run: |
-                  {
-                      echo 'entries<<EOF'
-                      PYTHONPATH=tools/hogli-commands uv run --no-project --with click python -m hogli_commands.quarantine.cli due --in-days 7 --in-days 1 --limit 10
-                      echo 'EOF'
-                  } >> "$GITHUB_OUTPUT"
-
-            - name: Notify Slack
-              if: steps.due.outputs.entries != ''
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
-              with:
-                  method: chat.postMessage
-                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
-                  errors: true
-                  payload: |
-                      channel: "${{ env.SLACK_CHANNEL }}"
-                      text: ":hourglass_flowing_sand: Expired test quarantine entries will fail Python CI soon"
-                      blocks:
-                        - type: "section"
-                          text:
-                            type: "mrkdwn"
-                            text: ":hourglass_flowing_sand: *Expired test quarantine entries will fail Python CI soon.* These tests are no longer quarantined. Remove their entries from <${{ github.server_url }}/${{ github.repository }}/blob/master/.test_quarantine.json|.test_quarantine.json>, or add them again if they still flake, before `hogli test:quarantine check` fails on the date shown."
-                        - type: "section"
-                          text:
-                            type: "mrkdwn"
-                            text: ${{ toJSON(steps.due.outputs.entries) }}
-
-            # Nobody watches a scheduled run, and a broken alerter otherwise looks the same as nothing being due.
-            - name: Notify Slack on alert failure
-              if: failure()
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
-              with:
-                  method: chat.postMessage
-                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
-                  errors: true
-                  payload: |
-                      channel: "${{ env.SLACK_CHANNEL }}"
-                      text: ":red_circle: Test quarantine expiry alert failed"
-                      blocks:
-                        - type: "section"
-                          text:
-                            type: "mrkdwn"
-                            text: ":red_circle: *Test quarantine expiry alert failed.* Entries close to failing `hogli test:quarantine check` may not have been reported."
-                        - type: "actions"
-                          elements:
-                            - type: "button"
-                              text:
-                                type: "plain_text"
-                                text: "View run"
-                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

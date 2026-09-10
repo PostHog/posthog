@@ -161,19 +161,14 @@ def check(path: Path, grace_days: int) -> None:
 )
 @click.pass_obj
 def due(path: Path, in_days: tuple[int, ...], limit: int | None) -> None:
-    today = core.today_utc()
-    lines: list[str] = []
-    for entry in sorted(core.load(path).entries, key=lambda e: e.id):
+    entries = core.entries_failing_check_in(core.load(path).entries, core.today_utc(), in_days)
+    for entry in entries[:limit]:
         fails_on = core.check_failure_date(entry)
-        if (fails_on - today).days in in_days:
-            lines.append(
-                f"• `{entry.id}` ({entry.owner}): expired {entry.expires.isoformat()}, `check` fails on {fails_on.isoformat()}"
-            )
-    shown = lines[:limit]
-    for line in shown:
-        click.echo(line)
-    if len(lines) > len(shown):
-        click.echo(f"• {len(lines) - len(shown)} more not shown")
+        click.echo(
+            f"• `{entry.id}` ({entry.owner}): expired {entry.expires.isoformat()}, `check` fails on {fails_on.isoformat()}"
+        )
+    if limit is not None and len(entries) > limit:
+        click.echo(f"• {len(entries) - limit} more not shown")
 
 
 # Direct invocation needs only click + stdlib (used by test-quarantine.yml to

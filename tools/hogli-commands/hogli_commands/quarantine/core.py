@@ -337,6 +337,16 @@ def check_failure_date(entry: Entry, grace_days: int = DEFAULT_GRACE_DAYS) -> da
     return entry.expires + timedelta(days=grace_days + 1)
 
 
+def entries_failing_check_in(
+    entries: list[Entry], today: date, days: tuple[int, ...], grace_days: int = DEFAULT_GRACE_DAYS
+) -> list[Entry]:
+    """Entries that start failing ``check`` exactly one of ``days`` after ``today``, sorted by id."""
+    return sorted(
+        (e for e in entries if (check_failure_date(e, grace_days) - today).days in days),
+        key=lambda e: e.id,
+    )
+
+
 def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS) -> tuple[list[str], list[str]]:
     """Lint a loaded quarantine file; returns (violations, warnings).
 
@@ -370,10 +380,11 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
             violations.append(f"{label}: added {entry.added} is in the future")
 
         expired_for = (today - entry.expires).days
-        if today >= check_failure_date(entry, grace_days):
+        fails_on = check_failure_date(entry, grace_days)
+        if today >= fails_on:
             violations.append(f"{label}: expired {expired_for} days ago (grace is {grace_days}) — remove or re-triage")
         elif expired_for > 0:
-            days_left = grace_days - expired_for
+            days_left = (fails_on - today).days - 1
             deadline = f"within {days_left} days" if days_left else "today — grace period ends"
             warnings.append(f"{label}: expired {expired_for} days ago — remove {deadline}")
 

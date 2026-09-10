@@ -353,6 +353,7 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/private-sync.yml', REPO_AUTOMATION],
     ['.github/workflows/review-hog.yml', REPO_AUTOMATION],
     ['.github/workflows/stale.yaml', REPO_AUTOMATION],
+    ['.github/workflows/test-quarantine-expiry-alert.yml', REPO_AUTOMATION],
     ['.github/workflows/test-quarantine.yml', REPO_AUTOMATION],
     ['.github/workflows/update-ai-costs.yml', REPO_AUTOMATION],
     ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
