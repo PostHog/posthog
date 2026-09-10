@@ -83,6 +83,8 @@ export function SurveyDetailsPanel(): JSX.Element {
     const conditionsSummary = hasTargetingSet ? getSurveyDisplayConditionsSummary(survey as Survey) : []
     const collectionLimitSummary = getSurveyCollectionLimitSummary(survey)
     const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
+    // A page index left on the intro after the toggle turns off falls back to question 0.
+    const effectivePageIndex = clampPreviewPageIndex(selectedPageIndex, survey)
 
     return (
         <div className="flex flex-col gap-6">
@@ -93,15 +95,15 @@ export function SurveyDetailsPanel(): JSX.Element {
                         <div className="flex justify-center">
                             <SurveyAppearancePreview
                                 survey={survey as Survey}
-                                previewPageIndex={selectedPageIndex || 0}
+                                previewPageIndex={effectivePageIndex}
                                 onPreviewSubmit={(response) => {
                                     // The intro screen is not a question, so getNextSurveyStep
                                     // cannot resolve it: its button always advances to question 0.
-                                    if (selectedPageIndex === INTRO_SCREEN_PAGE_INDEX) {
+                                    if (effectivePageIndex === INTRO_SCREEN_PAGE_INDEX) {
                                         setSelectedPageIndex(0)
                                         return
                                     }
-                                    const nextStep = getNextSurveyStep(survey, selectedPageIndex, response)
+                                    const nextStep = getNextSurveyStep(survey, effectivePageIndex, response)
                                     if (
                                         nextStep === SurveyQuestionBranchingType.End &&
                                         !survey.appearance?.displayThankYouMessage
@@ -119,7 +121,7 @@ export function SurveyDetailsPanel(): JSX.Element {
                         <LemonSelect
                             size="xsmall"
                             fullWidth
-                            value={selectedPageIndex || 0}
+                            value={effectivePageIndex}
                             onChange={(pageIndex) => setSelectedPageIndex(pageIndex)}
                             options={[
                                 ...(survey.appearance?.displayIntroScreen
