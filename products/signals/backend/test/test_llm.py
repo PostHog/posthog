@@ -158,6 +158,30 @@ async def test_request_shape_follows_model_capabilities(
     assert kwargs.get("output_config") == ({"effort": expect_effort} if expect_effort else None)
 
 
+@pytest.mark.asyncio
+async def test_explicit_model_overrides_the_matching_model() -> None:
+    client = _mock_anthropic_client()
+    with (
+        patch(f"{MODULE_PATH}.MATCHING_MODEL", "claude-sonnet-4-5"),
+        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client),
+    ):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            stage="safety_filter",
+            model="claude-sonnet-5",
+        )
+
+    kwargs = client.messages.create.call_args.kwargs
+
+    # The capabilities follow the override, not MATCHING_MODEL, so dropping it flips all three.
+    assert kwargs["model"] == "claude-sonnet-5"
+    assert kwargs["messages"][-1]["role"] == "user"
+    assert "temperature" not in kwargs
+
+
 def _reload_model_constants(env: dict[str, str]) -> tuple[str, str]:
     # Both constants resolve at import, so the environment has to change around a reload. The
     # second reload puts the module back on the real environment for the rest of the session.
