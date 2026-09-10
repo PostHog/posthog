@@ -21,6 +21,11 @@ export function useInboxReportListSelection(orderedReportIds: string[]) {
     setOrderedReportIds(orderedReportIds);
   }, [orderedReportIds, setOrderedReportIds]);
 
+  // A selection means nothing on another tab or another scene, and Runs, Archive and the report
+  // detail publish no order that would prune it. This stays apart from the order effect, because
+  // an order change must not clear a selection that is still on screen.
+  useEffect(() => clearSelection, [clearSelection]);
+
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
