@@ -1,6 +1,18 @@
 ---
 name: querying-posthog-data
-description: 'Explains how to choose and use typed query tools or SQL for PostHog data. Covers trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces, system-entity discovery, and data-warehouse queries. Includes schema discovery, query examples, and result rendering. Also covers governed business or telemetry measures such as MRR, activation, billable usage, active organizations, and failure rates, with canonical definitions in system.information_schema.metrics.'
+description: >
+  Required reading before writing HogQL/SQL or calling execute-sql against PostHog.
+  Guides selection between typed queries and SQL by the requested calculation and output.
+  Use to find, search, or aggregate PostHog entities: insights, dashboards, cohorts,
+  feature flags, experiments, surveys, hog flows, data warehouse, and persons.
+  Also covers analytics: trends, funnels, retention, lifecycle, paths, stickiness,
+  web analytics, error tracking, logs, sessions, and LLM traces.
+  For governed business or telemetry measures (MRR, activation, billable usage,
+  active organizations, failure rates), check for approved definitions in
+  system.information_schema.metrics before deriving from raw events or using
+  a typed domain tool.
+  Covers HogQL differences from ClickHouse SQL, system.* table schemas,
+  available functions, query examples, and schema discovery.
 ---
 
 # Querying data in PostHog
