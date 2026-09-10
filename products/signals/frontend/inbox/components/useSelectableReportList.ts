@@ -24,10 +24,6 @@ export function useSelectableReportList(orderedReportIds: string[]): void {
             if (event.key !== 'Escape' || isTextEntryTarget(event.target)) {
                 return
             }
-            // Read through the logic, not a subscribed value, so the listener is bound once.
-            if (inboxBulkActionsLogic.values.selectedReportIds.length === 0) {
-                return
-            }
             clearSelection()
         }
         window.addEventListener('keydown', onKeyDown)

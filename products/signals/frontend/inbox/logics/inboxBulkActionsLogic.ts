@@ -136,7 +136,9 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                     state.includes(reportId) ? state.filter((id) => id !== reportId) : [...state, reportId],
                 setSelectedReportIds: (_, { reportIds }) => Array.from(new Set(reportIds)),
                 selectAll: (_, { reportIds }) => Array.from(new Set(reportIds)),
-                clearSelection: () => [],
+                // Keep the same array when there was nothing to clear, so an Esc with no selection
+                // costs no re-render.
+                clearSelection: (state) => (state.length === 0 ? state : []),
                 // A reload, a filter change, or a report leaving the list must not leave a stale id
                 // behind: a bulk action on it would fail. Keep the same array when nothing was
                 // dropped, so an unchanged list does not re-render every card.
