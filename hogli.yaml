@@ -394,6 +394,9 @@ start:
         services:
             - redis
         hidden: true
+    start:hogql-lang-service:
+        cmd: env GOTOOLCHAIN=auto HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 MAX_CATALOGS=2 CATALOG_CACHE_MAX_BYTES=268435456 go -C services/hogql-language-service run ./cmd/server
+        description: Run the HogQL language service locally with a two-catalog cache
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
@@ -548,6 +551,11 @@ build:
         bin_script: build-mcp-oauth-scopes.py
         description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
             metadata from posthog/scopes.py
+    build:task-model-catalog:
+        cmd: python products/tasks/scripts/build_model_catalog.py
+        description: Generate the web and desktop views of the task run model catalog
+            (runtime adapter, model, reasoning effort) from
+            products/tasks/backend/model_catalog.py
     build:openapi-cli-agent-scopes:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
@@ -565,6 +573,7 @@ build:
             - build:openapi-mcp
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
+            - build:task-model-catalog
             - build:openapi-cli-agent-scopes
             - build:openapi-exec-docs
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
