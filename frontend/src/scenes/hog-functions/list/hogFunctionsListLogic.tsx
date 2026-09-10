@@ -326,11 +326,20 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 manualFunctions: HogFunctionType[]
             ): HogFunctionType[] => {
                 const search = filters.search?.trim().toLowerCase()
+                // A migrated legacy_destination supersedes the plugin config it came from, and only
+                // the hog function runs. The plugin config stays enabled as the rollback, so drop it
+                // here rather than listing a row that does nothing.
+                const supersededTemplateIds = new Set(
+                    hogFunctions
+                        .filter((f) => f.type === 'legacy_destination' && f.template_id)
+                        .map((f) => f.template_id)
+                )
+                const liveManual = manualFunctions.filter((f) => !supersededTemplateIds.has(f.template_id))
                 const filteredManual = search
-                    ? manualFunctions.filter(
+                    ? liveManual.filter(
                           (f) => f.name?.toLowerCase().includes(search) || f.description?.toLowerCase().includes(search)
                       )
-                    : manualFunctions
+                    : liveManual
                 const enabledFirst = [...hogFunctions, ...filteredManual].sort(
                     (a, b) => Number(b.enabled) - Number(a.enabled)
                 )

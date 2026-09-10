@@ -34,6 +34,7 @@ import {
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { QueryLogTags } from '../../queries/schema/schema-general'
+import type { PageURL } from '../../queries/schema/schema-general'
 import {
     DeviceTab,
     GeographyTab,

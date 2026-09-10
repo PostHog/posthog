@@ -1,6 +1,6 @@
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { getHogFunctionDeliveryType, redactSecretHogFunctionInputs } from './hog-function-utils'
+import { getHogFunctionDeliveryType, legacyPluginTemplateId, redactSecretHogFunctionInputs } from './hog-function-utils'
 
 // The diff-builder test covers schema-marked secrets end to end; this covers the entry-marked branch
 // (a saved secret carries `secret: true` on the input entry itself, with no schema flag needed).
@@ -27,5 +27,18 @@ describe('getHogFunctionDeliveryType', () => {
         ['template-slack', 'realtime'],
     ])('classifies %s as %s', (id, expected) => {
         expect(getHogFunctionDeliveryType({ id })).toBe(expected)
+    })
+})
+
+// The destinations list drops a plugin config whose template a migrated legacy_destination already
+// carries, so this id has to match the one the migration writes.
+describe('legacyPluginTemplateId', () => {
+    it.each([
+        ['https://github.com/PostHog/customerio-plugin', 'plugin-customerio-plugin'],
+        ['inline://semver-flattener', 'plugin-semver-flattener-plugin'],
+        ['inline://user-agent', 'plugin-user-agent-plugin'],
+        [undefined, undefined],
+    ])('maps %s to %s', (url, expected) => {
+        expect(legacyPluginTemplateId(url)).toBe(expected)
     })
 })

@@ -7,6 +7,22 @@ export function getHogFunctionDeliveryType(item: { id: string }): HogFunctionDel
     return item.id.startsWith('batch-export-') ? 'batch' : 'realtime'
 }
 
+// A few inline plugins have a url slug that differs from their bundled processor id.
+// Mirrors PLUGIN_ID_OVERRIDES in posthog/cdp/legacy_destination_migration.py.
+const PLUGIN_ID_OVERRIDES: Record<string, string> = {
+    'semver-flattener': 'semver-flattener-plugin',
+    'user-agent': 'user-agent-plugin',
+}
+
+/** The bundled template a legacy plugin config runs, which a migrated legacy_destination also carries. */
+export function legacyPluginTemplateId(pluginUrl: string | undefined): string | undefined {
+    if (!pluginUrl) {
+        return undefined
+    }
+    const pluginId = pluginUrl.replace('inline://', '').replace('https://github.com/PostHog/', '')
+    return `plugin-${PLUGIN_ID_OVERRIDES[pluginId] ?? pluginId}`
+}
+
 export function humanizeHogFunctionType(type: HogFunctionTypeType, plural: boolean = false): string {
     if (type === 'source_webhook') {
         return 'source' + (plural ? 's' : '')
