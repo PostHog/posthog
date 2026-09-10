@@ -2,11 +2,11 @@
   "manifest_version": 1,
   "contract": {
     "name": "feature_flag_rules_v2",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "config_version": 2
   },
   "corpus": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "config_version_locked": 1,
     "case_id_pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$",
     "published_versions_are_immutable": true,
@@ -305,22 +305,22 @@
     {
       "path": "schemas/hash_sha1_60_v1.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "path": "schemas/v1_evaluation.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "path": "schemas/legacy_projection.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "path": "corpus/hash_sha1_60_v1.json",
       "kind": "corpus",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "schema": "schemas/hash_sha1_60_v1.schema.json",
       "case_ids": [
         "hash.rollout.ascii_division_edge",
@@ -360,7 +360,7 @@
     {
       "path": "corpus/v1_evaluation.json",
       "kind": "corpus",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "schema": "schemas/v1_evaluation.schema.json",
       "case_ids": [
         "v1.boolean.targeted_match_with_payload",
@@ -372,12 +372,15 @@
         "v1.boolean.reason_priority_keeps_earlier_rollout_miss",
         "v1.boolean.reason_priority_prefers_later_rollout_miss",
         "v1.boolean.null_rollout_is_100",
+        "v1.boolean.empty_distinct_id_included_at_zero_percent",
+        "v1.boolean.empty_distinct_id_included_below_prefix_hash",
         "v1.multivariate.variant_from_hash_with_payload",
         "v1.multivariate.variant_from_hash_control",
         "v1.multivariate.variant_override",
         "v1.multivariate.invalid_variant_override_uses_hash",
         "v1.multivariate.partial_rollout_included",
         "v1.multivariate.partial_rollout_excluded",
+        "v1.multivariate.empty_distinct_id_first_variant",
         "v1.group.included_by_group_key",
         "v1.group.excluded_by_group_key",
         "v1.group.integer_group_key_normalized",
@@ -389,13 +392,14 @@
         "v1.dependency.missing_target",
         "v1.holdout.member",
         "v1.holdout.not_member",
+        "v1.holdout.empty_distinct_id_hashes_prefix",
         "v1.omission.inactive_flag"
       ]
     },
     {
       "path": "corpus/legacy_projection.json",
       "kind": "corpus",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "schema": "schemas/legacy_projection.schema.json",
       "case_ids": [
         "projection.boolean_true",

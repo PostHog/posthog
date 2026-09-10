@@ -1,15 +1,15 @@
 {
   "source_repository": "https://github.com/PostHog/posthog-sdk-test-harness",
   "source_path": "contracts/feature_flag_rules_v2",
-  "source_revision": "89f5b4e42e0d23104a5c65557ea8d3083f00856d",
-  "contract_version": "1.1.0",
-  "corpus_version": "1.0.0",
-  "source_sha256sums_digest": "8ec9dbe500167785e14ddc1bef04ad28dbb41e51c68c21625a12ff899a678fb3",
+  "source_revision": "3de40b77efbe978057ea1d16a519b72cf6ec8e16",
+  "contract_version": "1.2.0",
+  "corpus_version": "1.1.0",
+  "source_sha256sums_digest": "b3457d860277f89407762abcf48774e3ef37bbf7c45693fee35cb4096a343e71",
   "files": {
-    "manifest.json": "f4dff63f433c2dddb8cadb24023b2cae1811618d9788e85fb1d89886278c3058",
-    "corpus/hash_sha1_60_v1.json": "41b2a0645f0aa1fb6197caa29cae31e577d52199b41512cea3241d70e1fe07ba",
-    "corpus/legacy_projection.json": "fd2d21d2a3ea55d23f777aad506df54f83b5598c47cea45fc9c96a0482f0bd69",
-    "corpus/v1_evaluation.json": "d4508a67c0c6c4bb62a9d9fc39d28ab56a72cfbfb6cb5aa17c52873bbb8d8543"
+    "manifest.json": "822b6d654bea1d928068c30477a9d437094d5a36edd8ad14cba94b5871bcbbfa",
+    "corpus/hash_sha1_60_v1.json": "e9bea9cff58bac0c6c1021e9c8842c53594055b6874a2c58bc4350d0c28a93ca",
+    "corpus/legacy_projection.json": "536c8386eefa75721d113bd8718ddeb7fb1aad3b4f2cce1fbcf516a346a16e26",
+    "corpus/v1_evaluation.json": "752ff88dcb943ab1e21f9552b0c4ec606029393fca2b565b01a497da89cd8675"
   },
   "update_procedure": [
     "Never edit a vendored file in place. A changed expectation needs a new corpus version upstream and a review explanation there.",

@@ -1,9 +1,9 @@
 {
-  "corpus_version": "1.0.0",
+  "corpus_version": "1.1.0",
   "config_version": 1,
   "description": "Lock-down fixtures for the frozen version 1 evaluation arm. Each case supplies complete flag definitions and an evaluation context and records the hand-derived outcome.",
   "definition_shape": "definitions.flags uses the local evaluation feed shape: id, key, version, active, and filters with groups, multivariate, payloads, aggregation_group_type_index, holdout, and early_exit. Flag dependency filters carry the target flag key in key plus dependency_chain; server-side evaluators map the key to the fixture flag id.",
-  "context_shape": "context carries distinct_id, person_properties, and optionally groups, group_properties. definitions.group_type_mapping maps group type index strings to group type names.",
+  "context_shape": "context carries distinct_id, person_properties, and optionally groups, group_properties. definitions.group_type_mapping maps group type index strings to group type names. An empty distinct_id is valid in version 1; the field remains required.",
   "expectation_rules": {
     "value": "Every conforming evaluator returns this value: boolean, or the assigned variant string.",
     "enabled_and_variant": "The detailed projection fields: enabled is true for any truthy value and variant is the string value or null.",
@@ -11,7 +11,8 @@
     "reason": "The authoritative evaluator's reason code and condition index. condition_index is the stored position of the condition that produced the reason, or null.",
     "local_evaluation": "conclusive: a local evaluator must return value. inconclusive: a local evaluator must not return a value and must fall back to the authoritative evaluator. remote_only: the case pins authoritative behavior for a feature that local evaluators do not implement; a local evaluator that implements it must match.",
     "omitted_flags": "Flags absent from every remote response version. A local evaluator reports them as false.",
-    "hash_evidence": "The hash01 values the outcome depends on, computed with sha1_60_v1 from the recorded input. Cases without evidence compute no hash."
+    "hash_evidence": "sha1_60_v1 arithmetic computed from the recorded input. included and selected describe that arithmetic. For empty-identifier rollout and variant cases this is counterfactual evidence: the reference uses 0.0 without computing SHA-1, so expected records the authoritative outcome and notes explain its difference from the evidence. Empty-identifier holdouts use the recorded hash normally. Cases without evidence require no hash arithmetic to explain their outcome.",
+    "empty_identifier": "The frozen version 1 arm is defined by the Rust /flags reference evaluator. It accepts an empty distinct_id, short-circuits rollout and variant hashing to 0.0, and hashes the prefix alone for holdouts. The empty-identifier cases are remote_only because Python local evaluation does not implement the reference short-circuit or holdouts. This marker does not claim that the SDK falls back: it currently returns divergent values. A later deliberate reference change requires a new corpus version."
   },
   "reason_codes": [
     "condition_match",
@@ -546,6 +547,110 @@
       "notes": "A null rollout_percentage behaves as 100 and computes no hash."
     },
     {
+      "id": "v1.boolean.empty_distinct_id_included_at_zero_percent",
+      "definitions": {
+        "flags": [
+          {
+            "id": 101,
+            "key": "beta-search",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "beta-search": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "remote_only"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "beta-search.",
+          "hash01": 0.6211969413249854,
+          "threshold_percentage": 0,
+          "threshold": 0.0,
+          "included": false
+        }
+      ],
+      "notes": "The version 1 Rust reference accepts the empty distinct_id and get_hash returns 0.0 without calling calculate_hash. Zero percent pins the inclusive comparison at its lowest threshold: 0.0 <= 0 / 100. The hash_evidence records the counterfactual prefix-alone arithmetic, including its false inclusion result; the authoritative expected value uses 0.0 and is true with condition_match. Python local evaluation at a1002c577e7c69e3f321f8f0832ee037316135a3 hashes the prefix alone and returns false, rather than falling back. remote_only pins the reference behavior that the SDK does not implement; this is a known SDK divergence, not an inconclusive result."
+    },
+    {
+      "id": "v1.boolean.empty_distinct_id_included_below_prefix_hash",
+      "definitions": {
+        "flags": [
+          {
+            "id": 101,
+            "key": "beta-search",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 62
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "beta-search": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "remote_only"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "beta-search.",
+          "hash01": 0.6211969413249854,
+          "threshold_percentage": 62,
+          "threshold": 0.62,
+          "included": false
+        }
+      ],
+      "notes": "The version 1 Rust reference accepts the empty distinct_id and get_hash returns 0.0 without calling calculate_hash. 62 percent is just below the prefix-alone hash 0.6211969413249854: hashing beta-search. would exclude at 62 percent and include at 63 percent, while the reference includes at both. The hash_evidence records the counterfactual prefix-alone arithmetic, including its false inclusion result; the authoritative expected value uses 0.0 and is true with condition_match. Python local evaluation at a1002c577e7c69e3f321f8f0832ee037316135a3 hashes the prefix alone and returns false, rather than falling back. remote_only pins the reference behavior that the SDK does not implement; this is a known SDK divergence, not an inconclusive result."
+    },
+    {
       "id": "v1.multivariate.variant_from_hash_with_payload",
       "definitions": {
         "flags": [
@@ -1018,6 +1123,72 @@
         }
       ],
       "notes": "A rollout miss on a multivariate flag returns false and computes no variant hash."
+    },
+    {
+      "id": "v1.multivariate.empty_distinct_id_first_variant",
+      "definitions": {
+        "flags": [
+          {
+            "id": 101,
+            "key": "beta-search",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "test",
+                    "rollout_percentage": 50
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "beta-search": {
+            "value": "control",
+            "enabled": true,
+            "variant": "control",
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "remote_only"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "variant",
+          "input": "beta-search.variant",
+          "hash01": 0.6953518749808109,
+          "cumulative_boundaries": [
+            0.5,
+            1.0
+          ],
+          "selected": "test"
+        }
+      ],
+      "notes": "The 100 percent condition includes without a rollout hash. For variant assignment the version 1 Rust reference short-circuits the empty identifier to 0.0, selecting control, the first variant in stored order. The 50/50 split places the counterfactual hash of the prefix plus variant salt, 0.6953518749808109, in the later test variant; hash_evidence records that arithmetic, not the reference assignment. Python local evaluation at a1002c577e7c69e3f321f8f0832ee037316135a3 returns test. remote_only records this known SDK divergence from the reference empty-identifier behavior; the SDK does not fall back."
     },
     {
       "id": "v1.group.included_by_group_key",
@@ -1916,6 +2087,99 @@
         }
       ],
       "notes": "Outside the holdout the ordinary conditions run and the variant hash assigns test."
+    },
+    {
+      "id": "v1.holdout.empty_distinct_id_hashes_prefix",
+      "definitions": {
+        "flags": [
+          {
+            "id": 115,
+            "key": "beta-search-holdout-92",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "holdout": {
+                "id": 7,
+                "exclusion_percentage": 92
+              }
+            }
+          },
+          {
+            "id": 116,
+            "key": "beta-search-holdout-93",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "holdout": {
+                "id": 7,
+                "exclusion_percentage": 93
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "beta-search-holdout-92": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "remote_only"
+          },
+          "beta-search-holdout-93": {
+            "value": "holdout-7",
+            "enabled": true,
+            "variant": "holdout-7",
+            "payload": null,
+            "reason": {
+              "code": "holdout_condition_value",
+              "condition_index": null
+            },
+            "local_evaluation": "remote_only"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "holdout",
+          "input": "holdout-",
+          "hash01": 0.9268829483920294,
+          "threshold_percentage": 92,
+          "threshold": 0.92,
+          "included": false
+        },
+        {
+          "purpose": "holdout",
+          "input": "holdout-",
+          "hash01": 0.9268829483920294,
+          "threshold_percentage": 93,
+          "threshold": 0.93,
+          "included": true
+        }
+      ],
+      "notes": "The version 1 Rust reference does not short-circuit empty identifiers for holdouts: calculate_hash(\"holdout-\", \"\", \"\") is 0.9268829483920294. 92 and 93 percent straddle this hash. At 92 percent the subject is not a member and the ordinary 100 percent boolean condition matches without a rollout hash; at 93 percent the subject is a member and receives holdout-7 with no condition index. If holdout hashing incorrectly reused the rollout/variant 0.0 guard, both flags would assign holdout-7. Python local evaluation at a1002c577e7c69e3f321f8f0832ee037316135a3 ignores holdout configuration and returns true for both flags. remote_only follows the existing holdout cases: local evaluators implementing holdouts must match the reference."
     },
     {
       "id": "v1.omission.inactive_flag",

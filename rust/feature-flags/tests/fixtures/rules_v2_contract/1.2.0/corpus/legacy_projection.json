@@ -1,5 +1,5 @@
 {
-  "corpus_version": "1.0.0",
+  "corpus_version": "1.1.0",
   "config_version": 1,
   "description": "Projection matrix from a version 1 evaluation outcome to each response protocol version. Response protocol versions are independent of the config version, which is 1 for every case.",
   "response_protocols": {

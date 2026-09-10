@@ -1,5 +1,5 @@
 {
-  "corpus_version": "1.0.0",
+  "corpus_version": "1.1.0",
   "algorithm": "sha1_60_v1",
   "definition": {
     "input": "UTF-8 bytes of prefix + identifier + salt concatenated with no separator and no escaping.",
@@ -13,7 +13,7 @@
     "holdout": "Legacy-era holdout membership uses prefix holdout-, an empty salt, and the same comparison as rollout against exclusion_percentage.",
     "variant": "Each variant boundary is the previous boundary plus rollout_percentage / 100, accumulated left to right in binary64 in stored order. The first variant whose boundary satisfies hash01 < boundary is selected.",
     "final_variant_fallback": "When no boundary satisfies the comparison, version 1 returns no variant and version 2 selects the final variant.",
-    "empty_identifier": "Version 2 never enters rollout, holdout, or variant assignment with an empty identifier, including at 100 percent.",
+    "empty_identifier": "The hash arithmetic applied to an empty identifier hashes the prefix alone when the salt is empty, or the prefix plus salt otherwise. The version 1 Rust reference evaluator short-circuits rollout and variant hashing to 0.0 for an empty identifier and hashes the prefix alone only for holdouts. Version 2 never enters rollout, holdout, or variant assignment with an empty identifier, including at 100 percent.",
     "salts": {
       "rollout": "",
       "variant": "variant",
@@ -180,7 +180,7 @@
     },
     {
       "id": "hash.identifier.empty",
-      "purpose": "The arithmetic applied to an empty identifier hashes the prefix alone. Version 2 never enters rollout, holdout, or variant assignment with an empty identifier.",
+      "purpose": "The hash arithmetic applied to an empty identifier hashes the prefix alone when the salt is empty, or the prefix plus salt otherwise. The version 1 Rust reference evaluator short-circuits rollout and variant hashing to 0.0 for an empty identifier and hashes the prefix alone only for holdouts. Version 2 never enters rollout, holdout, or variant assignment with an empty identifier, including at 100 percent.",
       "prefix": "beta-search.",
       "identifier": "",
       "salt": "",
@@ -643,7 +643,7 @@
       "identical_outcome": false,
       "hash01": 0.6211969413249854,
       "divergence": "empty_identifier",
-      "note": "The bytes are identical, but version 2 never enters rollout with an empty identifier while version 1 arithmetic hashes the prefix alone."
+      "note": "The recorded arithmetic inputs have identical bytes; hash01 describes prefix-alone hashing, not the version 1 rollout outcome. The hash arithmetic applied to an empty identifier hashes the prefix alone when the salt is empty, or the prefix plus salt otherwise. The version 1 Rust reference evaluator short-circuits rollout and variant hashing to 0.0 for an empty identifier and hashes the prefix alone only for holdouts. Version 2 never enters rollout, holdout, or variant assignment with an empty identifier, including at 100 percent."
     },
     {
       "id": "parity.final_variant_fallback_divergent",

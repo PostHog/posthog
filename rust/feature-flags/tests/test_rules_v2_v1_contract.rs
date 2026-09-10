@@ -30,7 +30,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-const CORPUS_DIR: &str = "tests/fixtures/rules_v2_contract/1.1.0";
+const CORPUS_DIR: &str = "tests/fixtures/rules_v2_contract/1.2.0";
 
 /// Corpus rows that supply a precomputed `hash01` instead of hash inputs. The evaluator
 /// computes its hash internally and exposes no seam that accepts one, so these rows stay
