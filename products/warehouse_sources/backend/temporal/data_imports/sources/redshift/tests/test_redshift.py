@@ -1390,6 +1390,17 @@ class TestIsTransientConnectionDropError:
             is True
         )
 
+    def test_matches_consuming_input_failed_ssl_syscall_error(self):
+        # Regression: a drop detected while reading a query's response (e.g. `get_table_metadata`
+        # mid-probe) surfaces as "consuming input failed: SSL SYSCALL error: EOF detected" rather
+        # than either message above, and previously fell through to a full Temporal activity retry.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+            )
+            is True
+        )
+
     def test_does_not_match_unrelated_operational_error(self):
         # A permanent, non-actionable failure that also raises OperationalError must not be
         # swept up by the narrow "the connection is lost" match and retried in-process.
