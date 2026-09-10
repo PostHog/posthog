@@ -201,7 +201,7 @@ _PR_DESCRIPTION_FORM_RULES = (
 SELF_DRIVING_HEAD_BRANCH_PREFIX = "posthog-self-driving/"
 
 
-def _generate_self_driving_head_branch(title: str, tracker_identifier: str | None = None) -> str:
+def _generate_self_driving_head_branch(title: str) -> str:
     """A unique, human-readable PR head branch for an implementation run.
 
     Generated server-side before the agent runs and stamped into PATCH-protected run state, so
@@ -210,16 +210,12 @@ def _generate_self_driving_head_branch(title: str, tracker_identifier: str | Non
     readable; the random suffix is only there to prevent collisions between runs off similarly
     titled reports.
 
-    ``tracker_identifier`` is the team's tracker issue for this run, when it has one. Linear links
-    a pull request whose branch name carries the issue identifier, so carrying it here makes that
-    link without an API call.
     """
     slug = slugify(title)
     if len(slug) > 40:
         # Cut at a word boundary so the name doesn't end mid-word.
         slug = slug[:40].rsplit("-", 1)[0] if "-" in slug[:40] else slug[:40]
-    identifier_part = f"{slugify(tracker_identifier)}-" if tracker_identifier else ""
-    return f"{SELF_DRIVING_HEAD_BRANCH_PREFIX}{identifier_part}{slug or 'implementation'}-{secrets.token_hex(3)}"
+    return f"{SELF_DRIVING_HEAD_BRANCH_PREFIX}{slug or 'implementation'}-{secrets.token_hex(3)}"
 
 
 def _head_branch_instruction(head_branch: str) -> str:
@@ -412,7 +408,7 @@ def _create_implementation_task_if_absent(
 
     # Create the task before the provider issue. A failed task creation must not leave an external
     # issue that says Self-driving started work when no run exists.
-    head_branch = _generate_self_driving_head_branch(title, None)
+    head_branch = _generate_self_driving_head_branch(title)
     description = description + _head_branch_instruction(head_branch)
 
     exempt_reason: str | None = None

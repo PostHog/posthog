@@ -80,32 +80,33 @@ class LinearIntegration:
         if body.get("errors") or not common.dot_get(body, "data.attachmentCreate.success"):
             raise ValidationError("Failed to attach the PostHog link to the Linear issue")
 
-    def cancel_issue(self, issue_id: str) -> None:
-        """Move an issue to its team's canceled state. Raises on failure.
+    def close_issue(self, issue_id: str, *, completed: bool = False) -> None:
+        """Move an issue to its team's completed or canceled state. Raises on failure.
 
         Linear has no generic "close" verb: an issue closes by moving to a workflow state, and
         the state ids differ per team. So read the issue's own team states first.
         """
+        state_type = "completed" if completed else "canceled"
         states_query = """
-        query IssueCancelState($id: String!) {
+        query IssueCloseState($id: String!, $stateType: String!) {
             issue(id: $id) {
-                team { states(filter: { type: { eq: "canceled" } }) { nodes { id } } }
+                team { states(filter: { type: { eq: $stateType } }) { nodes { id } } }
             }
         }
         """
-        body = self.query(states_query, variables={"id": issue_id})
+        body = self.query(states_query, variables={"id": issue_id, "stateType": state_type})
         nodes = common.dot_get(body, "data.issue.team.states.nodes") or []
         if body.get("errors") or not nodes:
-            raise ValidationError("Failed to find a canceled state for the Linear issue")
+            raise ValidationError(f"Failed to find a {state_type} state for the Linear issue")
 
         update_query = """
-        mutation IssueCancel($id: String!, $stateId: String!) {
+        mutation IssueClose($id: String!, $stateId: String!) {
             issueUpdate(id: $id, input: { stateId: $stateId }) { success }
         }
         """
         body = self.query(update_query, variables={"id": issue_id, "stateId": nodes[0]["id"]})
         if body.get("errors") or not common.dot_get(body, "data.issueUpdate.success"):
-            raise ValidationError("Failed to cancel the Linear issue")
+            raise ValidationError(f"Failed to move the Linear issue to a {state_type} state")
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Linear issues by title / identifier for the link-existing flow.

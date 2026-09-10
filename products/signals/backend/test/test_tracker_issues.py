@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from celery.exceptions import Retry
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.models import Team
@@ -19,10 +20,10 @@ from posthog.models.integration import (
 
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 from products.signals.backend.serializers import SignalTeamConfigSerializer
+from products.signals.backend.tasks import close_report_tracker_issue
 from products.signals.backend.tracker_issues import (
     ABANDONED_CLAIM_REASON,
     PR_BODY_MARKER,
-    branch_identifier,
     close_tracker_issue_for_report,
     create_tracker_issue_for_report,
     issue_reference,
@@ -174,23 +175,6 @@ def test_create_tracker_issue_records_the_failure_instead_of_raising(team, error
     assert tracker.failure_reason is not None and expected_reason in tracker.failure_reason
 
 
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("kind", "expected"),
-    [("linear", "ENG-123"), ("github", None), ("jira", None), ("gitlab", None)],
-)
-def test_only_linear_puts_its_identifier_in_the_branch_name(team, kind, expected):
-    # Linear links a pull request off the branch name. Any other identifier there would be noise in
-    # a git ref, and a GitHub issue number would read as a pull request number.
-    _connect_tracker(team, kind)
-    report = _make_report(team)
-
-    with patch.object(INTEGRATION_CLIENTS[kind], "create_issue", return_value=CREATED_CONTEXTS[kind]):
-        tracker = create_tracker_issue_for_report(team_id=team.id, report_id=str(report.id), repository="acme/web")
-
-    assert branch_identifier(tracker) == expected
-
-
 def test_jira_reference_prefers_the_readable_key():
     tracker = SignalReportTrackerIssue(provider="jira", external_context={"id": "1001", "key": "ENG-9"})
 
@@ -253,7 +237,48 @@ def test_close_tracker_issue_is_recorded_once(team):
         assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is True
         assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
 
-    close_issue.assert_called_once_with("web", 12)
+    close_issue.assert_called_once_with("web", 12, completed=False)
+
+
+@pytest.mark.django_db
+def test_completed_report_closes_tracker_issue_as_completed(team):
+    integration = _connect_tracker(team, "github")
+    report = _make_report(team)
+    SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        integration=integration,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "web", "number": 12},
+    )
+
+    with patch.object(GitHubIntegration, "close_issue") as close_issue:
+        assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id), completed=True) is True
+
+    close_issue.assert_called_once_with("web", 12, completed=True)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED])
+def test_close_tracker_issue_task_retries_pending_or_failed_provider_close(team, status):
+    integration = _connect_tracker(team, "github")
+    report = _make_report(team)
+    SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        integration=integration,
+        provider="github",
+        status=status,
+        external_context={"repository": "web", "number": 12},
+    )
+
+    with patch("products.signals.backend.tasks.close_tracker_issue_for_report", return_value=False):
+        with pytest.raises(Retry):
+            close_report_tracker_issue.apply(
+                kwargs={"report_id": str(report.id), "team_id": team.id, "completed": False},
+                throw=True,
+            )
 
 
 @pytest.mark.django_db

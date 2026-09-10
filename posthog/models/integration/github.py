@@ -399,15 +399,15 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         return {"number": issue["number"], "repository": repository}
 
-    def close_issue(self, repository: str, number: int) -> None:
-        """Close an issue as not planned. Raises on failure."""
+    def close_issue(self, repository: str, number: int, *, completed: bool = False) -> None:
+        """Close an issue with the reason that matches the report outcome. Raises on failure."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         response = self.api_request(
             "PATCH",
             f"/repos/{repo_path}/issues/{number}",
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
-            json_body={"state": "closed", "state_reason": "not_planned"},
+            json_body={"state": "closed", "state_reason": "completed" if completed else "not_planned"},
         )
         if response.status_code != 200:
             raise GitHubIntegrationError(

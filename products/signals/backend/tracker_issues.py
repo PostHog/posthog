@@ -239,21 +239,6 @@ def issue_reference(tracker: SignalReportTrackerIssue) -> str | None:
     return f"#{number}" if number else None
 
 
-def branch_identifier(tracker: SignalReportTrackerIssue | None) -> str | None:
-    """The identifier to fold into the pull request's head branch name.
-
-    Only Linear reads one: its GitHub integration links a pull request whose branch name carries
-    the issue identifier, so that link needs no API call and does not depend on the agent writing
-    the right text.
-    """
-    if tracker is None or tracker.status != SignalReportTrackerIssue.Status.CREATED:
-        return None
-    if tracker.provider != Integration.IntegrationKind.LINEAR:
-        return None
-    identifier = (tracker.external_context or {}).get("id")
-    return str(identifier) if identifier else None
-
-
 def _pr_body_reference(tracker: SignalReportTrackerIssue, *, pr_repository: str) -> str | None:
     """The line appended to the pull request body so the pull request names its tracker issue."""
     context = tracker.external_context or {}
@@ -349,26 +334,26 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
         return False
 
 
-def _close_provider_issue(tracker: SignalReportTrackerIssue) -> None:
+def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool) -> None:
     integration = tracker.integration
     if integration is None:
         raise ValueError("Tracker issue has no integration left to close it through")
     context = tracker.external_context or {}
 
     if tracker.provider == Integration.IntegrationKind.GITHUB:
-        GitHubIntegration(integration).close_issue(context["repository"], int(context["number"]))
+        GitHubIntegration(integration).close_issue(context["repository"], int(context["number"]), completed=completed)
     elif tracker.provider == Integration.IntegrationKind.GITLAB:
         GitLabIntegration(integration).close_issue(int(context["issue_id"]))
     elif tracker.provider == Integration.IntegrationKind.LINEAR:
-        LinearIntegration(integration).cancel_issue(str(context["id"]))
+        LinearIntegration(integration).close_issue(str(context["id"]), completed=completed)
     elif tracker.provider == Integration.IntegrationKind.JIRA:
         JiraIntegration(integration).close_issue(str(context["key"]))
     else:
         raise ValueError(f"Unsupported tracker provider {tracker.provider}")
 
 
-def close_tracker_issue_for_report(*, team_id: int, report_id: str) -> bool:
-    """Close the report's tracker issue once the report is dismissed. Never raises.
+def close_tracker_issue_for_report(*, team_id: int, report_id: str, completed: bool = False) -> bool:
+    """Close the report's tracker issue once the report is dismissed or completed. Never raises.
 
     A dismissed report will not produce a pull request, so its work item is finished. Leaving it
     open would grow a backlog of tracker issues that no pull request will ever answer.
@@ -383,7 +368,7 @@ def close_tracker_issue_for_report(*, team_id: int, report_id: str) -> bool:
         if tracker is None or tracker.closed_at is not None:
             return False
 
-        _close_provider_issue(tracker)
+        _close_provider_issue(tracker, completed=completed)
         tracker.closed_at = timezone.now()
         tracker.save(update_fields=["closed_at", "updated_at"])
         return True

@@ -1186,7 +1186,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 
 Some teams cannot merge a pull request unless a tracked work item points at it. `SignalTeamConfig.issue_tracking_integration` names the tracker (GitHub, GitLab, Linear, or Jira) and `issue_tracking_config` names the target inside it; a null integration means the team wants no tracker issues, so one field is both the switch and the target.
 
-`_create_implementation_task_if_absent` opens the issue before it generates the head branch, outside the report lock because the call is network I/O. A `SignalReportTrackerIssue` row per report is what keeps two racing evaluations from each opening one: the claim is a `get_or_create` on the report, so exactly one evaluation reaches the provider. A Linear identifier goes into the branch name, which is how Linear links the pull request without an API call.
+`_create_implementation_task_if_absent` opens the issue after it creates the implementation task, outside the report lock because the call is network I/O. This order prevents an issue from outliving a task transaction that fails. A `SignalReportTrackerIssue` row per report keeps two evaluations from opening duplicate issues. Linear receives a direct attachment after the pull request opens, and the pull request body also links to the issue.
 
 The create never raises. A provider failure is stored on the row as `status=failed` with a short reason, which the report surfaces next to the pull request, and the run opens its pull request either way.
 

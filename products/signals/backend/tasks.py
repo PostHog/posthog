@@ -92,17 +92,30 @@ def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReaso
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
     # Suppression and snoozing are reversible. Keep their tracker issue open for a restored report.
     if reason == "resolved":
-        close_tracker_issue_for_report(team_id=team_id, report_id=report_id)
+        close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=False)
 
 
 @shared_task(
     name="products.signals.backend.tasks.close_report_tracker_issue",
     ignore_result=True,
-    max_retries=0,
+    bind=True,
+    max_retries=5,
 )
 @with_team_scope()
-def close_report_tracker_issue(report_id: str, team_id: int) -> None:
-    close_tracker_issue_for_report(team_id=team_id, report_id=report_id)
+def close_report_tracker_issue(self, report_id: str, team_id: int, completed: bool = False) -> None:
+    if close_tracker_issue_for_report(team_id=team_id, report_id=report_id, completed=completed):
+        return
+    retry_needed = (
+        SignalReportTrackerIssue.objects.for_team(team_id)
+        .filter(
+            report_id=report_id,
+            status__in=[SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED],
+            closed_at__isnull=True,
+        )
+        .exists()
+    )
+    if retry_needed:
+        raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
 
 
 @shared_task(

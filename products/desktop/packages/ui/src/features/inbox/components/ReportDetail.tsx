@@ -103,10 +103,16 @@ export function ReportDetailContent({
           primaryAction={
             <ReportDetailActions report={report} placement="header" />
           }
-          belowSummary={<>
-            <ReportVerdictBanner key={report.id} report={report} initialEngagementOnly />
-            <ReportTrackerIssueLink report={report} />
-          </>}
+          belowSummary={
+            <>
+              <ReportVerdictBanner
+                key={report.id}
+                report={report}
+                initialEngagementOnly
+              />
+              <ReportTrackerIssueLink report={report} />
+            </>
+          }
           summarySection={{ Icon: FileTextIcon, title: "Report summary" }}
           footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}

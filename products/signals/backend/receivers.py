@@ -250,7 +250,9 @@ def close_pr_when_report_dismissed(
         if getattr(instance, "_status_from_pr_state", False) and instance.status == SignalReport.Status.RESOLVED:
             team_id = instance.team_id
             report_id = str(instance.id)
-            transaction.on_commit(lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id))
+            transaction.on_commit(
+                lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=True)
+            )
         return
 
     team_id = instance.team_id

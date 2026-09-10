@@ -22,6 +22,7 @@ import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } f
 import {
     integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
+    integrationsList,
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
 import type {
@@ -927,21 +928,36 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     let offset = 0
                     let hasNext = true
                     while (hasNext) {
-                        const res = await api.integrations.list({ limit: 100, offset })
-                        integrations.push(...res.results)
+                        const res = await integrationsList(String(values.currentProjectId), { limit: 100, offset })
+                        for (const integration of res.results) {
+                            const kind = integration.kind
+                            if (isKeyOf(kind, ICONS)) {
+                                integrations.push({
+                                    ...integration,
+                                    kind,
+                                    config: integration.config ?? {},
+                                    created_by: integration.created_by
+                                        ? {
+                                              id: integration.created_by.id,
+                                              uuid: integration.created_by.uuid,
+                                              distinct_id: integration.created_by.distinct_id ?? '',
+                                              first_name: integration.created_by.first_name ?? '',
+                                              last_name: integration.created_by.last_name,
+                                              email: integration.created_by.email,
+                                              is_email_verified: integration.created_by.is_email_verified,
+                                              role_at_organization: integration.created_by.role_at_organization,
+                                          }
+                                        : integration.created_by,
+                                    // TODO: Make the icons endpoint independent of hog functions
+                                    icon_url: ICONS[kind],
+                                })
+                            }
+                        }
                         offset += res.results.length
                         hasNext = !!res.next && res.results.length > 0
                     }
 
-                    // Simple modifier here to add icons and names - we can move this to the backend at some point
-
-                    return integrations.map((integration) => {
-                        return {
-                            ...integration,
-                            // TODO: Make the icons endpoint independent of hog functions
-                            icon_url: ICONS[integration.kind],
-                        }
-                    })
+                    return integrations
                 },
                 newGoogleCloudKey: async ({ kind, key, callback }) => {
                     try {

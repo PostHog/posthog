@@ -42,8 +42,12 @@ def external_issue_url(integration: model.Integration, external_context: dict[st
         number = context.get("number")
         if not repository or not number:
             return ""
-        org = GitHubIntegration(integration).organization()
-        return f"https://github.com/{org}/{repository}/issues/{number}"
+        repository_path = (
+            str(repository)
+            if "/" in str(repository)
+            else f"{GitHubIntegration(integration).organization()}/{repository}"
+        )
+        return f"https://github.com/{repository_path}/issues/{number}"
 
     if integration.kind == model.Integration.IntegrationKind.GITLAB:
         issue_id = context.get("issue_id")

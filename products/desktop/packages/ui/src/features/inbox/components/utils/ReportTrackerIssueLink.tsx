@@ -42,10 +42,14 @@ export function ReportTrackerIssueLink({ report }: { report: SignalReport }) {
 
   if (report.tracker_issue_error) {
     const trigger = (
-      <span className={cn(badgeClass, "bg-amber-4 text-amber-11")}>
+      <button
+        type="button"
+        aria-label={`No tracker issue: ${report.tracker_issue_error}`}
+        className={cn(badgeClass, "bg-amber-4 text-amber-11")}
+      >
         <WarningIcon size={12} weight="bold" />
         No tracker issue
-      </span>
+      </button>
     );
     return (
       <TooltipProvider>

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconRocket, IconX } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCollapse,
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
@@ -283,6 +284,7 @@ function IssueTrackerTarget({
             <LinearTeamPicker
                 integration={integration}
                 value={target.team_id}
+                disabled={disabled}
                 onChange={(teamId) => teamId && onSave({ team_id: teamId })}
             />
         )
@@ -292,6 +294,7 @@ function IssueTrackerTarget({
             <JiraProjectPicker
                 integrationId={integration.id}
                 value={target.project_key ?? ''}
+                disabled={disabled}
                 onChange={(projectKey) => projectKey && onSave({ project_key: projectKey })}
             />
         )
@@ -308,14 +311,16 @@ function IssueTracker(): JSX.Element {
     const { issueTrackerConfig, issueTrackerIntegrationId, selectedIssueTrackerIntegrationId, teamConfigUpdating } =
         useValues(signalTeamConfigLogic)
     const { patchTeamConfig, setDraftIssueTrackerIntegrationId } = useActions(signalTeamConfigLogic)
-    const { integrations } = useValues(integrationsLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
 
     const trackers = (integrations ?? []).filter((integration) => integration.kind in ISSUE_TRACKER_LABELS)
     const selected = trackers.find((integration) => integration.id === selectedIssueTrackerIntegrationId) ?? null
     // A freshly picked provider has no target yet, so the stored one belongs to the old provider.
     const target = selectedIssueTrackerIntegrationId === issueTrackerIntegrationId ? issueTrackerConfig : {}
     const saved = trackers.find((integration) => integration.id === issueTrackerIntegrationId) ?? null
-    const summary = saved ? (ISSUE_TRACKER_LABELS[saved.kind] ?? saved.kind) : 'Off'
+    const summary =
+        integrations === null ? 'Loading…' : saved ? (ISSUE_TRACKER_LABELS[saved.kind] ?? saved.kind) : 'Off'
 
     const saveTarget = (config: Record<string, string>): void => {
         if (selected) {
@@ -339,54 +344,78 @@ function IssueTracker(): JSX.Element {
         }
     }
 
-    return (
-        <Collapsible className="bg-transparent hover:bg-transparent">
-            <CollapsibleTrigger className="w-full h-auto px-2.5 py-1.5 text-xs text-secondary font-normal bg-transparent hover:bg-[var(--fill-hover)]">
-                <span className="flex-1 text-left">Issue tracker</span>
-                <span className="text-tertiary">{summary}</span>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="flex flex-col gap-1.5 px-2.5 pb-1.5">
-                <p className="text-[11px] text-tertiary leading-snug mb-0">
-                    Open an issue for every PR agents make, and link the two. Use this when a PR can only merge with a
-                    tracked work item behind it.
-                </p>
-                {trackers.length > 0 ? (
-                    <>
-                        <LemonSelect
-                            size="xsmall"
-                            fullWidth
-                            className="max-w-xs"
-                            value={selectedIssueTrackerIntegrationId ?? ISSUE_TRACKER_OFF}
-                            options={[
-                                { value: ISSUE_TRACKER_OFF, label: 'Off' },
-                                ...trackers.map((integration) => ({
-                                    value: integration.id,
-                                    label: `${ISSUE_TRACKER_LABELS[integration.kind]} · ${integration.display_name}`,
-                                })),
-                            ]}
-                            disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
-                            onChange={chooseTracker}
-                        />
-                        {selected && (
-                            <IssueTrackerTarget
-                                integration={selected}
-                                target={target}
-                                disabled={teamConfigUpdating}
-                                onSave={saveTarget}
-                            />
-                        )}
-                        <p className="text-[11px] text-tertiary leading-snug mb-0">
-                            If the tracker fails, the PR still opens and the report shows that the issue is missing.
-                        </p>
-                    </>
+    const content = (
+        <div className="flex flex-col gap-1.5">
+            <p className="text-[11px] text-tertiary leading-snug mb-0">
+                Open an issue for every PR agents make, and link the two. Use this when a PR can only merge with a
+                tracked work item behind it.
+            </p>
+            {integrations === null ? (
+                integrationsLoading ? (
+                    <LemonSkeleton className="h-7 max-w-xs" />
                 ) : (
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-tertiary">Could not load integrations.</span>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => loadIntegrations()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )
+            ) : trackers.length > 0 ? (
+                <>
+                    <LemonSelect
+                        size="xsmall"
+                        fullWidth
+                        className="max-w-xs"
+                        value={selectedIssueTrackerIntegrationId ?? ISSUE_TRACKER_OFF}
+                        options={[
+                            { value: ISSUE_TRACKER_OFF, label: 'Off' },
+                            ...trackers.map((integration) => ({
+                                value: integration.id,
+                                label: `${ISSUE_TRACKER_LABELS[integration.kind]} · ${integration.display_name}`,
+                            })),
+                        ]}
+                        disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                        onChange={chooseTracker}
+                    />
+                    {selected && (
+                        <IssueTrackerTarget
+                            integration={selected}
+                            target={target}
+                            disabled={teamConfigUpdating}
+                            onSave={saveTarget}
+                        />
+                    )}
                     <p className="text-[11px] text-tertiary leading-snug mb-0">
-                        <Link to={urls.settings('project-integrations')}>Connect GitHub, GitLab, Linear, or Jira</Link>{' '}
-                        to track issues.
+                        If the tracker fails, the PR still opens and the report shows that the issue is missing.
                     </p>
-                )}
-            </CollapsibleContent>
-        </Collapsible>
+                </>
+            ) : (
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    <Link to={urls.settings('project-integrations')}>Connect GitHub, GitLab, Linear, or Jira</Link> to
+                    track issues.
+                </p>
+            )}
+        </div>
+    )
+
+    return (
+        <LemonCollapse
+            embedded
+            size="small"
+            panels={[
+                {
+                    key: 'issue-tracker',
+                    header: (
+                        <div className="flex flex-1 items-center justify-between gap-2">
+                            <span className="text-xs text-secondary">Issue tracker</span>
+                            <span className="text-xs text-tertiary">{summary}</span>
+                        </div>
+                    ),
+                    content,
+                },
+            ]}
+        />
     )
 }
 
@@ -589,9 +618,6 @@ export function SelfDrivingSection(): JSX.Element {
                         <div className="border-t border-primary">
                             <BaseBranchOverrides />
                         </div>
-                        <div className="border-t border-primary">
-                            <IssueTracker />
-                        </div>
                     </>
                 ) : (
                     <p className="text-xs text-secondary mb-0 px-2.5 py-1.5">
@@ -600,6 +626,9 @@ export function SelfDrivingSection(): JSX.Element {
                 )}
                 <div className="border-t border-primary">
                     <GitHubAssignmentRow />
+                </div>
+                <div className="border-t border-primary">
+                    <IssueTracker />
                 </div>
                 <div className="border-t border-primary">
                     <DailyReportLimit />

@@ -318,9 +318,12 @@ export function InboxDetailFrame({
                         pullRequestNote={pullRequestNote}
                     />
                 ) : (
-                    <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                        No summary yet. An agent is still investigating.
-                    </p>
+                    <>
+                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                            No summary yet. An agent is still investigating.
+                        </p>
+                        {pullRequestNote}
+                    </>
                 )}
                 {trailingCharts.length > 0 && (
                     <div className="flex flex-col gap-4 mt-5">
