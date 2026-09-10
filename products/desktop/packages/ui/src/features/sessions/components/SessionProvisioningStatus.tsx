@@ -2,7 +2,7 @@ import { CaretDown } from "@phosphor-icons/react";
 import { Button, cn } from "@posthog/quill";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import { useEffect, useRef, useState } from "react";
-import { SessionStartupStatus } from "./SessionStartupStatus";
+import { SessionStartupStatus, startupLabel } from "./SessionStartupStatus";
 
 export function SessionProvisioningStatus({
   taskId,
@@ -26,8 +26,7 @@ export function SessionProvisioningStatus({
   return (
     <div className="w-full min-w-0">
       <SessionStartupStatus
-        executionTarget={executionTarget}
-        phase="setup_hooks"
+        label={startupLabel(executionTarget, "setup_hooks")}
       />
       <div className="min-w-0 pl-[22px]">
         {detail && (

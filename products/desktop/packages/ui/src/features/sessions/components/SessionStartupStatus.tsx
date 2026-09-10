@@ -1,7 +1,6 @@
 import type { SessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
 import { cn } from "@posthog/quill";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { AnimatePresence, motion } from "framer-motion";
 
 export type SessionStartupTarget = "cloud" | "local";
 
@@ -10,7 +9,7 @@ const TITLE: Record<SessionStartupTarget, string> = {
   cloud: "Starting cloud agent",
 };
 
-function statusLabel(
+export function startupLabel(
   target: SessionStartupTarget,
   phase?: SessionStartupPhase,
 ): string {
@@ -19,24 +18,13 @@ function statusLabel(
     : TITLE[target];
 }
 
-export interface SessionStartupStatusProps {
-  executionTarget?: SessionStartupTarget;
-  phase?: SessionStartupPhase;
-  label?: string;
-  detail?: string;
-  className?: string;
-}
-
 export function SessionStartupStatus({
-  executionTarget,
-  phase,
   label,
-  detail,
   className,
-}: SessionStartupStatusProps) {
-  const resolvedLabel =
-    label ??
-    (executionTarget ? statusLabel(executionTarget, phase) : undefined);
+}: {
+  label: string;
+  className?: string;
+}) {
   return (
     <output
       className={cn(
@@ -45,20 +33,7 @@ export function SessionStartupStatus({
       )}
     >
       <Spinner aria-hidden size="sm" className="shrink-0 text-accent-11" />
-      {resolvedLabel ? <span className="shrink-0">{resolvedLabel}</span> : null}
-      <AnimatePresence initial={false}>
-        {detail && (
-          <motion.span
-            animate={{ opacity: 1, width: "auto" }}
-            className="truncate text-gray-10"
-            exit={{ opacity: 0, width: 0 }}
-            initial={{ opacity: 0, width: 0 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-          >
-            {detail}
-          </motion.span>
-        )}
-      </AnimatePresence>
+      <span className="shrink-0">{label}</span>
     </output>
   );
 }

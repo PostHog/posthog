@@ -29,6 +29,13 @@ import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
+const loadingConversation = (
+  <SessionStartupStatus
+    label="Loading conversation..."
+    className="h-full justify-center"
+  />
+);
+
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
@@ -123,10 +130,7 @@ export function ReportChatSidebar({
           ) : tasksLoading ? (
             // Offering the starter before the task lookup resolves invites a
             // duplicate conversation on a report that already has one.
-            <SessionStartupStatus
-              label="Loading conversation..."
-              className="h-full justify-center"
-            />
+            loadingConversation
           ) : (
             <ReportChatStarter
               report={report}
@@ -183,12 +187,7 @@ function ReportChatConversation({
   ]);
 
   if (!task) {
-    return (
-      <SessionStartupStatus
-        label="Loading conversation..."
-        className="h-full justify-center"
-      />
-    );
+    return loadingConversation;
   }
 
   return <EmbeddedSessionView task={task} />;

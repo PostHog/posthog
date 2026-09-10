@@ -1,7 +1,10 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import { SessionProvisioningStatus } from "@posthog/ui/features/sessions/components/SessionProvisioningStatus";
-import { SessionStartupStatus } from "@posthog/ui/features/sessions/components/SessionStartupStatus";
+import {
+  SessionStartupStatus,
+  startupLabel,
+} from "@posthog/ui/features/sessions/components/SessionStartupStatus";
 import { useSessionViewState } from "@posthog/ui/features/sessions/hooks/useSessionViewState";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 
@@ -33,9 +36,11 @@ export function SessionStartupRow({
   if (hasError || (isRunning && !isInitializing)) return null;
   return (
     <SessionStartupStatus
-      executionTarget={executionTarget}
-      phase={startupPhase}
-      label={isInitializing ? undefined : "Connecting to agent..."}
+      label={
+        isInitializing
+          ? startupLabel(executionTarget, startupPhase)
+          : "Connecting to agent..."
+      }
     />
   );
 }
