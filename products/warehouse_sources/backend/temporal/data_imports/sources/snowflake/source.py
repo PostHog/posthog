@@ -61,6 +61,16 @@ _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
     "Remove the passphrase, or paste your encrypted private key, then {action}"
 )
 
+# Snowflake rejects the login (250001 / 08001) when the account enforces multi-factor auth for the
+# connecting user. The server phrases this several ways, and the bare "MFA authentication is
+# required" variant carries the account host and vendor codes, so it must not reach the customer
+# raw. Same `{action}` placeholder convention as `_MALFORMED_PEM_MESSAGE`.
+_MFA_ENFORCED_MESSAGE = (
+    "Snowflake rejected the login because multi-factor authentication is enforced for this user. "
+    "Automated syncs can't answer an MFA prompt, so connect with a service user that uses key-pair "
+    "authentication or is exempt from MFA, then {action}"
+)
+
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then try again.",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
@@ -73,6 +83,11 @@ SnowflakeErrors = {
     # connector raises HttpError rather than the "Verify the account name is correct" OperationalError,
     # so it needs its own entry. The host and port in the message are volatile, so we match "404 Not Found".
     "404 Not Found": "Can't find a Snowflake account with the specified account ID. Please check your account identifier and try again.",
+    # Snowflake error 250001 (08001): the account enforces MFA for this user, either as a denied Duo
+    # push or as a bare requirement. Without these entries the wizard falls back to the generic
+    # "check all connection details" message, so people re-enter correct credentials repeatedly.
+    "Duo Security authentication is denied": _MFA_ENFORCED_MESSAGE.format(action="try again."),
+    "MFA authentication is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
 }
 
 
@@ -241,7 +256,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # Snowflake error 250001 (08001): the user's password has expired. Snowflake requires it
             # to be changed via the web console before any login can succeed, so retrying never works.
             "Specified password has expired": "Your Snowflake password has expired. Please change it in the Snowflake web console (or switch to key-pair authentication), then resync.",
-            "MFA authentication is required": None,
+            "MFA authentication is required": _MFA_ENFORCED_MESSAGE.format(action="resync."),
             # The account enforces Duo Security multi-factor auth for this user, so the
             # connector's login is rejected (250001 / 08001). An unattended sync can't answer a
             # Duo push, so retrying never succeeds — surface an actionable message instead.
@@ -309,12 +324,19 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
             # Snowflake connector error 290403 (ER_HTTP_GENERAL_ERROR + 403): a request to Snowflake
             # returned HTTP 403 Forbidden and kept doing so through the connector's own retry budget.
-            # The connector treats 403 as retryable and retries within the request timeout, so a
-            # ForbiddenError reaching us means the 403 is persistent — an access-denied condition
-            # (a network policy/firewall/proxy blocking PostHog, or the role's access to the data
-            # being revoked), not a transient blip. Retrying the whole sync can't fix it. The errno
-            # prefix and host are volatile, so we match the stable status text.
-            "HTTP 403: Forbidden": "Snowflake refused the request with an HTTP 403 (forbidden). This usually means a network policy or firewall on your account is blocking PostHog's access, or your role's access to the data was revoked. Check your Snowflake network access rules and role grants, then resync.",
+            # Two different conditions produce it. At connect, or early in a sync, it is access
+            # denied: a network policy, firewall, or proxy blocks PostHog, or the role's grant on
+            # the data was revoked. Hours into a sync it is instead an expired result-chunk URL,
+            # because the pre-signed URLs that `result_batch.py::_download` fetches have a limited
+            # lifetime and a slow sync outlives them.
+            #
+            # Only the first condition is truly non-retryable. A fresh attempt re-executes the
+            # query and gets a new set of chunk URLs, so the expiry case would clear on retry the
+            # same way "HTTP 400: Bad Request" does below. Both stay here until the two can be told
+            # apart, because retrying a real access-denied 403 burns the whole attempt budget
+            # against a condition that only the customer can fix. The errno prefix and host are
+            # volatile, so we match the stable status text.
+            "HTTP 403: Forbidden": "Snowflake refused a request with an HTTP 403 (forbidden). If the sync ran for several hours before failing, the temporary link Snowflake gave us to download the query results expired. Resync to get a fresh one. If it failed soon after starting, check your Snowflake role grants and network access rules, then resync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -322,7 +344,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # Snowflake connector error 290400 (ER_HTTP_GENERAL_ERROR + 400): downloading a query
             # result chunk got HTTP 400, which the connector's own `is_retryable_http_code` already
             # retries with backoff before re-raising the plain `BadRequest` once its download retry
-            # budget is exhausted (`result_batch.py::_download`). Unlike the persistent-403 case
+            # budget is exhausted (`result_batch.py::_download`). Unlike the access-denied 403 case
             # above, every Temporal-level retry of `get_rows` opens a fresh connection and re-executes
             # the query from scratch, getting a brand new set of chunk URLs — a stale one from the
             # previous attempt doesn't carry over. Self-recovering, so keep retrying instead of

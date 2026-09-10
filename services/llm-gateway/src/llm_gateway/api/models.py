@@ -7,10 +7,13 @@ from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError, get_auth_service
+from llm_gateway.config import get_settings
+from llm_gateway.flags import evaluate_flags
 from llm_gateway.products.config import (
     FREE_TIER_RESTRICTION_REASON,
     CreditBucket,
     filter_to_free_tier_models,
+    get_required_model_flag,
     validate_product,
 )
 from llm_gateway.rate_limiting.model_cost_service import ModelCostService
@@ -73,6 +76,10 @@ class ModelsResponse(BaseModel):
     models: list[ModelObject] = []  # Alias for `data` — codex-acp expects this field
 
 
+def _models_response(models: list[ModelObject]) -> ModelsResponse:
+    return ModelsResponse(data=models, models=models)
+
+
 def _format_rate(rate: float) -> str:
     return format(Decimal(str(rate)), "f")
 
@@ -113,7 +120,7 @@ def _build_response(product: str) -> ModelsResponse:
         )
         for m in models
     ]
-    return ModelsResponse(data=model_objects, models=model_objects)
+    return _models_response(model_objects)
 
 
 async def _authenticated_caller(request: Request) -> AuthenticatedUser | None:
@@ -153,10 +160,27 @@ async def _caller_confirmed_free_tier(request: Request, user: AuthenticatedUser 
     return not quota_status.code_usage_billing_active
 
 
+async def _drop_flag_gated_models(models: list[ModelObject], user: AuthenticatedUser | None) -> list[ModelObject]:
+    """Models behind an access flag the caller does not hold, removed from the listing.
+    Enforcement rejects them on the request path, so listing one only offers a pick that
+    fails after a picker already committed to it. Dropped rather than marked `allowed: False`:
+    a mark reads as a plan restriction, and no plan change clears a rollout flag.
+    Unidentifiable callers keep the full list — there is no identity to evaluate."""
+    if user is None or get_settings().debug:
+        return models
+    required_flag = {m.id: flag for m in models if (flag := get_required_model_flag(m.id)) is not None}
+    if not required_flag:
+        return models
+    flags = sorted(set(required_flag.values()))
+    enabled = await evaluate_flags(flags, user.distinct_id)
+    return [m for m in models if m.id not in required_flag or enabled.get(required_flag[m.id]) is True]
+
+
 @models_router.get("/v1/models")
 async def list_models(request: Request) -> ModelsResponse:
-    await _authenticated_caller(request)
-    return _build_response("llm_gateway")
+    user = await _authenticated_caller(request)
+    response = _build_response("llm_gateway")
+    return _models_response(await _drop_flag_gated_models(response.data, user))
 
 
 @models_router.get("/{product}/v1/models")
@@ -165,6 +189,7 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
     response = _build_response(product)
 
     user = await _authenticated_caller(request)
+    response = _models_response(await _drop_flag_gated_models(response.data, user))
 
     if resolved != "posthog_code":
         return response
@@ -178,4 +203,4 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
         else m.model_copy(update={"allowed": False, "restriction_reason": FREE_TIER_RESTRICTION_REASON})
         for m in response.data
     ]
-    return ModelsResponse(data=annotated, models=annotated)
+    return _models_response(annotated)

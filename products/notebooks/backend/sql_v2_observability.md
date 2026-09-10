@@ -18,7 +18,7 @@ It cannot hold per-query ClickHouse cost — scanned bytes per query is unbounde
 
 **ClickHouse `query_log_archive`** holds the per-query cost: `read_bytes`, `result_bytes`, `result_rows`, `query_duration_ms`, `memory_usage`, `peak_threads_usage`, exception codes.
 It is not in Grafana — production ClickHouse holds customer data and there is deliberately no ClickHouse datasource there.
-The sanctioned path is the internal Metabase under your own SSO session (the `query-clickhouse-via-metabase` skill).
+The sanctioned path is the internal Metabase under your own SSO session (the `querying-production-databases-via-metabase` skill).
 
 Grafana dashboards are **not code-managed** in this repo — they are edited in the UI, reachable over Tailscale at `grafana-prod-us` / `grafana-prod-eu` (see `tools/infra-scripts/mcp/README.md`).
 The JSON here is an import artifact, not a provisioned source of truth. Import it, then own it in the UI.

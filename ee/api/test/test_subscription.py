@@ -29,13 +29,17 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
+    AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import AI_QUERY_PLAN_VERSION
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_QUERY_FAILURE_TYPE,
+    AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -49,6 +53,16 @@ from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
+VALID_AI_QUERY_PLAN = {
+    "overall_intent": "Count events",
+    "steps": [
+        {
+            "description": "Count matching events",
+            "query_type": "hogql",
+            "hogql": "SELECT count() FROM events WHERE {{date_range}}",
+        }
+    ],
+}
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -130,6 +144,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "dashboard_export_insights": [],
             "prompt": None,
             "ai_prompt_config": {},
+            "ai_query_plan_status": None,
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -1016,79 +1031,37 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["title"] == "Updated title"
 
-    def test_can_set_prompt_guide_when_feature_flag_enabled(self):
+    def test_can_create_subscription_with_prompt_guide(self):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
-            response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
+        response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["summary_prompt_guide"] == "focus on revenue trends"
 
     @parameterized.expand(
         [
-            # (case_name, flag_value_during_patch, payload, expected_status, expected_fragment_or_stored_value)
-            (
-                "reject_non_empty_patch",
-                False,
-                {"summary_prompt_guide": "changed"},
-                status.HTTP_403_FORBIDDEN,
-                "AI summary context",
-            ),
-            ("allow_clear_via_empty_string", False, {"summary_prompt_guide": ""}, status.HTTP_200_OK, ""),
-            ("allow_unrelated_patch", False, {"title": "Updated title"}, status.HTTP_200_OK, "original"),
-            (
-                "allow_non_empty_patch_when_flag_on",
-                True,
-                {"summary_prompt_guide": "changed"},
-                status.HTTP_200_OK,
-                "changed",
-            ),
-            (
-                "deny_on_feature_flag_eval_error",
-                None,
-                {"summary_prompt_guide": "changed"},
-                status.HTTP_403_FORBIDDEN,
-                "AI summary context",
-            ),
+            ("allow_non_empty_patch", {"summary_prompt_guide": "changed"}, status.HTTP_200_OK, "changed"),
+            ("allow_clear_via_empty_string", {"summary_prompt_guide": ""}, status.HTTP_200_OK, ""),
+            ("allow_unrelated_patch", {"title": "Updated title"}, status.HTTP_200_OK, "original"),
         ]
     )
     def test_prompt_guide_patch_behaviour(
-        self, case_name: str, flag_value: Optional[bool], payload: dict, expected_status: int, expected_body_fragment
+        self, case_name: str, payload: dict, expected_status: int, expected_body_fragment
     ):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
-            create_response = self._create_subscription(summary_enabled=True, summary_prompt_guide="original")
+        create_response = self._create_subscription(summary_enabled=True, summary_prompt_guide="original")
         subscription_id = create_response.json()["id"]
 
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=flag_value):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
-                payload,
-            )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            payload,
+        )
 
         assert response.status_code == expected_status, response.content
-        if expected_status == status.HTTP_403_FORBIDDEN:
-            assert expected_body_fragment in response.json()["detail"]
-        else:
-            # Read-back the stored `summary_prompt_guide` on the updated subscription.
-            if "summary_prompt_guide" in payload:
-                assert response.json()["summary_prompt_guide"] == (expected_body_fragment or "")
-            else:
-                # Unrelated PATCH — original stored value must survive untouched.
-                assert response.json()["summary_prompt_guide"] == expected_body_fragment
-
-    def test_cannot_create_subscription_with_prompt_guide_when_feature_flag_disabled(self):
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save()
-
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
-            response = self._create_subscription(summary_enabled=True, summary_prompt_guide="focus on revenue trends")
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "AI summary context" in response.json()["detail"]
+        assert response.json()["summary_prompt_guide"] == expected_body_fragment
 
     def _seed_active_summary_subscriptions(self, count: int) -> list[Subscription]:
         # Build raw rows so we can place an org over its tier cap to exercise
@@ -2382,6 +2355,19 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         generated_hogql = "SELECT count() FROM events"
         # The safe error message on a failed step is query-derived too, so it is scrubbed with the diagnostics.
         scrubbed_error_message = "Unable to resolve field 'adoption_rate'"
+        query_error_code = "hogql_resolution_error"
+        query_failure_error = {
+            "type": AI_REPORT_QUERY_FAILURE_TYPE,
+            "code": query_error_code,
+            "message": "The query the AI generated failed to run (ResolutionError), so the report could not be computed.",
+            "details": [
+                {
+                    "type": "ResolutionError",
+                    "code": query_error_code,
+                    "message": scrubbed_error_message,
+                }
+            ],
+        }
         content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
         if is_ai:
             # AI deliveries also persist the rendered report and per-step query diagnostics; the
@@ -2394,10 +2380,12 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                     "hogql": "SELECT bad",
                     "ok": False,
                     "error_type": "ResolutionError",
+                    "error_code": query_error_code,
                     "human_readable_error": scrubbed_error_message,
                 },
             ]
             content_snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] = "Weekly growth recap"
+            content_snapshot[AI_REPORT_QUERY_PLAN_STATUS_KEY] = AIQueryPlanStatus.FROZEN.value
             content_snapshot[AI_REPORT_CHARTS_KEY] = [
                 {"export_asset_id": 4321, "title": "weekly signups", "step_index": 0}
             ]
@@ -2413,6 +2401,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             content_snapshot=content_snapshot,
             change_summary="Signups up 20% week over week",
             recipient_results=[{"recipient": "ai@posthog.com", "status": "success"}],
+            error=query_failure_error if is_ai else None,
         )
         if restrict:
             self._restrict_query_access()
@@ -2431,10 +2420,16 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert data[AI_REPORT_CHARTS_KEY] is None
             assert generated_hogql not in str(data)
+            assert query_error_code not in str(data)
             assert scrubbed_error_message not in str(data)
+            assert data["error"] == {
+                "type": AI_REPORT_QUERY_FAILURE_TYPE,
+                "message": "The report could not be computed.",
+            }
             # The prompt is user-authored (not query-derived) and already readable on the parent
             # subscription, so it stays visible even for a query-restricted caller.
             assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
+            assert data["ai_query_plan_status"] == AIQueryPlanStatus.FROZEN.value
             # The list endpoint shares the same get_serializer_context path, so it scrubs too.
             list_response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
@@ -2447,8 +2442,14 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert row[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert row[AI_REPORT_CHARTS_KEY] is None
             assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
+            assert row["ai_query_plan_status"] == AIQueryPlanStatus.FROZEN.value
             assert generated_hogql not in str(row)
+            assert query_error_code not in str(row)
             assert scrubbed_error_message not in str(row)
+            assert row["error"] == {
+                "type": AI_REPORT_QUERY_FAILURE_TYPE,
+                "message": "The report could not be computed.",
+            }
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
@@ -2457,9 +2458,12 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 # diagnostics (including the generated HogQL) — the intended debugging surface.
                 assert data[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
                 assert data[AI_REPORT_DIAGNOSTICS_KEY][0]["hogql"] == generated_hogql
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["error_code"] == query_error_code
                 # The safe error message on the failed step is part of the query-access debugging surface.
                 assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["human_readable_error"] == scrubbed_error_message
                 assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
+                assert data["ai_query_plan_status"] == AIQueryPlanStatus.FROZEN.value
+                assert data["error"] == query_failure_error
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
                 assert data[AI_REPORT_CHARTS_KEY] == [
@@ -2468,6 +2472,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 assert AI_REPORT_SNAPSHOT_KEY not in data["content_snapshot"]
                 assert AI_REPORT_DIAGNOSTICS_KEY not in data["content_snapshot"]
                 assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in data["content_snapshot"]
+                assert AI_REPORT_QUERY_PLAN_STATUS_KEY not in data["content_snapshot"]
                 assert AI_REPORT_CHARTS_KEY not in data["content_snapshot"]
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
@@ -2483,19 +2488,32 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                     AI_REPORT_DIAGNOSTICS_KEY: [
                         {"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}
                     ],
+                    AI_REPORT_QUERY_PLAN_STATUS_KEY: AIQueryPlanStatus.FROZEN.value,
                 },
                 "# Report",
                 "Weekly growth recap",
                 [{"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}],
+                AIQueryPlanStatus.FROZEN.value,
             ),
             # Deliveries created before prompt/diagnostics snapshotting only carry the report.
-            ("report_without_prompt", {AI_REPORT_SNAPSHOT_KEY: "# Report"}, "# Report", None, None),
-            ("absent_keys", {}, None, None, None),
-            ("non_string_values", {AI_REPORT_SNAPSHOT_KEY: 123, AI_REPORT_PROMPT_SNAPSHOT_KEY: ""}, None, None, None),
+            ("report_without_prompt", {AI_REPORT_SNAPSHOT_KEY: "# Report"}, "# Report", None, None, None),
+            ("absent_keys", {}, None, None, None, None),
+            (
+                "invalid_values",
+                {
+                    AI_REPORT_SNAPSHOT_KEY: 123,
+                    AI_REPORT_PROMPT_SNAPSHOT_KEY: "",
+                    AI_REPORT_QUERY_PLAN_STATUS_KEY: "unexpected",
+                },
+                None,
+                None,
+                None,
+                None,
+            ),
         ]
     )
     def test_delivery_exposes_ai_report_fields(
-        self, _name, snapshot, expected_report, expected_prompt, expected_diagnostics
+        self, _name, snapshot, expected_report, expected_prompt, expected_diagnostics, expected_query_plan_status
     ):
         delivery = self._create_delivery(idempotency_key=f"ai-fields-{_name}", content_snapshot=snapshot)
 
@@ -2507,9 +2525,15 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert data[AI_REPORT_SNAPSHOT_KEY] == expected_report
         assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
         assert data[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
+        assert data["ai_query_plan_status"] == expected_query_plan_status
         # The typed fields are the contract — the AI keys are stripped from content_snapshot so the
         # report is not shipped twice (the snapshot stays a dict, just without the AI keys).
-        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
+        for ai_key in (
+            AI_REPORT_SNAPSHOT_KEY,
+            AI_REPORT_PROMPT_SNAPSHOT_KEY,
+            AI_REPORT_DIAGNOSTICS_KEY,
+            AI_REPORT_QUERY_PLAN_STATUS_KEY,
+        ):
             assert ai_key not in data["content_snapshot"]
         # The list endpoint serves the delivery history table, so it must expose the same fields.
         list_response = self.client.get(
@@ -2520,7 +2544,13 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert row[AI_REPORT_SNAPSHOT_KEY] == expected_report
         assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
         assert row[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
-        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
+        assert row["ai_query_plan_status"] == expected_query_plan_status
+        for ai_key in (
+            AI_REPORT_SNAPSHOT_KEY,
+            AI_REPORT_PROMPT_SNAPSHOT_KEY,
+            AI_REPORT_DIAGNOSTICS_KEY,
+            AI_REPORT_QUERY_PLAN_STATUS_KEY,
+        ):
             assert ai_key not in row["content_snapshot"]
 
     def test_can_list_deliveries(self):
@@ -2875,26 +2905,80 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("prompt_change_clears_plan", {"prompt": "A completely different question about retention?"}, False),
-            ("title_change_keeps_plan", {"title": "Renamed"}, True),
+            ("missing", None, AIQueryPlanStatus.NOT_FROZEN),
+            ("non_object", [], AIQueryPlanStatus.NOT_FROZEN),
+            (
+                "valid",
+                {"version": AI_QUERY_PLAN_VERSION, "plan": VALID_AI_QUERY_PLAN},
+                AIQueryPlanStatus.FROZEN,
+            ),
+            (
+                "stale",
+                {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}},
+                AIQueryPlanStatus.PLANNER_UPDATED,
+            ),
+            (
+                "boolean_version",
+                {"version": True, "plan": VALID_AI_QUERY_PLAN},
+                AIQueryPlanStatus.NOT_FROZEN,
+            ),
+            (
+                "floating_version",
+                {"version": float(AI_QUERY_PLAN_VERSION), "plan": VALID_AI_QUERY_PLAN},
+                AIQueryPlanStatus.NOT_FROZEN,
+            ),
+            (
+                "malformed_current",
+                {"version": AI_QUERY_PLAN_VERSION, "plan": {}},
+                AIQueryPlanStatus.NOT_FROZEN,
+            ),
+            (
+                "malformed_relevant_events",
+                {
+                    "version": AI_QUERY_PLAN_VERSION,
+                    "plan": VALID_AI_QUERY_PLAN,
+                    "relevant_events": [123],
+                },
+                AIQueryPlanStatus.NOT_FROZEN,
+            ),
+        ]
+    )
+    def test_retrieve_exposes_query_plan_status(
+        self,
+        mock_is_cloud: MagicMock,
+        mock_flag: MagicMock,
+        mock_sync: MagicMock,
+        _name: str,
+        stored: object,
+        expected: AIQueryPlanStatus,
+    ) -> None:
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(id=sub_id).update(ai_query_plan=stored)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ai_query_plan_status"] == expected.value
+
+    @parameterized.expand(
+        [
+            (
+                "prompt_change_clears_plan",
+                {"prompt": "A completely different question about retention?"},
+                False,
+                AIQueryPlanStatus.NOT_FROZEN.value,
+            ),
+            ("title_change_keeps_plan", {"title": "Renamed"}, True, AIQueryPlanStatus.FROZEN.value),
         ]
     )
     def test_editing_prompt_invalidates_frozen_query_plan(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, body, plan_survives
+        self, mock_is_cloud, mock_flag, mock_sync, _name, body, plan_survives, expected_status
     ):
         self._mock_temporal(mock_sync)
         frozen = {
-            "version": 1,
-            "plan": {
-                "overall_intent": "i",
-                "steps": [
-                    {
-                        "description": "d",
-                        "query_type": "hogql",
-                        "hogql": "SELECT count() FROM events WHERE {{date_range}}",
-                    }
-                ],
-            },
+            "version": AI_QUERY_PLAN_VERSION,
+            "plan": VALID_AI_QUERY_PLAN,
         }
         sub_id = self._create_subscription_for("ai_prompt")
         Subscription.objects.filter(id=sub_id).update(ai_query_plan=frozen)
@@ -2903,6 +2987,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         assert Subscription.objects.get(id=sub_id).ai_query_plan == (frozen if plan_survives else None)
+        assert response.json()["ai_query_plan_status"] == expected_status
 
     def test_orm_prompt_edit_also_invalidates_frozen_query_plan(self, mock_is_cloud, mock_flag, mock_sync):
         # The invalidation lives on Subscription.save() (not the serializer), so ORM-path edits —
@@ -3034,6 +3119,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         data = response.json()
         assert data["resource_type"] == "ai_prompt"
+        assert data["ai_query_plan_status"] == AIQueryPlanStatus.NOT_FROZEN.value
         assert data["prompt"] == "What are the biggest event gains week-over-week?"
         assert data["insight"] is None
         assert data["dashboard"] is None

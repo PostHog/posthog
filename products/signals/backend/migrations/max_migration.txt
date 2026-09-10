@@ -1,1 +1,1 @@
-0110_signalreportartefact_team_type_recent_idx
+0125_signalreport_scout_idem_key_index

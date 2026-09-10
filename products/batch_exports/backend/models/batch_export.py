@@ -24,13 +24,9 @@ from posthog.models.utils import UUIDTModel
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
-# All destination types that share the s3-export Temporal workflow.
-# Includes the legacy "S3" alias for backwards compatibility.
-S3_FAMILY_TYPES: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible"})
-
-# S3-family types that can be created via the API. The legacy "S3" type is excluded:
-# existing rows keep working, but new destinations must use "AwsS3" or "S3Compatible".
-S3_CREATABLE_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
+# S3-family destination types that are in use. Note that this excludes the legacy "S3"
+# type which has now been fully deprecated.
+S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
 
 
 class DayOfWeek(IntEnum):
@@ -70,7 +66,7 @@ class BatchExportDestination(UUIDTModel):
     class Destination(models.TextChoices):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
-        S3 = "S3"  # legacy alias; AwsS3 / S3Compatible are the preferred types for new rows
+        S3 = "S3"  # TODO: legacy alias which is no longer used so can be removed
         AWS_S3 = "AwsS3"
         S3_COMPATIBLE = "S3Compatible"
         SNOWFLAKE = "Snowflake"
@@ -84,6 +80,9 @@ class BatchExportDestination(UUIDTModel):
         NOOP = "NoOp"
         FILE_DOWNLOAD = "FileDownload"
 
+    # S3-family exports read their credentials from an Integration, but rows migrated off inline
+    # credentials still hold them in `config`. These entries keep those stale values out of API
+    # responses until a follow-up strips them from stored config.
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},
@@ -125,6 +124,7 @@ class BatchExportDestination(UUIDTModel):
         help_text="The integration for this destination.",
         null=True,
         blank=True,
+        related_name="+",
     )
 
 
@@ -149,6 +149,7 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
         on_delete=models.CASCADE,
         db_constraint=False,
         help_text="The team this belongs to.",
+        related_name="+",
     )
     hogql_query = models.TextField(
         null=True,
@@ -321,7 +322,9 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         SESSIONS = "sessions"
         HOGQL = "hogql"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     name = models.TextField(help_text="A human-readable name for this BatchExport.")
     destination = models.ForeignKey(
         "BatchExportDestination",
@@ -624,7 +627,9 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "key"], name="team_key_idx"),
         ]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     batch_export_run = models.ForeignKey(
         "BatchExportRun",
         on_delete=models.CASCADE,
@@ -685,7 +690,9 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         SESSIONS = "sessions"
         HOGQL = "hogql"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     destination = models.ForeignKey(
         "BatchExportDestination",
         on_delete=models.CASCADE,

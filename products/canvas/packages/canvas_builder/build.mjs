@@ -22,7 +22,7 @@ const canvasSdkSpecifier = '@posthog/canvas-sdk'
 const canvasSdkModule = readFileSync(new URL('./canvas-sdk.mjs', import.meta.url), 'utf8')
 const builderDirectory = path.dirname(fileURLToPath(import.meta.url))
 const builderRequire = createRequire(import.meta.url)
-const htmlTag = /<(script|link)\b[^>]*>/gi
+const htmlTag = /<(script|link)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi
 const htmlAttribute = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 const forbiddenHtml = /(?:src|href)\s*=\s*["']\s*(javascript|data:text\/html|vbscript)/i
 const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.css', '.json', '.svg', '.txt']
@@ -32,7 +32,7 @@ const notebookFrameKeyPrefix = '__posthog_notebook_frame__:'
 // event, which fires after the app's module scripts have already run, so any
 // ph.* call issued during mount lands before the port exists. Those messages
 // queue (bounded, in case the host never connects) and flush on connect.
-const runtime = `(()=>{const channel="posthog-canvas",pending=new Map,queued=[];let sequence=0,port;const post=(message)=>{const payload={channel,...message};if(port){port.postMessage(payload)}else if(queued.length<256){queued.push(payload)}};const call=(method,payload)=>new Promise((resolve,reject)=>{if(!port&&(method==="actionInvoke"||method==="agentRequest")){reject(new Error("Canvas actions require a user action"));return}const id=String(++sequence);const timer=setTimeout(()=>{pending.delete(id);const queuedIndex=queued.findIndex((message)=>message.type==="data-request"&&message.id===id);if(queuedIndex>-1)queued.splice(queuedIndex,1);reject(new Error("Canvas request timed out"));},30000);pending.set(id,{resolve,reject,timer});post({type:"data-request",id,method,payload});});const applyTheme=(theme)=>{if(theme!=="dark"&&theme!=="light")return;const dark=theme==="dark";document.documentElement.classList.toggle("dark",dark);document.documentElement.style.colorScheme=dark?"dark":"light";};const fragmentParams=new URLSearchParams(location.hash.slice(1));applyTheme(fragmentParams.get("theme"));let config={};try{const rawConfig=fragmentParams.get("config");if(rawConfig)config=Object.freeze(JSON.parse(rawConfig))}catch{config={}};const receive=(event)=>{if(event.data?.channel!==channel)return;if(event.data.type==="set-theme"){applyTheme(event.data.theme);return}if(event.data.type!=="data-response")return;const request=pending.get(event.data.id);if(!request)return;pending.delete(event.data.id);clearTimeout(request.timer);event.data.ok?request.resolve(event.data.result):request.reject(new Error(event.data.error??"Canvas request failed"));};const capture=(event,properties,distinctId)=>{const normalized=properties??{};let serialized;try{serialized=JSON.stringify(normalized)}catch{throw new Error("Canvas capture properties must be serializable")};if(typeof serialized!=="string"||serialized.length>16384)throw new Error("Canvas capture properties are too large");return call("capture",{event,properties:normalized,distinctId})};const openExternal=(value)=>{const url=new URL(value);if(url.protocol!=="https:"||!(url.hostname==="posthog.com"||url.hostname.endsWith(".posthog.com")))throw new Error("Canvas external URL is not allowed");post({type:"open-external",url:url.href})};window.ph={config,loadInsight:(shortId,options)=>call("loadInsight",{shortId,dateRange:options?.dateRange,variables:options?.variables,refresh:options?.refresh}),query:(query,params,options)=>call("query",typeof query==="string"?{hogql:query,params:params??{},refresh:options?.refresh}:{query,params:params??{},refresh:options?.refresh}),capture,openExternal,agent:{request:(prompt)=>call("agentRequest",{prompt})},state:{get:(key,opts)=>call("stateGet",{key,scope:opts?.scope||"user"}),set:(key,value,opts)=>call("stateSet",{key,value:value===undefined?null:value,scope:opts?.scope||"user"}),list:(opts)=>call("stateList",{scope:opts?.scope})},actions:{invoke:(verb,payload)=>call("actionInvoke",{verb,payload:payload??{}})}};addEventListener("message",(event)=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",receive);port.start();while(queued.length)port.postMessage(queued.shift());if(document.readyState!=="loading")post({type:"ready"});if(document.readyState==="complete")post({type:"rendered"});});addEventListener("error",(event)=>post({type:"error",message:event.message||"Canvas runtime error",stack:event.error?.stack}));addEventListener("unhandledrejection",(event)=>post({type:"error",message:event.reason instanceof Error?event.reason.message:String(event.reason),stack:event.reason instanceof Error?event.reason.stack:undefined}));const cspSeen=new Set();addEventListener("securitypolicyviolation",(event)=>{const directive=event.effectiveDirective||"unknown";if(cspSeen.has(directive))return;cspSeen.add(directive);post({type:"error",message:"SecurityPolicyViolationError: "+directive})});addEventListener("DOMContentLoaded",()=>post({type:"ready"}));addEventListener("load",()=>post({type:"rendered"}));})();`
+const runtime = `(()=>{const channel="posthog-canvas",pending=new Map,queued=[];let sequence=0,port;const post=(message)=>{const payload={channel,...message};if(port){port.postMessage(payload)}else if(queued.length<256){queued.push(payload)}};const call=(method,payload)=>new Promise((resolve,reject)=>{if(!port&&(method==="actionInvoke"||method==="agentRequest")){reject(new Error("Canvas actions require a user action"));return}const id=String(++sequence);const timer=setTimeout(()=>{pending.delete(id);const queuedIndex=queued.findIndex((message)=>message.type==="data-request"&&message.id===id);if(queuedIndex>-1)queued.splice(queuedIndex,1);reject(new Error("Canvas request timed out"));},30000);pending.set(id,{resolve,reject,timer});post({type:"data-request",id,method,payload});});const applyTheme=(theme)=>{if(theme!=="dark"&&theme!=="light")return;const dark=theme==="dark";document.documentElement.classList.toggle("dark",dark);document.documentElement.style.colorScheme=dark?"dark":"light";};const fragmentParams=new URLSearchParams(location.hash.slice(1));applyTheme(fragmentParams.get("theme"));let config={};try{const rawConfig=fragmentParams.get("config");if(rawConfig)config=Object.freeze(JSON.parse(rawConfig))}catch{config={}};const receive=(event)=>{if(event.data?.channel!==channel)return;if(event.data.type==="set-theme"){applyTheme(event.data.theme);return}if(event.data.type!=="data-response")return;const request=pending.get(event.data.id);if(!request)return;pending.delete(event.data.id);clearTimeout(request.timer);event.data.ok?request.resolve(event.data.result):request.reject(new Error(event.data.error??"Canvas request failed"));};const capture=(event,properties,distinctId)=>{const normalized=properties??{};let serialized;try{serialized=JSON.stringify(normalized)}catch{throw new Error("Canvas capture properties must be serializable")};if(typeof serialized!=="string"||serialized.length>16384)throw new Error("Canvas capture properties are too large");return call("capture",{event,properties:normalized,distinctId})};const openExternal=(value)=>{const url=new URL(value);if(url.protocol!=="https:"||!(url.hostname==="posthog.com"||url.hostname.endsWith(".posthog.com")))throw new Error("Canvas external URL is not allowed");post({type:"open-external",url:url.href})};window.ph={config,loadInsight:(shortId,options)=>call("loadInsight",{shortId,dateRange:options?.dateRange,variables:options?.variables,refresh:options?.refresh}),query:(query,params,options)=>call("query",typeof query==="string"?{hogql:query,params:params??{},refresh:options?.refresh}:{query,params:params??{},refresh:options?.refresh}),capture,openExternal,agent:{request:(prompt)=>call("agentRequest",{prompt})},state:{get:(key,opts)=>call("stateGet",{key,scope:opts?.scope||"user"}),set:(key,value,opts)=>call("stateSet",{key,value:value===undefined?null:value,scope:opts?.scope||"user"}),list:(opts)=>call("stateList",{scope:opts?.scope})},actions:{invoke:(verb,payload)=>call("actionInvoke",{verb,payload:payload??{}})},connectors:{call:(provider,tool,args,options)=>call("connectorCall",{provider,tool,arguments:args??{},refresh:options?.refresh}),connect:(provider)=>{if(!navigator.userActivation?.isActive)throw new Error("Connecting a provider requires a user action");post({type:"navigate",nav:{target:"connect",provider}})}}};addEventListener("message",(event)=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",receive);port.start();while(queued.length)port.postMessage(queued.shift());if(document.readyState!=="loading")post({type:"ready"});if(document.readyState==="complete")post({type:"rendered"});});addEventListener("error",(event)=>post({type:"error",message:event.message||"Canvas runtime error",stack:event.error?.stack}));addEventListener("unhandledrejection",(event)=>post({type:"error",message:event.reason instanceof Error?event.reason.message:String(event.reason),stack:event.reason instanceof Error?event.reason.stack:undefined}));const cspSeen=new Set();addEventListener("securitypolicyviolation",(event)=>{const directive=event.effectiveDirective||"unknown";if(cspSeen.has(directive))return;cspSeen.add(directive);post({type:"error",message:"SecurityPolicyViolationError: "+directive})});addEventListener("DOMContentLoaded",()=>post({type:"ready"}));addEventListener("load",()=>post({type:"rendered"}));})();`
 // Notebook source remains arbitrary JavaScript, and its separate AI review is advisory.
 // The cross-origin sandbox, CSP, host authorization, and frame allow-list are
 // load-bearing controls. Navigation interception is defense in depth: the Navigation
@@ -248,23 +248,43 @@ function entryReferences(html) {
     for (const tag of html.matchAll(htmlTag)) {
         const attributes = {}
         for (const attribute of tag[0].matchAll(htmlAttribute)) {
-            attributes[attribute[1].toLowerCase()] = attribute[2] ?? attribute[3] ?? ''
+            const quote = attribute[2] !== undefined ? '"' : "'"
+            attributes[attribute[1].toLowerCase()] = {
+                value: attribute[2] ?? attribute[3] ?? '',
+                valueStart: tag.index + attribute.index + attribute[0].indexOf(quote) + 1,
+            }
         }
-        if (tag[1].toLowerCase() === 'script' && attributes.type === 'module' && attributes.src) {
-            references.push([attributes.src, 'js'])
+        let entry
+        let kind
+        if (tag[1].toLowerCase() === 'script' && attributes.type?.value === 'module' && attributes.src?.value) {
+            entry = attributes.src
+            kind = 'js'
         } else if (
             tag[1].toLowerCase() === 'link' &&
-            attributes.rel === 'stylesheet' &&
-            attributes.href &&
-            !/^https:\/\//i.test(attributes.href)
+            attributes.rel?.value === 'stylesheet' &&
+            attributes.href?.value &&
+            !/^https:\/\//i.test(attributes.href.value)
         ) {
             // A remote HTTPS stylesheet is not a local build entry, so it stays
             // in the emitted HTML and loads at runtime under the declared-origin
             // style-src CSP. Only local stylesheets are bundled here.
-            references.push([attributes.href, 'css'])
+            entry = attributes.href
+            kind = 'css'
+        } else {
+            continue
         }
+        references.push({ reference: entry.value, kind, valueStart: entry.valueStart })
     }
     return references
+}
+
+function rewriteEntryReferences(html, reference, replacement, kind) {
+    for (const entry of entryReferences(html).reverse()) {
+        if (entry.reference === reference && entry.kind === kind) {
+            html = html.slice(0, entry.valueStart) + replacement + html.slice(entry.valueStart + reference.length)
+        }
+    }
+    return html
 }
 
 function diagnostic(code, message, file, line) {
@@ -480,11 +500,14 @@ async function buildCanvas(project) {
     project = { ...project, files: { ...project.files }, dependencies: { ...project.dependencies } }
     let html = project.files[project.entryHtml]
     let legacy = null
-    if (project.files['src/canvas.tsx'] && html.includes('src="/src/canvas.tsx"')) {
+    if (
+        project.files['src/canvas.tsx'] &&
+        entryReferences(html).some(({ reference, kind }) => reference === '/src/canvas.tsx' && kind === 'js')
+    ) {
         legacy = { legacyComponentPath: 'src/canvas.tsx', legacyCode: project.files['src/canvas.tsx'] }
         project.files['src/canvas-entry.tsx'] =
             'import React from "react"; import { createRoot } from "react-dom/client"; import Canvas from "./canvas"; const root = document.getElementById("root"); if (root) createRoot(root).render(React.createElement(Canvas));'
-        html = html.replace('src="/src/canvas.tsx"', 'src="/src/canvas-entry.tsx"')
+        html = rewriteEntryReferences(html, '/src/canvas.tsx', '/src/canvas-entry.tsx', 'js')
         project.files[project.entryHtml] = html
         // The injected mount is platform code, not the author's — admit the react/
         // react-dom it needs even when the source only declared react.
@@ -509,7 +532,7 @@ async function buildCanvas(project) {
     const files = []
     let platformCss = ''
     try {
-        for (const [reference, kind] of refs) {
+        for (const { reference, kind } of refs) {
             const entry = normalize(reference)
             if (!(entry in project.files)) {
                 return {
@@ -529,7 +552,7 @@ async function buildCanvas(project) {
             const content = kind === 'css' ? css : javascript
             const emitted = `assets/${path.posix.basename(entry).replace(/\.[^.]+$/, '')}-${sha256(content).slice(0, 10)}.${kind}`
             files.push(artifact(emitted, content))
-            html = html.split(`"${reference}"`).join(`"./${emitted}"`).split(`'${reference}'`).join(`'./${emitted}'`)
+            html = rewriteEntryReferences(html, reference, `./${emitted}`, kind)
             if (kind === 'js' && css) {
                 const cssPath = `assets/${path.posix.basename(entry).replace(/\.[^.]+$/, '')}-${sha256(css).slice(0, 10)}.css`
                 files.push(artifact(cssPath, css))
@@ -580,7 +603,10 @@ async function buildCanvas(project) {
               .replace("media-src 'self' data: blob:", `media-src 'self' data: blob: ${externalSources}`)
               .replace("frame-src 'none'", `frame-src ${externalSources}`)
         : csp
-    const head = `<meta http-equiv="Content-Security-Policy" content="${projectCsp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
+    // `sandbox` is ignored in a <meta> policy and logs a console warning on every
+    // artifact load; the artifact origin delivers it via the response header.
+    const metaCsp = projectCsp.replace(/^sandbox[^;]*;\s*/, '')
+    const head = `<meta http-equiv="Content-Security-Policy" content="${metaCsp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
     html = html.includes('<head>') ? html.replace('<head>', `<head>${head}`) : `${head}${html}`
     files.unshift(artifact(project.entryHtml, html))
     const manifest = {

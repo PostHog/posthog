@@ -41,3 +41,20 @@ class TestSlackAgentDesignStream(TestCase):
         assert final_markdown == (
             f"The [checkout funnel](https://us.posthog.com/project/{self.team.id}/insights/9pQx3?unfurl=false) dropped."
         )
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
+    def test_closing_the_stream_hands_the_reply_the_turns_trace_id(self, mock_stop) -> None:
+        # Closing the stream is what appends the thumbs, so a trace id dropped here leaves
+        # every rating on a streamed answer with nothing to open.
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
+                ts="2.0",
+                final_markdown="Done.",
+                trace_id=trace_id,
+            )
+        )
+
+        assert mock_stop.call_args.args[0].turn_trace_id == trace_id

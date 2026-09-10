@@ -699,6 +699,30 @@ describe('vercel-ai middleware', () => {
         })
     })
 
+    describe('AI SDK 7 gen_ai-native spans', () => {
+        it('processes a gen_ai-native generation that carries only ai.usage.* and ai.telemetry.metadata.*', () => {
+            // @ai-sdk/otel's OpenTelemetry integration drops ai.operationId and
+            // emits standard gen_ai.* plus supplemental ai.usage.* / ai.telemetry.metadata.*.
+            // The middleware must still run so attribution and usage normalization happen.
+            const event = createEvent('$ai_generation', {
+                'gen_ai.operation.name': 'chat',
+                'gen_ai.response.model': 'gemini-2.5-pro',
+                'gen_ai.usage.output_tokens': 20,
+                'ai.usage.outputTokenDetails.reasoningTokens': 5,
+                'ai.telemetry.metadata.$ai_session_id': 'session-abc',
+                $ai_parent_id: 'parent-span',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_session_id']).toBe('session-abc')
+            expect(event.properties!['$ai_reasoning_tokens']).toBe(5)
+            expect(event.properties!['$ai_framework']).toBe('vercel')
+            expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
+            expect(event.properties!['ai.telemetry.metadata.$ai_session_id']).toBeUndefined()
+            expect(event.properties!['ai.usage.outputTokenDetails.reasoningTokens']).toBeUndefined()
+        })
+    })
+
     describe('Eve', () => {
         it('normalizes Eve attributes from AI SDK runtime context', () => {
             const event = createEvent('$ai_span', {

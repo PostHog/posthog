@@ -1601,7 +1601,16 @@ async def check_and_raise_redshift_copy_error(
     error matches a known S3 read/access marker, raising the more generic `RedshiftS3CopyError` that
     points at the likely culprits (role read access or bucket region). Any other COPY error returns
     unchanged so it keeps its original message and retry behaviour.
+
+    Redshift can also report a missing permission to create temporary tables as an `InternalError_`.
+    We translate that specific diagnostic to `InsufficientPrivilege`, which the activity treats as
+    non-retryable.
     """
+    # this is a database permissions issue, not an S3 one
+    diagnostics = (str(err), err.diag.message_primary or "", err.diag.message_detail or "")
+    if any("permission denied to create temporary tables" in text.lower() for text in diagnostics):
+        raise psycopg.errors.InsufficientPrivilege(str(err)) from err
+
     if isinstance(authorization, AWSCredentials):
         probe_keys = [manifest_key, *files_uploaded[:1]]
         if await is_s3_read_access_denied(
@@ -1620,7 +1629,6 @@ async def check_and_raise_redshift_copy_error(
         "S3ServiceException",
         "Forbidden",
     )
-    diagnostics = (str(err), err.diag.message_primary or "", err.diag.message_detail or "")
     if any(marker in text for text in diagnostics for marker in markers):
         raise RedshiftS3CopyError(bucket) from err
 
