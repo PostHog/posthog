@@ -2815,63 +2815,87 @@ class TestOrphanedForeignKeyPolicy:
     def setup_method(self):
         self.policy = OrphanedForeignKeyPolicy()
 
-    def _state(self, field):
+    def _state(self, **fields):
         state = ProjectState()
         state.add_model(
             ModelState(
                 app_label="posthog",
                 name="Child",
-                fields=[("id", models.AutoField(primary_key=True)), ("owner", field)],
+                fields=[("id", models.AutoField(primary_key=True)), *fields.items()],
                 options={"db_table": "posthog_child"},
             )
         )
-        state.add_model(
-            ModelState(
-                app_label="posthog",
-                name="Team",
-                fields=[("id", models.AutoField(primary_key=True))],
-                options={"db_table": "posthog_team"},
+        for name, table in [("Team", "posthog_team"), ("Widget", "posthog_widget")]:
+            state.add_model(
+                ModelState(
+                    app_label="posthog",
+                    name=name,
+                    fields=[("id", models.AutoField(primary_key=True))],
+                    options={"db_table": table},
+                )
             )
-        )
         return state
 
-    def _check(self, state, database_operations, monkeypatch, field_name="owner"):
+    def _check(self, state, database_operations, monkeypatch, removed="owner"):
         migration = MagicMock()
         migration.app_label = "posthog"
         migration.name = "0001_test"
         migration.operations = [
             migrations.SeparateDatabaseAndState(
-                state_operations=[migrations.RemoveField(model_name="child", name=field_name)],
+                state_operations=[migrations.RemoveField(model_name="child", name=removed)],
                 database_operations=database_operations,
             )
         ]
-        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_state_before", lambda _self, _migration: state)
+        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_state_before", lambda _s, _m: state)
+        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_tables_adopted_elsewhere", lambda _s, _a: set())
         return self.policy.check_migration(migration)
 
-    def test_untracked_foreign_key_with_no_drop_is_flagged(self, monkeypatch):
-        state = self._state(models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
+    def test_a_hot_parent_blocks(self, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
 
         violations = self._check(state, [], monkeypatch)
 
         assert len(violations) == 1
+        assert violations[0].startswith("❌ BLOCKED")
         assert "posthog_team" in violations[0]
 
-    def test_a_drop_in_the_same_migration_clears_it(self, monkeypatch):
-        state = self._state(models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
+    def test_any_other_parent_warns(self, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Widget", on_delete=models.CASCADE, null=True))
+
+        violations = self._check(state, [], monkeypatch)
+
+        assert len(violations) == 1
+        assert violations[0].startswith("⚠️ WARNING")
+
+    def test_a_matching_drop_clears_it(self, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
 
         violations = self._check(state, [DropForeignKey("posthog_child", column="owner_id")], monkeypatch)
 
         assert violations == []
 
-    def test_a_field_with_no_constraint_is_not_flagged(self, monkeypatch):
-        state = self._state(models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, db_constraint=False))
+    def test_a_drop_of_another_column_does_not_clear_it(self, monkeypatch):
+        state = self._state(
+            owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True),
+            other=models.ForeignKey("posthog.Widget", on_delete=models.CASCADE, null=True),
+        )
+
+        violations = self._check(state, [DropForeignKey("posthog_child", column="other_id")], monkeypatch)
+
+        assert len(violations) == 1
+        assert "owner" in violations[0]
+
+    def test_the_remedy_names_a_custom_db_column(self, monkeypatch):
+        state = self._state(
+            owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, db_column="owner_fk_id")
+        )
 
         violations = self._check(state, [], monkeypatch)
 
-        assert violations == []
+        assert 'column="owner_fk_id"' in violations[0]
 
     def test_a_plain_field_is_not_flagged(self, monkeypatch):
-        state = self._state(models.IntegerField(null=True))
+        state = self._state(owner=models.IntegerField(null=True))
 
         violations = self._check(state, [], monkeypatch)
 
