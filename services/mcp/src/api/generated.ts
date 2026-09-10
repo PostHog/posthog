@@ -1079,6 +1079,14 @@ export namespace Schemas {
       UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
     } as const;
 
+    export type FilterLogicalOperator = typeof FilterLogicalOperator[keyof typeof FilterLogicalOperator];
+
+
+    export const FilterLogicalOperator = {
+      And: 'AND',
+      Or: 'OR',
+    } as const;
+
     export type CustomBotField = typeof CustomBotField[keyof typeof CustomBotField];
 
 
@@ -1105,29 +1113,29 @@ export namespace Schemas {
     export const CustomBotMatcher = {
       Contains: 'contains',
       Regex: 'regex',
+      Exact: 'exact',
       Cidr: 'cidr',
     } as const;
 
-    export interface CustomBotDefinition {
-      /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
-      category?: string | null;
+    export interface CustomBotCondition {
       id: string;
-      /** The event property this rule reads. */
+      /** The event property this condition reads. */
       key: CustomBotField;
       matcher: CustomBotMatcher;
-      /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-      name: string;
       /** Matched against the property named by `key`. */
       pattern: string;
     }
 
-    export type FilterLogicalOperator = typeof FilterLogicalOperator[keyof typeof FilterLogicalOperator];
-
-
-    export const FilterLogicalOperator = {
-      And: 'AND',
-      Or: 'OR',
-    } as const;
+    export interface CustomBotRule {
+      /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+      category?: string | null;
+      /** Whether every condition must match (AND) or any one of them (OR). */
+      combiner: FilterLogicalOperator;
+      id: string;
+      items: CustomBotCondition[];
+      /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+      name: string;
+    }
 
     export type CustomChannelField = typeof CustomChannelField[keyof typeof CustomChannelField];
 
@@ -1285,7 +1293,7 @@ export namespace Schemas {
       bounceRateDurationSeconds?: number | null;
       bounceRatePageViewMode?: BounceRatePageViewMode | null;
       convertToProjectTimezone?: boolean | null;
-      customBotDefinitions?: CustomBotDefinition[] | null;
+      customBotDefinitions?: CustomBotRule[] | null;
       customChannelTypeRules?: CustomChannelRule[] | null;
       dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null;
       debug?: boolean | null;
@@ -20907,21 +20915,6 @@ export namespace Schemas {
       evaluation_session_cap: number;
     }
 
-    export interface CustomBotRule {
-      /** Stable id for the rule. Pass it to the delete endpoint. */
-      readonly id: string;
-      /** Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know. */
-      name: string;
-      /** Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
-      key: string;
-      /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only valid with the `$ip` property). */
-      matcher: string;
-      /** Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24. */
-      pattern: string;
-      /** Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too. */
-      category?: string;
-    }
-
     /**
      * * `text` - text
      * * `link` - link
@@ -22602,6 +22595,11 @@ export namespace Schemas {
        * * `full_refresh` - Full refresh
        * * `incremental` - Incremental */
       readonly run_mode: DataModelingJobRunModeEnum | null;
+      /**
+         * Why this run rebuilt the whole table instead of updating only new rows, for example first run, definition changed, or table missing. Null when the run was incremental.
+         * @nullable
+         */
+      readonly full_refresh_reason: string | null;
       readonly rows_materialized: number;
       /** @nullable */
       readonly error: string | null;
@@ -24297,6 +24295,7 @@ export namespace Schemas {
      * * `Freshchat` - Freshchat
      * * `Freshservice` - Freshservice
      * * `Fulcrum` - Fulcrum
+     * * `GainsightCs` - GainsightCs
      * * `GainsightPx` - GainsightPx
      * * `GitBook` - GitBook
      * * `Glassfrog` - Glassfrog
@@ -25637,6 +25636,7 @@ export namespace Schemas {
       Freshchat: 'Freshchat',
       Freshservice: 'Freshservice',
       Fulcrum: 'Fulcrum',
+      GainsightCs: 'GainsightCs',
       GainsightPx: 'GainsightPx',
       GitBook: 'GitBook',
       Glassfrog: 'Glassfrog',
@@ -26991,6 +26991,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -29036,6 +29037,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -37852,6 +37854,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -39226,6 +39229,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -80908,6 +80912,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -82298,6 +82303,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -83670,6 +83676,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -89522,6 +89529,33 @@ export namespace Schemas {
       task_id: string;
       /** ID of the idling successor run that submit will activate. */
       run_id: string;
+    }
+
+    export interface WebAnalyticsBotCondition {
+      /**
+         * Stable id for the condition. Generated when omitted.
+         * @maxLength 100
+         */
+      id?: string;
+      /** Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
+      key: string;
+      /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property). */
+      matcher: string;
+      /** Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24. */
+      pattern: string;
+    }
+
+    export interface WebAnalyticsBotRule {
+      /** Stable id for the rule. Pass it to the delete endpoint. */
+      readonly id: string;
+      /** Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know. */
+      name: string;
+      /** Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too. */
+      category?: string;
+      /** How the conditions combine: 'AND' flags an event only when every condition matches, 'OR' when any one of them does. */
+      combiner?: string;
+      /** The conditions of this rule. Each one reads a single event property. */
+      items: WebAnalyticsBotCondition[];
     }
 
     export interface WebAnalyticsRecapResponse {

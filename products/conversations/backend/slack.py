@@ -1118,6 +1118,10 @@ def _create_ticket_and_backfill(
     return ticket
 
 
+class SlackConfirmationNeedsRetry(Exception):
+    """Transient confirmation failure. The interactivity handler retries this."""
+
+
 def create_ticket_from_confirmation(
     *,
     team: Team,
@@ -1130,9 +1134,8 @@ def create_ticket_from_confirmation(
     Mirrors the emoji-reaction path: re-fetch the source message, create the ticket, then
     backfill any replies posted while the prompt was pending. Idempotent — a duplicate
     click returns the already-open ticket so the caller can confirm rather than error.
-    Returns None on genuine failure (source message gone, fetch error, empty content), but
-    also when a concurrent duplicate delivery holds the create lock mid-flight — callers
-    should treat None as retryable, since a re-run resolves to the winner's committed ticket.
+    Returns None only for a missing or unusable source message.
+    Raises SlackConfirmationNeedsRetry for Slack fetch errors and create-lock contention.
     """
     existing = Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=message_ts).first()
     if existing:
@@ -1150,9 +1153,9 @@ def create_ticket_from_confirmation(
             limit=1,
         )
         messages: list[dict] = result.get("messages", [])
-    except Exception:
+    except Exception as exc:
         logger.warning("slack_support_confirmation_fetch_failed", channel=slack_channel_id, message_ts=message_ts)
-        return None
+        raise SlackConfirmationNeedsRetry from exc
 
     if not messages:
         return None
@@ -1169,7 +1172,7 @@ def create_ticket_from_confirmation(
     if not original_msg.get("user") or (not original_text.strip() and not original_msg.get("files")):
         return None
 
-    return _create_ticket_and_backfill(
+    ticket = _create_ticket_and_backfill(
         client=client,
         team=team,
         slack_channel_id=slack_channel_id,
@@ -1180,6 +1183,9 @@ def create_ticket_from_confirmation(
         # The interactivity handler updates the prompt in place into the confirmation.
         post_confirmation=False,
     )
+    if ticket is None:
+        raise SlackConfirmationNeedsRetry
+    return ticket
 
 
 def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:

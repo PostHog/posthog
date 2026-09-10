@@ -14,10 +14,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_INVALID_REPORT_ERROR,
     APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
+    APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR,
     AppStoreConnectResumeConfig,
     app_store_connect_source,
+    check_app_ids,
     check_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
@@ -69,7 +71,9 @@ An Account Holder or Admin creates an API key under **Users and Access → Integ
 
 Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the Finance, Sales, or Admin role. Leave it blank if you only want app, review and build data.
 
-The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report."""
+The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report.
+
+Leave **app IDs** blank to sync every app the key can read. To sync only some of your apps, list their Apple IDs, separated by commas. You can find an app's Apple ID in App Store Connect under **App Information → General Information**. The filter covers the apps, versions, reviews, review responses, in-app purchases, subscription groups and analytics tables. Builds, TestFlight groups and the sales reports cover your whole account, so they are not filtered."""
         restatement_note = restatement_caption()
         if restatement_note:
             caption = f"{caption}\n\n{restatement_note}"
@@ -116,6 +120,14 @@ The analytics tables need a key with the Admin role. Apple lets only an Admin ke
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="85234567",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="app_ids",
+                        label="App IDs (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="1234567890, 9876543210",
                         secret=False,
                     ),
                 ],
@@ -166,6 +178,8 @@ The analytics tables need a key with the Admin role. Apple lets only an Admin ke
             APP_STORE_CONNECT_INVALID_REPORT_ERROR: "App Store Connect rejected this report request. The report type or version it asks for may no longer be valid. This usually needs a source update — contact support if it keeps failing.",
             # A vendor number Apple doesn't know. Every retry fails identically until it is corrected.
             APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR: "App Store Connect does not recognize your vendor number. Find it in App Store Connect under Payments and Financial Reports, update it in this source's settings, then run the sync again.",
+            # Retrying only delays the message that tells the user to fix the field.
+            APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR: APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -238,9 +252,16 @@ The analytics tables need a key with the Admin role. Apple lets only an Admin ke
             return True, None
         if status == 403:
             return False, "Your App Store Connect API key does not have permission to read this data."
-        if status == 200:
-            return True, None
-        return False, f"App Store Connect returned status {status}"
+        if status != 200:
+            return False, f"App Store Connect returned status {status}"
+
+        # Create and edit only: the per-schema call runs once per table in the picker, and each
+        # would list every app again.
+        if schema_name is None:
+            unreadable_app_ids = check_app_ids(config.issuer_id, config.key_id, config.private_key, config.app_ids)
+            if unreadable_app_ids:
+                return False, unreadable_app_ids
+        return True, None
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AppStoreConnectResumeConfig]:
         return ResumableSourceManager[AppStoreConnectResumeConfig](inputs, AppStoreConnectResumeConfig)
@@ -256,6 +277,7 @@ The analytics tables need a key with the Admin role. Apple lets only an Admin ke
             key_id=config.key_id,
             private_key=config.private_key,
             vendor_number=config.vendor_number,
+            app_ids=config.app_ids,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
