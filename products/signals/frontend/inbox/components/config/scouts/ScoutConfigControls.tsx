@@ -22,7 +22,7 @@ import {
     DEFAULT_SCOUT_WEEKLY_DAY,
     getScoutScheduleMode,
     getScoutScheduleOptions,
-    prettifyScoutSkillName,
+    scoutDisplayName,
     SCOUT_CRON_MAX_LENGTH,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
@@ -404,7 +404,7 @@ function ScoutCustomCronField({
  * its config. Irreversible, so the dialog steers users toward disable when they only want a pause.
  */
 function confirmDeleteScout(config: SignalScoutConfig, onDelete: (configId: string) => void): void {
-    const displayName = prettifyScoutSkillName(config.skill_name)
+    const displayName = scoutDisplayName(config)
     LemonDialog.open({
         title: `Delete the ${displayName} scout?`,
         description: (
