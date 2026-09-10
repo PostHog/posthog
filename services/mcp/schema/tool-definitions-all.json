@@ -9218,6 +9218,20 @@
             "readOnlyHint": true
         }
     },
+    "persons-split": {
+        "description": "Move the listed distinct IDs off a merged person onto new single-ID persons. Use it to undo an incorrect merge. The person keeps every other distinct ID and all of its properties. Read the person first with persons-retrieve to see which distinct IDs it holds.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Split distinct IDs off a person",
+        "title": "Split distinct IDs off a person",
+        "required_scopes": ["person:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "persons-values-retrieve": {
         "description": "Get distinct values for a person property key. Useful for discovering what values exist for properties like 'plan', 'role', or 'company'. Provide the property key and optionally a search value to filter results.",
         "category": "Persons",

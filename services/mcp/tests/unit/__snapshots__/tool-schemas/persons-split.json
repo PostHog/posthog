@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "distinct_ids_to_split": {
+            "description": "Distinct IDs to move off this person onto new single-ID persons. The person keeps every other distinct ID and all of its properties. List every ID you want to move. This tool cannot split a person by all of its distinct IDs at once.",
+            "items": {
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "description": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "distinct_ids_to_split"],
+    "type": "object"
+}
