@@ -39,6 +39,7 @@ export interface dataWarehouseSettingsSceneLogicValues {
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
+    databaseLoadError: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     externalDataSourceTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     posthogTables: DatabaseSchemaTable[] // databaseTableListLogic
@@ -232,6 +233,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
                 'dataWarehouseTables',
                 'externalDataSourceTables',
                 'databaseLoading',
+                'databaseLoadError',
                 'views',
                 'viewsMapById',
             ],

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
@@ -10,12 +10,23 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseTable } from '~/types'
 
 export function SelfManagedColumnsSection({ table }: { table: DataWarehouseTable }): JSX.Element {
-    const { database, dataWarehouseTables, selectedRow, inEditSchemaMode, editSchemaIsLoading } = useValues(
-        dataWarehouseSettingsSceneLogic
-    )
-    const { selectRow, toggleEditSchemaMode, updateSelectedSchema, saveSchema, cancelEditSchema } = useActions(
-        dataWarehouseSettingsSceneLogic
-    )
+    const {
+        database,
+        databaseLoading,
+        databaseLoadError,
+        dataWarehouseTables,
+        selectedRow,
+        inEditSchemaMode,
+        editSchemaIsLoading,
+    } = useValues(dataWarehouseSettingsSceneLogic)
+    const {
+        selectRow,
+        toggleEditSchemaMode,
+        updateSelectedSchema,
+        saveSchema,
+        cancelEditSchema,
+        refreshDatabaseSchema,
+    } = useActions(dataWarehouseSettingsSceneLogic)
 
     const schemaTable = dataWarehouseTables.find(({ id }) => id === table.id)
 
@@ -32,8 +43,19 @@ export function SelfManagedColumnsSection({ table }: { table: DataWarehouseTable
     useEffect(() => () => cancelEditSchema(), [cancelEditSchema])
 
     if (!schemaTable) {
-        // The schema has to resolve before "no columns" means anything.
-        return !database ? (
+        // A failed schema query leaves `database` at null, so without this the section would hold a
+        // skeleton that never resolves.
+        if (databaseLoadError) {
+            return (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => refreshDatabaseSchema() }}>
+                    Couldn't load this table's columns.
+                </LemonBanner>
+            )
+        }
+
+        // `dataWarehouseTables` is empty for the whole of any schema load, including the refresh
+        // after a save, so "no columns" is only true once a load has landed.
+        return databaseLoading || !database ? (
             <LemonSkeleton className="w-full h-32" />
         ) : (
             <p className="text-secondary">
