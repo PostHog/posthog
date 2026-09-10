@@ -355,14 +355,14 @@ Note: Reference index (96 slugs) read from the docs nav; each path below confirm
 
 ## Appdynamics — gaps
 
-Today (6): `applications`, `business_transactions`, `health_rule_violations`, `metric_data`, `nodes`, `tiers`
+Today (10): `applications`, `business_transactions`, `events`, `health_rule_violations`, `health_rules`, `metric_data`, `metrics`, `nodes`, `request_snapshots`, `tiers`
 
 Diffed against: <https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis>
 
-- [ ] `/controller/rest/applications/{app}/events` — application event stream (deployments, restarts, errors, custom events) — the state-transition history behind every incident (high)
-- [ ] `/controller/alerting/rest/v1/applications/{id}/health-rules` — lookup resolving the health rule IDs/names carried on the health_rule_violations we already sync (high)
-- [ ] `/controller/rest/applications/{app}/request-snapshots` — individual slow/error transaction snapshots, the drill-down layer under business_transactions (high)
-- [ ] `/controller/rest/applications/{app}/metrics (metric tree browse)` — lookup of available metric paths — without it metric_data has to be hand-configured (high)
+- [x] `/controller/rest/applications/{app}/events` — application event stream (deployments, restarts, errors, custom events) — the state-transition history behind every incident (high)
+- [x] `/controller/alerting/rest/v1/applications/{id}/health-rules` — lookup resolving the health rule IDs/names carried on the health_rule_violations we already sync (high)
+- [x] `/controller/rest/applications/{app}/request-snapshots` — individual slow/error transaction snapshots, the drill-down layer under business_transactions (high)
+- [x] `/controller/rest/applications/{app}/metrics (metric tree browse)` — lookup of available metric paths — without it metric_data has to be hand-configured (high)
 - [ ] `/controller/rest/applications/{app}/backends` — lookup for remote services/databases referenced by tiers and business transactions (high)
 - [ ] `/controller/anomaly/rest/api/v1/applications/{id}/anomalies` — anomaly-detection violations, the ML counterpart to health rule violations (medium)
 - [ ] `/events/query (Analytics Events API, ADQL)` — transaction/log/browser analytics records not exposed by the controller REST API (medium)
