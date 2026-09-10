@@ -49,6 +49,10 @@ class TestSonarqubeSource:
             "429 Client Error: Too Many Requests for url: https://sonar.example.com/api/issues/search",
             "500 Server Error: Internal Server Error for url: https://sonar.example.com/api/issues/search",
             "HTTPSConnectionPool(host='sonar.example.com', port=443): Read timed out.",
+            # A self-hosted domain that merely contains the SonarQube Cloud hostname as a substring
+            # must not be caught by the host-misconfiguration match below.
+            "400 Client Error: Bad Request for url: https://sonarcloud.io.example.com/api/issues/search",
+            "400 Client Error: Bad Request for url: https://sonarqube.us-backup.mycompany.com/api/issues/search",
         ],
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):

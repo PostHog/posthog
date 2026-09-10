@@ -91,8 +91,10 @@ Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user toke
             # actually SonarQube Cloud, every request fails identically: SonarQube Cloud's API
             # requires an `organization` parameter this source never sends. Match the stable,
             # vendor-owned hostnames (not anything the customer typed) rather than the endpoint path.
-            "for url: https://sonarcloud.io": "This server URL points to SonarQube Cloud, which this source doesn't support. Remove this source and add it again using the SonarQube Cloud source instead.",
-            "for url: https://sonarqube.us": "This server URL points to SonarQube Cloud, which this source doesn't support. Remove this source and add it again using the SonarQube Cloud source instead.",
+            # The trailing slash anchors the match to the exact host, so a self-hosted domain that
+            # merely contains these strings (e.g. `sonarcloud.io.example.com`) doesn't match.
+            "for url: https://sonarcloud.io/": "This server URL points to SonarQube Cloud, which this source doesn't support. Remove this source and add it again using the SonarQube Cloud source instead.",
+            "for url: https://sonarqube.us/": "This server URL points to SonarQube Cloud, which this source doesn't support. Remove this source and add it again using the SonarQube Cloud source instead.",
             # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
             # Retrying can never fix a credential/permission problem, so fail the sync. Match the
             # stable status text, not the per-request URL.
