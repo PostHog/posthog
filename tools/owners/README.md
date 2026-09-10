@@ -17,11 +17,14 @@ Pin to a commit for CI so the resolver semantics can't shift under you: append `
 ### From a consumer that is not Python
 
 `python -m posthog_owners` answers the same question as JSON, with no click and no project sync — stdlib plus pyyaml is enough.
-It reads repo-relative paths from stdin or argv and writes one object per path:
+It reads repo-relative paths from stdin or argv and writes a single JSON object keyed by path:
 
 ```bash
-echo "posthog/models/team.py" | uv run --with pyyaml python -m posthog_owners --repo-root /path/to/checkout
+echo "posthog/models/team.py" | PYTHONPATH=/fetched/tools/owners python3 -m posthog_owners --repo-root /fetched
 ```
+
+`PYTHONPATH` names the directory holding the `posthog_owners` package. `--repo-root` names the tree holding the ownership files; the example fetched both into one scratch directory, but they are independent.
+Any interpreter with pyyaml works, so `uv run --no-project --with pyyaml python` is enough if you would rather not install it.
 
 ```json
 {

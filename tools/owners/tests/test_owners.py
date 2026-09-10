@@ -760,7 +760,6 @@ def test_first_team_owner_skips_handles() -> None:
 
 
 def _run_entrypoint(repo: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
-    """The JSON entrypoint the way a non-Python consumer runs it."""
     return subprocess.run(
         [sys.executable, "-m", "posthog_owners", *args],
         cwd=repo,
@@ -771,11 +770,7 @@ def _run_entrypoint(repo: Path, *args: str, stdin: str = "") -> subprocess.Compl
 
 
 def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: Path) -> None:
-    """--repo-root points the resolver at a tree that is not a git worktree.
-
-    A consumer that fetched only the ownership files has no .git directory, so
-    the git rev-parse default cannot find a root for it.
-    """
+    # The fixture must have no .git, or the git rev-parse default could answer instead of the flag.
     assert not (registry_repo / ".git").exists()
 
     result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo), "reg/x.py")
@@ -792,7 +787,6 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
 
 
 def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry_repo: Path) -> None:
-    """The flag composes with the stdin batch and the purpose selection."""
     result = _run_entrypoint(
         registry_repo,
         "--repo-root",
@@ -809,8 +803,6 @@ def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry
 
 
 def test_json_entrypoint_rejects_a_repo_root_that_is_not_a_directory(registry_repo: Path) -> None:
-    """A bad root would otherwise read as a repo with no ownership files, and
-    every path would answer unowned."""
     result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo / "nope"), "reg/x.py")
 
     assert result.returncode == 2

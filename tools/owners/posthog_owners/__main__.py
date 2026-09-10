@@ -42,7 +42,7 @@ def main() -> None:
     )
     parser.add_argument("paths", nargs="*")
     ns = parser.parse_args()
-    # A missing root reads as a repo with no ownership files, so every path would answer unowned.
+    # A root that is not a directory reads as a repo with no ownership files, so every path answers unowned.
     if ns.repo_root is not None and not ns.repo_root.is_dir():
         parser.error(f"--repo-root {ns.repo_root} is not a directory")
     paths = ns.paths or read_stdin_paths()
