@@ -8,11 +8,13 @@ from products.reaperhog.backend.facade.enums import ClusterRank, ClusterStatus, 
 from products.reaperhog.backend.logic.artefacts import Hit, SearchRun, Verdict, VerdictRecord
 from products.reaperhog.backend.logic.constants import MAX_FILES_PER_PR
 from products.reaperhog.backend.logic.converge import converge
-from products.reaperhog.backend.logic.github import PullRequestState, parse_pr_number
+from products.reaperhog.backend.logic.github import PullRequestState, parse_pull_request_url
 from products.reaperhog.backend.logic.harvest import (
+    MAX_TASK_TITLE,
     HarvestCandidate,
     HarvestRequest,
     dispatch_harvest,
+    pr_title,
     render_pr_body,
     select_harvest,
     sync_harvest,
@@ -38,11 +40,11 @@ def _hit(root: str) -> Hit:
     )
 
 
-def _verdict(*, files: int = 2) -> Verdict:
+def _verdict(*, files: int = 2, prefix: str = "f") -> Verdict:
     return Verdict(
         is_dead=True,
         confidence=Confidence.HIGH,
-        files_to_delete=[f"f{i}.py" for i in range(files)],
+        files_to_delete=[f"{prefix}{i}.py" for i in range(files)],
         deletion_plan="Delete the flag check in a.py",
         searches=[SearchRun(purpose="key", command="rg -F 'a|b'", hits=0)],
         argumentation="- **Checked:** a.py:1",
@@ -54,7 +56,7 @@ def _candidate(root: str, *, rank: ClusterRank = ClusterRank.STRONG, files: int 
     view = ClusterView(
         id=uuid4(), hash="h", root_kind=RootKind.FLAG, root=root, rank=rank, files=("a.py",), hits=(_hit(root),)
     )
-    return HarvestCandidate(view=view, verdict=_verdict(files=files), verified_sha="abc123def456")
+    return HarvestCandidate(view=view, verdict=_verdict(files=files, prefix=root), verified_sha="abc123def456")
 
 
 @pytest.mark.parametrize(
@@ -91,9 +93,44 @@ def test_pr_body_carries_the_evidence_and_the_archive_checklist():
     assert "users=" not in body
 
 
-@pytest.mark.parametrize("url,expected", [("https://github.com/o/r/pull/42", 42), ("https://github.com/o/r", None)])
-def test_parse_pr_number(url, expected):
-    assert parse_pr_number(url) == expected
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://github.com/o/r/pull/42", 42),
+        ("https://github.com/o/r/pull/42/", 42),
+        ("https://github.com/O/R/pull/42", 42),
+        ("https://github.com/o/r", None),
+        ("https://github.com/other/repo/pull/42", None),
+        ("https://github.com/o/r/issues/42", None),
+    ],
+)
+def test_parse_pull_request_url_requires_the_scanned_repository(url, expected):
+    assert parse_pull_request_url(url, "o/r") == expected
+
+
+def test_a_root_longer_than_the_task_title_field_is_truncated():
+    view = ClusterView(
+        id=uuid4(),
+        hash="abcdef0123456789",
+        root_kind=RootKind.FLAG,
+        root="x" * 600,
+        rank=ClusterRank.STRONG,
+        files=(),
+        hits=(),
+    )
+
+    assert len(pr_title(view)) <= MAX_TASK_TITLE
+    assert view.hash in pr_title(view)
+
+
+def test_candidates_that_edit_the_same_file_are_not_dispatched_together():
+    first, second = _candidate("a"), _candidate("b")
+    shared = HarvestCandidate(view=second.view, verdict=_verdict(prefix="a"), verified_sha=second.verified_sha)
+
+    selection = select_harvest([first, shared], open_count=0, max_prs=3)
+
+    assert [c.view.root for c in selection.selected] == ["a"]
+    assert selection.skipped_conflict == 1
 
 
 def _seed_dead(team, *roots: str, scope: str = "flags"):
@@ -106,7 +143,7 @@ def _seed_dead(team, *roots: str, scope: str = "flags"):
             cluster_id=cluster.id,
             content=VerdictRecord(head_sha="abc", verdict=_verdict()),
         )
-    ReaperCluster.objects.filter(inventory=inventory).update(status=ClusterStatus.DEAD)
+    ReaperCluster.objects.filter(inventory=inventory).update(status=ClusterStatus.DEAD, verified_sha="abc")
     return inventory
 
 
@@ -143,6 +180,18 @@ class TestDispatchHarvest:
         assert (result.dispatched, result.skipped_duplicate) == (0, 1)
         create.assert_not_called()
 
+    def test_a_verdict_from_an_earlier_scan_goes_back_for_reverification(self, team, user):
+        inventory = _seed_dead(team, "a")
+        ReaperCluster.objects.filter(inventory=inventory).update(verified_sha="stale")
+        create = MagicMock(return_value=MagicMock(task_id=uuid4()))
+
+        with patch(f"{_MODULE}.tasks_facade.create_and_run_task", create):
+            result = dispatch_harvest(HarvestRequest(team_id=team.id, user_id=user.id, repository="o/r", scope="flags"))
+
+        assert result.dispatched == 0
+        create.assert_not_called()
+        assert ReaperCluster.objects.get(inventory=inventory, root="a").status == ClusterStatus.CANDIDATE
+
     def test_open_pull_requests_count_against_the_budget(self, team, user):
         inventory = _seed_dead(team, "a", "b")
         ReaperCluster.objects.filter(inventory=inventory, root="b").update(status=ClusterStatus.REAPED)
@@ -178,6 +227,10 @@ class TestSyncHarvest:
 
         with (
             patch(f"{_MODULE}.tasks_facade.get_latest_run_by_task", return_value={str(task_id): run}),
+            patch(
+                f"{_MODULE}.tasks_facade.get_latest_pr_url_by_task",
+                return_value={str(task_id): run.pr_url} if run.pr_url else {},
+            ),
             patch(f"{_MODULE}.pull_request_state") as state,
         ):
             state.return_value = PullRequestState(number=7, state="open")
@@ -198,6 +251,7 @@ class TestSyncHarvest:
 
         with (
             patch(f"{_MODULE}.tasks_facade.get_latest_run_by_task", return_value={}),
+            patch(f"{_MODULE}.tasks_facade.get_latest_pr_url_by_task", return_value={}),
             patch(f"{_MODULE}.pull_request_state", return_value=PullRequestState(number=7, state=state)),
         ):
             sync_harvest(team_id=team.id, repository="o/r", scope="flags")

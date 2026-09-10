@@ -1,12 +1,17 @@
+import logging
 from collections.abc import Callable, Mapping
 
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.reaperhog.backend.logic.artefacts import EvidenceValue
 from products.reaperhog.backend.logic.constants import FLAG_ENROLLMENT_LOOKBACK_DAYS, FLAG_ENROLLMENT_MIN_USERS
+
+logger = logging.getLogger(__name__)
 
 
 @frozen
@@ -39,6 +44,19 @@ def enrollment_evidence(enrollment: FlagEnrollment | None) -> dict[str, Evidence
 
 
 def load_flag_enrollment(team_id: int) -> EnrollmentCounts:
+    """Enrollment counts per flag, or nothing at all when the query cannot answer.
+
+    A partial answer is worse than no answer here: an aggregate truncated by a timeout reads as
+    "nobody was enabled", which is exactly the evidence that sends a live flag to deletion.
+    """
+    try:
+        return _query_flag_enrollment(team_id)
+    except Exception:
+        logger.exception("ReaperHog: flag enrollment query failed; continuing without enrollment evidence")
+        return {}
+
+
+def _query_flag_enrollment(team_id: int) -> EnrollmentCounts:
     team = Team.objects.get(id=team_id)
     response = execute_hogql_query(
         query=(
@@ -50,6 +68,8 @@ def load_flag_enrollment(team_id: int) -> EnrollmentCounts:
         ),
         team=team,
         query_type="reaperhog_flag_enrollment",
+        workload=Workload.OFFLINE,
+        settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
     )
     return {
         str(row[0]): FlagEnrollment(

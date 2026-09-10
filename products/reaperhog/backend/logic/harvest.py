@@ -15,9 +15,9 @@ from products.reaperhog.backend.logic.constants import (
     MAX_FILES_PER_PR,
     MAX_OPEN_REAPER_PRS,
 )
-from products.reaperhog.backend.logic.github import parse_pr_number, pull_request_state
+from products.reaperhog.backend.logic.github import parse_pull_request_url, pull_request_state
 from products.reaperhog.backend.logic.redaction import public_evidence
-from products.reaperhog.backend.logic.verification import ClusterView, cluster_view
+from products.reaperhog.backend.logic.verification import ClusterView, cluster_view, protected_paths
 from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -31,6 +31,7 @@ _CLAIMED_STATUSES = (
     ClusterStatus.DECLINED,
 )
 _SLUG = re.compile(r"[^a-z0-9]+")
+MAX_TASK_TITLE = 255
 
 
 @frozen
@@ -60,6 +61,7 @@ class HarvestResult:
     dispatched: int = 0
     skipped_budget: int = 0
     skipped_size: int = 0
+    skipped_conflict: int = 0
     skipped_duplicate: int = 0
     open_before: int = 0
 
@@ -70,6 +72,7 @@ class SyncResult:
     buried: int = 0
     declined: int = 0
     returned: int = 0
+    failed_lookups: int = 0
 
 
 @frozen
@@ -77,10 +80,15 @@ class Selection:
     selected: tuple[HarvestCandidate, ...]
     skipped_budget: int
     skipped_size: int
+    skipped_conflict: int = 0
 
 
 def pr_size(candidate: HarvestCandidate) -> int:
     return len(candidate.verdict.files_to_delete) + len(candidate.verdict.files_to_edit)
+
+
+def touched_paths(candidate: HarvestCandidate) -> frozenset[str]:
+    return frozenset(candidate.verdict.files_to_delete) | frozenset(candidate.verdict.files_to_edit)
 
 
 def select_harvest(
@@ -89,23 +97,44 @@ def select_harvest(
     budget = max(0, max_prs - open_count)
     ordered = sorted(candidates, key=lambda c: (c.view.rank != ClusterRank.STRONG, c.view.root))
     selected: list[HarvestCandidate] = []
+    claimed: set[str] = set()
     skipped_size = 0
+    skipped_conflict = 0
     for candidate in ordered:
         if pr_size(candidate) > MAX_FILES_PER_PR:
             skipped_size += 1
             continue
+        paths = touched_paths(candidate)
+        # Two plans that touch the same file are dispatched from the same base, so their pull
+        # requests would conflict. The loser waits for the next run.
+        if paths & claimed:
+            skipped_conflict += 1
+            continue
         if len(selected) < budget:
             selected.append(candidate)
-    skipped_budget = len(ordered) - skipped_size - len(selected)
-    return Selection(selected=tuple(selected), skipped_budget=skipped_budget, skipped_size=skipped_size)
+            claimed |= paths
+    skipped_budget = len(ordered) - skipped_size - skipped_conflict - len(selected)
+    return Selection(
+        selected=tuple(selected),
+        skipped_budget=skipped_budget,
+        skipped_size=skipped_size,
+        skipped_conflict=skipped_conflict,
+    )
 
 
 def branch_name(view: ClusterView) -> str:
-    return f"reaper/{_SLUG.sub('-', view.root.lower()).strip('-')[:60]}"
+    """A branch that is unique per cluster: slugs collide, and cluster hashes do not."""
+    slug = _SLUG.sub("-", view.root.lower()).strip("-")[:60].strip("-")
+    return f"reaper/{slug}-{view.hash}" if slug else f"reaper/{view.hash}"
 
 
 def pr_title(view: ClusterView) -> str:
-    return f"chore(reaper): remove {view.root_kind.value} {view.root}"
+    title = f"chore(reaper): remove {view.root_kind.value} {view.root}"
+    if len(title) <= MAX_TASK_TITLE:
+        return title
+    # Task.title stops at 255 characters, and a root can be longer. The cluster hash keeps the
+    # truncated titles distinguishable; the full root stays in the description.
+    return f"{title[: MAX_TASK_TITLE - len(view.hash) - 2]}… {view.hash}"
 
 
 def _table_cell(text: str) -> str:
@@ -202,20 +231,47 @@ def build_harvest_prompt(candidate: HarvestCandidate) -> HarvestPrompt:
 
 def load_dead_clusters(*, team_id: int, repository: str, scope: str) -> list[HarvestCandidate]:
     with team_scope(team_id):
-        inventory = ReaperInventory.objects.get(team_id=team_id, repository=repository, scope=scope)
+        inventory = ReaperInventory.objects.get(repository=repository, scope=scope)
         clusters = ReaperCluster.objects.filter(
-            inventory=inventory, status=ClusterStatus.DEAD, blocked_reason__isnull=True
+            inventory=inventory,
+            status=ClusterStatus.DEAD,
+            rank=ClusterRank.STRONG,
+            blocked_reason__isnull=True,
         ).order_by("rank", "root")
         candidates: list[HarvestCandidate] = []
         for cluster in clusters:
-            latest = cluster.artefacts.filter(type="verdict").order_by("-created_at").first()
+            latest = cluster.artefacts.filter(type="verdict").order_by("-created_at", "-id").first()
             if latest is None:
                 continue
             record = VerdictRecord.model_validate_json(latest.content)
+            if not _verdict_is_current(cluster, record, inventory.last_scan_sha):
+                _requeue_stale(cluster, record)
+                continue
+            blocked = protected_paths(record.verdict.files_to_delete)
+            if blocked:
+                _block_protected(cluster, blocked)
+                continue
             candidates.append(
                 HarvestCandidate(view=cluster_view(cluster), verdict=record.verdict, verified_sha=record.head_sha)
             )
         return candidates
+
+
+def _verdict_is_current(cluster: ReaperCluster, record: VerdictRecord, last_scan_sha: str | None) -> bool:
+    """A plan is only safe against the code the verifier actually read."""
+    return bool(record.head_sha) and record.head_sha == cluster.verified_sha == last_scan_sha
+
+
+def _requeue_stale(cluster: ReaperCluster, record: VerdictRecord) -> None:
+    cluster.status = ClusterStatus.CANDIDATE
+    cluster.save(update_fields=["status", "updated_at"])
+    _note(cluster, f"Verdict at {record.head_sha[:12] or 'unknown'} predates the current scan; verifying again")
+
+
+def _block_protected(cluster: ReaperCluster, blocked: Sequence[str]) -> None:
+    cluster.status = ClusterStatus.UNDECIDED
+    cluster.save(update_fields=["status", "updated_at"])
+    _note(cluster, f"Deletion plan names protected path(s): {', '.join(blocked)}")
 
 
 def claimed_hashes(*, team_id: int, repository: str) -> set[str]:
@@ -249,6 +305,7 @@ def dispatch_harvest(request: HarvestRequest) -> HarvestResult:
     result = HarvestResult(
         skipped_budget=selection.skipped_budget,
         skipped_size=selection.skipped_size,
+        skipped_conflict=selection.skipped_conflict,
         skipped_duplicate=len(found) - len(candidates),
         open_before=open_before,
     )
@@ -275,7 +332,7 @@ def dispatch_harvest(request: HarvestRequest) -> HarvestResult:
 
 def _mark_harvesting(team_id: int, cluster_id: UUID, task_id: UUID) -> None:
     with team_scope(team_id):
-        cluster = ReaperCluster.objects.get(id=cluster_id, team_id=team_id)
+        cluster = ReaperCluster.objects.get(id=cluster_id)
         cluster.task_id = task_id
         cluster.status = ClusterStatus.HARVESTING
         cluster.save(update_fields=["task_id", "status", "updated_at"])
@@ -285,21 +342,31 @@ def _mark_harvesting(team_id: int, cluster_id: UUID, task_id: UUID) -> None:
 def sync_harvest(*, team_id: int, repository: str, scope: str) -> SyncResult:
     result = SyncResult()
     with team_scope(team_id):
-        inventory = ReaperInventory.objects.get(team_id=team_id, repository=repository, scope=scope)
+        inventory = ReaperInventory.objects.get(repository=repository, scope=scope)
         harvesting = list(ReaperCluster.objects.filter(inventory=inventory, status=ClusterStatus.HARVESTING))
-        runs = tasks_facade.get_latest_run_by_task([c.task_id for c in harvesting if c.task_id])
+        task_ids = [c.task_id for c in harvesting if c.task_id]
+        # A task can be rerun, and only one of its runs carries the pull request, so PR discovery
+        # reads every run while the terminal-without-a-PR decision stays on the latest one.
+        pr_urls = tasks_facade.get_latest_pr_url_by_task(task_ids)
+        runs = tasks_facade.get_latest_run_by_task(task_ids)
         for cluster in harvesting:
-            run = runs.get(str(cluster.task_id)) if cluster.task_id else None
-            if run is None:
-                continue
-            if run.pr_url and run.pr_url.startswith("https://github.com/"):
-                cluster.pr_url = run.pr_url
-                cluster.pr_number = parse_pr_number(run.pr_url)
+            key = str(cluster.task_id) if cluster.task_id else None
+            pr_url = pr_urls.get(key) if key else None
+            run = runs.get(key) if key else None
+            number = parse_pull_request_url(pr_url, repository) if pr_url else None
+            if number is not None:
+                cluster.pr_url = pr_url
+                cluster.pr_number = number
                 cluster.status = ClusterStatus.REAPED
                 cluster.save(update_fields=["pr_url", "pr_number", "status", "updated_at"])
-                _note(cluster, f"Pull request opened: {run.pr_url}")
+                _note(cluster, f"Pull request opened: {pr_url}")
                 result.reaped += 1
-            elif run.is_terminal:
+            elif pr_url:
+                cluster.status = ClusterStatus.UNDECIDED
+                cluster.save(update_fields=["status", "updated_at"])
+                _note(cluster, f"Harvest run reported a pull request outside {repository}: {pr_url}")
+                result.returned += 1
+            elif run is not None and run.is_terminal:
                 cluster.status = ClusterStatus.UNDECIDED
                 cluster.save(update_fields=["status", "updated_at"])
                 _note(cluster, f"Harvest run ended without a pull request (status {run.status})")
@@ -307,7 +374,13 @@ def sync_harvest(*, team_id: int, repository: str, scope: str) -> SyncResult:
         for cluster in ReaperCluster.objects.filter(inventory=inventory, status=ClusterStatus.REAPED):
             if cluster.pr_number is None:
                 continue
-            state = pull_request_state(team_id=team_id, repository=repository, number=cluster.pr_number)
+            try:
+                state = pull_request_state(team_id=team_id, repository=repository, number=cluster.pr_number)
+            except Exception:
+                # One unreachable pull request must not freeze every other cluster's state.
+                logger.exception("ReaperHog: could not read %s#%s", repository, cluster.pr_number)
+                result.failed_lookups += 1
+                continue
             if state.state == "merged":
                 cluster.status = ClusterStatus.BURIED
                 result.buried += 1
@@ -334,6 +407,7 @@ def render_harvest_summary(result: HarvestResult) -> str:
     return (
         f"Harvest: {result.dispatched} pull request task(s) dispatched "
         f"({result.open_before} already open, {result.skipped_budget} held for budget, {result.skipped_size} too big, "
+        f"{result.skipped_conflict} held for a file conflict, "
         f"{result.skipped_duplicate} already harvested under another scope).\n"
     )
 
@@ -341,5 +415,5 @@ def render_harvest_summary(result: HarvestResult) -> str:
 def render_sync_summary(result: SyncResult) -> str:
     return (
         f"Sync: {result.reaped} opened, {result.buried} merged, {result.declined} closed, "
-        f"{result.returned} ended without a pull request.\n"
+        f"{result.returned} ended without a pull request, {result.failed_lookups} could not be read.\n"
     )

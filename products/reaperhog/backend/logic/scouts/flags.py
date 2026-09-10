@@ -101,7 +101,10 @@ def classify_flag(
             ),
             evidence=evidence,
         )
-    if summary.effectively_full_rollout and days_between(now, summary.created_at) >= FLAG_FULL_ROLLOUT_DAYS:
+    # The flag row does not record when rollout reached 100%, and updated_at is the latest moment it
+    # could have. Counting from created_at would clear the waiting period for an old flag rolled out today.
+    rolled_out_since = summary.updated_at or summary.created_at
+    if summary.effectively_full_rollout and days_between(now, rolled_out_since) >= FLAG_FULL_ROLLOUT_DAYS:
         keep = (
             f'variant "{summary.fully_rolled_out_variant}"' if summary.fully_rolled_out_variant else "the enabled path"
         )

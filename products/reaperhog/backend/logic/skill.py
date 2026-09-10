@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 SEEDED_BY = "reaperhog"
-SKILL_CATEGORY = "reaperhog"
+# Uncategorized, so the seeded criteria show up on the default Skills tab. The Skills page filters
+# its tabs on `category`, and an unregistered value would hide the skill the team is meant to edit.
+SKILL_CATEGORY = ""
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
@@ -54,9 +56,15 @@ def sync_skill(team_id: int, canonical: CanonicalSkill) -> PinnedSkill:
     if live is None:
         version = rows[0].version + 1 if rows else 1
         return _create_version(team_id, canonical, version) or _reload(team_id, canonical.name)
-    if (live.metadata or {}).get("seeded_by") != SEEDED_BY:
+    metadata = live.metadata or {}
+    if metadata.get("seeded_by") != SEEDED_BY:
         return PinnedSkill(name=live.name, version=live.version)
-    if (live.metadata or {}).get("canonical_hash") == canonical.content_hash:
+    baseline = metadata.get("canonical_hash")
+    if baseline == canonical.content_hash:
+        return PinnedSkill(name=live.name, version=live.version)
+    # The team owns its copy once it edits it. A newer bundled version must not overwrite that, so
+    # the live row is only replaced while it still matches the baseline we last wrote.
+    if baseline is None or row_hash(live) != baseline:
         return PinnedSkill(name=live.name, version=live.version)
     try:
         with transaction.atomic():
@@ -68,6 +76,11 @@ def sync_skill(team_id: int, canonical: CanonicalSkill) -> PinnedSkill:
         logger.info("reaperhog: concurrent skill update won the race; reusing it", extra={"team_id": team_id})
         return _reload(team_id, canonical.name)
     return created
+
+
+def row_hash(skill: LLMSkill) -> str:
+    """Fingerprint a stored row in the same shape as a canonical skill, for a direct compare."""
+    return hashlib.sha256(f"{skill.description}\n{skill.body}".encode()).hexdigest()
 
 
 def sync_verification_skill(team_id: int) -> PinnedSkill:

@@ -57,7 +57,7 @@ class TestRecordScan:
         [
             (ClusterStatus.CANDIDATE, ClusterStatus.VANISHED),
             (ClusterStatus.DEAD, ClusterStatus.VANISHED),
-            (ClusterStatus.DECLINED, ClusterStatus.VANISHED),
+            (ClusterStatus.DECLINED, ClusterStatus.DECLINED),
             (ClusterStatus.REAPED, ClusterStatus.REAPED),
             (ClusterStatus.BURIED, ClusterStatus.BURIED),
         ],
@@ -71,3 +71,12 @@ class TestRecordScan:
 
         assert ReaperCluster.objects.get(inventory=inventory, root="a").status == expected
         assert outcome.vanished == (1 if expected == ClusterStatus.VANISHED else 0)
+
+    def test_an_incomplete_scan_never_vanishes_an_absent_root(self, team):
+        inventory = upsert_inventory(team_id=team.id, repository="o/r", scope="flags")
+        record_scan(inventory, _drafts("a"), head_sha="abc", now=NOW)
+
+        outcome = record_scan(inventory, [], head_sha="def", now=NOW, complete=False)
+
+        assert ReaperCluster.objects.get(inventory=inventory, root="a").status == ClusterStatus.CANDIDATE
+        assert outcome.vanished == 0

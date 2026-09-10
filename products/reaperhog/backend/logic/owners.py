@@ -65,7 +65,9 @@ def _compile(pattern: str) -> re.Pattern[str]:
             parts.append(re.escape(char))
         index += 1
     regex = "".join(parts)
-    if not anchored:
+    # GitHub gives the implicit "any directory" prefix to slash-free patterns only, so `foo/bar`
+    # owns the repository root path and not `nested/foo/bar`.
+    if not anchored and "/" not in body:
         regex = f"(?:.*/)?{regex}"
     last = body.rsplit("/", 1)[-1]
     looks_like_directory = directory_only or ("*" not in last and "." not in last)

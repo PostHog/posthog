@@ -53,11 +53,11 @@ def _summary(**overrides: object) -> FlagSummary:
         (_summary(last_called_at=_days_ago(366)), False, "not evaluated in 366 days"),
         (_summary(last_called_at=None, created_at=_days_ago(366)), False, "never evaluated"),
         (
-            _summary(effectively_full_rollout=True, fully_rolled_out_variant="test", created_at=_days_ago(181)),
+            _summary(effectively_full_rollout=True, fully_rolled_out_variant="test", updated_at=_days_ago(181)),
             False,
             'keep variant "test"',
         ),
-        (_summary(effectively_full_rollout=True, created_at=_days_ago(181)), False, "keep the enabled path"),
+        (_summary(effectively_full_rollout=True, updated_at=_days_ago(181)), False, "keep the enabled path"),
     ],
 )
 def test_classify_flag_hits(summary: FlagSummary | None, decisive: bool, fragment: str) -> None:
@@ -81,7 +81,7 @@ def test_classify_flag_hits(summary: FlagSummary | None, decisive: bool, fragmen
         _summary(max_rollout_percentage=0, updated_at=_days_ago(90), has_enrollment_overrides=True),
         _summary(last_called_at=_days_ago(364)),
         _summary(last_called_at=None, created_at=_days_ago(364)),
-        _summary(effectively_full_rollout=True, created_at=_days_ago(179)),
+        _summary(effectively_full_rollout=True, updated_at=_days_ago(179)),
     ],
 )
 def test_classify_flag_leaves_live_flags_alone(summary: FlagSummary) -> None:
@@ -101,7 +101,7 @@ def _enrollment(users: int, enabled_users: int) -> FlagEnrollment:
         (_summary(max_rollout_percentage=0, has_enrollment_overrides=True), _enrollment(500, 0), True),
         (_summary(), _enrollment(499, 0), False),
         (_summary(), _enrollment(500, 1), False),
-        (_summary(effectively_full_rollout=True, created_at=_days_ago(100)), _enrollment(500, 0), False),
+        (_summary(effectively_full_rollout=True, updated_at=_days_ago(100)), _enrollment(500, 0), False),
         (_summary(), None, False),
     ],
 )

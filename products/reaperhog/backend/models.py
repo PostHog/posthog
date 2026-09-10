@@ -47,7 +47,7 @@ class ReaperCluster(ProductTeamModel):
     inventory = models.ForeignKey(ReaperInventory, on_delete=models.CASCADE, related_name="clusters")
     hash = models.CharField(max_length=16)
     root_kind = models.CharField(max_length=32, choices=[(k.value, k.value) for k in RootKind])
-    root = models.CharField(max_length=512)
+    root = models.TextField()
     status = models.CharField(
         max_length=16,
         choices=[(s.value, s.value) for s in ClusterStatus],

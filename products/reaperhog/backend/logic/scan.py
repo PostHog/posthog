@@ -53,6 +53,11 @@ class ScanResult:
 def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> ScanResult:
     now = datetime.now(UTC)
     repo = RepoIndex(request.repo_path)
+    # The checkout and the repository name arrive as independent inputs, and harvest opens its pull
+    # request against the name. Scanning one repository and deleting from another is not recoverable.
+    remote = repo.remote_repository()
+    if remote is not None and remote.lower() != request.repository.lower():
+        raise RuntimeError(f"Checkout at {request.repo_path} is {remote}, not {request.repository}")
     head_sha = repo.head_sha()
     context = ScoutContext(team_id=request.team_id, repo=repo, scope=request.scope, now=now)
 
@@ -68,7 +73,7 @@ def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> Sca
     drafts = converge(hits, owner_rules=_owner_rules(repo))
 
     with team_scope(request.team_id):
-        outcome = record_scan(inventory, drafts, head_sha=head_sha, now=now)
+        outcome = record_scan(inventory, drafts, head_sha=head_sha, now=now, complete=not failed)
         note = render_summary(
             repository=request.repository,
             scope=request.scope,

@@ -68,7 +68,7 @@ class Migration(migrations.Migration):
                         max_length=32,
                     ),
                 ),
-                ("root", models.CharField(max_length=512)),
+                ("root", models.TextField()),
                 (
                     "status",
                     models.CharField(
