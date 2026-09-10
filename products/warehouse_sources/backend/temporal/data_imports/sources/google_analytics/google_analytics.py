@@ -4,7 +4,6 @@ import dataclasses
 import collections.abc
 from typing import Any
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import requests
@@ -16,6 +15,7 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -108,11 +108,12 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
+    resolved = integration_secrets.get_secrets(["GOOGLE_ANALYTICS_APP_CLIENT_ID", "GOOGLE_ANALYTICS_APP_CLIENT_SECRET"])
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
-        client_id=settings.GOOGLE_ANALYTICS_APP_CLIENT_ID,
-        client_secret=settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET,
+        client_id=resolved["GOOGLE_ANALYTICS_APP_CLIENT_ID"],
+        client_secret=resolved["GOOGLE_ANALYTICS_APP_CLIENT_SECRET"],
         token_uri="https://oauth2.googleapis.com/token",
         scopes=["https://www.googleapis.com/auth/analytics.readonly"],
     )
@@ -208,6 +209,29 @@ def _run_report(
     for attempt in range(RUNREPORT_MAX_RETRIES + 1):
         try:
             response = session.post(url, json=body)
+        except (
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ReadTimeout,
+        ) as e:
+            # The connection can drop before the response headers (ConnectionError / ReadTimeout) or
+            # part-way through the streamed body (ChunkedEncodingError). Neither leaves a status code
+            # for the 5xx handling below, and the shared adapter's DEFAULT_RETRY only retries GET,
+            # HEAD and OPTIONS, so this POST arrives here with no retry behind it. runReport is a
+            # read, so re-sending it is safe; back off inline like a 5xx, then let Temporal retry the
+            # activity and the resumable source restart from the last saved chunk.
+            if attempt == RUNREPORT_MAX_RETRIES:
+                raise
+            wait = RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GA4 runReport connection dropped, backing off",
+                property_id=pid,
+                attempt=attempt,
+                wait_seconds=wait,
+                error=str(e),
+            )
+            time.sleep(wait)
+            continue
         except RefreshError as e:
             # A transient 5xx from Google's OAuth token endpoint (notably a 502, which
             # google-auth doesn't count as retryable) is raised here while AuthorizedSession

@@ -19,6 +19,7 @@ import {
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
+    rewrapFlattenedArguments,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
@@ -1982,6 +1983,71 @@ describe('exec tool', () => {
                     'resend them as {"query": {"dateRange": ..., "limit": ...}}'
                 )
             })
+
+            describe('rewrapping it into the call the caller meant', () => {
+                const rewrapFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
+                    const result = schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return rewrapFlattenedArguments(result.error!, input, schema)
+                }
+
+                it('nests the flattened fields under the wrapper', () => {
+                    expect(rewrapFor(wrapperSchema, { dateRange: { date_from: '-1h' }, limit: 10 })).toEqual({
+                        query: { dateRange: { date_from: '-1h' }, limit: 10 },
+                    })
+                })
+
+                it('leaves a sibling the outer schema declares at the top level', () => {
+                    // Folding `baselineDateRange` inside `query` would have the nested schema strip it,
+                    // and the caller would get a diff against the default baseline without being told.
+                    const tool = GENERATED_TOOL_MAP['logs-patterns-diff']!()
+                    const input = {
+                        serviceNames: ['api'],
+                        dateRange: { date_from: '-1d' },
+                        baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                    }
+
+                    expect(rewrapFor(tool.schema, input)).toEqual({
+                        query: { serviceNames: ['api'], dateRange: { date_from: '-1d' } },
+                        baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                    })
+                })
+
+                it.each([
+                    ['an empty input, which is a caller that sent nothing', {}],
+                    ['keys the nested schema does not declare', { nonsense: 1, alsoNonsense: 2 }],
+                    ['a nested field the wrapper still rejects', { orderBy: 'newest' }],
+                ])('leaves %s to its own rejection', (_label, input) => {
+                    expect(rewrapFor(wrapperSchema, input)).toBeUndefined()
+                })
+
+                it('leaves a typo alone rather than running a query the caller did not ask for', () => {
+                    // `query-logs` defaults most of its query fields, so wrapping `dateRagne` parses
+                    // into a full set of defaults and would run an unfiltered query over the default
+                    // window. The caller has to see the typo instead of plausible but wrong rows.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, { dateRagne: { date_from: '-7d' } })).toBeUndefined()
+                })
+
+                it('leaves a payload alone when only some of its keys belong inside the wrapper', () => {
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+                    const input = { serviceNames: ['api'], dateRagne: { date_from: '-7d' } }
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a rejection that names more than the missing wrapper alone', () => {
+                    // Two complaints mean the payload is wrong in a way nesting cannot fix,
+                    // so guessing at one of them would hide the other.
+                    const strictWrapper = z.object({
+                        query: z.object({ limit: z.number().optional() }),
+                        mode: z.enum(['fast', 'full']),
+                    })
+
+                    expect(rewrapFor(strictWrapper, { limit: 10, mode: 'quick' })).toBeUndefined()
+                })
+            })
         })
 
         // A caller that omits an identifier usually never held one, so a rejection
@@ -2038,6 +2104,139 @@ describe('exec tool', () => {
                 expect(formatInputValidationError('notebooks-retrieve', result.error!, {}, tool.schema)).toContain(
                     '`notebooks-list`'
                 )
+            })
+        })
+
+        // Zod drops the wrapper, so a wrapped payload and an empty call arrive as
+        // the same missing-parameter message.
+        describe('a top-level payload the caller wrapped', () => {
+            const formatFor = (input: unknown): string => {
+                const tool = GENERATED_TOOL_MAP['query-trends']!()
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('query-trends', result.error!, input, tool.schema)
+            }
+
+            it('names the wrapper and echoes the fields back at the top level', () => {
+                const message = formatFor({
+                    query: { series: [{ kind: 'EventsNode', event: '$pageview' }], dateRange: { date_from: '-7d' } },
+                })
+
+                expect(message).toContain('not nested under "query"')
+                expect(message).toContain('resend them as {"series": ..., "dateRange": ...}')
+            })
+
+            it('identifies the wrapping under any key, and when the fields have their own errors', () => {
+                const message = formatFor({ source: { series: [{ kind: 'EventsNode', event: 3 }] } })
+
+                expect(message).toContain('not nested under "source"')
+            })
+
+            it('leaves an unrelated stray key as a dropped key, not a wrapper', () => {
+                const message = formatFor({ events: ['$pageview'] })
+
+                expect(message).toContain('this tool ignored these keys it does not accept: "events"')
+            })
+
+            // Wrapping leaves a whole parameter unfilled, never a field inside one
+            // the caller reached, so a stray payload must not claim a nested miss.
+            it('leaves a field missing inside a parameter to the caller', () => {
+                const message = formatFor({
+                    series: [{ kind: 'EventsNode', event: '$pageview' }],
+                    breakdownFilter: {},
+                    query: { series: [{ kind: 'EventsNode', event: '$pageview' }] },
+                })
+
+                expect(message).toContain('missing required parameter: breakdownFilter.breakdowns')
+                expect(message).not.toContain('not nested under')
+            })
+        })
+
+        // A union member is reported as one `Invalid input` at the array entry,
+        // which never names the key to change.
+        describe('a union member the caller got wrong', () => {
+            const formatFor = (input: unknown): string => {
+                const tool = GENERATED_TOOL_MAP['query-trends']!()
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('query-trends', result.error!, input, tool.schema)
+            }
+
+            it('names the field inside the entry rather than the entry alone', () => {
+                const message = formatFor({
+                    series: [
+                        { kind: 'EventsNode', event: '$pageview' },
+                        { kind: 'ActionsNode', id: 3 },
+                    ],
+                })
+
+                expect(message).toContain('parameter "series.1.name"')
+            })
+
+            it('lists the accepted values for a rejected enum, capped', () => {
+                const message = formatFor({
+                    series: [{ kind: 'EventsNode', event: '$pageview', math: 'unique_users' }],
+                })
+
+                expect(message).toContain('parameter "series.0.math" must be one of: total, dau')
+                expect(message).toMatch(/\.\.\. \(\d+ accepted values\)/)
+            })
+
+            // A variant can pin a second field to one value without that field
+            // selecting the variant, so the shortest-branch guess reported the
+            // `type` the caller got right as the field to rewrite.
+            it.each([
+                [
+                    'a flag filter with the wrong operator',
+                    { type: 'flag', key: 'new-onboarding', operator: 'exact', value: true },
+                    'parameter "properties.0.operator"',
+                ],
+                [
+                    'a cohort filter with the wrong key',
+                    { type: 'cohort', key: 'cohort_id', operator: 'in', value: 42 },
+                    'parameter "properties.0.key"',
+                ],
+            ])('names the field to change on %s, not its type', (_label, filter, expected) => {
+                const message = formatFor({ series: [{ event: '$pageview' }], properties: [filter] })
+
+                expect(message).toContain(expected)
+                expect(message).not.toContain('parameter "properties.0.type"')
+            })
+
+            it('descends through a nested union to the field that failed', () => {
+                const message = formatFor({
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            event: '$pageview',
+                            properties: [{ key: 'plan', operator: 'exact', type: 'event' }],
+                        },
+                    ],
+                })
+
+                expect(message).toContain('parameter "series.0.properties.0.value"')
+            })
+
+            // The deepest path the generated schemas hold: the series union, the
+            // group's `nodes` union, the filter union, and the generic filter's own.
+            it('descends into a filter on a series the caller grouped', () => {
+                const message = formatFor({
+                    series: [
+                        {
+                            kind: 'GroupNode',
+                            nodes: [
+                                {
+                                    kind: 'EventsNode',
+                                    event: '$pageview',
+                                    properties: [{ key: 'plan', operator: 'exact', type: 'event' }],
+                                },
+                                { kind: 'EventsNode', event: '$pageleave' },
+                            ],
+                        },
+                    ],
+                })
+
+                expect(message).toContain('parameter "series.0.nodes.0.properties.0.value"')
             })
         })
     })

@@ -27,6 +27,7 @@ import {
     type ModelChoiceApi,
     type ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    type TaskRunDetailDTOApi,
     type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -55,6 +56,7 @@ export interface RunInteractionLogicProps {
     streamKey?: string
     initialDraft?: string
     onDraftAdopted?: () => void
+    flushDraft?: () => void
     /** The run's stored model / reasoning effort / launch mode, injected by the consumer. They seed the picker's
      * display and the config a terminal-run send launches the next run with (override ?? this ?? default). */
     currentModel?: string | null
@@ -64,7 +66,13 @@ export interface RunInteractionLogicProps {
     currentRuntimeAdapter?: string | null
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
-    onRunStarted?: (runId: string) => void
+    onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
+}
+
+export interface RunContinuationHandoff {
+    run: TaskRunDetailDTOApi
+    streamKey: string
+    draft: string
 }
 
 /** The follow-up staged in the "Up next" buffer while the agent is mid-turn. */
@@ -172,6 +180,13 @@ export interface runInteractionLogicActions {
     requestCancellation: () => {
         value: true
     } // runCancellationLogic
+    attachOptimisticResume: (
+        taskId: string,
+        run: TaskRunDetailDTOApi
+    ) => {
+        run: TaskRunDetailDTOApi
+        taskId: string
+    } // runStreamLogic
     cancelPermissionDelivery: () => {
         value: true
     } // runStreamLogic
@@ -241,8 +256,14 @@ export interface runInteractionLogicActions {
         optionId: string
         requestId: string
     } // runStreamLogic
+    rollbackOptimisticResume: () => {
+        value: true
+    } // runStreamLogic
     setCurrentMode: (mode: string) => {
         mode: string
+    } // runStreamLogic
+    startOptimisticResume: (message: string) => {
+        message: string
     } // runStreamLogic
     consumeWarm: () => {
         value: true
@@ -262,13 +283,6 @@ export interface runInteractionLogicActions {
     } // toolStreamEventsLogic
     releaseApplyBackTargets: (streamKey: string) => {
         streamKey: string
-    } // toolStreamEventsLogic
-    transferApplyBackTargets: (
-        fromStreamKey: string,
-        toStreamKey: string
-    ) => {
-        fromStreamKey: string
-        toStreamKey: string
     } // toolStreamEventsLogic
     blockOnConsent: (source?: 'draft' | 'queue' | 'steer') => {
         source: 'draft' | 'queue' | 'steer'
@@ -511,6 +525,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             [
                 'pushHumanMessage',
+                'startOptimisticResume',
+                'rollbackOptimisticResume',
+                'attachOptimisticResume',
                 'pushConversationCleared',
                 'respondToPermission',
                 'cancelRun',
@@ -528,7 +545,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             attachedContextLogic,
             ['markContextSent'],
             toolStreamEventsLogic,
-            ['claimApplyBackTargets', 'transferApplyBackTargets', 'releaseApplyBackTargets'],
+            ['claimApplyBackTargets', 'releaseApplyBackTargets'],
             taskWarmLogic({ taskId: props.taskId, resumeFromRunId: props.runId }),
             ['noteDraft', 'consumeWarm', 'releaseWarm'],
             runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -1115,6 +1132,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // Restore unsent content for retry, preserving send order — draft content goes back ahead of
                     // anything typed during the failed send, queue content re-stages ahead of anything staged since.
                     if (source === 'draft') {
+                        // Land the pending keystroke first: writing the draft cancels the composer's debounced
+                        // sync, so text typed inside that window would be dropped rather than merged behind.
+                        props.flushDraft?.()
                         actions.setComposerFormValues({
                             draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
                         })
@@ -1166,10 +1186,28 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 }
                 actions.setStartingRun(true)
                 const streamKey = props.streamKey ?? props.runId
-                let claimedStreamKey = streamKey
                 const pendingContext = values.pendingContextItems
                 const disposables = cache.disposables
                 const projectId = String(values.currentProjectId)
+                const taskId = props.taskId
+                const runId = props.runId
+                const isCurrent = (): boolean =>
+                    !disposables.isDisposed &&
+                    String(values.currentProjectId) === projectId &&
+                    props.taskId === taskId &&
+                    props.runId === runId
+                let optimisticStarted = false
+                let accepted = false
+                const stream = runStreamLogic({ streamKey })
+                disposables.add(
+                    () => () => {
+                        if (optimisticStarted && !accepted && stream.isMounted()) {
+                            stream.actions.rollbackOptimisticResume()
+                        }
+                    },
+                    'optimistic-resume',
+                    { pauseOnPageHidden: false }
+                )
                 actions.claimApplyBackTargets(streamKey)
                 try {
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
@@ -1187,32 +1225,52 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         }
                     )
                     actions.consumeWarm()
+                    actions.resetComposerForm()
+                    actions.startOptimisticResume(content)
+                    optimisticStarted = true
                     const result = await submitWithWarmRunRetry(
-                        (options) => tasksRunCreate(projectId, props.taskId, createRequest, options),
+                        (options) => tasksRunCreate(projectId, taskId, createRequest, options),
                         disposables
                     )
-                    actions.resetComposerForm()
-                    markPendingContextSent(pendingContext)
-                    const latestRunId = result.latest_run?.id
-                    if (latestRunId) {
-                        actions.transferApplyBackTargets(streamKey, latestRunId)
-                        claimedStreamKey = latestRunId
-                        props.onRunStarted?.(latestRunId)
-                    } else {
-                        actions.releaseApplyBackTargets(streamKey)
-                    }
-                } catch (error) {
-                    if (disposables.isDisposed) {
+                    if (!isCurrent()) {
                         return
                     }
-                    actions.releaseApplyBackTargets(claimedStreamKey)
+                    const run = result.latest_run
+                    if (!run?.id) {
+                        throw new Error('The run response did not include a run')
+                    }
+                    accepted = true
+                    markPendingContextSent(pendingContext)
+                    props.flushDraft?.()
+                    const handoff = { run, streamKey, draft: values.composerForm.draft }
+                    actions.attachOptimisticResume(taskId, run)
+                    props.onRunStarted?.(run.id, handoff)
+                } catch (error) {
+                    if (!isCurrent()) {
+                        return
+                    }
+                    if (accepted) {
+                        throw error
+                    }
+                    if (optimisticStarted) {
+                        actions.rollbackOptimisticResume()
+                    }
+                    actions.releaseApplyBackTargets(streamKey)
+                    if (optimisticStarted) {
+                        props.flushDraft?.()
+                        actions.setComposerFormValues({
+                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                        })
+                        optimisticStarted = false
+                    }
                     lemonToast.error(
                         error instanceof ApiError && error.code === 'warm_run_activation_unavailable'
                             ? "Couldn't start this run yet. Please try again."
                             : 'Failed to start a new run. Please try again.'
                     )
                 } finally {
-                    if (!disposables.isDisposed) {
+                    disposables.dispose('optimistic-resume')
+                    if (isCurrent()) {
                         actions.setStartingRun(false)
                     }
                 }

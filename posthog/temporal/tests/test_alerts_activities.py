@@ -3,7 +3,7 @@ import contextlib
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 import pytest_asyncio
@@ -50,6 +50,7 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 
@@ -95,6 +96,7 @@ async def _create_alert(
     snoozed_until: datetime | None = None,
     skip_weekend: bool = False,
     schedule_restriction: dict | None = None,
+    schedule_start_time: str | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
 ) -> AlertConfiguration:
@@ -124,6 +126,7 @@ async def _create_alert(
             snoozed_until=snoozed_until,
             skip_weekend=skip_weekend,
             schedule_restriction=schedule_restriction,
+            schedule_start_time=schedule_start_time,
             state=state,
         )
         return alert
@@ -133,10 +136,11 @@ async def _create_alert(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_retrieve_due_alerts_limits_each_schedule_run_to_fifty_without_starving_other_teams(
+async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
     ateam: Team,
 ) -> None:
-    for _ in range(50):
+    max_alerts_per_run = 2
+    for _ in range(max_alerts_per_run):
         await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
 
     other_team = await sync_to_async(Team.objects.create)(
@@ -146,9 +150,12 @@ async def test_retrieve_due_alerts_limits_each_schedule_run_to_fifty_without_sta
     )
     other_alert = await _create_alert(other_team)
 
-    alerts = await ActivityEnvironment().run(retrieve_due_alerts)
+    alerts = await ActivityEnvironment().run(
+        retrieve_due_alerts,
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
+    )
 
-    assert len(alerts) == 50
+    assert len(alerts) == max_alerts_per_run
     assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 
@@ -239,7 +246,7 @@ class TestPrepareAlert:
             ),
             pytest.param(
                 "2024-12-21T08:00:00Z",  # Saturday
-                {"skip_weekend": True},
+                {"skip_weekend": True, "schedule_start_time": "08:30"},
                 SkipReason.WEEKEND,
                 True,
                 id="weekend",
@@ -271,7 +278,7 @@ class TestPrepareAlert:
         expected_reason: SkipReason,
         advances_next_check_at: bool,
     ) -> None:
-        ctx = freeze_time(frozen_time) if frozen_time else contextlib.nullcontext()
+        ctx = time_machine.travel(frozen_time, tick=False) if frozen_time else contextlib.nullcontext()
         with ctx:
             a = await _create_alert(ateam, **setup_kwargs)
             env = ActivityEnvironment()
@@ -290,7 +297,7 @@ class TestPrepareAlert:
             # Non-advancing skip branches must leave next_check_at untouched.
             assert refreshed.next_check_at == setup_kwargs.get("next_check_at")
 
-    @freeze_time("2024-06-03T10:00:00Z")
+    @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_future_preserves_snoozed_until(self, ateam) -> None:
         # Separate from the parameterized set because it asserts a DB field is UNCHANGED,
         # which doesn't fit the generic "next_check_at advanced" pattern.
@@ -303,7 +310,7 @@ class TestPrepareAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
         assert refreshed.snoozed_until == snoozed
 
-    @freeze_time("2024-06-03T10:00:00Z")
+    @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_until_in_past_is_cleared_and_evaluation_proceeds(self, ateam) -> None:
         past = datetime(2024, 6, 3, 9, 0, tzinfo=UTC)
         a = await _create_alert(ateam, snoozed_until=past, state=AlertState.SNOOZED)

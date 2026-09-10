@@ -29,6 +29,10 @@ If it just needs to _answer a question_ given some context you already have, use
 A sandboxed agent runs inside an isolated cloud container (Modal in production, Docker locally).
 The system provisions the sandbox, clones a GitHub repo, starts an agent server, and waits for the agent to finish.
 
+The run thread shows startup state in a progress accordion, with completed steps available in its history.
+Before progress arrives, it shows "Setting up sandbox", including when resuming a finished run.
+The thread hides empty and whitespace-only assistant messages during streaming and history replay.
+
 ```text
 Your product code
     │
@@ -98,6 +102,13 @@ class OriginProduct(models.TextChoices):
 ```
 
 Then create and run a Django migration.
+
+### Starting a task from a deep link
+
+In the new PostHog AI view, `/ai?ask=...` hands the prompt to the task composer once.
+The handoff removes `ask` from the current browser history entry while preserving other query parameters and the hash.
+Changing the panel state or remounting the view therefore does not submit the prompt again.
+Without organization-level AI data-processing consent, the prompt only prefills the composer.
 
 ## Fine-grained access tokens
 
@@ -516,6 +527,27 @@ The setup command is idempotent and handles:
 For advanced setup options (Modal sandboxes, local agent packages, MCP), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
 
 **Tip:** Set `SANDBOX_REPO_MOUNT_MAP` to bind-mount local repositories into the Docker container and skip cloning from GitHub. Format: `SANDBOX_REPO_MOUNT_MAP=org/repo:/local/path` (e.g., `SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog`). This can significantly reduce sandbox startup time for large repos.
+
+### Workflow integration tests
+
+`TestProcessTaskWorkflow` in `products/tasks/backend/temporal/process_task/tests/test_workflow.py`
+boots real Modal sandboxes. Set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, then run:
+
+```sh
+hogli test products/tasks/backend/temporal/process_task/tests/test_workflow.py::TestProcessTaskWorkflow
+```
+
+The completion and failure cases use a fixture HTTP API inside the sandbox. It serves
+the test task and a prewarmed run waiting for a message, so the real agent can become
+ready without calling a live PostHog API or submitting an LLM prompt. The test waits
+for readiness before signaling completion, then checks persisted status, error, and
+sandbox shutdown. It does not test Django API authentication or LLM task execution.
+
+These tests consume the published sandbox image, not the agent source in the checkout.
+An agent release triggers a separate sandbox image build that installs the published
+package and updates the shared image. Running backend tests against that image alone
+does not validate an unpublished agent change. A release check must exercise the
+candidate image before promoting it to the shared tag.
 
 ## Questions?
 

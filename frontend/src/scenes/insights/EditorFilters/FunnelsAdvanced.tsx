@@ -2,14 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { Noun } from '~/models/groupsModel'
 import { EditorFilterProps } from '~/types'
 
+import { FunnelStepOrderPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelStepOrderPicker'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+
 import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
-import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
 
 export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { querySource, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))

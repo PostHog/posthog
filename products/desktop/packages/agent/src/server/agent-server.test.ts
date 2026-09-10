@@ -2579,6 +2579,39 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(testServer.pendingEvents).toEqual([event]);
     });
+
+    it("redacts authorization headers before an event leaves the sandbox", () => {
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      testServer.session = null;
+
+      testServer.broadcastEvent({
+        type: "notification",
+        notification: {
+          method: "session/new",
+          params: {
+            mcpServers: [
+              {
+                name: "posthog",
+                headers: [
+                  { name: "Authorization", value: "Bearer mcp-secret" },
+                  { name: "x-posthog-mcp-consumer", value: "cloud" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      const [broadcast] = testServer.eventStreamSender.enqueue.mock.calls[0];
+      const serialized = JSON.stringify(broadcast);
+      expect(serialized).not.toContain("mcp-secret");
+      expect(serialized).toContain("x-posthog-mcp-consumer");
+      expect(testServer.pendingEvents).toEqual([broadcast]);
+    });
   });
 
   describe("relayed MCP server tool permissions", () => {

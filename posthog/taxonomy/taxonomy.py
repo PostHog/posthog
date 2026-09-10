@@ -19,6 +19,11 @@ class CoreFilterDefinition(TypedDict):
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
+    # Keep this event out of pickers that build a query someone saves and runs later, because its rows
+    # are moving out of the events table. Surfaces that read live event data still offer it.
+    # This marks a migration in progress, not a permanent trait: drop the field once every event
+    # carrying it has moved and its old artifacts are migrated (RFC #1209).
+    hidden_in_query_builders: NotRequired[bool]
 
 
 def is_hidden_from_assistant(definition: CoreFilterDefinition) -> bool:
@@ -177,10 +182,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$feature_flag_called": {
             "label": "Feature flag called",
             "description": (
-                'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active feature flags".'
+                "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab."
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
+            "hidden_in_query_builders": True,
             "primary_property": "$feature_flag",
         },
         "$experiment_exposure": {
@@ -1774,7 +1780,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag": {
             "label": "Feature flag",
-            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called and $experiment_exposure events. If you want to filter other events, try "Active feature flags".',
+            "description": 'The key of the feature flag, sent on "Feature flag called", "Experiment exposure", and "Feature enrollment" events. To find other events where a flag was active, use "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
@@ -2910,6 +2916,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP vendor client",
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
             "examples": ["ClaudeCode", "ClaudeAI", "Cowork"],
+        },
+        "$mcp_llm_model": {
+            "label": "MCP model",
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": ["claude-sonnet-5", "gpt-5.6-sol"],
+        },
+        "$mcp_llm_model_source": {
+            "label": "MCP model source",
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": ["client_metadata", "self_reported"],
         },
         "$mcp_intent": {
             "label": "MCP intent",
