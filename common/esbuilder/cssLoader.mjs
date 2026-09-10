@@ -53,10 +53,22 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
             for (var i = 0; i < paths.length; i++) {
                 hrefs.push(staticHost + '/static/' + paths[i]);
             }
+            // Dev and preview stacks point JS_URL at the app origin itself, and one that names the
+            // default port reads as a different string for the same origin. Compare the resolved
+            // origins, so the rung below is added only when there is another host to escape to.
+            var isRemoteHost = false;
+            if (staticHost) {
+                try {
+                    isRemoteHost = new URL(staticHost, window.location.href).origin !== window.location.origin;
+                } catch (e) {
+                    // A host string the browser cannot parse is no reason to give up the rung.
+                    isRemoteHost = true;
+                }
+            }
             // The app origin serves the same files, so this rung survives a fault that reaches
             // every rung above: an interstitial in front of the static host, a MIME rewrite, or a
             // client that cannot reach that host at all.
-            if (staticHost) {
+            if (isRemoteHost) {
                 hrefs.push('/static/' + paths[0]);
             }
 

@@ -207,14 +207,24 @@ describe('css loader script', () => {
         expect(beacons[3].properties).toMatchObject({ $exception_level: 'fatal', stylesheet_attempts: 4 })
     })
 
-    it('adds no app-origin rung when the static files already come from the app origin', () => {
-        const { links } = runLoader({ jsUrl: '' })
+    it.each([
+        ['no static host is configured', '', `/static/${CSS_FILE}`],
+        // Dev and preview stacks serve the static files from the app origin, the second of them
+        // through a JS_URL that spells out the default port.
+        ['the static host is the app origin', 'https://app.example.com', `https://app.example.com/static/${CSS_FILE}`],
+        [
+            'the static host names the default port of the app origin',
+            'https://app.example.com:443',
+            `https://app.example.com:443/static/${CSS_FILE}`,
+        ],
+    ])('adds no app-origin rung when %s', (_case, jsUrl, firstHref) => {
+        const { links } = runLoader({ jsUrl })
         for (let attempt = 0; attempt < 3; attempt++) {
             jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS)
         }
 
         expect(links).toHaveLength(3)
-        expect(links[0].href).toBe(`/static/${CSS_FILE}`)
+        expect(links[0].href).toBe(firstHref)
     })
 
     it('stops the ladder when a stylesheet abandoned by a timeout lands late', async () => {
