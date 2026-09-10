@@ -65,13 +65,18 @@ const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'runs', 'invocation
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<
-    Record<HogFunctionTypeType, { scene: Scene; url: () => string; newKind?: DataPipelinesNewSceneKind }>
+    Record<
+        HogFunctionTypeType,
+        { scene: Scene; url: () => string; newKind?: DataPipelinesNewSceneKind; crumbName?: string }
+    >
 > = {
     transformation: { scene: Scene.Transformations, url: urls.transformations, newKind: 'transformation' },
     // Log transformations have no /pipeline/new page; creation happens from the Logs scene
     transformation_log: { scene: Scene.Logs, url: urls.logs },
     destination: { scene: Scene.Destinations, url: urls.destinations, newKind: 'destination' },
     site_destination: { scene: Scene.Destinations, url: urls.destinations, newKind: 'destination' },
+    // No newKind: a legacy destination only ever comes from migrating a plugin config, never from this UI
+    legacy_destination: { scene: Scene.Destinations, url: urls.destinations, crumbName: 'Destinations' },
     source_webhook: { scene: Scene.Sources, url: urls.sources, newKind: 'source' },
 }
 
@@ -319,7 +324,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     return [
                         {
                             key: sceneMapping.scene,
-                            name: capitalizeFirstLetter(humanizeHogFunctionType(type, true)),
+                            name: sceneMapping.crumbName ?? capitalizeFirstLetter(humanizeHogFunctionType(type, true)),
                             path:
                                 id || !sceneMapping.newKind
                                     ? sceneMapping.url()
