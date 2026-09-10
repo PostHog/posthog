@@ -2056,6 +2056,7 @@ class TestPasskeySignupAPI(APIBaseTest):
 
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
+        self.assertIsNone(user.credentials_reviewed_at)
         self.assertFalse(user.has_usable_password())
         self.assertFalse(WebauthnCredential.objects.filter(user=user).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())

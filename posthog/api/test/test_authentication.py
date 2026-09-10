@@ -1984,6 +1984,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.is_email_verified = False
         self.user.requested_password_reset_at = datetime.now()
         self.user.passkeys_enabled_for_2fa = True
+        self.user.credentials_reviewed_at = timezone.now()
         self.user.save()
         WebauthnCredential.objects.create(
             user=self.user,
@@ -2020,6 +2021,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
         self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
         self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
+        self.assertIsNone(self.user.credentials_reviewed_at)
 
     def test_password_reset_does_not_clear_pending_email(self):
         self.user.is_email_verified = False

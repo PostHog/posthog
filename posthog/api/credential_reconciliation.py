@@ -11,8 +11,12 @@ def reconcile_email_claim_credentials(
     trusted_passkey_id: str | None = None,
     trusted_social_auth_id: int | None = None,
 ) -> None:
-    """Remove untrusted browser login credentials when an email address is claimed."""
+    """Reconcile credentials when an email address is claimed."""
     update_fields: list[str] = []
+
+    if user.credentials_reviewed_at is not None:
+        user.credentials_reviewed_at = None
+        update_fields.append("credentials_reviewed_at")
 
     if not trusted_password:
         user.set_unusable_password()
