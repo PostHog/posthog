@@ -159,6 +159,7 @@ const agentErrorClassificationSchema = z.enum([
   "content_block_rejection",
   "turn_ended_without_response",
   "subscription_usage_limit",
+  "task_spend_limit",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -1953,6 +1954,7 @@ export class AgentServer {
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
       aiStage: getTaskRunStateString(preTaskRun, "ai_stage"),
+      aiAgentName: getTaskRunStateString(preTaskRun, "ai_agent_name"),
       taskId: payload.task_id,
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
@@ -2107,6 +2109,7 @@ export class AgentServer {
                 )
                   ? this.config.reasoningEffort
                   : undefined,
+              serviceTier: this.config.serviceTier,
               developerInstructions: codexInstructions,
               httpHeaders: gatewayEnv.openaiCustomHeaders,
             }
@@ -5071,6 +5074,7 @@ ${commonInstructions}
     originProduct,
     signalReportId,
     aiStage,
+    aiAgentName,
     taskId,
     taskRunId,
     taskUserId,
@@ -5087,6 +5091,7 @@ ${commonInstructions}
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
     aiStage?: string | null;
+    aiAgentName?: string | null;
     taskId?: string | null;
     taskRunId?: string | null;
     taskUserId?: number | null;
@@ -5143,6 +5148,8 @@ ${commonInstructions}
       task_internal: isInternal,
       signal_report_id: signalReportId,
       ai_stage: resolvedStage,
+      // The team-scoped agent name; `ai_stage` stays a bounded fleet-wide tag.
+      ai_agent_name: aiAgentName,
       task_id: taskId,
       task_run_id: taskRunId,
       task_user_id: taskUserId,

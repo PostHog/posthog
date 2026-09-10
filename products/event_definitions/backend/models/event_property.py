@@ -5,8 +5,8 @@ from posthog.models.utils import UniqueConstraintByExpression, sane_repr
 
 class EventProperty(models.Model):
     id = models.BigAutoField(primary_key=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False, related_name="+")
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
     event = models.CharField(max_length=400, null=False)
     property = models.CharField(max_length=400, null=False)
 

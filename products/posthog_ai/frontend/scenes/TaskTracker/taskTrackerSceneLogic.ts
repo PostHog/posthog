@@ -32,6 +32,7 @@ import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
+import type { RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import type { ActiveCreation } from '../../logics/runnerPanelLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
@@ -410,7 +411,11 @@ export interface taskTrackerSceneLogicActions {
     submitNewTaskSuccess: () => {
         value: true
     }
-    updateActiveCreationRun: (runId: string) => {
+    updateActiveCreationRun: (
+        runId: string,
+        handoff?: RunContinuationHandoff
+    ) => {
+        handoff: RunContinuationHandoff | undefined
         runId: string
     }
 }
@@ -513,7 +518,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         openExistingTask: (task: Task) => ({ task }),
         // Re-points the panel at a fresh run started from the composer on a reopened terminal task
         // (the run surface's own re-pointing targets the detail scene, which the panel doesn't render).
-        updateActiveCreationRun: (runId: string) => ({ runId }),
+        updateActiveCreationRun: (runId: string, handoff?: RunContinuationHandoff) => ({ runId, handoff }),
         blockOnConsent: true,
         clearConsentBlock: true,
         // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
@@ -834,6 +839,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (disposables.isDisposed) {
                     return
                 }
+                if (!runId) {
+                    throw new Error('Run creation did not return a run ID')
+                }
 
                 // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
                 // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
@@ -871,7 +879,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     return
                 }
                 actions.releaseApplyBackTargets(streamKey)
-                actions.clearActiveCreation()
+                if (values.activeCreation?.streamKey === streamKey) {
+                    const draft = values.activeCreation.draft
+                    if (draft) {
+                        actions.setNewTaskData({ description: [values.newTaskData.description, draft].join('\n\n') })
+                    }
+                    actions.clearActiveCreation()
+                }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
                 }
@@ -895,11 +909,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.setHistoryExpanded(false)
             router.actions.push(`/tasks/${task.id}`)
         },
-        updateActiveCreationRun: ({ runId }) => {
+        updateActiveCreationRun: ({ runId, handoff }) => {
             if (!values.activeCreation?.taskId) {
                 return
             }
-            actions.setActiveCreation({ streamKey: runId, taskId: values.activeCreation.taskId, runId })
+            actions.setActiveCreation({
+                streamKey: handoff?.streamKey ?? values.activeCreation.streamKey,
+                taskId: values.activeCreation.taskId,
+                runId,
+                draft: handoff?.draft ?? values.activeCreation.draft,
+            })
         },
         // A seed arriving while this composer is already mounted (the panel was open when the host set it).
         // `setSeed` is connected from this instance's props-keyed seed logic — the bare `composerSeedLogic`

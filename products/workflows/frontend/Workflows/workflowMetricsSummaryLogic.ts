@@ -1209,18 +1209,19 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 messagingChannels: { hasEmail: boolean; hasPush: boolean },
                 sentSummaryLabel: string
             ): AppMetricsTimeSeriesResponse | null => {
-                if (!appMetricsTrends && !completedTrends) {
+                const source = appMetricsTrends ?? completedTrends
+                if (!source) {
                     return null
                 }
 
-                const labels = appMetricsTrends?.labels ?? completedTrends?.labels ?? []
+                const labels = source.labels
                 const zero = (): number[] => Array.from({ length: labels.length }, () => 0)
                 const seriesFor = (metricName: string): number[] =>
                     appMetricsTrends?.series.find((x: { name: string }) => x.name === metricName)?.values ?? zero()
                 const completedValues = getCompletedSingleTrendSeries('succeeded')?.series[0]?.values ?? zero()
 
                 return {
-                    labels,
+                    ...source,
                     series: SUMMARY_METRIC_KEYS.flatMap((summaryMetric) => {
                         if (summaryMetric === 'completed') {
                             return [{ name: WORKFLOW_SUMMARY_METRICS.completed.name, values: completedValues }]
@@ -1401,7 +1402,7 @@ export function withDisplayName(
     }
 
     return {
-        labels: series.labels,
+        ...series,
         series: series.series.map((item) => ({
             ...item,
             name: displayName,
@@ -1414,14 +1415,15 @@ export function subtractSeries(
     subtrahendSeries: AppMetricsTimeSeriesResponse | null,
     displayName: string
 ): AppMetricsTimeSeriesResponse | null {
-    if (!minuendSeries && !subtrahendSeries) {
+    const source = minuendSeries ?? subtrahendSeries
+    if (!source) {
         return null
     }
 
-    const labels = minuendSeries?.labels ?? subtrahendSeries?.labels ?? []
+    const labels = source.labels
 
     return {
-        labels,
+        ...source,
         series: [
             {
                 name: displayName,

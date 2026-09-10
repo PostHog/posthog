@@ -122,6 +122,7 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
         now=datetime.now(pytz.UTC),
         tz_name=alert.team.timezone,
         next_check_at=alert.next_check_at,
+        schedule_start_time=alert.schedule_start_time,
     )
 
 
