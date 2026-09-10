@@ -54,7 +54,10 @@ Prefer reusing existing insights over recreating them.
 - Existing dashboard: `dashboard-update`. Adding, replacing, or removing insights means sending the full intended set of
   tiles — insights you omit are removed, so include the ones you want to keep.
 - Layout: by default preserve existing tile placement. Only reflow (`dashboard-reorder-tiles`) when the user explicitly
-  asks to rearrange, reorder, or move tiles.
+  asks to rearrange, reorder, or move tiles. Use `three_column` only when they explicitly ask for a three-column or
+  equal-thirds layout: first fetch `dashboard-get`, pass every returned tile ID exactly once, and fetch
+  `dashboard-get` again after reordering to verify the result. Text and image tiles remain full-width separators; other
+  tiles are packed three per row.
 - Verify with `dashboard-insights-run` to confirm the tiles return data, then summarize what you built and invite the
   user to refine it.
 
