@@ -26,6 +26,7 @@ import {
   type FeedbackModalMode,
 } from "@posthog/ui/features/canvas/components/FeedbackModal";
 import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
+import { CanvasConnectorPermissionDialog } from "@posthog/ui/features/canvas/freeform/CanvasConnectorPermissionDialog";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -500,6 +501,7 @@ function RootLayout() {
           onFinished={handleFeedbackFinished}
         />
         <ExistingWorktreeDialog />
+        <CanvasConnectorPermissionDialog />
         <HedgehogMode />
       </Flex>
     </BrowserTabsDndProvider>
