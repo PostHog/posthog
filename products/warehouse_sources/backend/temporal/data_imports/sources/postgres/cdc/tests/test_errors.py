@@ -5,7 +5,7 @@ from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import DatabaseHostNotAllowedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
 )
@@ -68,7 +68,7 @@ class TestClassifyPostgresCDCError:
             ),
             (
                 "database_host_not_allowed_is_non_retryable_host",
-                DatabaseHostNotAllowedError("Database host not allowed: resolves to a private address"),
+                HostNotAllowedError("Database host not allowed: resolves to a private address"),
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (

@@ -15,7 +15,7 @@ import psycopg.errors
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import DatabaseHostNotAllowedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -70,7 +70,7 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
 
     # The host policy refused the configured host before any socket opened. Deterministic for
     # the configured host, so it stops the run like an unroutable address does.
-    if isinstance(exc, DatabaseHostNotAllowedError):
+    if isinstance(exc, HostNotAllowedError):
         return CDCErrorCategory.HOST_UNREACHABLE
 
     # Guard all string-based checks: only psycopg exceptions carry these message patterns.

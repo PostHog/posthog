@@ -11,10 +11,12 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
     OAuthMixin,
     SSHTunnelMixin,
     TemporaryHostResolutionError,
@@ -585,7 +587,7 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
             patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("169.254.169.254")),
             patch(f"{_MIXINS_MODULE}.logger"),
         ):
-            with pytest.raises(Exception, match="Database host not allowed"):
+            with pytest.raises(HostNotAllowedError, match="Database host not allowed"):
                 with self._connection_cm(entrypoint, config, 999):
                     pass
 
@@ -608,7 +610,9 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
 class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
     # The rejection is a config problem only the customer can fix, so it has to stop the schedule
     # the way its SSH counterpart does. Raising it through the real path couples the wording to the
-    # registered pattern: reword one without the other and this fails.
+    # registered pattern: reword one without the other and this fails. It is also a
+    # `NonReportableError`, the marker the Temporal activity interceptor honors to fail the activity
+    # without opening an error tracking issue nobody on our side can act on.
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_rejection_message_matches_a_registered_non_retryable_error(self):
         config = FakeConfig(host="db.example.com", ssh_tunnel=None)
@@ -617,10 +621,11 @@ class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
             patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=addrinfo),
             patch(f"{_MIXINS_MODULE}.logger"),
         ):
-            with pytest.raises(Exception) as exc:
+            with pytest.raises(HostNotAllowedError) as exc:
                 with open_ssh_tunnel(config, 999):
                     pass
 
+        assert isinstance(exc.value, NonReportableError)
         assert error_message_matches(str(exc.value), Any_Source_Errors.keys())
 
 

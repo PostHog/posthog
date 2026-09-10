@@ -133,10 +133,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     Config,
     CustomSource,
     CustomSourceConfig,
-    DatabaseHostNotAllowedError,
     DocsFetchError,
     ExternalWebhookInfo,
     FieldType,
+    HostNotAllowedError,
     IntegrationAccountListingError,
     MySQLSource,
     OAuthMixin,
@@ -247,7 +247,7 @@ _EXPECTED_CONNECTION_ERRORS = (
     OperationalError,
     BaseSSHTunnelForwarderError,
     SSLRequiredError,
-    DatabaseHostNotAllowedError,
+    HostNotAllowedError,
     TemporaryHostResolutionError,
 )
 

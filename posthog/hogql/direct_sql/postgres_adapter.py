@@ -159,7 +159,7 @@ class PostgresAdapter:
         with request.timings.measure("postgres_source_validation"):
             with request.timings.measure("postgres_source_helpers_import"):
                 from products.warehouse_sources.backend.facade.source_management import (
-                    DatabaseHostNotAllowedError,
+                    HostNotAllowedError,
                     TemporaryHostResolutionError,
                     _get_sslmode,
                     pinned_host_kwargs,
@@ -183,9 +183,15 @@ class PostgresAdapter:
             with request.timings.measure("postgres_execute"):
                 with ExitStack() as tunnel_stack:
                     with request.timings.measure("postgres_tunnel_open", emit_span=True):
-                        host, port = tunnel_stack.enter_context(
-                            postgres_source.with_ssh_tunnel(source_config, request.team.pk)
-                        )
+                        try:
+                            host, port = tunnel_stack.enter_context(
+                                postgres_source.with_ssh_tunnel(source_config, request.team.pk)
+                            )
+                        except HostNotAllowedError as error:
+                            # `validate_source_config` already ran the host check, but a short-TTL
+                            # record can pass there and resolve private on this second lookup. Surface
+                            # it as a user query error, matching the validation-time rejection.
+                            raise ExposedHogQLError(str(error)) from error
                     connection_kwargs: PostgresConnectionKwargs = {
                         "host": host,
                         "port": port,
@@ -262,7 +268,7 @@ class PostgresAdapter:
             psycopg.Error,
             BaseSSHTunnelForwarderError,
             ExposedHogQLError,
-            DatabaseHostNotAllowedError,
+            HostNotAllowedError,
             TemporaryHostResolutionError,
         ) as error:
             span.set_attribute("error_type", error.__class__.__name__)

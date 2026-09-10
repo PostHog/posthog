@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    DatabaseHostNotAllowedError,
+    HostNotAllowedError,
     _resolve_hostaddr_with_timeout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
@@ -2721,7 +2721,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
 
     def test_a_comma_joined_host_is_refused_before_libpq_sees_it(self) -> None:
         with self._production_cloud(self._addrinfo("10.0.0.5")) as cloud:
-            with pytest.raises(DatabaseHostNotAllowedError, match="single hostname"):
+            with pytest.raises(HostNotAllowedError, match="single hostname"):
                 self._connect(host="10.0.0.5,x.postwh.com", team_id=999)
 
         cloud.getaddrinfo.assert_not_called()

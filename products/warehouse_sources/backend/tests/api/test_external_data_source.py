@@ -82,7 +82,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
-    DatabaseHostNotAllowedError,
+    HostNotAllowedError,
     TemporaryHostResolutionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -14033,7 +14033,7 @@ class TestFanoutParentCreation(APIBaseTest):
 class TestRefreshSchemasErrorClassification(SimpleTestCase):
     def test_a_rejected_host_returns_the_guidance_without_a_source_registry(self) -> None:
         message, is_expected = _classify_refresh_schemas_error(
-            None, DatabaseHostNotAllowedError("Database host not allowed: resolves to a private address")
+            None, HostNotAllowedError("Database host not allowed: resolves to a private address")
         )
 
         assert message == DATABASE_HOST_NOT_ALLOWED_GUIDANCE
