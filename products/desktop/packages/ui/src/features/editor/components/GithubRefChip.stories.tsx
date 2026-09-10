@@ -31,14 +31,14 @@ export const WithoutLiveDetails: Story = {
   ),
 };
 
-const NINE_DIGIT_PULL_REQUEST = "#123456789";
+const NINE_DIGIT_PULL_REQUEST = "example-org/example-repo#123456789";
 
 export const PullRequestNumberWidth: Story = {
   render: () => (
     <div className="flex flex-col items-start gap-4 text-[13px]">
       <div className="flex flex-col gap-1">
         <span className="text-(--gray-11)">Before</span>
-        <div className="w-[6ch]">
+        <div className="w-[22ch]">
           <GithubRefChipLink
             href="https://github.com/example-org/example-repo/pull/123456789"
             icon={GitPullRequestIcon}
@@ -50,7 +50,7 @@ export const PullRequestNumberWidth: Story = {
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-(--gray-11)">After</span>
-        <div className="w-[6ch]">
+        <div className="w-[22ch]">
           <GithubRefChipLink
             href="https://github.com/example-org/example-repo/pull/123456789"
             icon={GitPullRequestIcon}
