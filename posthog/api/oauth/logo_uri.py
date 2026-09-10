@@ -1,13 +1,20 @@
 """Shared guard for the `logo_uri` an OAuth client supplies about itself.
 
-Both self-registration paths accept the value from the client, and PostHog renders it on the
-consent screen and on the auth screens.
+Both self-registration paths accept the value from the client, and PostHog renders it as an
+`<img src>` on the consent screen and on the auth screens.
 
-The guard is deliberately cheap. PostHog never fetches a logo itself, so there is no
-server-side request to protect: the browser loads it, from a page that already sets
-`referrerPolicy="no-referrer"`. Resolving the host here would add DNS work to an
-unauthenticated endpoint and buy nothing.
+PostHog never fetches a logo, so this does not protect PostHog's own egress. It protects the
+visitor: the browser makes that request, and a self-hosted deployment renders these pages to
+people inside a trusted network. A logo pointing at a loopback, metadata or internal address
+would make each of those browsers probe its own network from a PostHog page.
+
+The check reads the URL and does not resolve it, because the alternative is a DNS lookup on
+`/oauth/register/`, which is unauthenticated. That leaves one gap: a registered name that
+resolves to a private address still passes. Closing it means an image proxy that resolves and
+fetches on PostHog's side, which is a larger change than this guard.
 """
+
+from posthog.security.url_validation import is_url_allowed_by_name
 
 # Column limit of `OAuthApplication.logo_uri`.
 MAX_LOGO_URI_LENGTH = 2048
@@ -23,4 +30,5 @@ def usable_logo_uri(value: object) -> str | None:
     """
     if not isinstance(value, str) or not value.startswith("https://") or len(value) > MAX_LOGO_URI_LENGTH:
         return None
-    return value
+    allowed, _ = is_url_allowed_by_name(value)
+    return value if allowed else None
