@@ -1,5 +1,4 @@
 import type { SignalReport } from "@posthog/shared/types";
-import { ReportPageContext } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -58,9 +57,11 @@ describe("DetailBackLink", () => {
 
   const renderCrumbs = () => {
     const { container } = render(
-      <ReportPageContext value={report}>
-        <DetailBackLink to="/inbox/reports" label="Self-driving" />
-      </ReportPageContext>,
+      <DetailBackLink
+        to="/inbox/reports"
+        label="Self-driving"
+        report={report}
+      />,
     );
     return container.querySelectorAll("a");
   };

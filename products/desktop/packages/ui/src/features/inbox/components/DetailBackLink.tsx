@@ -3,7 +3,6 @@ import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import type { SignalReport } from "@posthog/shared/types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import {
   type InboxTriageOrigin,
   useInboxTriageOrigin,
@@ -13,16 +12,20 @@ import {
   BreadcrumbSeparator,
 } from "@posthog/ui/primitives/Breadcrumb";
 import {
+  isReportPath,
   type NavigationSource,
   resolveNavigationSource,
-  useReportSourceHref,
+  sourceHrefFromSearch,
+  validSourceHref,
 } from "@posthog/ui/router/reportNavigation";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
 interface DetailBackLinkProps {
   to: string;
   label: string;
+  /** With a report this is the report's crumb trail; without one, a back link. */
+  report?: SignalReport | null;
 }
 
 interface Crumb {
@@ -30,10 +33,20 @@ interface Crumb {
   render?: ReactElement;
 }
 
-export function DetailBackLink({ to, label }: DetailBackLinkProps) {
+export function DetailBackLink({
+  to,
+  label,
+  report = null,
+}: DetailBackLinkProps) {
   const triageOrigin = useInboxTriageOrigin();
-  const report = useReportPage();
-  const sourceHref = useReportSourceHref();
+  // The list this report was opened from: the `?from=` param on a report page,
+  // or, in a pane, the page the reader is still on.
+  const sourceHref = useRouterState({
+    select: (state) =>
+      isReportPath(state.location.pathname)
+        ? sourceHrefFromSearch(state.location)
+        : validSourceHref(state.location.pathname),
+  });
   const { channels } = useChannels({ enabled: report !== null });
 
   if (report) {
