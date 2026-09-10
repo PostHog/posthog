@@ -20,6 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { isUnactionableRequestFailure } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -1243,7 +1244,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         if (error instanceof ApiError && error.status === 404) {
                             return { messages: [], limit: 0 }
                         }
-                        lemonToast.error(error?.data?.detail || 'Failed to load queued messages.')
+                        // Loaded with the chat rather than on request, so a failure nobody can act
+                        // on is noise next to an empty queue.
+                        if (!isUnactionableRequestFailure(error)) {
+                            lemonToast.error(error?.data?.detail || 'Failed to load queued messages.')
+                        }
                         return { messages: [], limit: 0 }
                     }
                 },

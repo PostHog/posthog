@@ -237,6 +237,41 @@ describe('maxLogic', () => {
         expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
     })
 
+    // The retry lives in the fall-through past the catch, so a guard that returns early there
+    // strands a conversation the next tick would have loaded.
+    it('keeps polling a conversation after one transient failure', async () => {
+        const mockConversationId = 'flaky-conversation-id'
+        let attempts = 0
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${mockConversationId}`]: () => {
+                    attempts += 1
+                    if (attempts === 1) {
+                        return [503, {}]
+                    }
+                    return [200, { ...MOCK_CONVERSATION, id: mockConversationId }]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(mockConversationId, 0, 0)
+        })
+            .toDispatchActions(['prependOrReplaceConversation'])
+            .toFinishAllListeners()
+
+        expect(attempts).toBeGreaterThan(1)
+        expect(logic.values.conversationHistory.map((c) => c.id)).toContain(mockConversationId)
+    })
+
     it('manages suggestion group selection correctly', async () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
 import api from 'lib/api'
+import { isUnactionableRequestFailure } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -424,6 +425,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             logic.actions.setPendingBindTaskId(taskId)
         },
         loadConversationHistoryFailure: ({ errorObject }) => {
+            // The history loads on mount, not on request, and the panel already falls back to its
+            // empty state. A failure nobody can act on is noise on arrival, and a dead scope would
+            // otherwise put the backend's own wording on screen.
+            if (isUnactionableRequestFailure(errorObject)) {
+                return
+            }
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
         deleteConversation: async ({ id }) => {

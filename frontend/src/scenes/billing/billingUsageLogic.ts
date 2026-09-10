@@ -6,10 +6,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -117,6 +119,12 @@ export interface BillingUsageLogicProps {
     dateFrom?: string
     dateTo?: string
     syncWithUrl?: boolean // Default false - only intended on usage and spend pages
+    /**
+     * Load billing data as background material rather than as a page. A failure then contributes
+     * nothing and raises nothing: no error state, no toast, and no rethrow. Set it where there is
+     * no page to render guidance in and nobody asked for the request.
+     */
+    quiet?: boolean
 }
 
 /**
@@ -470,7 +478,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         resetFilters: true,
         setBillingUsageError: (error: BillingUsageError | null) => ({ error }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         teamIdOptions: [
             [] as number[],
             {
@@ -527,6 +535,15 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         // Past what it can hold it refuses with guidance, which the catch below shows.
                         return await api.get(`api/billing/usage/?${toParams(params)}`)
                     } catch (error) {
+                        if (props.quiet) {
+                            // Returning here skips the gate `initKea` applies to loader failures,
+                            // so reapply it. Staying quiet is about the screen, not about hiding a
+                            // crash from error tracking.
+                            if (shouldReportApiFailure(error)) {
+                                posthog.captureException(error)
+                            }
+                            return null
+                        }
                         const billingUsageError = getBillingUsageError(error)
                         const isActionable =
                             !!billingUsageError && ACTIONABLE_BILLING_ERROR_CODES.includes(billingUsageError.code)

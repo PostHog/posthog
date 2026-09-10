@@ -42,6 +42,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
+    'loadConversationHistory', // maxGlobalLogic decides itself, and the panel falls back to its empty state
     'loadDataset', // Dataset scenes render their own retry state
     'loadDatasetItems', // Dataset scenes render their own retry state
     'loadDatasetRevisions', // Dataset scenes render their own retry state
