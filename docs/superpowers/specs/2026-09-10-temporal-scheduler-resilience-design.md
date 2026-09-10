@@ -71,7 +71,7 @@ The following limits are safety boundaries and never grow automatically:
 
 The internal operating budget for a serialized activity input, activity output, or workflow activation is 512 KiB. This stays materially below Temporal's transport limits and leaves room for metadata.
 
-Payload tests use the configured Temporal data converter and count encoded payload data plus metadata. Runtime interceptors record actual encoded sizes. Workflow tests also cap command count because activation size is not fully observable before the SDK sends it.
+Payload tests and activity-side guards use the same configured Temporal data converter as the production client and count encoded payload data plus metadata. Workflow tests also cap command count because activation size is not fully observable before the SDK sends it.
 
 Activity-side guards measure the serialized hydrated configuration, not Python object memory. CPU-complexity controls remain separate because a small input can still trigger pathological computation.
 
@@ -167,7 +167,7 @@ For global coordinators, selection uses round-robin tenant ordering:
 
 This selects one item per tenant before selecting a second item for any tenant. A large tenant cannot indefinitely consume the whole page.
 
-The first query gives each selected tenant a bounded share of the remaining page. When sparse tenants do not use their share, bounded follow-up rounds transfer the unused capacity to tenants that filled theirs. Discovery stops when the page is full or every selected tenant is exhausted, so fairness does not reduce backlog drain rate and database work remains bounded by the page envelope.
+The first query gives each selected tenant a bounded share of the remaining page. When sparse tenants do not use their share, bounded follow-up rounds transfer the unused capacity to tenants that filled theirs. Discovery stops when the page is full or every selected tenant is exhausted, so fairness does not reduce backlog drain rate and database work remains bounded by the page envelope. A durable tenant cursor or equivalent fixed round state carries rotation between pages and ticks, so every page does not restart at the same tenant.
 
 The rollout records `EXPLAIN ANALYZE` evidence against a ten-times backlog fixture. Query time and rows examined must remain within the scheduler's database budget.
 
@@ -181,7 +181,7 @@ The parent cannot atomically start a Temporal child and update a database claim.
 
 A start failure releases the claim. If the parent terminates before releasing it, the claim expires. If the child starts first, the child confirms and renews the claim while work remains active.
 
-Recovery of an expired confirmed claim checks the deterministic Temporal workflow ID before selecting the item again. This prevents a slow but live child from overlapping its replacement.
+Recovery of every expired active claim, including a reserved claim whose parent may have been terminated after Temporal accepted the start, checks the deterministic Temporal workflow ID before selecting the item again. If the execution exists, recovery preserves the claim token and renews or confirms the lease rather than starting a replacement. This prevents a slow but live child from overlapping its replacement.
 
 If Temporal execution state cannot be read, recovery retains the claim and alerts. It never assumes that an unreachable workflow is finished.
 
@@ -302,7 +302,7 @@ The initial subscription page boundary is at most 300 items, subject to the seri
 
 Other coordinators derive their per-tick maximum from the same recovery rule. A coordinator without production volume telemetry ships instrumentation and a conservative reviewed envelope before multi-page recovery is enabled.
 
-Temporal schedule inputs carry the runtime page target and recovery-page target. Code owns a higher hard maximum, so a control-plane or UI update can tune capacity without a release but cannot remove the safety boundary.
+Temporal schedule inputs carry the runtime page target and recovery-page target. Code owns those inputs. Every deploy reconciles the schedules, and reconciliation replaces the whole schedule, including its action arguments. A control-plane or UI edit of a target therefore holds only until the next deploy. Use that edit for immediate containment, and a release to change a target durably. Code also owns a higher hard maximum, which the discovery activity enforces, so no input can remove the safety boundary.
 
 Demand calculations use complete schedule buckets, including zero-demand intervals. They deduplicate logical occurrences and report retry volume separately.
 
@@ -326,6 +326,11 @@ Every coordinator emits low-cardinality metrics with `scheduler` and `region` la
 - workflow and activity timeouts;
 - resource-exhausted failures; and
 - worker slots available and used.
+
+Permit and backlog values are authoritative snapshots written by whichever worker ran the latest
+database activity. Companion snapshot-time gauges identify that writer: dashboards select the
+newest live target for each scheduler and region and reject samples older than the coordinator's
+freshness interval. They must not sum identical queue-wide snapshots across worker replicas.
 
 Dashboards show current values, high-percentile values, and growth over time. Capacity planning compares trailing seven-day demand with the prior seven days.
 
