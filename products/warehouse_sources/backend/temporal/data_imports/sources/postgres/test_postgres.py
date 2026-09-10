@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.tab
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
+    TemporaryHostResolutionError,
     _resolve_hostaddr_with_timeout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
@@ -4450,6 +4451,16 @@ class TestValidateCredentialsErrorMapping:
                 'repeated authentication failures ("too many authentication failures"). This usually '
                 "means the username or password is wrong. Check your credentials and try again.",
             ),
+            (
+                f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
+                "PostHog couldn't resolve your database host right now. Check the host name, then try "
+                "again in a moment.",
+            ),
+            (
+                TEMPORARY_HOST_RESOLUTION_ERROR,
+                "PostHog couldn't resolve your database host right now. Check the host name, then try "
+                "again in a moment.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
@@ -4467,6 +4478,21 @@ class TestValidateCredentialsErrorMapping:
 
         assert valid is False
         assert error == expected
+
+    def test_a_resolver_blip_during_validation_is_not_captured(self, source, config):
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=TemporaryHostResolutionError("db.example.com")),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.capture_exception"
+            ) as mock_capture,
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert error is not None and "Try again in a moment" in error
+        mock_capture.assert_not_called()
 
     @pytest.mark.parametrize(
         "require_ssl,expects_ssl_guidance",
