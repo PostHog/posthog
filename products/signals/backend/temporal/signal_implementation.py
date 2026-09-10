@@ -7,6 +7,7 @@ import temporalio
 from temporalio import workflow
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
@@ -38,15 +39,25 @@ async def finalize_signal_implementation_activity(input: SignalImplementationInp
         if not run.workflow_id:
             raise ValueError(f"Implementation task run {input.run_id} has no workflow")
         client = await async_connect()
-        description = await client.get_workflow_handle(run.workflow_id).describe()
-        if description.status not in {
-            WorkflowExecutionStatus.COMPLETED,
-            WorkflowExecutionStatus.FAILED,
-            WorkflowExecutionStatus.CANCELED,
-            WorkflowExecutionStatus.TERMINATED,
-            WorkflowExecutionStatus.TIMED_OUT,
-        }:
-            return False
+        try:
+            description = await client.get_workflow_handle(run.workflow_id).describe()
+        except RPCError as error:
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
+            # A run holds its workflow ID before dispatch starts the execution, so Temporal not
+            # knowing it yet means queued, not finished. A start that never happens leaves the run
+            # terminal instead, and the handoff publishes with whatever spend it recorded.
+            if not run.is_terminal:
+                return False
+        else:
+            if description.status not in {
+                WorkflowExecutionStatus.COMPLETED,
+                WorkflowExecutionStatus.FAILED,
+                WorkflowExecutionStatus.CANCELED,
+                WorkflowExecutionStatus.TERMINATED,
+                WorkflowExecutionStatus.TIMED_OUT,
+            }:
+                return False
         await record_task_cost(input.signal_keys[0], input.team_id, str(run.task_id), "implementation")
 
     failures: list[tuple[str, Exception]] = []

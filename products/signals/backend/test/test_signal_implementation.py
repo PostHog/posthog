@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio import activity
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -76,6 +77,66 @@ async def test_finalizer_charges_a_task_once_when_the_finish_activity_retries() 
     assert handoff.signal.metadata["compute_cost"]["implementation"] == 20
     write_handoff.assert_awaited_once()
     assert publish_handoff.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_terminal,finalized", [(False, False), (True, True)])
+async def test_a_task_workflow_temporal_has_not_started_yet_waits_for_its_run(
+    is_terminal: bool, finalized: bool
+) -> None:
+    handoff = SignalHandoff(
+        team_id=1,
+        signal=SignalData(
+            signal_id="signal-id",
+            content="content",
+            source_product="signals",
+            source_type="test",
+            source_id="source-id",
+            weight=1.0,
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+    )
+    workflow_handle = MagicMock(
+        describe=AsyncMock(side_effect=RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""))
+    )
+    client = MagicMock(get_workflow_handle=MagicMock(return_value=workflow_handle))
+    run = SimpleNamespace(workflow_id="task-workflow", task_id="task-id", is_terminal=is_terminal)
+
+    with (
+        patch("products.signals.backend.temporal.signal_implementation.tasks_facade.get_task_run", return_value=run),
+        patch("products.signals.backend.temporal.signal_implementation.async_connect", AsyncMock(return_value=client)),
+        patch(
+            "products.signals.backend.signal_handoffs.get_task_spend",
+            return_value=SimpleNamespace(token_cost=0, compute_cost=0),
+        ),
+        patch("products.signals.backend.signal_handoffs.read_handoff", AsyncMock(return_value=handoff)),
+        patch("products.signals.backend.signal_handoffs.write_handoff", AsyncMock()),
+        patch(
+            "products.signals.backend.temporal.signal_implementation.publish_handoff", AsyncMock()
+        ) as publish_handoff,
+    ):
+        result = await finalize_signal_implementation_activity(
+            SignalImplementationInput(team_id=1, signal_keys=("handoff",), run_id="run-id")
+        )
+
+    assert result is finalized
+    assert publish_handoff.await_count == (1 if finalized else 0)
+
+
+@pytest.mark.asyncio
+async def test_a_describe_failure_that_is_not_a_missing_workflow_still_raises() -> None:
+    workflow_handle = MagicMock(describe=AsyncMock(side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")))
+    client = MagicMock(get_workflow_handle=MagicMock(return_value=workflow_handle))
+    run = SimpleNamespace(workflow_id="task-workflow", task_id="task-id", is_terminal=False)
+
+    with (
+        patch("products.signals.backend.temporal.signal_implementation.tasks_facade.get_task_run", return_value=run),
+        patch("products.signals.backend.temporal.signal_implementation.async_connect", AsyncMock(return_value=client)),
+    ):
+        with pytest.raises(RPCError):
+            await finalize_signal_implementation_activity(
+                SignalImplementationInput(team_id=1, signal_keys=("handoff",), run_id="run-id")
+            )
 
 
 @pytest.mark.asyncio
