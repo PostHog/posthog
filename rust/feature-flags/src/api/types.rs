@@ -711,24 +711,40 @@ impl FlagDetails {
                     if property.is_cohort() {
                         let empty = HashMap::new();
                         let matches = cohort_matches.unwrap_or(&empty);
-                        let property_matched =
-                            apply_cohort_membership_logic(std::slice::from_ref(property), matches)
-                                .unwrap_or(false);
                         let cohort_id = property.get_cohort_id();
                         let cohort_label = match cohort_id {
                             Some(id) => format!("cohort {id}"),
                             None => "the targeted cohort".to_string(),
                         };
-                        // State the membership rather than the verdict. The frontend renders this
-                        // line with no pass/fail marker, so on a `not in` filter "did not match"
-                        // alone would leave the reader guessing which way membership went.
-                        let is_member = cohort_id
-                            .and_then(|id| matches.get(&id).copied())
-                            .unwrap_or(false);
-                        let explanation = if is_member {
-                            format!("Person is in {cohort_label}")
-                        } else {
-                            format!("Person is not in {cohort_label}")
+                        // A missing entry means the membership was never resolved, not that the
+                        // person is outside the cohort. `apply_cohort_membership_logic` reads it as
+                        // a non-match, so a `not in` filter would report a match the matcher never
+                        // made: an evaluation at a past timestamp reuses the supplied person
+                        // properties and skips the DB preparation that loads cohorts, which leaves
+                        // this map empty while the matcher fails the condition closed.
+                        let membership = cohort_id.and_then(|id| matches.get(&id).copied());
+                        let (property_matched, explanation) = match membership {
+                            Some(is_member) => {
+                                let matched = apply_cohort_membership_logic(
+                                    std::slice::from_ref(property),
+                                    matches,
+                                )
+                                .unwrap_or(false);
+                                // State the membership rather than the verdict. The frontend renders
+                                // this line with no pass/fail marker, so on a `not in` filter "did
+                                // not match" alone would leave the reader guessing which way
+                                // membership went.
+                                let line = if is_member {
+                                    format!("Person is in {cohort_label}")
+                                } else {
+                                    format!("Person is not in {cohort_label}")
+                                };
+                                (matched, line)
+                            }
+                            None => (
+                                false,
+                                format!("Could not check if person is in {cohort_label}"),
+                            ),
                         };
                         property_analyses.push(PropertyAnalysis {
                             key: property.key.clone(),
@@ -1842,6 +1858,82 @@ mod tests {
             "Absent dependency flag must report matched=false, not error"
         );
         assert_eq!(analysis[0].properties[0].actual_value, None);
+    }
+
+    #[rstest]
+    #[case::is_in("in")]
+    #[case::is_not_in("not_in")]
+    fn test_condition_analysis_fails_cohort_filters_closed_when_membership_is_unresolved(
+        #[case] operator: &str,
+    ) {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // An evaluation at a past timestamp skips the DB preparation that loads cohorts, so the
+        // membership map arrives empty and the matcher fails the condition closed. Reading the
+        // absent entry as "not a member" would make a `not in` filter claim a match the matcher
+        // never made, under a sentence asserting a membership nobody resolved.
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": 1,
+                "name": "cohort-flag",
+                "key": "cohort-flag",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "value": 12345,
+                                    "type": "cohort",
+                                    "operator": operator
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        let flag_match = FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::NoConditionMatch,
+            condition_index: None,
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&HashMap::new()),
+            None,
+            None,
+            None, // membership never resolved
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
+        );
+
+        assert_eq!(analysis.len(), 1);
+        assert!(
+            !analysis[0].properties[0].matched,
+            "Unresolved cohort membership must report matched=false for both operators"
+        );
+        assert!(
+            !analysis[0].properties_matched,
+            "Condition must agree with the matcher, which fails closed without cohorts"
+        );
+        assert_eq!(
+            analysis[0].properties[0].explanation, "Could not check if person is in cohort 12345",
+            "The line must not assert a membership that was never resolved"
+        );
+        assert_eq!(
+            analysis[0].explanation,
+            "Condition 1 did not match properties"
+        );
     }
 
     #[rstest]
