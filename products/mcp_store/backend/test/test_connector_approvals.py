@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import timedelta
+from typing import Any, cast
 
 from freezegun import freeze_time
 
@@ -42,7 +43,7 @@ class TestConnectorApprovals(SimpleTestCase):
     )
     def test_approval_is_bound_to_one_call(self, field_name: str, value: object) -> None:
         token = issue_connector_approval(self.binding)
-        assert not consume_connector_approval(token, replace(self.binding, **{field_name: value}))
+        assert not consume_connector_approval(token, replace(self.binding, **cast(Any, {field_name: value})))
         assert consume_connector_approval(token, self.binding)
         assert not consume_connector_approval(token, self.binding)
 
