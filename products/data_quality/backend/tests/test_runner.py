@@ -314,6 +314,21 @@ class TestCheckRunner(BaseTest):
         assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
         assert query.call_args.kwargs["user"] == self.user
 
+    @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
+    def test_a_manual_referencing_check_without_an_initiator_never_reaches_the_warehouse(
+        self, _name, check_type: CheckType
+    ) -> None:
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.MANUAL
+        )
+        check = self._referencing_check(check_type, created_by=self.user)
+
+        with patch(RUNNER_QUERY) as query:
+            outcome = run_check(check, suite_run, self.team)
+
+        assert outcome.status == CheckRunStatus.ERRORED
+        query.assert_not_called()
+
     @parameterized.expand([("view",), ("metric",)])
     def test_an_edited_referencing_check_runs_as_whoever_last_changed_it(self, subject_type: str) -> None:
         # The creator may never have seen what the check reads now, and may have lost access to it;

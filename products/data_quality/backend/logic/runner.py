@@ -160,7 +160,7 @@ def _authorize(check: DataQualityCheck, suite_run: DataQualitySuiteRun) -> _Auth
       authorize against, returning ``None`` errors the run rather than bypassing the ACL.
     """
     if suite_run.trigger == SuiteRunTrigger.MANUAL:
-        if suite_run.created_by is None and check.subject_type == SubjectType.METRIC:
+        if suite_run.created_by is None and check_type_reads_beyond_subject(check.check_type):
             return None
         return _Authorization(run_as=suite_run.created_by, bypass=suite_run.created_by is None)
     if not check_type_reads_beyond_subject(check.check_type):
