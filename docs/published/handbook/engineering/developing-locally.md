@@ -425,6 +425,9 @@ While developing, there are times you may want to connect to the database to que
 
 ## Extra: Accessing ClickHouse
 
+Local ClickHouse uses compatibility `26.6`, configured in `docker/clickhouse/users-dev.xml` and `docker/clickhouse/users.xml`.
+Explicit profile settings still override the compatibility defaults.
+
 To connect to ClickHouse using a tool like DataGrip or PyCharm, use these connection details: _host_:`localhost` _port_:`8123` _database_:`default`, _username_:`app`, _pwd_:`apppass`.
 
 ## Extra: Accessing the Django Admin
