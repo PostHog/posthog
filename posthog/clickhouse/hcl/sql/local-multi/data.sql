@@ -85,6 +85,16 @@ CREATE TABLE posthog.billing_usage_records (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
+CREATE TABLE posthog.billing_usage_records_hourly (
+  hour DateTime('UTC'),
+  team_id Int64,
+  organization_id UUID,
+  producer_id LowCardinality(String),
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  rolled_up_at DateTime64(6, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records_hourly', cityHash64(team_id));
 CREATE TABLE posthog.channel_definition (
   domain String,
   kind String,
@@ -945,16 +955,6 @@ CREATE TABLE posthog.sharded_app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics2', '{replica}') ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.sharded_billing_usage_records_hourly (
-  hour DateTime('UTC'),
-  team_id Int64,
-  organization_id UUID,
-  producer_id LowCardinality(String),
-  usage_key LowCardinality(String),
-  unit LowCardinality(String),
-  quantity Int64,
-  rolled_up_at DateTime64(6, 'UTC')
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records_hourly', '{replica}', rolled_up_at) ORDER BY (team_id, hour, organization_id, producer_id, usage_key, unit) PARTITION BY toYYYYMM(hour);
 CREATE TABLE posthog.sharded_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -2945,16 +2945,6 @@ CREATE TABLE posthog.app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
-CREATE TABLE posthog.billing_usage_records_hourly (
-  hour DateTime('UTC'),
-  team_id Int64,
-  organization_id UUID,
-  producer_id LowCardinality(String),
-  usage_key LowCardinality(String),
-  unit LowCardinality(String),
-  quantity Int64,
-  rolled_up_at DateTime64(6, 'UTC')
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records_hourly', cityHash64(team_id));
 CREATE TABLE posthog.distinct_id_usage (
   team_id Int64,
   distinct_id String,

@@ -8,8 +8,7 @@ from posthog.models.usage_ingestion.billing_usage_records import (
 operations = [
     run_sql_with_exceptions(
         BILLING_USAGE_RECORDS_HOURLY_DATA_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
-        sharded=True,
+        node_roles=[NodeRole.AUX],
     ),
     run_sql_with_exceptions(DISTRIBUTED_BILLING_USAGE_RECORDS_HOURLY_TABLE_SQL(), node_roles=[NodeRole.DATA]),
 ]
