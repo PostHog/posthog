@@ -10,7 +10,6 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
-from .logic.subjects import resolve_subject
 from .models import DataQualityCheck, DataQualityCheckSchedule
 
 
@@ -54,6 +53,10 @@ def handle_data_quality_schedule_activity(
     was_impersonated: bool = False,
     **kwargs: Any,
 ) -> None:
+    # This module is imported from AppConfig.ready(), and the catalog facade behind resolve_subject
+    # drags posthog.schema onto the django.setup() path.
+    from .logic.subjects import resolve_subject  # noqa: PLC0415
+
     instance = after_update or before_update
     if instance is None:
         return
