@@ -16,6 +16,26 @@ def _value(value: object, name: str, default: int | str | None = None) -> int | 
     return getattr(value, name, default)
 
 
+# The two gateways spell the cache rates differently: the Python gateway sends `input_cache_read`
+# and `input_cache_write`, the Go gateway sends `cache_read` and `cache_write` for the same two
+# rates. Read either spelling and keep the name `token_usage_to_spend` looks up, so a cached
+# response prices instead of raising when the catalog comes from the Go gateway.
+_PRICE_WIRE_NAMES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("prompt", ("prompt",)),
+    ("completion", ("completion",)),
+    ("input_cache_read", ("input_cache_read", "cache_read")),
+    ("input_cache_write", ("input_cache_write", "cache_write")),
+)
+
+
+def _price(pricing: object, wire_names: tuple[str, ...]) -> int | str | None:
+    for wire_name in wire_names:
+        value = _value(pricing, wire_name)
+        if value is not None:
+            return value
+    return None
+
+
 def _token_count(usage: object, name: str) -> int:
     value = _value(usage, name, 0)
     return int(value) if value is not None else 0
@@ -56,9 +76,9 @@ async def get_model_pricing(model: str) -> dict[str, str]:
             if _value(pricing, "prompt") is None or _value(pricing, "completion") is None:
                 continue
             pricings[str(model_id)] = {
-                key: str(value)
-                for key in ("prompt", "completion", "input_cache_read", "input_cache_write")
-                if (value := _value(pricing, key)) is not None
+                name: str(value)
+                for name, wire_names in _PRICE_WIRE_NAMES
+                if (value := _price(pricing, wire_names)) is not None
             }
         _model_pricings = pricings
         _model_pricings_expires_at = monotonic() + 3600

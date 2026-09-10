@@ -59,6 +59,52 @@ async def test_model_pricing_catalogue_is_cached() -> None:
     assert client.models.list.await_count == 2
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "pricing",
+    [
+        pytest.param(
+            SimpleNamespace(
+                prompt="0.00001",
+                completion="0.00002",
+                input_cache_read="0.000001",
+                input_cache_write="0.000004",
+            ),
+            id="python_gateway_rate_names",
+        ),
+        pytest.param(
+            SimpleNamespace(
+                prompt="0.00001",
+                completion="0.00002",
+                cache_read="0.000001",
+                cache_write="0.000004",
+            ),
+            id="go_gateway_rate_names",
+        ),
+    ],
+)
+async def test_model_pricing_keeps_cache_rates_from_either_gateway(pricing: SimpleNamespace) -> None:
+    client = MagicMock()
+    client.__aenter__.return_value = client
+    client.models.list = AsyncMock(
+        return_value=SimpleNamespace(data=[SimpleNamespace(id="claude-test", pricing=pricing)])
+    )
+
+    with (
+        patch(f"{MODULE_PATH}._model_pricings", None),
+        patch(f"{MODULE_PATH}.build_async_openai_client", return_value=client),
+        patch(f"{MODULE_PATH}.monotonic", return_value=0),
+    ):
+        rates = await get_model_pricing("claude-test")
+
+    assert rates == {
+        "prompt": "0.00001",
+        "completion": "0.00002",
+        "input_cache_read": "0.000001",
+        "input_cache_write": "0.000004",
+    }
+
+
 @pytest.mark.parametrize("price,expected", [("0.0049", 0), ("0.005", 1), ("0.0051", 1)])
 def test_token_usage_to_spend_rounds_to_integer_cents(price: str, expected: int) -> None:
     assert token_usage_to_spend({"input_tokens": 1}, {"prompt": price}) == expected
