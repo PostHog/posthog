@@ -160,6 +160,7 @@ class PostgresAdapter:
             with request.timings.measure("postgres_source_helpers_import"):
                 from products.warehouse_sources.backend.facade.source_management import (
                     DatabaseHostNotAllowedError,
+                    TemporaryHostResolutionError,
                     _get_sslmode,
                     pinned_host_kwargs,
                     source_requires_ssl,
@@ -257,7 +258,13 @@ class PostgresAdapter:
                             description = cursor.description or []
                             with request.timings.measure("postgres_query_fetch"):
                                 results = cursor.fetchall() if description else []
-        except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError, DatabaseHostNotAllowedError) as error:
+        except (
+            psycopg.Error,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+            DatabaseHostNotAllowedError,
+            TemporaryHostResolutionError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

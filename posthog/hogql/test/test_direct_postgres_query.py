@@ -1,3 +1,4 @@
+import socket
 from datetime import date, timedelta
 from typing import Any, cast
 from uuid import uuid4
@@ -39,6 +40,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     SSL_REQUIRED_AFTER_DATE,
     DatabaseHostNotAllowedError,
 )
+
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
 
 class TestDirectPostgresQuery(APIBaseTest):
@@ -1460,6 +1463,58 @@ class TestDirectPostgresQuery(APIBaseTest):
             "Use a host that's reachable from the public internet. "
             "If your database isn't publicly reachable, connect through an SSH tunnel.",
         )
+        mock_connect.assert_not_called()
+
+    # Staging rather than US or EU, because the internal-host allowlist there exempts one team id
+    # per region and this test cannot choose the team it gets.
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_execute_direct_postgres_query_exposes_a_resolver_blip_at_connect(self, mock_connect):
+        # The host check before the query resolves the host, then the resolver answers "try again"
+        # on the connect-time check a moment later. Nothing is wrong with the source, so the query
+        # must come back as a query error telling the user to retry, not an unexpected server error.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        resolved = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("52.1.2.3", 0))]
+        blip = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=[resolved, blip]),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with self.assertRaises(ExposedHogQLError) as error:
+                executor.execute()
+
+        self.assertIn("Try again in a moment", str(error.exception))
         mock_connect.assert_not_called()
 
     # The host check before the connect passes here, and the pin's own lookup refuses the host a

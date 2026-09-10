@@ -131,7 +131,10 @@ class RedshiftAdapter:
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source
-        from products.warehouse_sources.backend.facade.source_management import DatabaseHostNotAllowedError
+        from products.warehouse_sources.backend.facade.source_management import (
+            DatabaseHostNotAllowedError,
+            TemporaryHostResolutionError,
+        )
 
         redshift_implementation, source_config = self.validate_source_config(source, request.team)
         source_schema = source_config.schema
@@ -165,7 +168,13 @@ class RedshiftAdapter:
                         # as an empty result instead of raising on fetch, mirroring Postgres.
                         description = cursor.description or []
                         results = _fetch_capped_redshift_rows(cursor) if description else []
-        except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError, DatabaseHostNotAllowedError) as error:
+        except (
+            psycopg.Error,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+            DatabaseHostNotAllowedError,
+            TemporaryHostResolutionError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

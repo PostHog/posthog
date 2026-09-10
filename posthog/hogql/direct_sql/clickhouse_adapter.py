@@ -282,6 +282,7 @@ class ClickHouseAdapter:
         from products.warehouse_sources.backend.facade.source_management import (
             ClickHouseConnectionError,
             DatabaseHostNotAllowedError,
+            TemporaryHostResolutionError,
         )
 
         source = request.source
@@ -323,6 +324,7 @@ class ClickHouseAdapter:
             BaseSSHTunnelForwarderError,
             ExposedHogQLError,
             DatabaseHostNotAllowedError,
+            TemporaryHostResolutionError,
         ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:

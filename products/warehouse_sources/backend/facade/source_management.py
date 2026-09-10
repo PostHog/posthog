@@ -39,6 +39,7 @@ _LAZY = {
     "DatabaseHostNotAllowedError": "sources.common.mixins",
     "OAuthMixin": "sources.common.mixins",
     "pinned_host_kwargs": "sources.common.mixins",
+    "TemporaryHostResolutionError": "sources.common.mixins",
     "SourceSchema": "sources.common.schema",
     "build_default_schemas": "sources.common.schema",
     "build_default_sync_settings": "sources.common.schema",

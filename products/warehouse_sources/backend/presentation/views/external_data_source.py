@@ -146,6 +146,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     SQLSource,
     SSLRequiredError,
+    TemporaryHostResolutionError,
     WebhookSource,
     build_default_schemas,
     build_default_sync_settings,
@@ -247,6 +248,7 @@ _EXPECTED_CONNECTION_ERRORS = (
     BaseSSHTunnelForwarderError,
     SSLRequiredError,
     DatabaseHostNotAllowedError,
+    TemporaryHostResolutionError,
 )
 
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {

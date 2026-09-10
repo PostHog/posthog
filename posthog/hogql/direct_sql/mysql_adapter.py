@@ -150,7 +150,10 @@ class MySQLAdapter:
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source
-        from products.warehouse_sources.backend.facade.source_management import DatabaseHostNotAllowedError
+        from products.warehouse_sources.backend.facade.source_management import (
+            DatabaseHostNotAllowedError,
+            TemporaryHostResolutionError,
+        )
 
         mysql_implementation, source_config = self.validate_source_config(source, request.team)
         settings = request.settings
@@ -184,6 +187,7 @@ class MySQLAdapter:
             BaseSSHTunnelForwarderError,
             ExposedHogQLError,
             DatabaseHostNotAllowedError,
+            TemporaryHostResolutionError,
         ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:

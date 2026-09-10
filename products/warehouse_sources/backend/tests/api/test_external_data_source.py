@@ -83,6 +83,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     DatabaseHostNotAllowedError,
+    TemporaryHostResolutionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
@@ -10444,6 +10445,9 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
             ),
             ("ssh_tunnel_error", BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")),
             ("ssl_required_error", SSLRequiredError("SSL/TLS is required but not supported by the server")),
+            # The host policy's own lookup answered "try again" while probing the source. Nothing is
+            # wrong with the source and a fresh attempt recovers, so it must not be captured either.
+            ("temporary_host_resolution_error", TemporaryHostResolutionError("db.example.com")),
         ]
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
