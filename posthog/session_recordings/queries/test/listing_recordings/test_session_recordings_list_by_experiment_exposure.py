@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -38,10 +38,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.cohorts.backend.models.cohort import Cohort
-
-# Importing the facade at module scope also keeps its transitive pydantic.v1 import outside the
-# class's frozen time: freezegun's FakeDate breaks pydantic.v1's metaclass construction, and the
-# runner otherwise defers this import to the first test that resolves a linkage.
 from products.experiments.backend.facade.replay import (
     ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
     IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES,
@@ -55,7 +51,7 @@ FROZEN_NOW = "2021-08-21T20:00:00Z"
 BASE_TIME = datetime(2021, 8, 21, 10, 0, tzinfo=UTC)
 
 
-@freeze_time(FROZEN_NOW)
+@time_machine.travel(FROZEN_NOW, tick=False)
 class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -219,8 +219,12 @@ class TestGetRows:
         assert list(get_rows("na", "cid", "sec", "rt", "sp_campaigns", mock.MagicMock())) == []
 
 
-@freeze_time(_TODAY)
 class TestReportRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_TODAY, tick=False):
+            yield
+
     def _run(self, manager: mock.MagicMock | None = None, **kwargs: Any) -> list[list[dict[str, Any]]]:
         return list(
             get_rows(

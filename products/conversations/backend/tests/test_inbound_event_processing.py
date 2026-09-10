@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -411,7 +411,7 @@ class TestInboundEventProcessing(BaseTest):
 
     @patch("products.conversations.backend.tasks.slack.wake_inbound_event")
     def test_sweeper_measures_expired_lease_age_from_lease_expiry(self, mock_wake: MagicMock) -> None:
-        with freeze_time("2026-09-10 12:00:00"):
+        with time_machine.travel("2026-09-10 12:00:00", tick=False):
             self._create_pending(source_id="Ev-old-ready")
             ConversationInboundEvent.objects.unscoped().filter(source_id="Ev-old-ready").update(
                 status=ConversationInboundEvent.Status.PROCESSING,
