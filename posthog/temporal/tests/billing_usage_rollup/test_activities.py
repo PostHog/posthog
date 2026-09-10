@@ -13,6 +13,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.usage_ingestion.billing_usage_records import (
     BASE_BILLING_USAGE_RECORDS_COLUMNS,
     BILLING_USAGE_RECORDS_HOURLY_DATA_TABLE_SQL,
+    BILLING_USAGE_RECORDS_HOURLY_EXISTING_ROWS_SQL,
     BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL,
 )
 from posthog.temporal.billing_usage_rollup.activities import rollup_billing_usage_records
@@ -78,15 +79,28 @@ class TestRollupActivityStorage(ClickhouseTestMixin, SimpleTestCase):
             """
         )
 
-        with patch(
-            "posthog.temporal.billing_usage_rollup.activities.BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL",
-            return_value=BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL(SOURCE_TABLE, TARGET_TABLE),
+        with (
+            patch(
+                "posthog.temporal.billing_usage_rollup.activities.BILLING_USAGE_RECORDS_HOURLY_EXISTING_ROWS_SQL",
+                return_value=BILLING_USAGE_RECORDS_HOURLY_EXISTING_ROWS_SQL(TARGET_TABLE),
+            ),
+            patch(
+                "posthog.temporal.billing_usage_rollup.activities.BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL",
+                return_value=BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL(SOURCE_TABLE, TARGET_TABLE),
+            ),
         ):
-            asyncio.run(
-                ActivityEnvironment().run(
-                    rollup_billing_usage_records, BillingUsageRecordsRollupInput(day=DAY.isoformat())
+            for _ in range(2):
+                asyncio.run(
+                    ActivityEnvironment().run(
+                        rollup_billing_usage_records, BillingUsageRecordsRollupInput(day=DAY.isoformat())
+                    )
                 )
-            )
+
+        target_final_rows, target_final_quantity = sync_execute(
+            f"SELECT count(), sum(quantity) FROM {TARGET_TABLE} FINAL"
+        )[0]
+        self.assertEqual(target_final_rows, 100 * 4 * 4 * 24)
+        self.assertEqual(target_final_quantity, ROW_COUNT)
 
         sync_execute(f"OPTIMIZE TABLE {SOURCE_TABLE} FINAL")
         sync_execute(f"OPTIMIZE TABLE {TARGET_TABLE} FINAL")
