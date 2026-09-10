@@ -15,7 +15,9 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
@@ -34,6 +36,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     store_report_run_activity,
 )
 from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_QUERY_MAX_ATTEMPTS,
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
@@ -741,8 +744,9 @@ class TestCountTriggeredReportChecks(BaseTest):
 
 
 class TestCountEvalResultsForReportsSplitRetry(BaseTest):
-    """Guards the retry behavior a `ClickHouseQueryTimeOut` needs: halve the time range and
-    retry over each half, rather than replaying a query over the same rows."""
+    """Guards the retry ladder: halve the time range for a `ClickHouseQueryTimeOut`, re-attempt
+    the same range for a failure a narrower range cannot fix, and cap how many queries either
+    path may send."""
 
     def _entries(self, count: int, since: dt.datetime) -> list[_CountEntry]:
         return [
@@ -836,6 +840,64 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
 
         self.assertEqual(execution_limits[0], COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS)
         self.assertEqual(execution_limits[1], int(remaining_after_first_attempt / COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR))
+
+    @parameterized.expand(
+        [
+            ("cancelled_before_it_ran", CHQueryErrorQueryWasCancelled("killed in pending state")),
+            ("connection_dropped", ConnectionResetError()),
+            ("slot_budget_full", ConcurrencyLimitExceeded("no slot")),
+            ("cluster_at_capacity", ClickHouseAtCapacity()),
+        ]
+    )
+    def test_reattempts_the_same_range_for_a_failure_a_narrower_range_cannot_fix(self, _name, error):
+        # These reach the ladder from a split half as well as from the first attempt. Before,
+        # only the timeout was caught, so any of them failed the activity and the team's
+        # reports stopped firing with nothing shown to the user.
+        until = timezone.now()
+        since = until - dt.timedelta(days=8)
+
+        with (
+            patch("time.sleep"),
+            patch("posthog.hogql.query.execute_hogql_query", side_effect=[error, Mock(results=[[9]])]) as query,
+        ):
+            counts = _count_eval_results_for_reports_with_split_retry(self.team, self._entries(1, since), until=until)
+
+        self.assertEqual(counts, {"r0": 9})
+        # The same range twice: a failure that says nothing about the range must not split it.
+        self.assertEqual([_scanned_window(call.kwargs["query"]) for call in query.call_args_list], [[since, until]] * 2)
+
+    def test_surfaces_a_transient_failure_that_outlives_its_reattempt(self):
+        # Catches a ladder that keeps re-attempting, or splits instead: a cluster that just
+        # refused a query must not be sent more of them.
+        until = timezone.now()
+
+        with (
+            patch("time.sleep"),
+            patch("posthog.hogql.query.execute_hogql_query", side_effect=ConnectionResetError()) as query,
+        ):
+            with self.assertRaises(ConnectionResetError):
+                _count_eval_results_for_reports_with_split_retry(
+                    self.team, self._entries(1, until - dt.timedelta(days=8)), until=until
+                )
+
+        self.assertEqual(query.call_count, 2)
+
+    def test_caps_how_many_queries_one_ladder_sends(self):
+        # Every attempt takes one of AI observability's eight background query slots. With a
+        # wall clock that never advances, only the attempt cap stops a wide range from
+        # halving its way down to a query per minute of the window.
+        until = timezone.now()
+
+        with (
+            patch("time.monotonic", return_value=0.0),
+            patch("posthog.hogql.query.execute_hogql_query", side_effect=ClickHouseQueryTimeOut()) as query,
+        ):
+            with self.assertRaises(ClickHouseQueryTimeOut):
+                _count_eval_results_for_reports_with_split_retry(
+                    self.team, self._entries(1, until - dt.timedelta(days=8)), until=until
+                )
+
+        self.assertEqual(query.call_count, COUNT_TRIGGER_QUERY_MAX_ATTEMPTS)
 
     def test_asks_clickhouse_to_raise_on_timeout_rather_than_return_a_partial_count(self):
         # Catches a query that inherits the cluster's overflow mode. Under "break" the timeout

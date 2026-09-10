@@ -10,21 +10,27 @@ from zoneinfo import ZoneInfo
 from django.db.models import Q
 
 import temporalio.activity
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from dateutil.rrule import rrulestr
 from structlog import get_logger
 
 from posthog.hogql import ast
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_QUERY_MAX_ATTEMPTS,
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE,
     COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
     COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
+    COUNT_TRIGGER_QUERY_TRANSIENT_ATTEMPTS,
+    COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS,
     COUNT_TRIGGER_QUERY_WIDTH,
 )
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
@@ -438,6 +444,50 @@ def _count_eval_results_for_reports(
     return {entries[index].key: int(row[index] or 0) for index in range(len(entries))}
 
 
+# Failures that a narrower time range cannot fix: ClickHouse killed the query before it ran,
+# the socket dropped, or the cluster and the product's own slot budget had nothing free. The
+# ladder re-attempts the same range for these, and never halves it. A split would send more
+# queries to a cluster that just refused one.
+_TRANSIENT_COUNT_QUERY_ERRORS = (
+    CHQueryErrorQueryWasCancelled,
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ConcurrencyLimitExceeded,
+    ConnectionResetError,
+    NetworkError,
+    SocketTimeoutError,
+)
+
+
+class _CountQueryBudget:
+    """The wall clock and the attempt allowance that every query in one split ladder shares.
+
+    ClickHouse can overrun its own execution limit, so an attempt only claims a limit it can
+    afford to overshoot by COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR. Attempts are counted as well
+    as timed, because each one takes one of AI observability's background query slots: a
+    ladder that can send attempts freely competes with its own retries, and with every other
+    check, for that small budget.
+    """
+
+    def __init__(self, deadline: float | None = None) -> None:
+        self.deadline = (
+            deadline if deadline is not None else time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
+        )
+        self.attempts_left = COUNT_TRIGGER_QUERY_MAX_ATTEMPTS
+
+    def claim(self, max_execution_time: int) -> int | None:
+        """Reserve one attempt and return the execution time it can claim, or None when the
+        budget can no longer fund a query worth sending."""
+        if self.attempts_left <= 0:
+            return None
+        affordable_execution_time = int((self.deadline - time.monotonic()) / COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR)
+        execution_time = min(max_execution_time, affordable_execution_time)
+        if execution_time < COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS:
+            return None
+        self.attempts_left -= 1
+        return execution_time
+
+
 def _count_eval_results_for_reports_with_split_retry(
     team: "Team",
     entries: list[_CountEntry],
@@ -446,8 +496,7 @@ def _count_eval_results_for_reports_with_split_retry(
     deadline: float | None = None,
     max_execution_time: int = COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
 ) -> dict[str, int]:
-    """Run the batched count query, halving the time range and retrying over each half if
-    ClickHouse can't finish it inside its own execution-time budget.
+    """Run the batched count query, retrying the failures a count query raises here.
 
     A `ClickHouseQueryTimeOut` means the rows in `since`..`until` don't fit the budget, so
     replaying the identical query would just time out again. Halving the range halves the
@@ -455,49 +504,91 @@ def _count_eval_results_for_reports_with_split_retry(
     the countIf columns instead would leave both halves reading almost the same rows, because
     the columns share one scan and the width barely moves its cost.
 
-    Every attempt draws on one shared wall-clock budget (`deadline`, in `time.monotonic()`
-    seconds), capping its own execution time by what remains, so the whole split tree
-    concludes before the activity's own timeout. ClickHouse can overrun its execution limit,
-    so an attempt only claims a limit it can afford to overshoot by
-    COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR. Once the remainder can't fund a meaningful query,
-    the timeout surfaces and the activity fails cleanly instead of being killed mid-split by
-    Temporal.
+    A cancelled query, a dropped socket, or an exhausted slot budget says nothing about the
+    range, so those are re-attempted on the same range and never split. Every failure the
+    ladder does not handle, and every failure it runs out of budget for, fails the activity
+    and leaves the report to Temporal's retry policy.
+
+    Attempts draw on one shared budget (`_CountQueryBudget`) so the whole ladder concludes
+    inside the activity's own timeout, and cannot flood the product's query slots.
     """
     if since is None:
         since = min(entry.since for entry in entries)
-    if deadline is None:
-        deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
-    affordable_execution_time = int((deadline - time.monotonic()) / COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR)
-    budget = min(max_execution_time, affordable_execution_time)
-    if budget < COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS:
-        raise ClickHouseQueryTimeOut("Count query budget exhausted before the split could finish.")
-    try:
-        return _count_eval_results_for_reports(team, entries, since=since, until=until, max_execution_time=budget)
-    except ClickHouseQueryTimeOut:
-        if (until - since) <= COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE:
-            raise
-        midpoint = since + (until - since) / 2
-        counts = _count_eval_results_for_reports_with_split_retry(
-            team,
-            entries,
-            since=since,
-            until=midpoint,
-            deadline=deadline,
-            max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
-        )
-        # The events table stores timestamps as DateTime64(6), so one microsecond past the
-        # midpoint is the next representable instant and the halves cannot overlap.
-        later_half = _count_eval_results_for_reports_with_split_retry(
-            team,
-            entries,
-            since=midpoint + dt.timedelta(microseconds=1),
-            until=until,
-            deadline=deadline,
-            max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
-        )
-        for key, count in later_half.items():
-            counts[key] = counts.get(key, 0) + count
-        return counts
+    return _count_eval_results_over_range(
+        team,
+        entries,
+        since=since,
+        until=until,
+        budget=_CountQueryBudget(deadline),
+        max_execution_time=max_execution_time,
+    )
+
+
+def _count_eval_results_over_range(
+    team: "Team",
+    entries: list[_CountEntry],
+    *,
+    since: dt.datetime,
+    until: dt.datetime,
+    budget: _CountQueryBudget,
+    max_execution_time: int,
+) -> dict[str, int]:
+    transient_attempts_left = COUNT_TRIGGER_QUERY_TRANSIENT_ATTEMPTS
+    while True:
+        execution_time = budget.claim(max_execution_time)
+        if execution_time is None:
+            raise ClickHouseQueryTimeOut("Count query budget exhausted before the split could finish.")
+        try:
+            return _count_eval_results_for_reports(
+                team, entries, since=since, until=until, max_execution_time=execution_time
+            )
+        except _TRANSIENT_COUNT_QUERY_ERRORS as error:
+            transient_attempts_left -= 1
+            if transient_attempts_left <= 0:
+                raise
+            logger.warning(
+                "eval_report_count_query_transient_failure",
+                team_id=team.pk,
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+            time.sleep(COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS)
+        except ClickHouseQueryTimeOut:
+            if (until - since) <= COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE:
+                raise
+            return _count_eval_results_over_split_range(team, entries, since=since, until=until, budget=budget)
+
+
+def _count_eval_results_over_split_range(
+    team: "Team",
+    entries: list[_CountEntry],
+    *,
+    since: dt.datetime,
+    until: dt.datetime,
+    budget: _CountQueryBudget,
+) -> dict[str, int]:
+    midpoint = since + (until - since) / 2
+    counts = _count_eval_results_over_range(
+        team,
+        entries,
+        since=since,
+        until=midpoint,
+        budget=budget,
+        max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
+    )
+    # The events table stores timestamps as DateTime64(6), so one microsecond past the
+    # midpoint is the next representable instant and the halves cannot overlap.
+    later_half = _count_eval_results_over_range(
+        team,
+        entries,
+        since=midpoint + dt.timedelta(microseconds=1),
+        until=until,
+        budget=budget,
+        max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
+    )
+    for key, count in later_half.items():
+        counts[key] = counts.get(key, 0) + count
+    return counts
 
 
 def _find_nth_eval_timestamp(

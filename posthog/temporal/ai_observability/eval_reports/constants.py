@@ -53,6 +53,17 @@ COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS = 100
 COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS = 5
 # Narrower than this, halving the range no longer removes enough rows to be worth an attempt.
 COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE = timedelta(minutes=1)
+# Max count queries one split ladder may send: the full window, its two halves, their four
+# quarters. Every attempt takes one of AI observability's background query slots, so a ladder
+# that can mint attempts freely competes with its own retries, and with every other check,
+# for the same small slot budget.
+COUNT_TRIGGER_QUERY_MAX_ATTEMPTS = 7
+# Attempts on one range for a failure a narrower range cannot fix: a query ClickHouse killed
+# before it ran, a dropped connection, or a full slot budget. One re-attempt, so a blip does
+# not fail the activity and a saturated cluster is not asked several more times.
+COUNT_TRIGGER_QUERY_TRANSIENT_ATTEMPTS = 2
+# Pause before re-attempting the same range, so the re-attempt does not land in the same blip.
+COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS = 1.0
 PREPARE_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 AGENT_ACTIVITY_TIMEOUT = timedelta(seconds=660)  # 11 minutes (agent timeout + buffer)
 STORE_ACTIVITY_TIMEOUT = timedelta(seconds=60)

@@ -13,8 +13,12 @@ Each report retains its own start time within the shared query.
 If a query times out, the check divides its time range and adds the counts from the two non-overlapping ranges.
 The check requests an error on timeout so partial counts cannot be mistaken for complete results.
 
-Queries and their split retries share a 100-second execution budget within a 120-second activity timeout.
-The initial query keeps its 30-second limit; split retries request at most 15 seconds each.
+Other query failures do not point at the time range, so the check repeats the same range once instead of dividing it.
+These are a query the cluster stopped before it ran, a dropped connection, and a full query budget.
+
+Queries and their retries share a 100-second execution budget within a 120-second activity timeout.
+The initial query keeps its 30-second limit; retries request at most 15 seconds each.
 Each attempt reserves room for a twofold overrun and reduces its limit when the remaining budget requires it.
-If the remaining budget cannot support another attempt, the activity fails and follows its retry policy.
+One check sends at most seven queries, because each query holds one of the AI observability query slots.
+If the remaining budget or the query allowance cannot support another attempt, the activity fails and follows its retry policy.
 The execution budget limits query work; it does not discard older results or guarantee that every report can be checked within that budget.
