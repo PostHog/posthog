@@ -517,6 +517,27 @@ For advanced setup options (Modal sandboxes, local agent packages, MCP), see the
 
 **Tip:** Set `SANDBOX_REPO_MOUNT_MAP` to bind-mount local repositories into the Docker container and skip cloning from GitHub. Format: `SANDBOX_REPO_MOUNT_MAP=org/repo:/local/path` (e.g., `SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog`). This can significantly reduce sandbox startup time for large repos.
 
+### Workflow integration tests
+
+`TestProcessTaskWorkflow` in `products/tasks/backend/temporal/process_task/tests/test_workflow.py`
+boots real Modal sandboxes. Set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, then run:
+
+```sh
+hogli test products/tasks/backend/temporal/process_task/tests/test_workflow.py::TestProcessTaskWorkflow
+```
+
+The completion and failure cases use a fixture HTTP API inside the sandbox. It serves
+the test task and a prewarmed run waiting for a message, so the real agent can become
+ready without calling a live PostHog API or submitting an LLM prompt. The test waits
+for readiness before signaling completion, then checks persisted status, error, and
+sandbox shutdown. It does not test Django API authentication or LLM task execution.
+
+These tests consume the published sandbox image, not the agent source in the checkout.
+An agent release triggers a separate sandbox image build that installs the published
+package and updates the shared image. Running backend tests against that image alone
+does not validate an unpublished agent change. A release check must exercise the
+candidate image before promoting it to the shared tag.
+
 ## Questions?
 
 If you're unsure whether a sandboxed agent is the right fit for your use case,

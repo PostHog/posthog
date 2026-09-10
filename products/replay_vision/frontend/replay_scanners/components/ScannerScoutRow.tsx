@@ -14,7 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { ScoutNextRunLabel } from 'products/signals/frontend/inbox/components/config/scouts/ScoutNextRunLabel'
 import { nextRunAt, scoutCadenceLabel } from 'products/signals/frontend/inbox/utils/scoutGroups'
-import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -80,16 +80,14 @@ export function ScannerScoutRow({
                         type="button"
                         className="-mx-1 flex min-w-0 cursor-pointer items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-surface-secondary"
                         onClick={() => toggleScoutExpanded(config.skill_name)}
-                        aria-label={`${expanded ? 'Hide' : 'Show'} reports from ${prettifyScoutSkillName(config.skill_name)}`}
+                        aria-label={`${expanded ? 'Hide' : 'Show'} reports from ${scoutDisplayName(config)}`}
                         aria-expanded={expanded}
                         data-attr="vision-scout-row-expand"
                     >
                         <IconChevronRight
                             className={cn('shrink-0 text-base transition-transform', expanded && 'rotate-90')}
                         />
-                        <span className="truncate text-sm font-medium">
-                            {prettifyScoutSkillName(config.skill_name)}
-                        </span>
+                        <span className="truncate text-sm font-medium">{scoutDisplayName(config)}</span>
                     </button>
                     <span className="pl-6 text-[11px] text-muted">
                         {cadenceText}
@@ -113,7 +111,7 @@ export function ScannerScoutRow({
                             size="small"
                             icon={<IconGear />}
                             onClick={() => openScoutSettings(config.skill_name)}
-                            aria-label={`${prettifyScoutSkillName(config.skill_name)} settings`}
+                            aria-label={`${scoutDisplayName(config)} settings`}
                             data-attr="vision-scout-row-settings"
                         />
                     </Tooltip>
@@ -126,7 +124,7 @@ export function ScannerScoutRow({
                             disabledReason={editDisabledReason}
                             onClick={() =>
                                 LemonDialog.open({
-                                    title: `Delete ${prettifyScoutSkillName(config.skill_name).toLowerCase()}?`,
+                                    title: `Delete ${scoutDisplayName(config).toLowerCase()}?`,
                                     description:
                                         'This stops its scheduled runs permanently and cannot be undone. Reports it already filed stay in your inbox.',
                                     primaryButton: {
@@ -137,7 +135,7 @@ export function ScannerScoutRow({
                                     secondaryButton: { children: 'Cancel' },
                                 })
                             }
-                            aria-label={`Delete ${prettifyScoutSkillName(config.skill_name)}`}
+                            aria-label={`Delete ${scoutDisplayName(config)}`}
                             data-attr="vision-scout-row-delete"
                         />
                     </Tooltip>
@@ -151,7 +149,7 @@ export function ScannerScoutRow({
                                 onChange={(checked) => updateScoutConfig(config.id, { enabled: checked })}
                                 loading={updating}
                                 disabledReason={editDisabledReason ?? (updating ? 'Saving scout settings' : undefined)}
-                                aria-label={`${prettifyScoutSkillName(config.skill_name)} enabled`}
+                                aria-label={`${scoutDisplayName(config)} enabled`}
                             />
                         </span>
                     </Tooltip>
