@@ -153,7 +153,6 @@
 1 products/mcp_analytics/backend/management/commands/classify_mcp_failures.py
 1 products/mcp_store/backend/catalog_sync.py
 1 products/mcp_store/backend/probe.py
-1 products/notebooks/backend/sql_v2_state.py
 1 products/notebooks/backend/temporal/frame_materialize.py
 1 products/notebooks/backend/temporal/sql_v2.py
 1 products/notebooks/backend/test/test_kernel_runtime.py

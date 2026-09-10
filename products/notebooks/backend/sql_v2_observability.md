@@ -99,6 +99,20 @@ One deliberate hole: the callback is best-effort, so a kernel-lane run whose san
 
 Still open from the original gap: lost-callback kernel runs (above), the frontend's own poll-to-render latency, and the kernel's presigned _download failure_ modes, which remain observable only as an `input_wait`-heavy failed run (see gap 5).
 
+## Whole-notebook run instrumentation
+
+A whole-notebook run (`notebook_run.md`) has its own terminal recorder, `sql_v2_metrics.record_notebook_run_terminal`, called once by whichever caller won the `NotebookRun`'s transition:
+
+- **`posthog_notebooks_notebook_run_terminal_total{outcome,trigger}`** — how many runs ended each way. `trigger` is `ui` or `mcp`, so a person's click and an agent's tool call stay separable.
+- **`posthog_notebooks_notebook_run_seconds{outcome,trigger}`** — end-to-end duration, run-row `created_at` to the terminal transition, with an OTLP twin.
+- **`notebook run completed`** PostHog event with `trigger`, `outcome`, `cell_count`, `python_cell_count`, `completed_count`, `duration_ms`, and `notebook_short_id`.
+
+The workflow logs each step with `notebook_run_id`, the cell index, and the `node_id`. It never logs cell code.
+
+Read these four things from them: adoption by `trigger`; the share of runs that end `done`; where runs stop, from `failed_node_id`'s position and the cell's type; and the duration spread by `cell_count`, which says whether the MCP tool's 45 second budget covers a typical notebook or whether the status tool is the common path.
+
+Each cell of a whole-notebook run also reports its own `notebook node run completed` event, so the per-cell view above still applies inside a run.
+
 ## Gaps — suggested follow-ups
 
 Ordered by how much they'd hurt during a rollout.

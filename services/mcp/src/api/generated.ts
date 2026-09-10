@@ -53929,6 +53929,95 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookRunCell {
+      /** Durable cell identity, the same id the cell run endpoints take. */
+      node_id: string;
+      /** Cell kind: 'sql' or 'python'. */
+      cell_type: string;
+      /** Name other cells reference this cell's result by; blank means display-only. */
+      dataframe_name: string;
+      /**
+         * This cell's run in the whole-notebook run; null until the run reaches the cell.
+         * @nullable
+         */
+      run_id?: string | null;
+      /**
+         * The cell's own state: 'running', 'done', 'failed', or 'interrupted'; null before it starts.
+         * @nullable
+         */
+      status?: string | null;
+      /**
+         * Why this cell failed, when it did.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
+    export interface NotebookRunInterruptResponse {
+      /** True when this call stopped the run. False when it had already finished, which is not an error. */
+      interrupted: boolean;
+      /** The run's state after the call: 'done', 'failed', or 'interrupted'. */
+      status: string;
+    }
+
+    export interface NotebookRunStartRequest {
+      /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
+      variables?: NotebookVariable[];
+    }
+
+    export interface NotebookRunStartResponse {
+      /** Identifier of the whole-notebook run. Poll the run status endpoint with it until the status is terminal. */
+      run_id: string;
+      /** How many cells the run will execute, frozen when it started. */
+      cell_count: number;
+      /** True when this run has to provision a sandbox because it holds a Python cell and none is live for the caller. Tell the user what that costs. */
+      starts_sandbox: boolean;
+      /**
+         * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+         * @nullable
+         */
+      sandbox_hourly_price?: number | null;
+    }
+
+    export interface NotebookRunStatusResponse {
+      /** Identifier of the whole-notebook run. */
+      run_id: string;
+      /** Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'. */
+      status: string;
+      /** Which surface started the run: 'ui' or 'mcp'. */
+      trigger: string;
+      /** The variable values this run bound, snapshotted when it started. */
+      variables: NotebookVariable[];
+      /** How many cells the run executes. */
+      cell_count: number;
+      /** Position in the plan the run has reached, counting from 0. */
+      current_index: number;
+      /**
+         * The cell the run is on; null once the plan is finished.
+         * @nullable
+         */
+      current_node_id?: string | null;
+      /**
+         * The cell that stopped the run, when one did.
+         * @nullable
+         */
+      failed_node_id?: string | null;
+      /**
+         * Why the run stopped, in one sentence a person can read.
+         * @nullable
+         */
+      error?: string | null;
+      /** Every planned cell in run order, with the state of its run in this notebook run. */
+      cells: NotebookRunCell[];
+      /** When the run started. */
+      created_at: string;
+      /**
+         * When the run reached a terminal state; null while running.
+         * @nullable
+         */
+      finished_at?: string | null;
+    }
+
     /**
      * Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics.
      */

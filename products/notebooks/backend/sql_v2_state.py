@@ -46,12 +46,19 @@ _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
 
-@dataclass
+# Mutable on purpose: `build_dependency_edges` fills the two edge lists in place, and
+# `build_notebook_cell_state` sets the derived status and last run afterwards.
+@dataclass(frozen=False)
 class NotebookCellState:
     node_id: str
     cell_type: str
     dataframe_name: str = ""
     code: str = ""
+    # The data source a SQL cell targets, and whether its code reaches that engine verbatim.
+    # Both are cell attributes rather than run inputs, so anything that runs a cell on the
+    # cell's own terms — not just the editor, which passes them per request — needs them.
+    connection_id: str | None = None
+    send_raw_query: bool = False
     status: str = "never_run"
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
@@ -73,12 +80,15 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
             continue
         code = props.get("code")
         dataframe_name = props.get("returnVariable")
+        connection_id = props.get("connectionId")
         cells.append(
             NotebookCellState(
                 node_id=node_id,
                 cell_type=cell_type,
                 dataframe_name=dataframe_name.strip() if isinstance(dataframe_name, str) else "",
                 code=code if isinstance(code, str) else "",
+                connection_id=connection_id if isinstance(connection_id, str) and connection_id else None,
+                send_raw_query=props.get("sendRawQuery") is True,
             )
         )
     return cells

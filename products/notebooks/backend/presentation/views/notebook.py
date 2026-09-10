@@ -70,6 +70,17 @@ from products.notebooks.backend.facade.compute_pricing import (
     get_compute_rates,
 )
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.notebook_run import (
+    NotebookRunAlreadyRunning,
+    NotebookRunInput,
+    NotebookRunNothingToRun,
+    finish_notebook_run,
+    get_notebook_run,
+    interrupt_notebook_run,
+    notebook_run_status,
+    start_notebook_run,
+    start_notebook_run_workflow,
+)
 from products.notebooks.backend.facade.sql_v2 import (
     NodeRunDispatchFailed,
     NodeRunInvalid,
@@ -94,7 +105,7 @@ from products.notebooks.backend.facade.widgets import (
     start_widget_generation,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
     WidgetErrorSerializer,
@@ -130,6 +141,10 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookComputeOptionsResponseSerializer,
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
+    NotebookRunInterruptResponseSerializer,
+    NotebookRunStartRequestSerializer,
+    NotebookRunStartResponseSerializer,
+    NotebookRunStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
@@ -1602,6 +1617,195 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     "sandbox_hourly_price": dispatch.sandbox_hourly_price,
                 }
             ).data
+        )
+
+    def _require_notebook_runs_enabled(self, user: User | None) -> None:
+        # Server-side gate is permissive in local dev (the frontend still gates the UI);
+        # prod is flag-gated, the same as every other SQL v2 endpoint.
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+
+    @extend_schema(
+        request=NotebookRunStartRequestSerializer,
+        responses={200: NotebookRunStartResponseSerializer},
+        description=(
+            "Run every SQL and Python cell of a markdown notebook, in document order, stopping at the "
+            "first cell that does not finish. Returns as soon as the run starts; poll the run status "
+            "endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(methods=["POST"], url_path="runs", detail=True, required_scopes=["notebook:write", "query:read"])
+    def notebook_runs(self, request: Request, **kwargs):
+        user = self._current_user()
+        self._require_notebook_runs_enabled(user)
+
+        serializer = NotebookRunStartRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
+
+        try:
+            # One transaction, because a refused run must not leave the variables changed.
+            # They are saved first so the plan and the snapshot bind the values the caller
+            # asked for, and a 400 or 409 after that would otherwise have already rewritten
+            # the notebook — including for the run already in flight.
+            with transaction.atomic():
+                if "variables" in serializer.validated_data:
+                    # Saved through the notebook's own serializer, so a run and a plain PATCH
+                    # apply the same limits and the same duplicate-name rule.
+                    variables_update = self.get_serializer(
+                        notebook, data={"variables": serializer.validated_data["variables"]}, partial=True
+                    )
+                    variables_update.is_valid(raise_exception=True)
+                    notebook = variables_update.save()
+
+                start = start_notebook_run(
+                    notebook,
+                    user if isinstance(user, User) else None,
+                    self.team,
+                    # A session cookie is the editor; anything else is a programmatic client.
+                    trigger=classify_request_source(request)[0],
+                )
+        except NotebookRunNothingToRun as e:
+            return Response({"detail": str(e)}, status=400)
+        except NotebookRunAlreadyRunning as e:
+            # 409, not 429: a conflict with the notebook's state rather than a rate — the same
+            # reasoning as a single cell meeting a busy notebook.
+            return Response({"detail": str(e)}, status=409)
+
+        try:
+            start_notebook_run_workflow(
+                NotebookRunInput(
+                    notebook_run_id=str(start.notebook_run.id),
+                    team_id=self.team_id,
+                    node_ids=[cell["node_id"] for cell in start.notebook_run.cell_plan],
+                )
+            )
+        except Exception:
+            logger.exception("notebook_run_start_failed", notebook_short_id=notebook.short_id)
+            # Nothing will ever drive this record, so close it here rather than leave the
+            # notebook blocked by a run that never began.
+            finish_notebook_run(start.notebook_run, NotebookRun.Status.FAILED, error="Failed to start the run.")
+            return Response({"detail": "Failed to start the run."}, status=503)
+
+        return Response(
+            NotebookRunStartResponseSerializer(
+                {
+                    "run_id": str(start.notebook_run.id),
+                    "cell_count": start.cell_count,
+                    "starts_sandbox": start.starts_sandbox,
+                    "sandbox_hourly_price": start.sandbox_hourly_price,
+                }
+            ).data
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the whole-notebook run, as returned by the run endpoint.",
+            )
+        ],
+        responses={200: NotebookRunStatusResponseSerializer},
+        description=(
+            "Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. "
+            "Carries no result rows — fetch a cell's result from the cell run result endpoint. "
+            "Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(
+        methods=["GET"],
+        url_path="runs/(?P<run_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def notebook_run_detail(self, request: Request, run_id: str | None = None, **kwargs):
+        user = self._current_user()
+        self._require_notebook_runs_enabled(user)
+        if run_id is None:
+            raise Http404()
+
+        notebook = self._get_notebook_for_kernel()
+        # Cell errors are query output, so gate the read on query access like the cell result
+        # endpoint does.
+        self._require_query_access()
+        try:
+            notebook_run = get_notebook_run(self.team_id, notebook, run_id)
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if notebook_run is None:
+            raise Http404()
+
+        status = notebook_run_status(notebook_run)
+        self._redact_inaccessible_cell_errors(status["cells"], user)
+        return Response(NotebookRunStatusResponseSerializer(status).data)
+
+    def _redact_inaccessible_cell_errors(self, cells: list[dict[str, Any]], user: User | None) -> None:
+        """Blank the error of any cell that ran on a data source this caller cannot reach.
+
+        The cell-result endpoint gates the whole read on `_require_run_connection_access`,
+        because notebook plus query access does not imply source access. This endpoint serves
+        many cells at once and must stay readable, so it drops just the errors — which can
+        carry the engine's own message — rather than refusing the run. Sources are resolved
+        once each, not once per cell.
+        """
+        access_by_source: dict[tuple[str, bool], bool] = {}
+        for cell in cells:
+            connection_id = cell.get("connection_id")
+            if not connection_id or not cell.get("error"):
+                continue
+            key = (connection_id, bool(cell.get("send_raw_query")))
+            if key not in access_by_source:
+                access_by_source[key] = (
+                    get_direct_connection_source(self.team, connection_id, user=user, require_pure_direct=key[1])
+                    is not None
+                )
+            if not access_by_source[key]:
+                cell["error"] = None
+
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the whole-notebook run, as returned by the run endpoint.",
+            )
+        ],
+        responses={200: NotebookRunInterruptResponseSerializer},
+        description=(
+            "Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already "
+            "finished returns its outcome unchanged. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        url_path="runs/(?P<run_id>[^/.]+)/interrupt",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def notebook_run_interrupt(self, request: Request, run_id: str | None = None, **kwargs):
+        # A control call, not a data read: it stops a run, so it needs notebook write access
+        # but neither query scope nor the RBAC query gate.
+        user = self._current_user()
+        self._require_notebook_runs_enabled(user)
+        if run_id is None:
+            raise Http404()
+
+        notebook = self._get_notebook_for_kernel()
+        try:
+            notebook_run = get_notebook_run(self.team_id, notebook, run_id)
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if notebook_run is None:
+            raise Http404()
+
+        interrupted = interrupt_notebook_run(notebook, notebook_run)
+        return Response(
+            NotebookRunInterruptResponseSerializer({"interrupted": interrupted, "status": notebook_run.status}).data
         )
 
     @extend_schema(
