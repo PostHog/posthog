@@ -5,7 +5,7 @@ import time
 import datetime as dt
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -52,6 +52,12 @@ class AmazonAdsReportError(Exception):
 
 
 @frozen
+class ReportWindow:
+    start: dt.date
+    end: dt.date
+
+
+@frozen
 class AmazonAdsResumeConfig:
     """The report Amazon is generating right now, so a retried activity re-polls it.
 
@@ -64,10 +70,28 @@ class AmazonAdsResumeConfig:
     report_id: str
 
 
-def _get_session(client_secret: str, refresh_token: str, client_id: str) -> requests.Session:
+def _get_session(
+    client_secret: str,
+    refresh_token: str,
+    client_id: str,
+    capture: bool = True,
+    extra_redact: tuple[str, ...] = (),
+) -> requests.Session:
     return make_tracked_session(
         headers={"Amazon-Advertising-API-ClientId": client_id},
-        redact_values=(client_secret, refresh_token),
+        redact_values=(client_secret, refresh_token, *extra_redact),
+        capture=capture,
+    )
+
+
+def presigned_secret_values(url: str) -> tuple[str, ...]:
+    """The signing material AWS puts in a presigned URL.
+
+    Anyone holding it can download the report until it expires, and the shared scrubber
+    masks query values by name, which does not cover `X-Amz-Signature` and its siblings.
+    """
+    return tuple(
+        value for name, value in parse_qsl(urlsplit(url).query) if name.lower().startswith("x-amz-") and len(value) >= 8
     )
 
 
@@ -124,10 +148,10 @@ def as_report_date(value: Any) -> Optional[dt.date]:
     return None
 
 
-def report_windows(start: dt.date, end: dt.date, max_window_days: int) -> Iterator[tuple[dt.date, dt.date]]:
+def report_windows(start: dt.date, end: dt.date, max_window_days: int) -> Iterator[ReportWindow]:
     while start <= end:
         window_end = min(start + dt.timedelta(days=max_window_days - 1), end)
-        yield start, window_end
+        yield ReportWindow(start=start, end=window_end)
         start = window_end + dt.timedelta(days=1)
 
 
@@ -147,11 +171,14 @@ def report_request_body(report: AmazonAdsReportConfig, start: dt.date, end: dt.d
     }
 
 
-def download_report_rows(session: requests.Session, url: str) -> list[dict[str, Any]]:
+def download_report_rows(url: str, client_id: str, client_secret: str, refresh_token: str) -> list[dict[str, Any]]:
     host = (urlparse(url).hostname or "").lower()
     if not host.endswith(REPORT_URL_HOST_SUFFIXES):
         raise ValueError(f"Amazon Ads report download URL points outside Amazon: host={host}")
 
+    session = _get_session(
+        client_secret, refresh_token, client_id, capture=False, extra_redact=presigned_secret_values(url)
+    )
     response = session.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT_SECONDS)
     response.raise_for_status()
     with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as unzipped:
@@ -173,6 +200,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = AMAZON_ADS_ENDPOINTS[endpoint]
     session = _get_session(client_secret, refresh_token, client_id)
+    # A report status body carries the presigned download URL, so those calls stay out of
+    # sample capture.
+    report_session = _get_session(client_secret, refresh_token, client_id, capture=False)
     base_url = _base_url(region)
     token = _mint_token(session, client_id, client_secret, refresh_token)
 
@@ -188,9 +218,11 @@ def get_rows(
         profile_id: Optional[str] = None,
         body: Optional[dict[str, Any]] = None,
         extra_headers: Optional[dict[str, str]] = None,
+        http: Optional[requests.Session] = None,
     ) -> requests.Response:
         nonlocal token
         url = f"{base_url}{path}"
+        client = http if http is not None else session
 
         def _do() -> requests.Response:
             headers: dict[str, str] = {"Authorization": f"Bearer {token}"}
@@ -202,8 +234,8 @@ def get_rows(
             if extra_headers is not None:
                 headers.update(extra_headers)
             if method == "POST":
-                return session.post(url, json=body or {}, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-            return session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+                return client.post(url, json=body or {}, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+            return client.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         response = _do()
         # Access tokens last ~1h; re-mint once if the sync outlives one.
@@ -233,6 +265,7 @@ def get_rows(
                 f"{config.path}/{report_id}",
                 profile_id=profile_id,
                 extra_headers={"Content-Type": REPORT_MEDIA_TYPE},
+                http=report_session,
             ).json()
             status = body.get("status")
 
@@ -264,12 +297,12 @@ def get_rows(
             else None
         )
 
-        for window_start, window_end in report_windows(start, today, report.max_window_days):
+        for window in report_windows(start, today, report.max_window_days):
             for profile_id in profile_ids:
                 if (
                     pending is not None
                     and pending.profile_id == profile_id
-                    and pending.window_start == window_start.isoformat()
+                    and pending.window_start == window.start.isoformat()
                 ):
                     report_id = pending.report_id
                     pending = None
@@ -278,7 +311,7 @@ def get_rows(
                         "POST",
                         config.path,
                         profile_id=profile_id,
-                        body=report_request_body(report, window_start, window_end),
+                        body=report_request_body(report, window.start, window.end),
                         extra_headers={"Content-Type": REPORT_MEDIA_TYPE},
                     ).json()
                     report_id = created["reportId"]
@@ -289,7 +322,7 @@ def get_rows(
                     resumable_source_manager.save_state(
                         AmazonAdsResumeConfig(
                             profile_id=profile_id,
-                            window_start=window_start.isoformat(),
+                            window_start=window.start.isoformat(),
                             report_id=report_id,
                         )
                     )
@@ -298,7 +331,7 @@ def get_rows(
                 if not url:
                     continue
 
-                rows = download_report_rows(session, url)
+                rows = download_report_rows(url, client_id, client_secret, refresh_token)
                 # Amazon does not order the file, and the pipeline advances the `date` cursor from
                 # each batch it writes, so a batch must never carry a date later than the rows
                 # still to come for this profile.

@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Optional
 
 from posthog.dataclasses import frozen
@@ -22,7 +21,7 @@ class AmazonAdsReportConfig:
     retention_days: int = 95
 
 
-@dataclass
+@frozen
 class AmazonAdsEndpointConfig:
     name: str
     # Path under the regional advertising host.
