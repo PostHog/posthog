@@ -7,8 +7,6 @@ from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
-from django.db import models
-from django.db.models.functions import Coalesce
 
 from natsort import natsorted, ns
 
@@ -1253,11 +1251,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     ) -> str:
         try:
             return (
-                PropertyDefinition.objects.alias(
-                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                )
+                PropertyDefinition.objects.for_project(self.team.project_id)
                 .get(
-                    effective_project_id=self.team.project_id,
                     name=field,
                     type=field_type,
                     group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,

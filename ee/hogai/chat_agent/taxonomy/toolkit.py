@@ -543,8 +543,8 @@ class TaxonomyAgentToolkit:
             )
 
         restricted = await self._restricted_property_names(PropertyDefinition.Type.EVENT)
-        qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
+        qs = PropertyDefinition.objects.for_project(self._team.project_id).filter(
+            type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
         property_definitions = [prop async for prop in qs]
         property_to_type = {
@@ -608,11 +608,14 @@ class TaxonomyAgentToolkit:
         if entity_to_group_index.values():
             restricted = await self._restricted_property_names(PropertyDefinition.Type.GROUP)
             # Single query for all group types
-            group_qs = PropertyDefinition.objects.filter(
-                team=self._team,
-                type=PropertyDefinition.Type.GROUP,
-                group_type_index__in=entity_to_group_index.values(),
-            ).values_list("name", "property_type", "group_type_index")[: self.MAX_PROPERTIES]
+            group_qs = (
+                PropertyDefinition.objects.for_project(self._team.project_id)
+                .filter(
+                    type=PropertyDefinition.Type.GROUP,
+                    group_type_index__in=entity_to_group_index.values(),
+                )
+                .values_list("name", "property_type", "group_type_index")[: self.MAX_PROPERTIES]
+            )
             group_qs_definitions = [prop async for prop in group_qs]
             # Group results by entity
             for entity in group_entities:
@@ -658,9 +661,11 @@ class TaxonomyAgentToolkit:
         entity = task.args["entity"]
         if entity == "person":
             restricted = await self._restricted_property_names(PropertyDefinition.Type.PERSON)
-            person_qs = PropertyDefinition.objects.filter(
-                team=self._team, type=PropertyDefinition.Type.PERSON
-            ).values_list("name", "property_type")
+            person_qs = (
+                PropertyDefinition.objects.for_project(self._team.project_id)
+                .filter(type=PropertyDefinition.Type.PERSON)
+                .values_list("name", "property_type")
+            )
             person_definitions = [prop async for prop in person_qs if prop[0] not in restricted]
             person_definitions += list_virtual_properties(
                 "person_properties", exclude={name for name, _ in person_definitions} | restricted
@@ -727,8 +732,7 @@ class TaxonomyAgentToolkit:
             prop_type = PropertyDefinition.Type.PERSON
             group_type_index = None
 
-        property_definitions = PropertyDefinition.objects.filter(
-            team=self._team,
+        property_definitions = PropertyDefinition.objects.for_project(self._team.project_id).filter(
             name__in=property_names,
             type=prop_type,
             group_type_index=group_type_index,
@@ -808,8 +812,7 @@ class TaxonomyAgentToolkit:
     def _get_definitions_for_event_or_action(self, property_names: list[str]) -> dict[str, PropertyDefinitionOrVirtual]:
         definitions = {
             prop.name: prop
-            for prop in PropertyDefinition.objects.filter(
-                team=self._team,
+            for prop in PropertyDefinition.objects.for_project(self._team.project_id).filter(
                 name__in=property_names,
                 type=PropertyDefinition.Type.EVENT,
             )

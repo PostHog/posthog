@@ -2,9 +2,6 @@ from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional, Union
 
-from django.db import models
-from django.db.models.functions import Coalesce
-
 from posthog.schema import (
     ActionConversionGoal,
     ActionsNode,
@@ -440,11 +437,8 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
     ) -> str:
         try:
             return (
-                PropertyDefinition.objects.alias(
-                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                )
+                PropertyDefinition.objects.for_project(self.team.project_id)
                 .get(
-                    effective_project_id=self.team.project_id,
                     name=field,
                     type=field_type,
                     group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
