@@ -19,7 +19,7 @@ Both retained conditions trigger from the point forecast. The preview may show a
 
 ## Supported insight scope
 
-The first release supports Trends time series with no breakdown and an hourly, daily, weekly, or monthly interval. A forecast selects one series or formula. Funnels, SQL insights, non-time-series displays, cumulative line charts, and breakdown series remain unsupported. Calendar heatmap, box plot, and slope graph displays are rejected as well, because each uses a Trends runner of its own that returns no per-bucket series.
+The first release supports Trends time series with no breakdown and an hourly, daily, weekly, or monthly interval. A forecast selects one series or formula. Hourly insights support the predicted threshold breach condition only. A target alert requires a daily, weekly, or monthly interval. Funnels, SQL insights, non-time-series displays, cumulative line charts, and breakdown series remain unsupported. Calendar heatmap, box plot, and slope graph displays are rejected as well, because each uses a Trends runner of its own that returns no per-bucket series. Trend smoothing is unsupported. A daily insight whose date range leaves out days of the week is rejected too, because the trends runner then returns a history with gaps.
 
 Forecasting uses completed insight buckets only. A forecast alert cannot run more frequently than its insight interval: hourly insights may run hourly or less often, daily insights may run daily or less often, and so on. Real-time and 15-minute calculation intervals are unsupported. This validation prevents normal schedules from repeatedly fitting the same completed input without adding forecast-specific persistence or skip states.
 
