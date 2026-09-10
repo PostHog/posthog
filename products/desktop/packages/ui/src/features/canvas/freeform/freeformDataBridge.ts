@@ -290,11 +290,14 @@ export async function handleFreeformDataRequest(
         (signal) =>
           callCanvasConnector(
             input,
-            (approved) =>
-              hostClient().dashboards.callConnector.mutate({
-                ...args,
-                ...(approved ? { approved } : {}),
-              }),
+            (approvalToken, signal) =>
+              hostClient().dashboards.callConnector.mutate(
+                {
+                  ...args,
+                  ...(approvalToken ? { approval_token: approvalToken } : {}),
+                },
+                { signal },
+              ),
             requestPermission,
             signal,
           ),

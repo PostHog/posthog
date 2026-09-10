@@ -16295,8 +16295,11 @@ export namespace Schemas {
      * Payload for calling one connector tool as the viewer.
      */
     export interface CanvasConnectorCall {
-      /** True only after the viewer approves this specific MCP tool call in the host. Does not change saved permissions. */
-      approved?: boolean;
+      /**
+         * Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.
+         * @maxLength 200
+         */
+      approval_token?: string;
       /**
          * Declared provider id, e.g. 'github'.
          * @maxLength 300
@@ -16345,6 +16348,11 @@ export namespace Schemas {
      * Result of one connector call. `status` is 'ok' when `result` holds the tool's output.
      */
     export interface CanvasConnectorCallResult {
+      /**
+         * Host-only, single-use approval token bound to this viewer, connection, canvas version, tool, and arguments. Never forward it to the canvas iframe.
+         * @nullable
+         */
+      approval_token: string | null;
       /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'needs_approval' requires the viewer to approve this call in the host. 'upstream_error' is a failure at the provider.
        *
        * * `ok` - Ok

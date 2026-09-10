@@ -104,18 +104,20 @@ export const CanvasesBuildActionCreateBody = /* @__PURE__ */ zod.object({
  * (the reviewed permission boundary); the call runs with the viewer's own
  * connection, so two viewers of the same canvas see their own data.
  */
-export const canvasesConnectorsCallBodyApprovedDefault = false
+export const canvasesConnectorsCallBodyApprovalTokenMax = 200
+
 export const canvasesConnectorsCallBodyProviderMax = 300
 
 export const canvasesConnectorsCallBodyToolMax = 200
 
 export const CanvasesConnectorsCallBody = /* @__PURE__ */ zod
     .object({
-        approved: zod
-            .boolean()
-            .default(canvasesConnectorsCallBodyApprovedDefault)
+        approval_token: zod
+            .string()
+            .max(canvasesConnectorsCallBodyApprovalTokenMax)
+            .optional()
             .describe(
-                'True only after the viewer approves this specific MCP tool call in the host. Does not change saved permissions.'
+                'Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.'
             ),
         provider: zod
             .string()

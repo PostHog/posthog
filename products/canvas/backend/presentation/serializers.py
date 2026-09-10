@@ -1041,10 +1041,11 @@ class CanvasConnectorsResponseSerializer(serializers.Serializer):
 class CanvasConnectorCallSerializer(serializers.Serializer):
     """Payload for calling one connector tool as the viewer."""
 
-    approved = serializers.BooleanField(
+    approval_token = serializers.CharField(
         required=False,
-        default=False,
-        help_text="True only after the viewer approves this specific MCP tool call in the host. Does not change saved permissions.",
+        default=None,
+        max_length=200,
+        help_text="Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.",
     )
     provider = serializers.CharField(max_length=300, help_text="Declared provider id, e.g. 'github'.")
     tool = serializers.CharField(max_length=200, help_text="Declared tool name, e.g. 'list_pull_requests'.")
@@ -1057,6 +1058,11 @@ class CanvasConnectorCallSerializer(serializers.Serializer):
 
 class CanvasConnectorCallResultSerializer(serializers.Serializer):
     """Result of one connector call. `status` is 'ok' when `result` holds the tool's output."""
+
+    approval_token = serializers.CharField(
+        allow_null=True,
+        help_text="Host-only, single-use approval token bound to this viewer, connection, canvas version, tool, and arguments. Never forward it to the canvas iframe.",
+    )
 
     status = serializers.ChoiceField(
         choices=ConnectorCallStatus.choices,

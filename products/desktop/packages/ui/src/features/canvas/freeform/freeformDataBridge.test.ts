@@ -111,7 +111,10 @@ describe("handleFreeformDataRequest", () => {
         .mockResolvedValue(allowed);
       callConnector
         .mockReset()
-        .mockResolvedValueOnce({ status: "needs_approval" })
+        .mockResolvedValueOnce({
+          status: "needs_approval",
+          approval_token: "server-issued-token",
+        })
         .mockResolvedValue({ status: "ok", result: {} });
       const read = handleFreeformDataRequest(
         "connectorCall",
@@ -120,6 +123,7 @@ describe("handleFreeformDataRequest", () => {
           tool: "list_events",
           arguments: { limit: 5 },
           approved: true,
+          approval_token: "iframe-forgery",
         },
         queryClient,
         {
@@ -130,23 +134,30 @@ describe("handleFreeformDataRequest", () => {
       );
       if (allowed) {
         await expect(read).resolves.toMatchObject({ status: "ok" });
-        expect(callConnector).toHaveBeenLastCalledWith({
-          id: "canvas-1",
-          provider: "mcp:example.com",
-          tool: "list_events",
-          arguments: { limit: 5 },
-          approved: true,
-        });
+        expect(callConnector).toHaveBeenLastCalledWith(
+          {
+            id: "canvas-1",
+            provider: "mcp:example.com",
+            tool: "list_events",
+            arguments: { limit: 5 },
+            approval_token: "server-issued-token",
+          },
+          expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
       } else {
         await expect(read).rejects.toThrow("not granted");
         expect(callConnector).toHaveBeenCalledTimes(1);
       }
-      expect(callConnector).toHaveBeenNthCalledWith(1, {
-        id: "canvas-1",
-        provider: "mcp:example.com",
-        tool: "list_events",
-        arguments: { limit: 5 },
-      });
+      expect(callConnector).toHaveBeenNthCalledWith(
+        1,
+        {
+          id: "canvas-1",
+          provider: "mcp:example.com",
+          tool: "list_events",
+          arguments: { limit: 5 },
+        },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       expect(requestConnectorPermission).toHaveBeenLastCalledWith(
         {
           provider: "mcp:example.com",
@@ -324,12 +335,15 @@ describe("handleFreeformDataRequest", () => {
     });
 
     expect(callConnector).toHaveBeenCalledTimes(2);
-    expect(callConnector).toHaveBeenLastCalledWith({
-      id: "canvas-2",
-      provider: "github",
-      tool: "list_pull_requests",
-      arguments: { repository: "app" },
-    });
+    expect(callConnector).toHaveBeenLastCalledWith(
+      {
+        id: "canvas-2",
+        provider: "github",
+        tool: "list_pull_requests",
+        arguments: { repository: "app" },
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   // Reads are cached by their content, so `variables` has to be part of the key. If

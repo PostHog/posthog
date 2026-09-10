@@ -41,6 +41,7 @@ class ConnectorCallOutcome:
     structured_content: Any = None
     is_error: bool = False
     detail: str = ""
+    approval_token: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)

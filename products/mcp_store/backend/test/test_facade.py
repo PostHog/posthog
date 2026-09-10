@@ -25,6 +25,7 @@ from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
+    MCPOrgRule,
     MCPServerInstallation,
     MCPServerInstallationTool,
     MCPServerTemplate,
@@ -1000,7 +1001,7 @@ class TestCallMemberServerTool(BaseTest):
     ) -> None:
         self._tool(self._installation(), name=tool_name, annotations=annotations)
 
-        assert self._call(tool_name, allow_writes=allow_writes, approved=True).status == expected_status
+        assert self._call(tool_name, allow_writes=allow_writes, approval_token="untrusted").status == expected_status
         assert mock_call.called is (expected_status == "ok")
         tools = member_server_tools(self.team.id, self.user.id, self.HOST)
         assert tools is not None
@@ -1013,7 +1014,7 @@ class TestCallMemberServerTool(BaseTest):
         )
         self._tool(self._installation(gateway_server=server))
 
-        assert self._call(approved=True).status == "blocked"
+        assert self._call(approval_token="untrusted").status == "blocked"
         mock_call.assert_not_called()
 
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
@@ -1022,9 +1023,12 @@ class TestCallMemberServerTool(BaseTest):
         self._tool(installation)
         installation.tools.update(approval_state="needs_approval")
 
-        assert self._call().status == "needs_approval"
+        pending = self._call(allow_writes=False)
+        assert pending.status == "needs_approval"
+        assert pending.approval_token is not None
         mock_call.assert_not_called()
-        assert self._call(approved=True, allow_writes=False).status == "ok"
+        assert self._call(approval_token=pending.approval_token, allow_writes=False).status == "ok"
+        assert self._call(approval_token=pending.approval_token, allow_writes=False).status == "blocked"
         assert self._call().status == "needs_approval"
         assert mock_call.call_count == 1
         assert installation.tools.get().approval_state == "needs_approval"
@@ -1038,7 +1042,28 @@ class TestCallMemberServerTool(BaseTest):
     ) -> None:
         installation = self._installation()
         self._tool(installation)
+        installation.tools.update(approval_state="needs_approval")
+        token = self._call().approval_token
+        assert token is not None
         installation.tools.update(approval_state=approval_state, removed_at=timezone.now() if removed else None)
 
-        assert self._call(approved=True, allow_writes=False).status == expected
+        assert self._call(approval_token=token, allow_writes=False).status == expected
+        mock_call.assert_not_called()
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_org_rule_cannot_be_overridden_by_call_approval(self, mock_call: MagicMock) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team, name="Calendar", url=f"https://{self.HOST}/mcp"
+        )
+        installation = self._installation(gateway_server=server)
+        self._tool(installation)
+        installation.tools.update(approval_state="needs_approval")
+        token = self._call().approval_token
+        assert token is not None
+        MCPOrgRule.objects.for_team(self.team.id).create(
+            team=self.team, name="Review calendar reads", effect="needs_approval", tool_pattern="list_events"
+        )
+
+        assert self._call(approval_token=token, allow_writes=False).status == "blocked"
+        assert self._call().status == "blocked"
         mock_call.assert_not_called()

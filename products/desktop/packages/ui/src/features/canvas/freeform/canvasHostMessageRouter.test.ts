@@ -168,45 +168,101 @@ describe("createCanvasHostMessageRouter", () => {
     },
   );
 
-  it("does not count a pending agent request against the concurrency limit", async () => {
+  it("bounds pending connectors separately from ordinary requests", async () => {
     const post = vi.fn();
-    const onDataRequest = vi.fn((method: string) =>
-      method === "agentRequest"
-        ? new Promise<unknown>(() => {}) // dialog open, never settles
-        : Promise.resolve(null),
-    );
+    const completions: Array<(value: unknown) => void> = [];
     const route = createCanvasHostMessageRouter({
       post,
-      callbacks: () => ({ onDataRequest }),
+      callbacks: () => ({
+        onDataRequest: (method) =>
+          method === "connectorCall"
+            ? new Promise((resolve) => completions.push(resolve))
+            : Promise.resolve(null),
+      }),
       hasUserActivation: () => true,
       openExternal: vi.fn(),
     });
-
-    void route({
+    const requests = Array.from({ length: 8 }, (_, index) =>
+      route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: `connector-${index}`,
+        method: "connectorCall",
+        payload: { provider: "github", tool: "list_pull_requests" },
+      }),
+    );
+    await route({
       channel: "posthog-canvas",
       type: "data-request",
-      id: "agent-1",
-      method: "agentRequest",
-      payload: { prompt: "Change it" },
+      id: "overflow",
+      method: "connectorCall",
+      payload: { provider: "github", tool: "list_pull_requests" },
     });
-
-    // With the dialog sitting unanswered, the canvas's ordinary reads must
-    // still get all 8 slots: none may be rejected for runtime limits.
-    await Promise.all(
-      Array.from({ length: 8 }, (_, i) =>
-        route({
-          channel: "posthog-canvas",
-          type: "data-request",
-          id: `query-${i}`,
-          method: "stateGet",
-          payload: { scope: "user", key: `k${i}` },
-        }),
-      ),
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "overflow",
+        ok: false,
+        error: "Canvas data request exceeds runtime limits",
+      }),
     );
-
-    expect(post).toHaveBeenCalledTimes(8);
-    expect(post.mock.calls.every(([message]) => message.ok === true)).toBe(
-      true,
+    await route({
+      channel: "posthog-canvas",
+      type: "data-request",
+      id: "ordinary",
+      method: "stateGet",
+      payload: { key: "data", scope: "user" },
+    });
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "ordinary", ok: true }),
     );
+    completions.forEach((resolve) => {
+      resolve(null);
+    });
+    await Promise.all(requests);
   });
+
+  it.each(["agentRequest", "connectorCall"] as const)(
+    "does not count a pending %s against ordinary request slots",
+    async (pendingMethod) => {
+      const post = vi.fn();
+      const onDataRequest = vi.fn((method: string) =>
+        method === pendingMethod
+          ? new Promise<unknown>(() => {}) // dialog open, never settles
+          : Promise.resolve(null),
+      );
+      const route = createCanvasHostMessageRouter({
+        post,
+        callbacks: () => ({ onDataRequest }),
+        hasUserActivation: () => true,
+        openExternal: vi.fn(),
+      });
+
+      void route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: "agent-1",
+        method: pendingMethod,
+        payload: { prompt: "Change it" },
+      });
+
+      // With the dialog sitting unanswered, the canvas's ordinary reads must
+      // still get all 8 slots: none may be rejected for runtime limits.
+      await Promise.all(
+        Array.from({ length: 8 }, (_, i) =>
+          route({
+            channel: "posthog-canvas",
+            type: "data-request",
+            id: `query-${i}`,
+            method: "stateGet",
+            payload: { scope: "user", key: `k${i}` },
+          }),
+        ),
+      );
+
+      expect(post).toHaveBeenCalledTimes(8);
+      expect(post.mock.calls.every(([message]) => message.ok === true)).toBe(
+        true,
+      );
+    },
+  );
 });

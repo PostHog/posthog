@@ -456,7 +456,7 @@ export class DashboardsService {
 
   // Call one declared connector tool as the viewer.
   async callConnector(input: {
-    approved?: boolean;
+    approval_token?: string;
     id: string;
     provider: string;
     tool: string;
@@ -471,7 +471,7 @@ export class DashboardsService {
           provider: input.provider,
           tool: input.tool,
           arguments: input.arguments,
-          approved: input.approved,
+          approval_token: input.approval_token,
         }),
       },
     );
