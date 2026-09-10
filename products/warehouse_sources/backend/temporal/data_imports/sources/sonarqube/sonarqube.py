@@ -83,15 +83,19 @@ def normalize_base_url(host: str) -> str:
     if "://" not in cleaned:
         cleaned = f"https://{cleaned}"
     parsed = urlparse(cleaned)
-    if parsed.scheme != "https" or not parsed.hostname:
+    # `parsed.hostname` lowercases the host but keeps a terminal DNS dot, and `sonarcloud.io.`
+    # reaches the same server as `sonarcloud.io`. Strip the dot so the cloud check below cannot be
+    # sidestepped, and so the host we validate is the host we request.
+    hostname = (parsed.hostname or "").rstrip(".")
+    if parsed.scheme != "https" or not hostname:
         raise ValueError(f"Invalid SonarQube server URL (must be https): {host}")
-    if any(parsed.hostname == name or parsed.hostname.endswith(f".{name}") for name in SONARQUBE_CLOUD_HOSTNAMES):
+    if any(hostname == name or hostname.endswith(f".{name}") for name in SONARQUBE_CLOUD_HOSTNAMES):
         # Cloud accepts the credential probe (/api/authentication/validate answers 200 there), so
         # without this check setup succeeds and every list endpoint then fails with a 400.
         raise ValueError(SONARQUBE_CLOUD_ERROR)
     # Keep scheme + netloc only; drop any path/query the user pasted so we control the API paths.
     port = f":{parsed.port}" if parsed.port else ""
-    return f"https://{parsed.hostname}{port}"
+    return f"https://{hostname}{port}"
 
 
 def hostname_of(host: str) -> str:

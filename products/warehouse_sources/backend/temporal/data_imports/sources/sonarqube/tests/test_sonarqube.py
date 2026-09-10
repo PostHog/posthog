@@ -33,6 +33,9 @@ class TestNormalizeBaseUrl:
             # A self-hosted domain that only contains a cloud hostname is not the cloud product.
             ("cloud_lookalike_allowed", "https://sonarcloud.io.example.com", "https://sonarcloud.io.example.com"),
             ("whitespace", "  https://sonar.example.com  ", "https://sonar.example.com"),
+            # A terminal DNS dot is dropped, so the host checked is the host requested.
+            ("strips_terminal_dns_dot", "https://sonar.example.com.", "https://sonar.example.com"),
+            ("strips_terminal_dns_dot_with_port", "https://sonar.example.com.:9000", "https://sonar.example.com:9000"),
         ]
     )
     def test_valid(self, _name: str, value: str, expected: str) -> None:
@@ -51,6 +54,11 @@ class TestNormalizeBaseUrl:
             ("cloud_us_rejected", "https://sonarqube.us"),
             ("cloud_bare_host_rejected", "sonarcloud.io"),
             ("cloud_subdomain_rejected", "https://api.sonarcloud.io"),
+            # A terminal DNS dot reaches the same cloud host, so it must not sidestep the check.
+            ("cloud_trailing_dot_rejected", "https://sonarcloud.io."),
+            ("cloud_subdomain_trailing_dot_rejected", "https://api.sonarcloud.io."),
+            # Stripping the dot leaves no hostname at all, which must stay a rejection.
+            ("dot_only_host", "https://."),
         ]
     )
     def test_invalid_raises(self, _name: str, value: str) -> None:
