@@ -1,4 +1,7 @@
+import os
 import json
+import subprocess
+from typing import Literal, Optional
 
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 
@@ -6,7 +9,28 @@ from posthog.cdp.filters import hog_function_filters_to_expr
 from posthog.cdp.validation import transpile_template_code
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import transpile
+
+
+class TranspilerError(Exception):
+    pass
+
+
+def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
+    from posthog.settings.base_variables import BASE_DIR
+
+    transpiler_path = os.path.join(BASE_DIR, "common/plugin_transpiler/dist/index.js")
+    if type not in ["site", "frontend"]:
+        raise Exception('Invalid type. Must be "site" or "frontend".')
+
+    process = subprocess.Popen(
+        ["node", transpiler_path, "--type", type], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    stdout, stderr = process.communicate(input=input_string.encode())
+
+    if process.returncode != 0:
+        error = stderr.decode()
+        raise TranspilerError(error)
+    return stdout.decode()
 
 
 def get_transpiled_function(hog_function: HogFunction) -> str:

@@ -1,11 +1,4 @@
-import json
-import dataclasses
-from copy import deepcopy
-
-from posthog.hogql.escape_sql import escape_hogql_string
-
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
-from posthog.models.integration import GoogleCloudIntegration
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
@@ -73,61 +66,3 @@ if (res.status >= 200 and res.status < 300) {
         },
     ],
 )
-
-
-class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
-    plugin_url = "https://github.com/PostHog/pubsub-plugin"
-
-    @classmethod
-    def migrate(cls, obj):
-        hf = deepcopy(dataclasses.asdict(template))
-        hf["hog"] = hf["code"]
-        del hf["code"]
-
-        exportEventsToIgnore = [x.strip() for x in obj.config.get("exportEventsToIgnore", "").split(",") if x]
-        topicId = obj.config.get("topicId", "")
-
-        from products.cdp.backend.models.plugin import PluginAttachment
-
-        attachment: PluginAttachment | None = PluginAttachment.objects.filter(
-            plugin_config=obj, key="googleCloudKeyJson"
-        ).first()
-        if not attachment:
-            raise Exception("Google Cloud Key JSON not found")
-
-        keyFile = json.loads(attachment.contents.decode("UTF-8"))  # type: ignore
-        integration = GoogleCloudIntegration.integration_from_key("google-pubsub", keyFile, obj.team.pk)
-
-        hf["filters"] = {}
-        if exportEventsToIgnore:
-            event_names = ", ".join([escape_hogql_string(event) for event in exportEventsToIgnore])
-            query = f"event not in ({event_names})"
-            hf["filters"]["events"] = [
-                {
-                    "id": None,
-                    "name": "All events",
-                    "type": "events",
-                    "order": 0,
-                    "properties": [{"key": query, "type": "hogql"}],
-                }
-            ]
-
-        hf["inputs"] = {
-            "topicId": {"value": topicId},
-            "payload": {
-                "value": {
-                    "event": "{event.event}",
-                    "distinct_id": "{event.distinct_id}",
-                    "elements_chain": "{event.elements_chain}",
-                    "timestamp": "{event.timestamp}",
-                    "uuid": "{event.uuid}",
-                    "properties": "{event.properties}",
-                    "person_id": "{person.id}",
-                    "person_properties": "{person.properties}",
-                }
-            },
-            "auth": {"value": integration.id},
-            "attributes": {"value": {}},
-        }
-
-        return hf

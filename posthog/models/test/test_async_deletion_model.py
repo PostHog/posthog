@@ -16,10 +16,31 @@ from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person, create_person_distinct_id
-from posthog.test.test_plugin_log_entry import create_plugin_log_entry
 
-from products.cdp.backend.models.plugin import PluginLogEntrySource, PluginLogEntryType
 from products.cohorts.backend.models.util import insert_static_cohort
+
+
+def create_plugin_log_entry(*, team_id: int, plugin_id: int, plugin_config_id: int, message: str, instance_id) -> None:
+    from django.utils import timezone
+
+    from posthog.clickhouse.plugin_log_entries import INSERT_PLUGIN_LOG_ENTRY_SQL
+    from posthog.models.utils import UUIDT
+
+    sync_execute(
+        INSERT_PLUGIN_LOG_ENTRY_SQL,
+        {
+            "id": UUIDT(),
+            "team_id": team_id,
+            "plugin_id": plugin_id,
+            "plugin_config_id": plugin_config_id,
+            "source": "SYSTEM",
+            "type": "INFO",
+            "instance_id": instance_id,
+            "message": message,
+            "timestamp": timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f"),
+        },
+    )
+
 
 uuid = str(UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8"))
 uuid2 = str(UUID("7ba7b810-9dad-11d1-80b4-00c04fd430c8"))
@@ -376,8 +397,6 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             team_id=self.teams[0].pk,
             plugin_id=1,
             plugin_config_id=1,
-            source=PluginLogEntrySource.SYSTEM,
-            type=PluginLogEntryType.INFO,
             message="Hello world",
             instance_id=uuid,
         )
@@ -414,8 +433,6 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             team_id=self.teams[1].pk,
             plugin_id=1,
             plugin_config_id=1,
-            source=PluginLogEntrySource.SYSTEM,
-            type=PluginLogEntryType.INFO,
             message="Hello world",
             instance_id=uuid,
         )

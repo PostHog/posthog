@@ -1,17 +1,13 @@
 import pytest
-from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.salesforce.template_salesforce import (
-    TemplatSalesforceMigrator,
     template_create as template_salesforce_create,
     template_lookup as template_salesforce_lookup,
     template_update as template_salesforce_update,
 )
-
-from products.cdp.backend.models.plugin import PluginConfig
 
 from common.hogvm.python.utils import UncaughtHogVMException
 
@@ -247,47 +243,3 @@ class TestTemplateSalesforceLookup(BaseHogFunctionTemplateTest):
             self.run_function(self._inputs(**override))
         assert "is not a valid Salesforce API name" in str(e.value)
         assert self.get_mock_fetch_calls() == []
-
-
-class TestTemplateMigration(BaseTest):
-    def get_plugin_config(self, config: dict):
-        _config = {
-            "eventsToInclude": "a,b",
-            "eventPath": "ignored",
-            "eventMethodType": "POST",
-            "propertiesToInclude": "email,$browser",
-            "eventEndpointMapping": "",  # ignored
-            "fieldMappings": "",  # ignored
-        }
-        _config.update(config)
-        return PluginConfig(enabled=True, order=0, config=_config)
-
-    def test_default_config(self):
-        obj = self.get_plugin_config({})
-        template = TemplatSalesforceMigrator.migrate(obj)
-        assert template["inputs"] == {
-            "path": {"value": "ignored"},
-            "properties": {"value": {"email": "{event.properties.email}", "$browser": "{event.properties.$browser}"}},
-        }
-
-        assert template["filters"] == {
-            "events": [
-                {"id": "a", "name": "a", "order": 0, "type": "events"},
-                {"id": "b", "name": "b", "order": 0, "type": "events"},
-            ]
-        }
-
-    def test_include_all(self):
-        obj = self.get_plugin_config({"propertiesToInclude": ""})
-        template = TemplatSalesforceMigrator.migrate(obj)
-        assert template["inputs"] == {
-            "path": {"value": "ignored"},
-            "include_all_event_properties": {"value": True},
-        }
-
-        assert template["filters"] == {
-            "events": [
-                {"id": "a", "name": "a", "order": 0, "type": "events"},
-                {"id": "b", "name": "b", "order": 0, "type": "events"},
-            ]
-        }

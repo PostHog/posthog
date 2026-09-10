@@ -1,7 +1,4 @@
-import dataclasses
-from copy import deepcopy
-
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
@@ -200,37 +197,3 @@ if (res.status >= 400) {
         "filter_test_accounts": True,
     },
 )
-
-
-class TemplateLoopsMigrator(HogFunctionTemplateMigrator):
-    plugin_url = "https://github.com/PostHog/posthog-loops-plugin"
-
-    @classmethod
-    def migrate(cls, obj):
-        hf = deepcopy(dataclasses.asdict(template))
-        hf["hog"] = hf["code"]
-        del hf["code"]
-
-        apiKey = obj.config.get("apiKey", "")
-        trackedEvents = obj.config.get("trackedEvents", "")
-        shouldTrackIdentify = obj.config.get("shouldTrackIdentify", "yes")
-
-        hf["filters"] = {}
-        hf["filters"]["events"] = []
-
-        events_to_filter = [event.strip() for event in trackedEvents.split(",") if event.strip()]
-
-        if events_to_filter:
-            hf["filters"]["events"] = [
-                {"id": event, "name": event, "type": "events", "order": 0} for event in events_to_filter
-            ]
-
-        if shouldTrackIdentify == "yes" and len(hf["filters"]["events"]) >= 1:
-            hf["filters"]["events"].append({"id": "$identify", "name": "$identify", "type": "events", "order": 0})
-            hf["filters"]["events"].append({"id": "$set", "name": "$set", "type": "events", "order": 1})
-
-        hf["inputs"] = {
-            "apiKey": {"value": apiKey},
-        }
-
-        return hf

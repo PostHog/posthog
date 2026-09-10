@@ -1,11 +1,4 @@
-import json
-import dataclasses
-from copy import deepcopy
-
-from posthog.hogql.escape_sql import escape_hogql_string
-
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
-from posthog.models.integration import GoogleCloudIntegration
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
@@ -67,55 +60,3 @@ if (res.status >= 200 and res.status < 300) {
         },
     ],
 )
-
-
-class TemplateGoogleCloudStorageMigrator(HogFunctionTemplateMigrator):
-    plugin_url = "https://github.com/PostHog/posthog-gcs-plugin"
-
-    @classmethod
-    def migrate(cls, obj):
-        hf = deepcopy(dataclasses.asdict(template))
-        hf["hog"] = hf["code"]
-        del hf["code"]
-
-        exportEventsToIgnore = [x.strip() for x in obj.config.get("exportEventsToIgnore", "").split(",") if x]
-        bucketName = obj.config.get("bucketName", "")
-
-        from products.cdp.backend.models.plugin import PluginAttachment
-
-        attachment: PluginAttachment | None = PluginAttachment.objects.filter(
-            plugin_config=obj, key="googleCloudKeyJson"
-        ).first()
-        if not attachment:
-            raise Exception("Google Cloud Key JSON not found")
-
-        keyFile = json.loads(attachment.contents.decode("UTF-8"))  # type: ignore
-        integration = GoogleCloudIntegration.integration_from_key("google-cloud-storage", keyFile, obj.team.pk)
-
-        hf["filters"] = {}
-        if exportEventsToIgnore:
-            event_names = ", ".join([escape_hogql_string(event) for event in exportEventsToIgnore])
-            query = f"event not in ({event_names})"
-            hf["filters"]["events"] = [
-                {
-                    "id": None,
-                    "name": "All events",
-                    "type": "events",
-                    "order": 0,
-                    "properties": [{"key": query, "type": "hogql"}],
-                }
-            ]
-
-        hf["inputs"] = {
-            "bucketName": {"value": bucketName},
-            "payload": {
-                "value": "uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n"
-                + "{event.uuid},{event.event},{jsonStringify(event.properties)},{event.elements_chain},{jsonStringify(event.properties.$set)},{jsonStringify(event.properties.$set_once)},{event.distinct_id},,,,{event.timestamp}"
-            },
-            "filename": {
-                "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"
-            },
-            "auth": {"value": integration.id},
-        }
-
-        return hf

@@ -5,7 +5,7 @@ import uuid
 import base64
 import logging
 import dataclasses
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
@@ -51,7 +51,6 @@ from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_i
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
@@ -410,8 +409,6 @@ class InstanceMetadata:
     users_who_signed_up: Optional[list[dict[str, Union[str, int]]]]
     users_who_signed_up_count: Optional[int]
     table_sizes: Optional[TableSizes]
-    plugins_installed: Optional[dict]
-    plugins_enabled: Optional[dict]
     instance_tag: str
 
 
@@ -475,8 +472,6 @@ def get_instance_metadata(period: DayRange) -> InstanceMetadata:
         users_who_signed_up=None,
         users_who_signed_up_count=None,
         table_sizes=None,
-        plugins_installed=None,
-        plugins_enabled=None,
         instance_tag=INSTANCE_TAG,
     )
 
@@ -522,13 +517,6 @@ def get_instance_metadata(period: DayRange) -> InstanceMetadata:
             "posthog_event": fetch_table_size("posthog_event"),
             "posthog_sessionrecordingevent": fetch_table_size("posthog_sessionrecordingevent"),
         }
-
-        plugin_configs = PluginConfig.objects.select_related("plugin").all()
-
-        metadata.plugins_installed = dict(Counter(plugin_config.plugin.name for plugin_config in plugin_configs))
-        metadata.plugins_enabled = dict(
-            Counter(plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled)
-        )
 
     return metadata
 

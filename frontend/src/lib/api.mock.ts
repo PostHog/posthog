@@ -15,9 +15,6 @@ import {
     OrganizationMemberType,
     OrganizationType,
     PersonProperty,
-    PluginConfigWithPluginInfo,
-    PluginInstallationType,
-    PluginType,
     ProjectType,
     PropertyFilterType,
     PropertyOperator,
@@ -379,39 +376,6 @@ export const MOCK_GROUP_TYPES: GroupType[] = [
         name_plural: 'projects',
     },
 ]
-
-export const MOCK_DEFAULT_PLUGIN: PluginType = {
-    id: 1,
-    plugin_type: PluginInstallationType.Custom,
-    name: 'Bazooka',
-    description: 'Blow your data up',
-    config_schema: [],
-    tag: 'b65bbbbe126883babffc6fb06f448bfc65b5be7a',
-    latest_tag: 'b65bbbbe126883babffc6fb06f448bfc65b5be7a',
-    is_global: false,
-    organization_id: MOCK_DEFAULT_ORGANIZATION.id,
-    organization_name: MOCK_DEFAULT_ORGANIZATION.name,
-    capabilities: {
-        jobs: [],
-        methods: ['processEvent'],
-        scheduled_tasks: ['runEveryHour'],
-    },
-    metrics: {},
-    public_jobs: {},
-    // urls are hard-coded in frontend/src/scenes/pipeline/utils.tsx so it must be one of those URLs for tests to work
-    url: 'https://github.com/PostHog/downsampling-plugin',
-}
-
-export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {
-    id: 1,
-    plugin: MOCK_DEFAULT_PLUGIN.id,
-    enabled: true,
-    order: 1,
-    config: {},
-    team_id: MOCK_TEAM_ID,
-    created_at: '2020-12-01T14:00:00.000Z',
-    plugin_info: MOCK_DEFAULT_PLUGIN,
-}
 
 export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
     {

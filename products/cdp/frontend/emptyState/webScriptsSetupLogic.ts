@@ -1,7 +1,6 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -45,7 +44,7 @@ export type webScriptsSetupLogicType = MakeLogicType<webScriptsSetupLogicValues,
 /**
  * Setup detection for the web scripts empty state. Web scripts are creation-first,
  * so "set up" simply means the project has at least one script the scene would list:
- * a `site_app` hog function, or a legacy plugin site app. Re-checks on every mount
+ * a `site_app` hog function. Re-checks on every mount
  * (the scene gate mounts it), which covers returning from the creation page.
  */
 export const webScriptsSetupLogic = kea<webScriptsSetupLogicType>([
@@ -64,15 +63,12 @@ export const webScriptsSetupLogic = kea<webScriptsSetupLogicType>([
             null as number | null,
             {
                 loadScriptCount: async (_: void, breakpoint): Promise<number> => {
-                    // The scene lists plugin-backed site apps alongside hog functions, so counting
-                    // only hog functions would tell a project still running legacy site apps to
-                    // create its first one and hide the ones serving its site today.
-                    const [hogFunctions, legacySiteApps] = await Promise.all([
-                        hogFunctionsList(String(values.currentProjectId), { type: ['site_app'], limit: 1 }),
-                        api.pipelineFrontendAppsConfigs.list({ limit: 1 }),
-                    ])
+                    const hogFunctions = await hogFunctionsList(String(values.currentProjectId), {
+                        type: ['site_app'],
+                        limit: 1,
+                    })
                     breakpoint()
-                    return hogFunctions.count + legacySiteApps.count
+                    return hogFunctions.count
                 },
             },
         ],

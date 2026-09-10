@@ -668,7 +668,6 @@ def _build_template_context(
                         many=False,
                     )
                     posthog_app_context["current_project"] = project_serialized.data
-                posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 event_info = get_default_event_info(user.team)
                 posthog_app_context["default_event_name"] = event_info["default_event_name"]
                 posthog_app_context["has_pageview"] = event_info["has_pageview"]
@@ -1082,47 +1081,6 @@ def get_has_person_email(team: "Team") -> bool:
 
 def invalidate_has_person_email_cache(project_id: int) -> None:
     safe_cache_delete(_has_person_email_cache_key(project_id))
-
-
-@tracer.start_as_current_span("template.frontend_apps")
-def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
-
-    plugin_configs = (
-        Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
-        .filter(
-            pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
-            pluginsourcefile__filename="frontend.tsx",
-        )
-        .values(
-            "pluginconfig__id",
-            "pluginconfig__config",
-            "config_schema",
-            "id",
-            "plugin_type",
-            "name",
-        )
-        .all()
-    )
-
-    frontend_apps = {}
-    for p in plugin_configs:
-        config = p["pluginconfig__config"] or {}
-        config_schema = p["config_schema"] or {}
-        secret_fields = {field["key"] for field in config_schema if field.get("secret")}
-        for key in secret_fields:
-            if key in config:
-                config[key] = "** SECRET FIELD **"
-        frontend_apps[p["pluginconfig__id"]] = {
-            "pluginConfigId": p["pluginconfig__id"],
-            "pluginId": p["id"],
-            "pluginType": p["plugin_type"],
-            "name": p["name"],
-            "url": f"/app/{p['pluginconfig__id']}/",
-            "config": config,
-        }
-
-    return frontend_apps
 
 
 def json_uuid_convert(o):

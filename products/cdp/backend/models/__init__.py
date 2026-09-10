@@ -2,16 +2,7 @@ from .hog_function_template import HogFunctionTemplate
 from .hog_functions import HogFunction, HogFunctionRevision
 from .hog_functions.hog_function import HogFunctionState
 from .hook import Hook
-from .plugin import (
-    Plugin,
-    PluginAttachment,
-    PluginConfig,
-    PluginLogEntry,
-    PluginLogEntrySource,
-    PluginLogEntryType,
-    PluginSourceFile,
-    PluginStorage,
-)
+from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile, PluginStorage
 
 __all__ = [
     "HogFunction",
@@ -22,9 +13,6 @@ __all__ = [
     "Plugin",
     "PluginAttachment",
     "PluginConfig",
-    "PluginLogEntry",
-    "PluginLogEntrySource",
-    "PluginLogEntryType",
     "PluginSourceFile",
     "PluginStorage",
 ]

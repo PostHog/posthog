@@ -85,7 +85,6 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportOnDemand,
     BatchExportRun,
 )
-from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -642,15 +641,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
     def _select_report_by_org_id(self, org_id: str, reports: list[dict]) -> dict:
         return next(report for report in reports if report["organization_id"] == org_id)
 
-    def _create_plugin(self, name: str, enabled: bool) -> None:
-        plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)
-        PluginConfig.objects.create(plugin=plugin, enabled=enabled, order=1)
-
     def _test_usage_report(self) -> list[dict]:
         with self.settings(SITE_URL="http://test.posthog.com"):
             self._create_sample_usage_data(include_mobile_replay=True)
-            self._create_plugin("Installed but not enabled", False)
-            self._create_plugin("Installed and enabled", True)
 
             period = get_previous_day()
             all_reports = _get_all_org_reports(period=period)
@@ -684,11 +677,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "users_who_signed_up": [],
                     "users_who_signed_up_count": 0,
                     "table_sizes": report["table_sizes"],
-                    "plugins_installed": {
-                        "Installed and enabled": 1,
-                        "Installed but not enabled": 1,
-                    },
-                    "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_in_period": 49,
                     "enhanced_persons_event_count_in_period": 48,
@@ -977,11 +965,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "users_who_signed_up": [],
                     "users_who_signed_up_count": 0,
                     "table_sizes": report["table_sizes"],
-                    "plugins_installed": {
-                        "Installed and enabled": 1,
-                        "Installed but not enabled": 1,
-                    },
-                    "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_in_period": 10,
                     "enhanced_persons_event_count_in_period": 10,

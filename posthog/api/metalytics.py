@@ -9,7 +9,7 @@ from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 
-from products.cdp.backend.models.plugin import PluginConfig
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 class MetalyticsCreateRequestSerializer(serializers.Serializer):
@@ -19,7 +19,8 @@ class MetalyticsCreateRequestSerializer(serializers.Serializer):
 
 class MetalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
-    queryset = PluginConfig.objects.all()
+    # The mixin requires a queryset; this viewset never reads from it.
+    queryset = HogFunction.objects.none()
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return MetalyticsCreateRequestSerializer if self.action == "create" else MetalyticsCreateRequestSerializer

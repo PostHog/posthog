@@ -24,11 +24,11 @@ from posthog.plugins.plugin_server_api import (
     patch_hog_function_status,
     reload_hog_functions_on_workers,
 )
+from posthog.plugins.site import get_decide_site_functions
 from posthog.utils import absolute_uri
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.cdp.backend.models.plugin import sync_team_inject_web_apps
 from products.cohorts.backend.models.cohort import is_cohort_recalculation_only_save
 
 if TYPE_CHECKING:
@@ -355,7 +355,14 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
         team = None
     if team is not None:
         # This controls whether /decide makes extra queries to get the site apps or not
-        sync_team_inject_web_apps(instance.team)
+        sync_team_inject_web_apps(team)
+
+
+def sync_team_inject_web_apps(team: Team):
+    inject_web_apps = len(get_decide_site_functions(team)) > 0
+    if inject_web_apps != team.inject_web_apps:
+        team.inject_web_apps = inject_web_apps
+        team.save(update_fields=["inject_web_apps"])
 
 
 @receiver(models.signals.post_save, sender=Team)

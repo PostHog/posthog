@@ -5,7 +5,6 @@ from django.utils import timezone
 from posthog.models import EventProperty, PersonalAPIKey, Team, User
 from posthog.models.utils import hash_key_value
 
-from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from products.demo.backend.facade.api import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -16,11 +15,6 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--no-data", action="store_true", help="Create demo account without data")
-        parser.add_argument(
-            "--create-e2e-test-plugin",
-            action="store_true",
-            help="Create plugin for charts E2E test",
-        )
 
     def handle(self, *args, **options):
         print("\n⚠️ setup_dev is deprecated. Use the more robust generate_demo_data command instead.\n")  # noqa T201
@@ -66,38 +60,8 @@ class Command(BaseCommand):
             if not options["no_data"]:
                 create_demo_data(team)
 
-            if options["create_e2e_test_plugin"]:
-                self.create_plugin(team)
-
     @staticmethod
     def add_property_definition(team: Team, property: str) -> None:
         PropertyDefinition.objects.create(team=team, name=property)
         EventProperty.objects.create(team=team, event="$pageview", property=property)
         EventProperty.objects.create(team=team, event="$autocapture", property=property)
-
-    def create_plugin(self, team):
-        plugin = Plugin.objects.create(organization=team.organization, name="e2e test plugin", plugin_type="source")
-        plugin_config = PluginConfig.objects.create(plugin=plugin, team=team, order=1, config={})
-
-        PluginSourceFile.objects.update_or_create(
-            plugin=plugin,
-            filename="plugin.json",
-            source='{ "name": "e2e test plugin", "config": [] }',
-        )
-        PluginSourceFile.objects.update_or_create(
-            plugin=plugin,
-            filename="index.ts",
-            source="""
-                export async function onEvent(event, meta) {
-                    const ratelimit = await meta.cache.get('ratelimit')
-                    if (!ratelimit && event.event !== '$pluginEvent') {
-                        posthog.capture('$pluginEvent', { event: event.event })
-                        await meta.cache.set('ratelimit', 1)
-                        await meta.cache.expire('ratelimit', 60)
-                    }
-                }
-            """,
-        )
-
-        plugin_config.enabled = True
-        plugin_config.save()

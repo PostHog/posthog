@@ -18,9 +18,7 @@ from posthog.models.global_rate_limit_threshold_config import GlobalRateLimitThr
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.cdp.backend.admin.plugin_attachment_inline import PluginAttachmentInline
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import Text
@@ -139,38 +137,6 @@ class TestUserAdmin(BaseTest):
             form.clean_passkeys_enabled_for_2fa()
 
 
-class TestPluginAttachmentInline(BaseTest):
-    def test_parsed_json_escapes_html_in_values(self):
-        inline = PluginAttachmentInline(MagicMock(), MagicMock())
-        attachment = MagicMock()
-        attachment.file_size = 100
-        attachment.contents = b'{"xss": "</pre><script>alert(1)</script><pre>"}'
-
-        result = str(inline.parsed_json(attachment))
-
-        assert "<script>" not in result
-        assert "&lt;script&gt;" in result
-
-    def test_parsed_json_error_escapes_html(self):
-        inline = PluginAttachmentInline(MagicMock(), MagicMock())
-        attachment = MagicMock()
-        attachment.file_size = 100
-        attachment.contents = b"not json"
-
-        result = str(inline.parsed_json(attachment))
-
-        assert "cannot preview:" in result
-
-    def test_raw_contents_error_escapes_html(self):
-        inline = PluginAttachmentInline(MagicMock(), MagicMock())
-        attachment = MagicMock()
-        attachment.file_size = 2 * 1024 * 1024
-
-        result = str(inline.raw_contents(attachment))
-
-        assert "cannot preview:" in result
-
-
 class TestEventIngestionRestrictionConfigAdmin:
     def test_display_team_id_reads_annotation(self):
         admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
@@ -224,8 +190,6 @@ class TestProductAdminRegistration:
             HogFlowTemplate,
             HogFlowBatchJob,
             HogFunction,
-            Plugin,
-            PluginConfig,
             AlertConfiguration,
             Dashboard,
             DashboardTemplate,

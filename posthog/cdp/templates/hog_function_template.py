@@ -1,14 +1,8 @@
 import dataclasses
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import Literal, Optional
 
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-
-if TYPE_CHECKING:
-    from products.cdp.backend.models.plugin import PluginConfig
-else:
-    PluginConfig = None
-
 
 SubTemplateId = Literal[
     "activity-log",
@@ -67,15 +61,6 @@ class HogFunctionTemplateDC:
     mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
-
-
-class HogFunctionTemplateMigrator:
-    plugin_url: str
-
-    @classmethod
-    def migrate(cls, obj: PluginConfig) -> dict:
-        # Return a dict for the template of a new HogFunction
-        raise NotImplementedError()
 
 
 def sync_template_to_db(template_data: dict | HogFunctionTemplateDC) -> HogFunctionTemplate:

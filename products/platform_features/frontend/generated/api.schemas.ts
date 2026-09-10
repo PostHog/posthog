@@ -1323,8 +1323,6 @@ export type ActivityLogListParams = {
      * * `Person` - Person
      * * `Group` - Group
      * * `Insight` - Insight
-     * * `Plugin` - Plugin
-     * * `PluginConfig` - PluginConfig
      * * `HogFunction` - HogFunction
      * * `HogFlow` - HogFlow
      * * `DataManagement` - DataManagement
@@ -1420,8 +1418,6 @@ export const ActivityLogListScope = {
     Person: 'Person',
     Group: 'Group',
     Insight: 'Insight',
-    Plugin: 'Plugin',
-    PluginConfig: 'PluginConfig',
     HogFunction: 'HogFunction',
     HogFlow: 'HogFlow',
     DataManagement: 'DataManagement',
@@ -1504,8 +1500,6 @@ export const ActivityLogListScope = {
  * * `Person` - Person
  * * `Group` - Group
  * * `Insight` - Insight
- * * `Plugin` - Plugin
- * * `PluginConfig` - PluginConfig
  * * `HogFunction` - HogFunction
  * * `HogFlow` - HogFlow
  * * `DataManagement` - DataManagement
@@ -1589,8 +1583,6 @@ export const ActivityLogListScopesItem = {
     Person: 'Person',
     Group: 'Group',
     Insight: 'Insight',
-    Plugin: 'Plugin',
-    PluginConfig: 'PluginConfig',
     HogFunction: 'HogFunction',
     HogFlow: 'HogFlow',
     DataManagement: 'DataManagement',

@@ -141,43 +141,7 @@ class ActivityLogTestHelper(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 
-    # Plugin
-    def create_plugin(self, name: str = "Test Plugin", **kwargs) -> dict[str, Any]:
-        """Create a plugin via API."""
-        data = {
-            "name": name,
-            "plugin_type": "local",
-            "description": "Test plugin",
-            "url": "https://github.com/PostHog/posthog-plugin-test",
-            **kwargs,
-        }
-        response = self.client.post("/api/organizations/@current/plugins/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        return response.json()
-
-    def update_plugin(self, plugin_id: int, updates: dict[str, Any]) -> dict[str, Any]:
-        """Update a plugin via API."""
-        response = self.client.patch(f"/api/organizations/@current/plugins/{plugin_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.json()
-
-    # PluginConfig
-    def create_plugin_config(self, plugin_id: int, **kwargs) -> dict[str, Any]:
-        """Create a plugin config via API."""
-        data = {"plugin": plugin_id, "enabled": True, "order": 0, "config": {"key": "value"}, **kwargs}
-        response = self.client.post(f"/api/projects/{self.team.id}/plugin_configs/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        return response.json()
-
-    def update_plugin_config(self, config_id: int, updates: dict[str, Any]) -> dict[str, Any]:
-        """Update a plugin config via API."""
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/plugin_configs/{config_id}/", updates, format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.json()
-
-    # HogFunction (using Plugin as base)
+    # HogFunction
     def create_hog_function(self, name: str = "Test Hog Function", **kwargs) -> dict[str, Any]:
         """Create a hog function via API."""
         data = {

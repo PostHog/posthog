@@ -16,7 +16,7 @@ import type {
     PaginatedHogFunctionMinimalListApi,
 } from 'products/cdp/frontend/generated/api.schemas'
 
-export type PipelineKind = 'destination' | 'transformation' | 'plugin' | 'batch_export'
+export type PipelineKind = 'destination' | 'transformation' | 'batch_export'
 
 export type PipelineItem = {
     id: string
@@ -32,16 +32,13 @@ export type PipelineTeamGroup = {
     items: PipelineItem[]
 }
 
-export const PIPELINE_KIND_ORDER: PipelineKind[] = ['destination', 'transformation', 'batch_export', 'plugin']
+export const PIPELINE_KIND_ORDER: PipelineKind[] = ['destination', 'transformation', 'batch_export']
 
 export const PIPELINE_KIND_LABELS: Record<PipelineKind, string> = {
     destination: 'Destinations',
     transformation: 'Transformations',
     batch_export: 'Batch exports',
-    plugin: 'Plugin destinations (deprecated)',
 }
-
-type PluginDestinationConfig = { id: number; name?: string | null }
 
 function displayName(name: string | null | undefined): string {
     return name?.trim() || '(unnamed)'
@@ -134,22 +131,6 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                                 }
                             } catch (e) {
                                 console.warn(`Failed to load hog functions for team ${team.id}`, e)
-                            }
-                            try {
-                                const pcs = await api.loadPaginatedResults<PluginDestinationConfig>(
-                                    `api/projects/${team.id}/pipeline_destination_configs/?limit=100`
-                                )
-                                for (const pc of pcs) {
-                                    items.push({
-                                        id: `plugin_config:${pc.id}`,
-                                        name: displayName(pc.name),
-                                        kind: 'plugin',
-                                        teamId: team.id,
-                                        teamName: team.name,
-                                    })
-                                }
-                            } catch (e) {
-                                console.warn(`Failed to load plugin destinations for team ${team.id}`, e)
                             }
                             try {
                                 const initial: PaginatedBatchExportListApi = await batchExportsList(String(team.id), {

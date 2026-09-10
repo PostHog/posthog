@@ -803,7 +803,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         ",".join(
             [
                 "^/?external_surveys/[^/]+/?$",
-                "^/?api/plugin_config/\\d+/frontend/?$",
                 "^/?api/(environments|projects)/@current/property_definitions/?$",
                 "^/?api/(environments|projects)/\\d+/event_definitions/?$",
                 "^/?api/(environments|projects)/\\d+/insights/(trend|funnel)/?$",
@@ -825,7 +824,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/element/stats/?$",
                 "^/api/(environments|projects)/\\d+/cohorts/?$",
                 "^/api/(environments|projects)/\\d+/persons/?$",
-                "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
                 # Deploy-static source catalog (no user input or secrets reflected): several

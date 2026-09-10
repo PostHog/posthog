@@ -50,7 +50,6 @@ from posthog.user_permissions import UserPermissions
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
@@ -627,43 +626,6 @@ def send_code_based_verification(user_id: int, code: str) -> None:
         event="login verification code sent",
         groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
     )
-
-
-@shared_task(**EMAIL_TASK_KWARGS)
-def send_fatal_plugin_error(
-    plugin_config_id: int,
-    plugin_config_updated_at: Optional[str],
-    error: str,
-    is_system_error: bool,
-) -> None:
-    if not is_email_available(with_absolute_urls=True):
-        return
-    plugin_config: PluginConfig = PluginConfig.objects.prefetch_related("plugin", "team").get(id=plugin_config_id)
-    plugin: Plugin = plugin_config.plugin
-    team = plugin_config.team
-    if team is None:
-        return
-
-    pipeline_id = f"plugin_config:{plugin_config_id}"
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
-    if not memberships_to_email:
-        return
-
-    campaign_key: str = f"plugin_disabled_email_plugin_config_{plugin_config_id}_updated_at_{plugin_config_updated_at}"
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"[Alert] {plugin} has been disabled in project {team} due to a fatal error",
-        template_name="fatal_plugin_error",
-        template_context={
-            "plugin": plugin,
-            "team": team,
-            "error": error,
-            "is_system_error": is_system_error,
-        },
-    )
-    for membership in memberships_to_email:
-        message.add_user_recipient(membership.user)
-    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

@@ -105,14 +105,6 @@ else:
 DISABLE_MMDB: bool = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
 )  # plugin server setting disabling GeoIP feature
-PLUGINS_PREINSTALLED_URLS: list[str] = (
-    os.getenv(
-        "PLUGINS_PREINSTALLED_URLS",
-        "https://www.npmjs.com/package/@posthog/geoip-plugin",
-    ).split(",")
-    if not DISABLE_MMDB
-    else []
-)
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.

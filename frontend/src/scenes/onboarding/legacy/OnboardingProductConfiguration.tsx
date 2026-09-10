@@ -12,23 +12,14 @@ import { ProductConfigOption, onboardingProductConfigurationLogic } from './onbo
 import { OnboardingStep } from './OnboardingStep'
 
 type ConfigType = 'toggle' | 'select'
-type PluginType = 'plugin'
-type ConfigOption =
-    | {
-          title: string
-          description?: string
-          type: ConfigType
-          selectOptions?: { label: string; value: string | number }[]
-          value: boolean | string | number
-          onChange: (newValue: boolean | string | number) => void
-      }
-    | {
-          title: string
-          description?: string
-          type: PluginType
-          value: boolean
-          onChange: (newValue: boolean) => void
-      }
+type ConfigOption = {
+    title: string
+    description?: string
+    type: ConfigType
+    selectOptions?: { label: string; value: string | number }[]
+    value: boolean | string | number
+    onChange: (newValue: boolean | string | number) => void
+}
 
 interface OnboardingProductConfigurationProps {
     options: ProductConfigOption[]
@@ -96,13 +87,6 @@ export const OnboardingProductConfiguration: OnboardingStepComponentType<Onboard
                                         className="justify-end"
                                         fullWidth={true}
                                         checked={(item.value as boolean) || false}
-                                    />
-                                ) : item.type === 'plugin' ? (
-                                    <LemonSwitch
-                                        onChange={item.onChange}
-                                        className="justify-end"
-                                        fullWidth={true}
-                                        checked={item.value || false}
                                     />
                                 ) : (
                                     <div className="flex gap-x-4 justify-end items-center mb-1">

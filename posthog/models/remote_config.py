@@ -1,5 +1,4 @@
 import os
-import json
 from typing import Any
 
 from django.conf import settings
@@ -14,17 +13,15 @@ from opentelemetry import trace
 from prometheus_client import Counter
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
-from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.models.utils import UUIDTModel
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import PluginConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -209,7 +206,6 @@ class RemoteConfig(UUIDTModel):
     @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self, bypass_recordings_quota_cache: bool = False) -> dict[str, Any]:
         from posthog.models.team import Team
-        from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -330,16 +326,8 @@ class RemoteConfig(UUIDTModel):
         # posthog-js >= 1.207.2 always defaults to "identified_only" and no longer reads this field.
         config["defaultIdentifiedOnly"] = True
 
-        # MARK: Site apps - we want to eventually inline the JS but that will come later
-        site_apps = []
-        if team.inject_web_apps:
-            try:
-                with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
-                    site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
-            except Exception:
-                pass
-
-        config["siteApps"] = site_apps
+        # Legacy plugin-based site apps are gone; the key stays for SDK payload compatibility.
+        config["siteApps"] = []
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
@@ -357,19 +345,9 @@ class RemoteConfig(UUIDTModel):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.cdp.site_functions import get_transpiled_function
-        from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
-        # Add in the site apps as an array of objects
-        site_apps_js = []
-        for site_app in get_site_apps_for_team(self.team.id):
-            config = get_site_config_from_schema(site_app.config_schema, site_app.config)
-            site_apps_js.append(
-                indent_js(
-                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback(); return {{}}  }}\n}}"
-                )
-            )
         site_functions_js = []
 
         try:
@@ -403,7 +381,7 @@ class RemoteConfig(UUIDTModel):
             logger.exception(f"Failed to fetch site functions for team {self.team.id}")
             capture_exception(e)
 
-        return site_apps_js + site_functions_js
+        return site_functions_js
 
     def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False):
         """
@@ -526,15 +504,6 @@ def team_saved(sender, instance: "Team", created, **kwargs):
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
-
-
-@receiver(post_save, sender=PluginConfig)
-def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
-    # PluginConfig allows null for team, hence this check.
-    # Use intermediate variable so it's properly captured by the lambda.
-    instance_team_id = instance.team_id
-    if instance_team_id is not None:
-        transaction.on_commit(lambda: _update_team_remote_config(instance_team_id))
 
 
 @receiver(post_save, sender=HogFunction)

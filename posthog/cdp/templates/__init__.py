@@ -7,34 +7,18 @@ from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from .activecampaign.template_activecampaign import template as activecampaign
 from .airtable.template_airtable import template as airtable
 from .attio.template_attio import template as attio
-from .avo.template_avo import (
-    TemplateAvoMigrator,
-    template as avo,
-)
+from .avo.template_avo import template as avo
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .braze.template_braze import template as braze
 from .brevo.template_brevo import template as brevo
 from .clearbit.template_clearbit import template as clearbit
-from .customerio.template_customerio import (
-    TemplateCustomerioMigrator,
-    template as customerio,
-)
+from .customerio.template_customerio import template as customerio
 from .discord.template_discord import template as discord
-from .engage.template_engage import (
-    TemplateEngageMigrator,
-    template as engage,
-)
+from .engage.template_engage import template as engage
 from .gleap.template_gleap import template as gleap
-from .google_cloud_storage.template_google_cloud_storage import (
-    TemplateGoogleCloudStorageMigrator,
-    template as google_cloud_storage,
-)
-from .google_pubsub.template_google_pubsub import (
-    TemplateGooglePubSubMigrator,
-    template as google_pubsub,
-)
+from .google_cloud_storage.template_google_cloud_storage import template as google_cloud_storage
+from .google_pubsub.template_google_pubsub import template as google_pubsub
 from .hubspot.template_hubspot import (
-    TemplateHubspotMigrator,
     template as hubspot,
     template_event as hubspot_event,
 )
@@ -50,7 +34,6 @@ from .klaviyo.template_klaviyo import (
 from .knock.template_knock import template as knock
 from .kudosity.template_kudosity import template as kudosity
 from .loops.template_loops import (
-    TemplateLoopsMigrator,
     template as loops,
     template_send_event as loops_send_event,
 )
@@ -63,24 +46,15 @@ from .mailjet.template_mailjet import (
 from .make.template_make import template as make
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
 from .onesignal.template_onesignal import template as onesignal
-from .posthog.template_posthog import (
-    TemplatePostHogMigrator,
-    template as posthog,
-)
+from .posthog.template_posthog import template as posthog
 from .reddit.template_reddit_pixel import template_reddit_pixel as reddit_pixel
-from .rudderstack.template_rudderstack import (
-    TemplateRudderstackMigrator,
-    template as rudderstack,
-)
+from .rudderstack.template_rudderstack import template as rudderstack
 from .salesforce.template_salesforce import (
     template_create as salesforce_create,
     template_lookup as salesforce_lookup,
     template_update as salesforce_update,
 )
-from .sendgrid.template_sendgrid import (
-    TemplateSendGridMigrator,
-    template as sendgrid,
-)
+from .sendgrid.template_sendgrid import template as sendgrid
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
 from .userlist.template_userlist import template as userlist
@@ -140,17 +114,3 @@ HOG_FUNCTION_TEMPLATES = [
     pineapple_mode,
     debug_posthog,
 ]
-
-
-HOG_FUNCTION_MIGRATORS = {
-    TemplateCustomerioMigrator.plugin_url: TemplateCustomerioMigrator,
-    TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
-    TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
-    TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
-    TemplateEngageMigrator.plugin_url: TemplateEngageMigrator,
-    TemplatePostHogMigrator.plugin_url: TemplatePostHogMigrator,
-    TemplateHubspotMigrator.plugin_url: TemplateHubspotMigrator,
-    TemplateRudderstackMigrator.plugin_url: TemplateRudderstackMigrator,
-    TemplateLoopsMigrator.plugin_url: TemplateLoopsMigrator,
-    TemplateAvoMigrator.plugin_url: TemplateAvoMigrator,
-}
