@@ -11,8 +11,9 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseAllReplicasAreStaleError,
     ClickHouseCheckQueryStatusError,
     ClickHouseClient,
+    ClickHouseClusterMemoryLimitExceededError,
     ClickHouseError,
-    ClickHouseMemoryLimitExceededError,
+    ClickHouseQueryMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
     ClickHouseQueryTimeoutError,
@@ -169,7 +170,19 @@ def _mock_internal_session_post(return_value):
     [
         (
             "Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
-            ClickHouseMemoryLimitExceededError,
+            ClickHouseClusterMemoryLimitExceededError,
+        ),
+        (
+            "Code: 241. DB::Exception: Memory limit (for query) exceeded: would use 30.01 GiB (attempt to allocate chunk of 4.00 MiB), maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
+            ClickHouseQueryMemoryLimitExceededError,
+        ),
+        (
+            "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB (attempt to allocate chunk of 4.00 MiB), maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
+            ClickHouseQueryMemoryLimitExceededError,
+        ),
+        (
+            "Code: 241. DB::Exception: Memory limit (for user) exceeded: would use 90.00 GiB (attempt to allocate chunk of 4.00 MiB), maximum: 90.00 GiB. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
+            ClickHouseClusterMemoryLimitExceededError,
         ),
         (
             "Code: 307. DB::Exception: Limit for rows or bytes to read exceeded, max bytes: 50.00 TiB, current bytes: 50.00 TiB: While executing MergeTreeSelect(pool: ReadPool, algorithm: Thread). (TOO_MANY_BYTES) (version x.x.x.x (official build))",
@@ -189,7 +202,10 @@ def _mock_internal_session_post(return_value):
         ),
     ],
     ids=[
-        "MEMORY_LIMIT_EXCEEDED",
+        "MEMORY_LIMIT_EXCEEDED_total",
+        "MEMORY_LIMIT_EXCEEDED_for_query",
+        "MEMORY_LIMIT_EXCEEDED_query_prefix",
+        "MEMORY_LIMIT_EXCEEDED_for_user",
         "TOO_MANY_BYTES",
         "TOO_MANY_SIMULTANEOUS_QUERIES",
         "TIMEOUT_EXCEEDED",
@@ -363,19 +379,22 @@ async def test_acheck_query_in_query_log_classifies_the_error(clickhouse_client,
 
     A caller that waits out a query which outlived its client timeout reads the failure from the
     query log instead of the response. Both carry the same error text, so both must yield the same
-    exception class: otherwise whether a caller sees `ClickHouseMemoryLimitExceededError` or a bare
-    `ClickHouseError` depends on how long the query happened to take.
+    exception class: otherwise whether a caller sees `ClickHouseQueryMemoryLimitExceededError` or a
+    bare `ClickHouseError` depends on how long the query happened to take.
+
+    The class also pins the per-query wording against a real server, which callers read to tell a
+    query's own budget breach from pressure on the shared cluster.
     """
     query_id = f"test-memory-limit-query-{uuid.uuid4()}"
 
-    with pytest.raises(ClickHouseMemoryLimitExceededError) as direct:
+    with pytest.raises(ClickHouseQueryMemoryLimitExceededError) as direct:
         await clickhouse_client.execute_query_with_summary(
             "SELECT groupArray(toString(number)) FROM numbers(10000000)",
             query_id=query_id,
             settings={"max_memory_usage": "1000000"},
         )
 
-    with pytest.raises(ClickHouseMemoryLimitExceededError) as from_query_log:
+    with pytest.raises(ClickHouseQueryMemoryLimitExceededError) as from_query_log:
         await _wait_for_query_status(clickhouse_client, query_id, ClickHouseQueryStatus.ERROR)
 
     assert "MEMORY_LIMIT_EXCEEDED" in str(direct.value)

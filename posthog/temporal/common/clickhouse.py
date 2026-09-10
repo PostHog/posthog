@@ -174,10 +174,29 @@ class ClickHouseQueryNotFound(ClickHouseError):
 
 
 class ClickHouseMemoryLimitExceededError(ClickHouseError):
-    """Exception raised when a query exceeds the memory limit."""
+    """Exception raised when a query exceeds a memory limit.
+
+    Never raised directly: callers get one of the two subclasses below, so they can tell a
+    breach of this query's own budget from pressure on the shared cluster.
+    """
 
     def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
         super().__init__(error_message, query, query_id)
+
+
+class ClickHouseQueryMemoryLimitExceededError(ClickHouseMemoryLimitExceededError):
+    """Exception raised when a query exceeds its own memory budget.
+
+    The query asked for more memory than one query may use, so a retry ends the same way.
+    """
+
+
+class ClickHouseClusterMemoryLimitExceededError(ClickHouseMemoryLimitExceededError):
+    """Exception raised when the cluster, or the shared user, is out of memory.
+
+    Any query running at that moment can be the one ClickHouse stops, so this says nothing
+    about the query that received it. It is transient capacity: a retry can succeed.
+    """
 
 
 class ClickHouseTooManyBytesError(ClickHouseError):
@@ -206,6 +225,20 @@ class ClickHouseCheckQueryStatusError(ClickHouseError):
 
     def __init__(self, error_message: str, query_id: str | None = None):
         super().__init__(error_message, query_id=query_id)
+
+
+def _memory_limit_exception_class(error_message: str) -> type[ClickHouseMemoryLimitExceededError]:
+    """Tell a breach of one query's memory budget from pressure on the shared cluster.
+
+    ClickHouse words the per-query breach two ways: "Memory limit (for query) exceeded" before
+    version 26, "Query memory limit exceeded" since. Every other wording of code 241 - "(total)",
+    "(for user)", or a future rewording - reports shared memory pressure. The synchronous query
+    path splits the code the same way, in `posthog/errors.py`.
+    """
+    lowered = error_message.lower()
+    if "(for query)" in lowered or "query memory limit exceeded" in lowered:
+        return ClickHouseQueryMemoryLimitExceededError
+    return ClickHouseClusterMemoryLimitExceededError
 
 
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
@@ -403,9 +436,10 @@ class ClickHouseClient:
         error_message: str, query: str | None = None, query_id: str | None = None
     ) -> typing.NoReturn:
         """Raise the appropriate ClickHouseError subclass based on the error message."""
+        if "MEMORY_LIMIT_EXCEEDED" in error_message:
+            raise _memory_limit_exception_class(error_message)(error_message, query=query, query_id=query_id)
         ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
             "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
-            "MEMORY_LIMIT_EXCEEDED": ClickHouseMemoryLimitExceededError,
             "TOO_MANY_ROWS_OR_BYTES": ClickHouseTooManyRowsOrBytesError,
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,

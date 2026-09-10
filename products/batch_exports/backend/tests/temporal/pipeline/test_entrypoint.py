@@ -16,7 +16,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
+from posthog.temporal.common.clickhouse import ClickHouseQueryMemoryLimitExceededError
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
@@ -268,7 +268,7 @@ class TestErrorHandling:
         assert run.latest_error == "DummyRetryableError: This is an unexpected internal error"
 
     # A real per-query memory-limit failure, in the form the ClickHouse client raises it
-    _QUERY_MEMORY_ERROR = ClickHouseMemoryLimitExceededError(
+    _QUERY_MEMORY_ERROR = ClickHouseQueryMemoryLimitExceededError(
         "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB "
         "(attempt to allocate chunk of 4.00 MiB), maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED)"
     )

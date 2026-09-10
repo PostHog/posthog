@@ -16,6 +16,7 @@ from temporalio.worker import (
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
+from posthog.temporal.common.clickhouse import ClickHouseClusterMemoryLimitExceededError
 from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
@@ -108,6 +109,17 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             if is_transient_db_error(e):
                 await logger.awarning(
                     "Transient database error in activity %s, leaving retry to Temporal",
+                    activity_info.activity_type,
+                    exc_info=e,
+                )
+                raise
+            # Same reasoning for a ClickHouse cluster that ran out of memory: it stops whichever
+            # queries happen to be running, so the activity that received it did nothing wrong and
+            # nobody can action it per-activity. The message carries byte counts and the replica
+            # hostname, so a burst of shared pressure otherwise mints an issue per variant.
+            if isinstance(e, ClickHouseClusterMemoryLimitExceededError):
+                await logger.awarning(
+                    "ClickHouse cluster out of memory in activity %s, leaving retry to Temporal",
                     activity_info.activity_type,
                     exc_info=e,
                 )

@@ -8,6 +8,10 @@ from parameterized import parameterized
 from temporalio.worker import ExecuteActivityInput
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClusterMemoryLimitExceededError,
+    ClickHouseQueryMemoryLimitExceededError,
+)
 from posthog.temporal.common.posthog_client import _PostHogClientActivityInboundInterceptor
 
 
@@ -90,4 +94,27 @@ class TestTransientDatabaseErrorReporting:
     )
     async def test_other_database_errors_are_still_reported(self, _name, error):
         mock_capture = await _run_and_capture(error)
+        mock_capture.assert_called_once()
+
+
+@pytest.mark.asyncio
+class TestClickHouseMemoryErrorReporting:
+    async def test_cluster_memory_errors_are_not_reported(self):
+        # Shared cluster pressure stops whichever queries are running and clears on its own, and the
+        # message varies by byte count and replica, so reporting it mints an issue per burst.
+        mock_capture = await _run_and_capture(
+            ClickHouseClusterMemoryLimitExceededError(
+                "Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB, "
+                "maximum: 111.19 GiB. (MEMORY_LIMIT_EXCEEDED)"
+            )
+        )
+        mock_capture.assert_not_called()
+
+    async def test_per_query_memory_errors_are_still_reported(self):
+        mock_capture = await _run_and_capture(
+            ClickHouseQueryMemoryLimitExceededError(
+                "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB, "
+                "maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED)"
+            )
+        )
         mock_capture.assert_called_once()

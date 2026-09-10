@@ -44,7 +44,8 @@ _LOAD_RECORDINGS_RETRY_POLICY = common.RetryPolicy(
     maximum_interval=timedelta(seconds=30),
     non_retryable_error_types=[
         "LoadRecordingError",
-        "ClickHouseMemoryLimitExceededError",
+        # Only the per-query budget breach: cluster-wide memory pressure is transient, so it retries.
+        "ClickHouseQueryMemoryLimitExceededError",
         "ClickHouseTooManyBytesError",
     ],
 )
