@@ -147,6 +147,43 @@ class TestConnectInstructions(SimpleTestCase):
         assert method["steps"][0]["actor"] == "human"
         assert spec in method["steps"][-1]["command"]
 
+    @parameterized.expand(
+        [
+            ("dead", {"liveness": "dead", "auth_method": "oauth", "probe_detail": "connection refused"}),
+            ("ssrf_blocked", {"liveness": "unprobed", "probe_detail": "ssrf_blocked: 169.254.169.254 is private"}),
+            ("not_mcp", {"liveness": "not_mcp", "probe_detail": "http 200"}),
+        ]
+    )
+    def test_blocked_remote_url_never_becomes_an_agent_command(self, _name: str, fields: dict) -> None:
+        # A URL the probe refused or found dead must not be handed to the caller's agent:
+        # a publisher can point a registry entry at loopback or metadata-service addresses,
+        # and the connect command runs on the agent's network, not ours.
+        server = _server(**fields)
+
+        instructions = build_connect_instructions(server)
+
+        assert instructions["methods"] == []
+        assert instructions["recommended"] is None
+
+    def test_agent_provisioning_is_suppressed_when_the_url_is_blocked(self) -> None:
+        server = _server(
+            liveness="dead",
+            auth_method="api_key",
+            probe_detail="connection refused",
+            supports_agent_provisioning=True,
+        )
+
+        assert build_connect_instructions(server)["methods"] == []
+
+    def test_unprobed_healthy_url_keeps_remote_methods(self) -> None:
+        # Unprobed is not blocked: the crawl is ahead of the probe for most of the index,
+        # so withholding instructions for every unprobed server would empty the page.
+        server = _server(liveness="unprobed", probe_detail="", auth_method="unknown")
+
+        instructions = build_connect_instructions(server)
+
+        assert instructions["methods"][0]["method"] == "remote_oauth"
+
     def test_row_overrides_replace_derived_methods(self) -> None:
         override_methods = [
             {

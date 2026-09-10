@@ -29,6 +29,7 @@ from products.mcp_registry.backend.presentation.serializers import (
 
 _COMPARE_DEFAULT_LIMIT = 20
 _COMPARE_MAX_LIMIT = 100
+_COMPARE_MAX_VERSIONS = 5
 _DISCOVER_DEFAULT_LIMIT = 5
 _DISCOVER_MAX_LIMIT = 20
 
@@ -171,7 +172,8 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError({"intent": "describe what you are trying to do"})
         version = self._resolve_version(request)
         try:
-            limit = min(int(request.query_params.get("limit", _DISCOVER_DEFAULT_LIMIT)), _DISCOVER_MAX_LIMIT)
+            # Clamp both ways: a negative limit would reach queryset[:limit] and raise.
+            limit = max(1, min(int(request.query_params.get("limit", _DISCOVER_DEFAULT_LIMIT)), _DISCOVER_MAX_LIMIT))
         except ValueError:
             raise ValidationError({"limit": "must be an integer"})
 
@@ -225,22 +227,28 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         raw_versions = [v.strip() for v in (request.query_params.get("versions") or "").split(",") if v.strip()]
         if len(raw_versions) < 2:
             raise ValidationError({"versions": "pass at least two comma-separated ranking versions"})
-        unknown = [v for v in raw_versions if not registry_api.is_valid_version(v)]
+        # Dedupe before comparing: each version costs one ranking query, so repeats
+        # would multiply identical work (and overwrite the same response arm).
+        versions = list(dict.fromkeys(raw_versions))
+        if len(versions) > _COMPARE_MAX_VERSIONS:
+            raise ValidationError({"versions": f"compare at most {_COMPARE_MAX_VERSIONS} ranking versions"})
+        unknown = [v for v in versions if not registry_api.is_valid_version(v)]
         if unknown:
             raise ValidationError({"versions": f"unknown ranking versions: {unknown}"})
         try:
-            limit = min(int(request.query_params.get("limit", _COMPARE_DEFAULT_LIMIT)), _COMPARE_MAX_LIMIT)
+            # Clamp both ways: a negative limit would reach queryset[:limit] and raise.
+            limit = max(1, min(int(request.query_params.get("limit", _COMPARE_DEFAULT_LIMIT)), _COMPARE_MAX_LIMIT))
         except ValueError:
             raise ValidationError({"limit": "must be an integer"})
         search = (request.query_params.get("search") or "").strip()
 
         arms = registry_api.compare_rankings(
-            versions=raw_versions, search=search, limit=limit, **self._caller_context()
+            versions=versions, search=search, limit=limit, **self._caller_context()
         )
         arms_data = {version: MCPRegistryCompareRowSerializer(rows, many=True).data for version, rows in arms.items()}
 
         response: dict = {"versions": arms_data}
-        if len(raw_versions) == 2:
-            first, second = raw_versions
+        if len(versions) == 2:
+            first, second = versions
             response["rank_deltas"] = registry_api.rank_deltas(arms, first, second)
         return Response(response)

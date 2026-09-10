@@ -440,3 +440,42 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert set(response["versions"].keys()) == {"v1_metadata_prior", "v2_measured_trust"}
         # The measured server climbs from rank 2 to rank 1 when the measured arm is applied.
         assert response["rank_deltas"][str(servers["measured"].id)] == -1
+
+    def test_discover_clamps_a_negative_limit(self) -> None:
+        self._seed_index()
+
+        response = self.client.get(self._url("discover/"), {"intent": "query_analytics", "limit": "-1"})
+
+        # min() alone only caps above; a negative limit would reach queryset[:limit] and 500.
+        assert response.status_code == 200
+        assert len(response.json()["candidates"]) == 1
+
+    def test_discover_rejects_a_non_integer_limit(self) -> None:
+        assert self.client.get(self._url("discover/"), {"intent": "x", "limit": "abc"}).status_code == 400
+
+    def test_compare_deduplicates_repeated_versions(self) -> None:
+        self._seed_index()
+
+        response = self.client.get(
+            self._url("compare/"), {"versions": "v1_metadata_prior,v2_measured_trust,v1_metadata_prior"}
+        )
+
+        assert response.status_code == 200
+        assert set(response.json()["versions"].keys()) == {"v1_metadata_prior", "v2_measured_trust"}
+
+    def test_compare_caps_the_number_of_arms(self) -> None:
+        # Six distinct versions dedupe to six arms, over the five-arm cap.
+        with patch(
+            "products.mcp_registry.backend.presentation.views.registry_api.is_valid_version", return_value=True
+        ):
+            versions = ",".join(f"v{i}" for i in range(6))
+            assert self.client.get(self._url("compare/"), {"versions": versions}).status_code == 400
+
+    def test_compare_clamps_a_negative_limit(self) -> None:
+        self._seed_index()
+
+        response = self.client.get(
+            self._url("compare/"), {"versions": "v1_metadata_prior,v2_measured_trust", "limit": "-1"}
+        )
+
+        assert response.status_code == 200
