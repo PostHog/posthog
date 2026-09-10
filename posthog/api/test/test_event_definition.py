@@ -237,6 +237,11 @@ class TestEventDefinitionAPI(APIBaseTest):
                 "?ordering=-name",
                 ["watched_movie", "rated_app", "purchase", "installed_app", "entered_free_trial", "$pageview"],
             ),
+            (
+                "unknown_ordering_field_is_not_explicit",
+                "?ordering=event",
+                ["$pageview", "entered_free_trial", "installed_app", "purchase", "rated_app", "watched_movie"],
+            ),
         ]
     )
     def test_large_project_pages_by_name_and_caps_the_count(
@@ -798,7 +803,8 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
     def test_bounded_count_stops_at_the_cap(self):
         sql = create_event_definitions_count_sql(EventDefinitionType.EVENT, bounded=True)
         assert sql.startswith("SELECT count(*) FROM (SELECT 1")
-        assert "LIMIT %(count_cap)s) bounded" in sql
+        # The ORDER BY keeps the planner on the project-scoped index instead of a sequential scan with LIMIT.
+        assert "ORDER BY posthog_eventdefinition.name LIMIT %(count_cap)s) bounded" in sql
 
 
 class TestEventDefinitionListStatementTimeout(APIBaseTest):

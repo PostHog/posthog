@@ -27,9 +27,15 @@ def is_large_project(table: DefinitionTable, project_id: int, db_alias: str) -> 
     return _cached_search_plan(table, project_id, db_alias) == "trigram"
 
 
-def bounded_count_sql(source_sql: str) -> str:
-    """A count over `source_sql` (a FROM/WHERE fragment) that stops at %(count_cap)s rows."""
-    return f"SELECT count(*) FROM (SELECT 1 {source_sql} LIMIT %(count_cap)s) bounded"
+def bounded_count_sql(source_sql: str, order_by: str) -> str:
+    """A count over `source_sql` (a FROM/WHERE fragment) that stops at %(count_cap)s rows.
+
+    `order_by` is the key of the index that serves the scope filter in `source_sql` (`name` on both
+    definition tables). Without it, Postgres may satisfy the LIMIT from a sequential scan of the whole
+    table when it estimates the project's rows to be dense enough; ordering by the index key keeps the
+    count on the project-scoped index. The order itself is irrelevant to the count.
+    """
+    return f"SELECT count(*) FROM (SELECT 1 {source_sql} ORDER BY {order_by} LIMIT %(count_cap)s) bounded"
 
 
 def search_plan(table: DefinitionTable, project_id: int, db_alias: str) -> SearchPlan:
