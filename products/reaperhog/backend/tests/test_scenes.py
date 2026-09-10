@@ -1,7 +1,17 @@
+from datetime import UTC, datetime
+from pathlib import Path
+
 import pytest
 
+from products.reaperhog.backend.facade.enums import SCOPE_ALL
+from products.reaperhog.backend.logic.repo import RepoIndex
+from products.reaperhog.backend.logic.scouts.base import ScoutContext
 from products.reaperhog.backend.logic.scouts.scenes import (
+    PRODUCT_ROUTES_PATH,
+    PRODUCT_SCENES_PATH,
+    PageviewScan,
     SceneRoutes,
+    ScenesScout,
     classify_scene,
     normalize_pathname,
     parse_product_routes,
@@ -82,3 +92,16 @@ def test_classify_scene_only_flags_scenes_with_no_traffic_on_any_route(views, fi
     if hit is not None:
         assert hit.files == [file]
         assert hit.evidence["routes"] == ", ".join(views)
+
+
+@pytest.mark.parametrize("truncated,expected_hits", [(False, 3), (True, 0)])
+def test_scenes_scout_reports_nothing_when_the_pageview_scan_filled_a_page(
+    tmp_path: Path, truncated: bool, expected_hits: int
+) -> None:
+    (tmp_path / PRODUCT_ROUTES_PATH).parent.mkdir(parents=True)
+    (tmp_path / PRODUCT_ROUTES_PATH).write_text(ROUTES)
+    (tmp_path / PRODUCT_SCENES_PATH).write_text(SCENES)
+    context = ScoutContext(team_id=1, repo=RepoIndex(tmp_path), scope=SCOPE_ALL, now=datetime(2026, 8, 30, tzinfo=UTC))
+    scout = ScenesScout(pageviews=lambda team_id: PageviewScan(counts={}, truncated=truncated))
+
+    assert len(scout.run(context)) == expected_hits

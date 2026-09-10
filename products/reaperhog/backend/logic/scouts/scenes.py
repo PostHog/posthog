@@ -1,6 +1,8 @@
 import re
+import logging
 from collections.abc import Callable, Mapping
 
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
@@ -11,6 +13,8 @@ from products.reaperhog.backend.logic.artefacts import Hit
 from products.reaperhog.backend.logic.constants import SCENE_LOOKBACK_DAYS
 from products.reaperhog.backend.logic.scouts.base import ScoutContext
 
+logger = logging.getLogger(__name__)
+
 PRODUCT_ROUTES_PATH = "frontend/src/products.tsx"
 PRODUCT_SCENES_PATH = "frontend/src/productScenes.tsx"
 
@@ -20,7 +24,20 @@ _PROJECT_PREFIX = re.compile(r"^/(?:project|organization)/[^/]+")
 _PARAM = re.compile(r":[A-Za-z0-9_]+")
 
 PageviewCounts = Mapping[str, int]
-PageviewLoader = Callable[[int], PageviewCounts]
+
+# The HogQL printer rewrites a top-level limit to min(limit, MAX_SELECT_RETURNED_ROWS), so asking for
+# more rows cannot return more. Pathnames carry entity ids, so a busy project has more distinct values
+# than this, and a pathname the query drops reads as zero traffic and marks a live scene dead.
+PATHNAME_LIMIT = MAX_SELECT_RETURNED_ROWS
+
+
+@frozen
+class PageviewScan:
+    counts: PageviewCounts
+    truncated: bool
+
+
+PageviewLoader = Callable[[int], PageviewScan]
 
 
 @frozen
@@ -90,18 +107,22 @@ def classify_scene(scene: SceneRoutes, views: dict[str, int]) -> Hit | None:
     )
 
 
-def load_pageviews(team_id: int) -> PageviewCounts:
+def load_pageviews(team_id: int) -> PageviewScan:
     team = Team.objects.get(id=team_id)
     response = execute_hogql_query(
         query=(
             "SELECT properties.$pathname AS pathname, count() AS views FROM events "
             f"WHERE event = '$pageview' AND timestamp > now() - INTERVAL {SCENE_LOOKBACK_DAYS} DAY "
-            "GROUP BY pathname LIMIT 100000"
+            f"GROUP BY pathname LIMIT {PATHNAME_LIMIT}"
         ),
         team=team,
         query_type="reaperhog_pageviews",
     )
-    return {str(row[0]): int(row[1]) for row in response.results or [] if row[0]}
+    rows = response.results or []
+    return PageviewScan(
+        counts={str(row[0]): int(row[1]) for row in rows if row[0]},
+        truncated=len(rows) >= PATHNAME_LIMIT,
+    )
 
 
 class ScenesScout:
@@ -114,10 +135,18 @@ class ScenesScout:
         return scope == SCOPE_ALL or scope not in NAMED_SCOPES
 
     def run(self, context: ScoutContext) -> list[Hit]:
+        pageviews = self._pageviews(context.team_id)
+        if pageviews.truncated:
+            logger.warning(
+                "Pageview scan for team %s returned a full page of pathnames, so a pathname that is absent "
+                "cannot be read as zero traffic; the scenes scout reports nothing for this run",
+                context.team_id,
+            )
+            return []
         routes_text = (context.repo.root / PRODUCT_ROUTES_PATH).read_text()
         scenes_text = (context.repo.root / PRODUCT_SCENES_PATH).read_text()
         scenes = parse_product_routes(routes_text, scenes_text)
-        views = views_per_scene(scenes, self._pageviews(context.team_id))
+        views = views_per_scene(scenes, pageviews.counts)
         hits: list[Hit] = []
         for scene in scenes:
             hit = classify_scene(scene, views[scene.scene])
