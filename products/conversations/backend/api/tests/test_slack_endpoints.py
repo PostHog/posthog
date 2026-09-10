@@ -64,8 +64,6 @@ class TestSupportSlackEventsAPI(BaseTest):
     @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_slack_retry_is_recorded_and_processed(self, mock_validate: MagicMock, mock_process: MagicMock):
-        # Slack retries used to be discarded, so a timeout after Postgres accepted the
-        # callback permanently dropped the message. The retry header is metadata only.
         mock_validate.return_value = None
         payload = {
             "type": "event_callback",
