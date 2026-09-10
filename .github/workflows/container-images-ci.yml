@@ -2,29 +2,19 @@ name: Container Images CI
 
 on:
     pull_request:
-        # Label additions can request a preview or uncached build. Label removals
-        # only drive ci-hobby cleanup, so they must not replace the required image check.
-        types: [opened, synchronize, labeled]
+        # Label-triggered builds live in container-images-label-ci.yml so a skipped
+        # label event cannot replace this workflow's required check.
+        types: [opened, synchronize]
 
 concurrency:
-    # A skipped label run must not cancel or replace a queued build for this branch.
-    group: >-
-        ${{ github.workflow }}-${{
-            github.event.action == 'labeled'
-            && !contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
-            && format('ignored-label-{0}', github.run_id)
-            || github.head_ref || github.ref
-        }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: >-
-            github.repository == 'PostHog/posthog'
-            && (github.event.action != 'labeled'
-                || contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
+        if: github.repository == 'PostHog/posthog'
         name: Determine need to run Docker checks
         permissions:
             contents: read
@@ -134,30 +124,15 @@ jobs:
 
     posthog_build:
         needs: changes
-        # A skipped required context would hide the real build's failure from branch protection and Hobby.
-        name: >-
-            ${{
-                github.event.action == 'labeled'
-                && !contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
-                && 'Ignore unrelated image label'
-                || 'Build Docker image'
-            }}
+        name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
-        # Only on PostHog/posthog, as there's no docker login on forks. The status
-        # function makes GitHub evaluate this job after an ignored label skips `changes`,
-        # which also resolves the alternate job name instead of publishing it verbatim.
-        if: >-
-            !cancelled()
-            && github.event_name == 'pull_request'
-            && github.event.pull_request.head.repo.full_name == github.repository
-            && (github.event.action != 'labeled'
-                || contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
-            && (needs.changes.result != 'success' || needs.changes.outputs.should_build == 'true')
+        # Only on PostHog/posthog, as there's no docker login on forks
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.should_build == 'true'
 
         outputs:
             digest: ${{ steps.build.outputs.digest }}

@@ -362,8 +362,8 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 ## CI orchestration
 
-Docker image label additions run work only for `hobby-preview` and `no-depot-docker-cache`.
-Hobby label events still handle preview cleanup, while unrelated labels use isolated, skipped runs without replacing active work.
+The required Docker image workflow runs only when a pull request opens or changes.
+A separate non-required workflow handles `hobby-preview` and `no-depot-docker-cache` label additions, while Hobby label events still handle preview cleanup.
 
 ### Move CI from the Depot runners to Blacksmith
 
