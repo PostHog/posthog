@@ -32,10 +32,10 @@ const OUTCOME_BOX_CLASS: Record<ScoutRunOutcome, string> = {
 
 const MAX_BOXES = 24
 const BOX_CLASS = 'block h-3 w-2 shrink-0 rounded-[2px] transition-transform duration-100 hover:scale-y-125'
-// A box column always keeps the marker row, priced or not, so the strip does not jump a few pixels
-// when the costs land a moment after the runs.
-const COLUMN_CLASS = 'flex w-2 shrink-0 flex-col items-center gap-px'
-const MARKER_CLASS = 'block h-[3px] w-2 rounded-[1px]'
+// A box column always keeps the marker's height, priced or not, so the strip does not jump a few
+// pixels when the costs land a moment after the runs.
+const COLUMN_CLASS = 'flex h-4 w-2 shrink-0 flex-col items-center justify-end gap-px'
+const MARKER_CLASS = 'block h-[3px] w-2 rounded-[1px] bg-brand-yellow'
 
 function runTooltip(run: SignalScoutRunSummary, now: Date, costUsd: number | undefined, expensive: boolean): string {
     const parts = [scoutRunOutcomeLabel(run, now)]
@@ -110,18 +110,17 @@ export function ScoutRunBoxes({
             {newestFirst.map(({ run, outcome, expensive, tooltip }) => {
                 const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`
                 const boxTooltip = run.task_url ? `${tooltip} · open task run` : tooltip
+                const label = <span className="sr-only">Run {boxTooltip}</span>
                 return (
                     <Tooltip key={run.run_id} title={boxTooltip}>
                         <span className={COLUMN_CLASS}>
-                            <span className={`${MARKER_CLASS} ${expensive ? 'bg-brand-yellow' : 'bg-transparent'}`} />
+                            {expensive ? <span className={MARKER_CLASS} /> : null}
                             {run.task_url ? (
                                 <Link to={run.task_url} className={boxClass}>
-                                    <span className="sr-only">Run {boxTooltip}</span>
+                                    {label}
                                 </Link>
                             ) : (
-                                <span className={boxClass}>
-                                    <span className="sr-only">Run {boxTooltip}</span>
-                                </span>
+                                <span className={boxClass}>{label}</span>
                             )}
                         </span>
                     </Tooltip>

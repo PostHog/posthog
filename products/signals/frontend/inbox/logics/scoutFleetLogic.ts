@@ -18,6 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { chunk } from 'lib/utils/arrays'
 import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -127,6 +128,9 @@ const MAX_RUNS_PAGES = 15
 // The cost endpoint takes run ids in batches (`SCOUT_RUNS_BATCH_LIMIT` server-side), and a fleet
 // holds more runs than one batch, so the roster's runs are sent a batch at a time.
 const RUN_COST_BATCH_LIMIT = 200
+// How many batches are in flight together. Enough to hide the round trips of a materialized fleet,
+// few enough that one poll cannot queue every other roster request behind its own burst.
+const RUN_COST_BATCH_CONCURRENCY = 4
 
 // Roster filter state also lives in the URL so a filtered view survives a refresh and is shareable.
 // The search param is written on this debounce, so typing does not rewrite the URL per keystroke.
@@ -220,6 +224,17 @@ function reuseCostsIfUnchanged(previous: Map<string, number>, next: Map<string, 
     for (const [runId, cost] of next) {
         if (previous.get(runId) !== cost) {
             return next
+        }
+    }
+    return previous
+}
+
+// Fold a batch of costs into the map on screen, keeping the reference when the batch says nothing
+// new. Only a poll that moved a number allocates.
+function mergeCosts(previous: Map<string, number>, incoming: Map<string, number>): Map<string, number> {
+    for (const [runId, cost] of incoming) {
+        if (previous.get(runId) !== cost) {
+            return new Map([...previous, ...incoming])
         }
     }
     return previous
@@ -768,11 +783,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (!teamId || !values.isStaff || values.scoutRuns.length === 0) {
                         return values.scoutRunCosts
                     }
-                    const runIds = values.scoutRuns.map((run) => run.run_id)
-                    const batches: string[][] = []
-                    for (let start = 0; start < runIds.length; start += RUN_COST_BATCH_LIMIT) {
-                        batches.push(runIds.slice(start, start + RUN_COST_BATCH_LIMIT))
-                    }
+                    const batches = chunk(
+                        values.scoutRuns.map((run) => run.run_id),
+                        RUN_COST_BATCH_LIMIT
+                    )
                     const costs = new Map<string, number>()
                     const priceBatch = async (batch: string[]): Promise<boolean> => {
                         const response = await signalsScoutRunsTokenCosts(String(teamId), { run_ids: batch })
@@ -787,23 +801,26 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         for (const cost of response.costs) {
                             if (cost.token_cost_usd !== null) {
                                 priced.set(cost.run_id, cost.token_cost_usd)
-                                costs.set(cost.run_id, cost.token_cost_usd)
                             }
                         }
-                        // Show what this batch priced now rather than when the whole load ends,
-                        // so the strip stops reading costless while the other batches are in
-                        // flight.
-                        if (priced.size > 0) {
-                            actions.mergeScoutRunCosts(priced)
+                        for (const [runId, cost] of priced) {
+                            costs.set(runId, cost)
                         }
+                        actions.mergeScoutRunCosts(priced)
                         return true
                     }
                     try {
                         // The first batch also answers whether this deployment prices runs at all,
-                        // so it goes on its own; the rest then go together instead of queueing
-                        // behind each other.
+                        // so it goes on its own. The rest go a wave at a time: a materialized fleet
+                        // is several batches, and holding them all back leaves the whole strip
+                        // costless until the slowest one answers.
                         if (await priceBatch(batches[0])) {
-                            await Promise.all(batches.slice(1).map(priceBatch))
+                            for (let start = 1; start < batches.length; start += RUN_COST_BATCH_CONCURRENCY) {
+                                const wave = batches.slice(start, start + RUN_COST_BATCH_CONCURRENCY)
+                                if ((await Promise.all(wave.map(priceBatch))).includes(false)) {
+                                    break
+                                }
+                            }
                         }
                     } catch (error) {
                         // Cost is a staff-only annotation on a tooltip, so a blip degrades to no
@@ -821,10 +838,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             // A full fleet spans several batches, so keep the ones that answered and
                             // leave the rest on their last known number. Dropping the whole load
                             // would blank every tooltip over one failed batch.
-                            return reuseCostsIfUnchanged(
-                                values.scoutRunCosts,
-                                new Map([...values.scoutRunCosts, ...costs])
-                            )
+                            return mergeCosts(values.scoutRunCosts, costs)
                         }
                         throw error
                     }
@@ -896,17 +910,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     reducers({
-        // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its chat type, so only the
-        // pressed chip spins (the others merely disable). A shared boolean spun all three at once.
         // The loader owns this map's default and its end-of-load write; this half folds in a batch
         // that landed while the rest of the load is still in flight.
         scoutRunCosts: [
             new Map<string, number>(),
             {
                 mergeScoutRunCosts: (state: Map<string, number>, { costs }: { costs: Map<string, number> }) =>
-                    reuseCostsIfUnchanged(state, new Map([...state, ...costs])),
+                    mergeCosts(state, costs),
             },
         ],
+        // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its chat type, so only the
+        // pressed chip spins (the others merely disable). A shared boolean spun all three at once.
         runningChatType: [
             null as ScoutChatType | null,
             {
