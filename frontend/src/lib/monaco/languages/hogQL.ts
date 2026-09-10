@@ -739,6 +739,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'kurtPopIf',
         'uniq',
         'uniqIf',
+        'uniqCombined',
         'uniqExact',
         'uniqExactIf',
         'uniqHLL12',

@@ -7,7 +7,7 @@
 -- everything below.
 --
 -- Run these through the internal Metabase against "PostHog ClickHouse PROD <REGION>
--- Data Tier" (see the query-clickhouse-via-metabase skill):
+-- Data Tier" (see the querying-production-databases-via-metabase skill):
 --   hogli metabase:login --region us
 --   hogli metabase:databases --region us
 --   hogli metabase:query --region us --database-id <id> < this-file

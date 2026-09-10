@@ -72,7 +72,7 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
                 className="flex items-center gap-1.5 text-(--green-11) text-[13px] opacity-70"
                 onClick={openModal}
               >
-                <Spinner size={14} />
+                <Spinner size="md" />
                 <span>Downloading update... {percent}%</span>
               </button>
             )}

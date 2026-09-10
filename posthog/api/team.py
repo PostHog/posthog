@@ -14,7 +14,7 @@ from django.utils.dateparse import parse_datetime
 import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import (
     RootModel as PydanticRootModel,
@@ -746,6 +746,12 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
         required=False,
         help_text="How credit is split across touchpoints when a person saw several campaigns before converting.",
     )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether marketing analytics drops traffic matching the project's test-account filters. Off by default."
+        ),
+    )
     campaign_name_mappings = MarketingAnalyticsCampaignNameMappingsField(
         required=False,
         help_text=(
@@ -775,6 +781,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "conversion_goals",
             "attribution_window_days",
             "attribution_mode",
+            "filter_test_accounts",
             "campaign_name_mappings",
             "custom_source_mappings",
             "campaign_field_preferences",
@@ -817,6 +824,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
         if "attribution_mode" in validated_data:
             instance.attribution_mode = validated_data["attribution_mode"]
+
+        if "filter_test_accounts" in validated_data:
+            instance.filter_test_accounts = validated_data["filter_test_accounts"]
 
         if "campaign_name_mappings" in validated_data:
             instance.campaign_name_mappings = validated_data["campaign_name_mappings"]
@@ -2143,6 +2153,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             ),
             "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
             "attribution_mode": instance.marketing_analytics_config.attribution_mode,
+            "filter_test_accounts": instance.marketing_analytics_config.filter_test_accounts,
             # Add other fields as they're added to the model
             # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
         }
@@ -2163,6 +2174,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "sources_map": validated_data.get("sources_map", {}),
             "attribution_window_days": validated_data.get("attribution_window_days"),
             "attribution_mode": validated_data.get("attribution_mode"),
+            "filter_test_accounts": validated_data.get("filter_test_accounts"),
             # Add other fields as they're added to the model
             # "conversion_goals": validated_data.get("conversion_goals", []),
         }
@@ -2829,16 +2841,13 @@ class RootTeamViewSet(TeamViewSet):
     hide_api_docs = True
 
 
-@extend_schema_view(
-    list=extend_schema(deprecated=True),
-    retrieve=extend_schema(deprecated=True),
-    create=extend_schema(deprecated=True),
-    update=extend_schema(deprecated=True),
-    partial_update=extend_schema(deprecated=True),
-    destroy=extend_schema(deprecated=True),
-)
 class ProjectEnvironmentsViewSet(TeamViewSet):
-    """Deprecated: use /api/environments/{id}/ instead."""
+    """Deprecated: use /api/environments/{id}/ instead.
+
+    Hidden from the API docs, so the actions it inherits from TeamViewSet do not reach the
+    generated types and MCP tools under a route that rejects every request."""
+
+    hide_api_docs = True
 
     def initial(self, request: request.Request, *args, **kwargs) -> None:
         raise exceptions.PermissionDenied(

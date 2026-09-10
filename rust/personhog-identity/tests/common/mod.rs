@@ -103,6 +103,7 @@ impl TestContext {
                 execute_timeout: std::time::Duration::from_secs(10),
                 poll_interval: std::time::Duration::from_millis(25),
                 attempt_alert_threshold: 5,
+                gc_batch_limit: 10_000,
             },
         )
     }
@@ -312,6 +313,9 @@ pub struct RacingStorage {
     /// create_person_stubs: commit the stub as a concurrent winner and
     /// answer LostRace.
     pub lose_create_race: std::sync::Mutex<bool>,
+    /// Every key passed to resolve_distinct_ids, for tests that pin what
+    /// does and does not reach the resolution query.
+    pub resolved_keys: std::sync::Mutex<Vec<(i64, String)>>,
 }
 
 impl RacingStorage {
@@ -321,6 +325,7 @@ impl RacingStorage {
             hijack_attach_to: std::sync::Mutex::new(None),
             vanish_attach: std::sync::Mutex::new(false),
             lose_create_race: std::sync::Mutex::new(false),
+            resolved_keys: std::sync::Mutex::new(Vec::new()),
         }
     }
 }
@@ -333,6 +338,10 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
     ) -> personhog_identity::storage::StorageResult<
         std::collections::HashMap<(i64, String), personhog_identity::storage::Person>,
     > {
+        self.resolved_keys
+            .lock()
+            .unwrap()
+            .extend(keys.iter().cloned());
         self.inner.resolve_distinct_ids(keys).await
     }
 

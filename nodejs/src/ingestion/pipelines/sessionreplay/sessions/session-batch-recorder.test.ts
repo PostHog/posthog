@@ -107,6 +107,7 @@ export class SnappySessionRecorderMock {
             messageCount: 0,
             snapshotSource: null,
             snapshotLibrary: null,
+            snapshotMode: null,
             batchId: this.batchId,
         }
     }
@@ -1338,8 +1339,9 @@ describe('SessionBatchRecorder', () => {
                 activeMilliseconds: 8000,
                 size: 1024,
                 messageCount: 15,
-                snapshotSource: 'web',
-                snapshotLibrary: 'rrweb@1.0.0',
+                snapshotSource: 'mobile',
+                snapshotLibrary: 'posthog-android',
+                snapshotMode: 'screenshot',
                 batchId: 'test_batch_id',
             })
 
@@ -1400,8 +1402,9 @@ describe('SessionBatchRecorder', () => {
                     consoleErrorCount: 2,
                     size: 1024,
                     messageCount: 15,
-                    snapshotSource: 'web',
-                    snapshotLibrary: 'rrweb@1.0.0',
+                    snapshotSource: 'mobile',
+                    snapshotLibrary: 'posthog-android',
+                    snapshotMode: 'screenshot',
                 }),
             ])
         })

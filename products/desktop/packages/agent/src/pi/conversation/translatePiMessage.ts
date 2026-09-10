@@ -25,6 +25,8 @@ import { readTranslator } from "./tools/readTranslator";
 import { writeTranslator } from "./tools/writeTranslator";
 import type { PiToolTranslator } from "./toolTranslator";
 
+const HIDDEN_PI_TOOL_NAMES = new Set(["set_current_work"]);
+
 const TRANSLATOR_BY_NAME: Record<PiToolName, PiToolTranslator> = {
   read: readTranslator,
   bash: bashTranslator,
@@ -34,6 +36,10 @@ const TRANSLATOR_BY_NAME: Record<PiToolName, PiToolTranslator> = {
   find: findTranslator,
   ls: lsTranslator,
 };
+
+function isHiddenPiTool(toolName: string): boolean {
+  return HIDDEN_PI_TOOL_NAMES.has(toolName);
+}
 
 interface PendingToolCall {
   name: string;
@@ -109,7 +115,10 @@ function toContent(block: {
 }
 
 export interface PiMessageTranslator {
-  translate(message: Message): AgentConversationEvent[];
+  translate(
+    message: Message,
+    isInterrupted?: boolean,
+  ): AgentConversationEvent[];
   translateToolExecutionStart(
     toolCallId: string,
     toolName: string,
@@ -128,6 +137,7 @@ export interface PiMessageTranslator {
     toolName: string,
     result: PiToolExecutionResult,
     isError: boolean,
+    isInterrupted: boolean,
     timestamp: number,
   ): AgentConversationEvent[];
 }
@@ -186,6 +196,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       }
 
       if (block.type === "toolCall") {
+        if (isHiddenPiTool(block.name)) {
+          continue;
+        }
+
         pendingToolCalls.set(block.id, {
           name: block.name,
           arguments: block.arguments,
@@ -226,6 +240,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     status: AgentToolCallStatus,
     timestamp: number,
   ): AgentConversationEvent[] {
+    if (isHiddenPiTool(toolName)) {
+      return [];
+    }
+
     const toolCall: Extract<
       AgentConversationEvent,
       { type: "tool_call_updated" }
@@ -278,6 +296,7 @@ export function createPiMessageTranslator(): PiMessageTranslator {
 
   function translateToolResult(
     message: ToolResultMessage,
+    isInterrupted: boolean,
   ): AgentConversationEvent[] {
     const pending = pendingToolCalls.get(message.toolCallId);
     pendingToolCalls.delete(message.toolCallId);
@@ -286,14 +305,22 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       message.toolCallId,
       message.toolName,
       pending?.arguments,
-      { content: message.content, details: message.details },
-      message.isError ? "failed" : "completed",
+      isInterrupted
+        ? { content: [], details: undefined }
+        : {
+            content: message.content,
+            details: message.details,
+          },
+      isInterrupted ? "in_progress" : message.isError ? "failed" : "completed",
       message.timestamp,
     );
   }
 
   return {
-    translate(message: Message): AgentConversationEvent[] {
+    translate(
+      message: Message,
+      isInterrupted = false,
+    ): AgentConversationEvent[] {
       if (message.role === "user") {
         return translateUser(message);
       }
@@ -302,10 +329,14 @@ export function createPiMessageTranslator(): PiMessageTranslator {
         return translateAssistant(message);
       }
 
-      return translateToolResult(message);
+      return translateToolResult(message, isInterrupted);
     },
 
     translateToolExecutionStart(toolCallId, toolName, args, timestamp) {
+      if (isHiddenPiTool(toolName)) {
+        return [];
+      }
+
       pendingToolCalls.set(toolCallId, { name: toolName, arguments: args });
 
       return [
@@ -339,6 +370,7 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       toolName,
       result,
       isError,
+      isInterrupted,
       timestamp,
     ) {
       const pending = pendingToolCalls.get(toolCallId);
@@ -348,7 +380,7 @@ export function createPiMessageTranslator(): PiMessageTranslator {
         toolName,
         pending?.arguments,
         result,
-        isError ? "failed" : "completed",
+        isInterrupted ? "in_progress" : isError ? "failed" : "completed",
         timestamp,
       );
     },

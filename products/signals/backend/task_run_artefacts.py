@@ -31,6 +31,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.report_assignments import claim_report_for_task
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
 # without a cycle); re-exported here so existing `from task_run_artefacts import …` callers keep
@@ -47,6 +48,7 @@ __all__ = [
     "append_task_run_artefact",
     "enforce_report_implementation_rerun_cap",
     "enforce_report_task_cap",
+    "is_report_implementation_task",
     "record_implementation_task",
     "record_report_task",
     "release_quota_cancelled_implementation",
@@ -134,12 +136,14 @@ async def aappend_task_run_artefact(
     different connection and not see the caller's uncommitted rows); content validation and
     task attribution match `append_task_run_artefact`.
     """
+    attribution = ArtefactAttribution.from_task(task_id)
     return await SignalReportArtefact.objects.acreate(
         team_id=team_id,
         report_id=str(report_id),
         type=SignalReportArtefact.ArtefactType.TASK_RUN,
         content=_task_run_content(product, type, task_id, run_id).model_dump_json(),
-        task_id=str(task_id),
+        actor_kind=attribution.kind,
+        task_id=attribution.task_id,
     )
 
 
@@ -251,6 +255,17 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
         )
 
 
+def is_report_implementation_task(*, team_id: int, report_id: str, task_id: str) -> bool:
+    """Whether this task is the report's implementation, the relationship that opens a pull request.
+
+    Reads the `SignalReportTask` gate rows rather than the artefact log, because the log is
+    API-mutable and so cannot carry a spend-controlling decision.
+    """
+    return SignalReportTask.objects.filter(
+        team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+    ).exists()
+
+
 def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, task_id: str) -> None:
     """Re-check the one-live-implementation slot before starting another run of an existing task.
 
@@ -275,10 +290,7 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
         raise RuntimeError(
             "enforce_report_implementation_rerun_cap must run inside a transaction; it locks the report row"
         )
-    is_implementation = SignalReportTask.objects.filter(
-        team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-    ).exists()
-    if not is_implementation:
+    if not is_report_implementation_task(team_id=team_id, report_id=report_id, task_id=task_id):
         return
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
@@ -316,7 +328,7 @@ def record_implementation_task(
         task_id=task_id,
         defaults={"relationship": TASK_RUN_TYPE_IMPLEMENTATION},
     )
-    return append_task_run_artefact(
+    artefact = append_task_run_artefact(
         team_id=team_id,
         report_id=report_id,
         product=SIGNALS_PRODUCT,
@@ -324,6 +336,8 @@ def record_implementation_task(
         task_id=task_id,
         run_id=run_id,
     )
+    claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+    return artefact
 
 
 def record_report_task(

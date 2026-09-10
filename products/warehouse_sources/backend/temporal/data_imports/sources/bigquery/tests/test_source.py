@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from freezegun import freeze_time
@@ -15,7 +16,9 @@ from google.api_core.exceptions import (
     PermissionDenied,
     ServiceUnavailable,
 )
+from google.auth.credentials import Credentials as GoogleAuthCredentials
 from google.auth.exceptions import RefreshError
+from requests.adapters import HTTPAdapter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
@@ -28,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
+    BIGQUERY_TOKEN_REFRESH_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
     BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
@@ -1944,6 +1948,34 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
     options = dict(mock_transport_cls.create_channel.call_args.kwargs["options"])
     assert options["grpc.max_receive_message_length"] == -1
     assert options["grpc.max_send_message_length"] == -1
+
+
+def test_bigquery_client_retries_transient_token_refresh_failures():
+    """Regression: `AuthorizedSession`'s default token-refresh session only retries connection
+    errors, not HTTP error responses, so a transient 502/503/504 from Google's OAuth token
+    endpoint escaped every `bigquery_client` call site as an opaque `RefreshError` instead of
+    being retried. `bigquery_client` must hand `AuthorizedSession` an `auth_request` built from
+    a session carrying `BIGQUERY_TOKEN_REFRESH_RETRY`."""
+    with mock.patch.object(
+        bq_module.service_account.Credentials,
+        "from_service_account_info",
+        return_value=mock.Mock(spec=GoogleAuthCredentials),
+    ):
+        with bq_module.bigquery_client(
+            project_id="project-id",
+            location=None,
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ) as client:
+            auth_request_session = client._http._auth_request.session
+            adapter = cast(HTTPAdapter, auth_request_session.get_adapter("https://oauth2.googleapis.com"))
+            retry = adapter.max_retries
+
+    assert retry is BIGQUERY_TOKEN_REFRESH_RETRY
+    assert retry.allowed_methods and "POST" in retry.allowed_methods
+    assert retry.status_forcelist and {502, 503, 504} <= set(retry.status_forcelist)
 
 
 def test_bigquery_billing_not_enabled_is_non_retryable():

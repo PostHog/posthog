@@ -36,6 +36,12 @@ class LLMSkill(UUIDModel):
                 name="unique_llm_skill_latest_per_team",
             ),
         ]
+        indexes = [
+            # The lazy-seed reconcilers read every version of one skill, tombstones included, so
+            # they pass no `deleted` predicate and the partial unique constraints above cannot
+            # serve them. Without this, Postgres scans the team's whole skill history per lookup.
+            models.Index(fields=["team", "name", "-version"], name="llm_skill_team_name_ver_idx"),
+        ]
 
     # Required by Agent Skills spec (https://agentskills.io/specification)
     name = models.CharField(max_length=64)
@@ -61,13 +67,8 @@ class LLMSkill(UUIDModel):
     is_latest = models.BooleanField(default=True)
     version_description = models.CharField(max_length=400, null=True, blank=True)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
