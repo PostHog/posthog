@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/product_analytics/api'
-import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
+import { castStringToInt, normalizeParamAliases, withInsightQueryCast } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withAgentNote,
@@ -232,7 +232,7 @@ const elementsStatsRetrieve = (): ToolBase<
 const InsightCreateSchema = () => {
     const InsightsCreateBody = orvalSchemas.InsightsCreateBody()
     return InsightsCreateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true }).extend({
-        query: InsightQuery,
+        query: withInsightQueryCast(InsightQuery),
         dashboards: InsightsCreateBody.shape['dashboards'].describe(
             'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
         ),
@@ -372,7 +372,7 @@ const InsightUpdateSchema = () => {
                 }).shape
             )
             .extend({
-                query: InsightQuery.optional(),
+                query: withInsightQueryCast(InsightQuery).optional(),
                 dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
                     'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
                 ),

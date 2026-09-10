@@ -458,6 +458,7 @@ function operationIdToPascal(operationId: string): string {
 const CAST_HELPERS = {
     'string-int': 'castStringToInt',
     'boolean-string': 'castBooleanToString',
+    'insight-query-node': 'withInsightQueryCast',
 } as const
 
 interface SchemaComposition {
@@ -733,7 +734,10 @@ function composeToolSchema(
                 if (!castHelper) {
                     return inner
                 }
-                const wrapped = `z.preprocess(${castHelper}, ${inner})`
+                const wrapped =
+                    override.cast === 'insight-query-node'
+                        ? `${castHelper}(${inner})`
+                        : `z.preprocess(${castHelper}, ${inner})`
                 return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
             }
 
@@ -748,7 +752,7 @@ function composeToolSchema(
                 const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
                 schemaRefBlocks.push(zodCode)
                 const varName = getEntryVarName(override.schema_ref)
-                schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
+                schemaOverrides.push(`${paramName}: ${wrapWithCast(varName)}${optionalSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }

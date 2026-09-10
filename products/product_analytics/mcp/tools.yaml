@@ -90,15 +90,21 @@ tools:
             you want to see the computed results.
 
 
-            Put the insight definition in `query.source`:
+            Put the insight definition in `query.source`, under the wrapper node that matches it — `InsightVizNode` for
+            a product analytics query, `DataVisualizationNode` for a SQL one:
 
 
             ```json
 
-            { "name": "Example", "query": { "kind": "InsightVizNode", "source": { "kind": "HogQLQuery", "query": "SELECT
-            1" } } }
+            { "name": "Example", "query": { "kind": "DataVisualizationNode", "source": { "kind": "HogQLQuery", "query":
+            "SELECT 1" } } }
 
             ```
+
+
+            A bare query object is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }`
+            are each wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight
+            through.
         exclude_params:
             - query
         include_params:
@@ -110,6 +116,7 @@ tools:
         param_overrides:
             query:
                 schema_ref: InsightQuery
+                cast: insight-query-node
             dashboards:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all
@@ -230,6 +237,7 @@ tools:
                     - shortId
             query:
                 schema_ref: InsightQuery
+                cast: insight-query-node
             dashboards:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all

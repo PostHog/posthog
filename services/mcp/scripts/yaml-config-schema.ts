@@ -95,11 +95,13 @@ export const ToolConfigSchema = z
                          *   unchanged so zod still rejects with its honest error.
                          * - `'boolean-string'` — casts a boolean to `"true"` / `"false"` for a
                          *   string param that reads as a boolean to an agent (e.g. `enabled`).
+                         * - `'insight-query-node'` — accepts supported bare insight queries and
+                         *   wraps them in the node that the saved-insight `query` field takes.
                          *
-                         * Mutually exclusive with `input_schema` and `schema_ref` (those
-                         * fully replace the schema; cast composes with the existing one).
+                         * Mutually exclusive with `input_schema` (which fully replaces the
+                         * schema); composes with `schema_ref` and with the existing one.
                          */
-                        cast: z.enum(['string-int', 'boolean-string']).optional(),
+                        cast: z.enum(['string-int', 'boolean-string', 'insight-query-node']).optional(),
                         /**
                          * Alternate key names accepted for this param and normalized to it
                          * before validation — for identifier params agents guess different
@@ -122,9 +124,9 @@ export const ToolConfigSchema = z
                     .refine((data) => !(data.optional && data.required), {
                         message: 'optional and required are mutually exclusive',
                     })
-                    .refine((data) => !(data.cast && (data.input_schema || data.schema_ref)), {
+                    .refine((data) => !(data.cast && data.input_schema), {
                         message:
-                            'cast wraps the existing field schema and cannot be combined with input_schema or schema_ref (which replace it)',
+                            'cast wraps the field schema and cannot be combined with input_schema, which replaces it',
                     })
             )
             .optional(),

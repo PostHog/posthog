@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 /**
  * Input casts for permissive zod schemas at the MCP tool boundary.
  *
@@ -90,3 +92,69 @@ export const normalizeParamAliases =
         }
         return result
     }
+
+/** The two wrapper nodes a saved insight query is stored as. */
+const INSIGHT_QUERY_WRAPPER_KINDS = new Set(['InsightVizNode', 'DataVisualizationNode'])
+
+const INSIGHT_VIZ_SOURCE_KINDS = [
+    'TrendsQuery',
+    'FunnelsQuery',
+    'RetentionQuery',
+    'PathsQuery',
+    'PathsV2Query',
+    'StickinessQuery',
+    'LifecycleQuery',
+    'WebStatsTableQuery',
+    'WebOverviewQuery',
+] as const
+
+const INSIGHT_VIZ_SOURCE_KIND_SET = new Set<string>(INSIGHT_VIZ_SOURCE_KINDS)
+
+/**
+ * Normalize an insight `query` into the wrapper node the tool schema declares.
+ *
+ * `insight-create` / `insight-update` declare `query` as an `InsightVizNode` or
+ * a `DataVisualizationNode`, but the endpoint behind them takes more than that:
+ * `MCPInsightSerializer.validate_query` also accepts a bare source query — the
+ * `TrendsQuery` the agent just ran through `query-trends`, or a bare
+ * `HogQLQuery` — and wraps it before saving. Agents send that bare query, and
+ * the tool boundary rejected it before the request left the client, so a shape
+ * the API supports never reached it.
+ *
+ * Applies the server's own rule: a bare `HogQLQuery` becomes a
+ * `DataVisualizationNode`. A supported product analytics query becomes an
+ * `InsightVizNode`.
+ * Already-wrapped nodes pass through untouched. Unsupported query kinds also
+ * pass through, so the input schema rejects them before the API request.
+ *
+ * Wired up declaratively via `param_overrides: { query: { cast: 'insight-query-node' } }`
+ * in product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
+ */
+export const castToInsightQueryNode = (v: unknown): unknown => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+        return v
+    }
+    const value = v as Record<string, unknown>
+    const kind = value['kind']
+    if (typeof kind === 'string' && INSIGHT_QUERY_WRAPPER_KINDS.has(kind)) {
+        return v
+    }
+    if (kind === 'HogQLQuery' || (kind === undefined && typeof value['query'] === 'string')) {
+        return { kind: 'DataVisualizationNode', source: v }
+    }
+    if (typeof kind === 'string' && INSIGHT_VIZ_SOURCE_KIND_SET.has(kind)) {
+        return { kind: 'InsightVizNode', source: v }
+    }
+    return v
+}
+
+/** Advertise every accepted input shape, then normalize and validate it. */
+export const withInsightQueryCast = (wrappedSchema: z.ZodType): z.ZodType =>
+    z
+        .union([
+            wrappedSchema,
+            z.object({ kind: z.literal('HogQLQuery').optional(), query: z.string() }).passthrough(),
+            z.object({ kind: z.enum(INSIGHT_VIZ_SOURCE_KINDS) }).passthrough(),
+        ])
+        .transform((value): unknown => castToInsightQueryNode(value))
+        .pipe(wrappedSchema)
