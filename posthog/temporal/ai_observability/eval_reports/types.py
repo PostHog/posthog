@@ -42,7 +42,7 @@ class CheckCountTriggeredEvalReportInput:
     report_id: str
 
 
-@dataclasses.dataclass
+@frozen
 class CheckCountTriggeredEvalReportOutput:
     report_id: str
     due: bool
