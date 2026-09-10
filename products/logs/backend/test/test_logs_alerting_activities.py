@@ -2202,7 +2202,7 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
             evaluation_periods=1,
             filters={"serviceNames": ["invalid"]},
             enabled=True,
-            next_check_at=datetime(2026, 5, 5, 21, 55, tzinfo=UTC),
+            next_check_at=datetime(2026, 5, 5, 21, 54, tzinfo=UTC),
         )
         LogsAlertConfiguration.objects.filter(id=invalid_alert.id).update(
             schedule_restriction={"blocked_windows": [{"start": "invalid", "end": "07:00"}]}
