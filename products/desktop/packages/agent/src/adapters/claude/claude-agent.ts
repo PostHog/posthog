@@ -120,6 +120,7 @@ import {
 } from "./mcp/tool-metadata";
 import { canUseTool } from "./permissions/permission-handlers";
 import { getAvailableSlashCommands } from "./session/commands";
+import { SessionInitialization } from "./session/initialization";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
 import { parseMcpServers } from "./session/mcp-config";
 import {
@@ -364,6 +365,7 @@ async function fetchContextUsedTokens(
 }
 
 export interface ClaudeAcpAgentOptions {
+  startupLogger?: Logger;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
   onMcpServersReady?: (serverNames: string[]) => void;
@@ -2833,6 +2835,23 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const taskState: TaskState = new Map();
     const traceparentHookNonce = generateTraceparentHookNonce();
+    const startupLogger = this.options?.startupLogger ?? this.logger;
+    const initialization = new SessionInitialization((initializationPhase) => {
+      startupLogger.info("Session initialization phase changed", {
+        sessionId,
+        taskId,
+        taskRunId: meta?.taskRunId,
+        initializationPhase,
+      });
+      void this.client
+        .extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+          taskRunId: meta?.taskRunId,
+          status: initializationPhase,
+        })
+        .catch(() => {
+          startupLogger.warn("Failed to publish session startup phase");
+        });
+    });
     const options = buildSessionOptions({
       cwd,
       mcpServers,
@@ -2860,6 +2879,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       onPostHogResourceUsed: this.createOnPostHogResourceUsed(),
       onProcessSpawned: this.options?.onProcessSpawned,
       onProcessExited: this.options?.onProcessExited,
+      onStartupOutput: (stdout) => initialization.observe(stdout),
       effort,
       enrichmentDeps: this.enrichment?.deps,
       enrichedReadCache: this.enrichedReadCache,
@@ -2942,14 +2962,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Resume must block on initialization to validate the session is still alive.
       // For stale sessions this throws (e.g. "No conversation found").
       try {
-        const result = await withTimeout(
-          q.initializationResult(),
-          SESSION_VALIDATION_TIMEOUT_MS,
-        );
+        const result = await initialization.wait(q.initializationResult());
         if (result.result === "timeout") {
           throw new RequestError(
             -32603,
-            `Session ${forkSession ? "fork" : "resumption"} timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+            `Session ${result.phase === "setup_hooks" ? "setup hooks" : forkSession ? "fork" : "resumption"} timed out after ${result.timeoutMs}ms`,
             { sessionId, taskId, taskRunId: meta?.taskRunId },
           );
         }
@@ -2968,7 +2985,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ) {
           throw RequestError.resourceNotFound(sessionId);
         }
-        this.logger.error(
+        startupLogger.error(
           forkSession ? "Session fork failed" : "Session resumption failed",
           {
             sessionId,
@@ -2985,7 +3002,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // with the model config fetch below (the gateway REST call is independent).
     const initStartedAt = Date.now();
     const initPromise = !isResume
-      ? withTimeout(q.initializationResult(), SESSION_VALIDATION_TIMEOUT_MS)
+      ? initialization.wait(q.initializationResult())
       : undefined;
     const requestedModel =
       meta?.model || settingsManager.getSettings().model || undefined;
@@ -3020,12 +3037,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       : rawModelOptions;
 
     if (initPromise) {
+      let initializationPhase = initialization.phase;
+      let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
       try {
         const initResult = await initPromise;
         if (initResult.result === "timeout") {
+          initializationPhase = initResult.phase;
+          timeoutMs = initResult.timeoutMs;
           throw new RequestError(
             -32603,
-            `Session initialization timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+            `Session ${initializationPhase === "setup_hooks" ? "setup hooks" : "initialization"} timed out after ${timeoutMs}ms`,
             { sessionId, taskId, taskRunId: meta?.taskRunId },
           );
         }
@@ -3035,7 +3056,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         session.fastModeEnabled = fastModeStateEnabled(
           initResult.value.fast_mode_state,
         );
-        this.logger.info("Session initialized", {
+        startupLogger.info("Session initialized", {
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
@@ -3046,12 +3067,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         settingsManager.dispose();
         this.terminateQuery(q, abortController);
         const initMs = Date.now() - initStartedAt;
-        this.logger.error("Session initialization failed", {
+        startupLogger.error("Session initialization failed", {
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
-          initializationPhase: "sdk_initialization",
-          timeoutMs: SESSION_VALIDATION_TIMEOUT_MS,
+          initializationPhase,
+          timeoutMs,
           modelConfigMs,
           initMs,
           requestedModel: requestedModel ?? null,

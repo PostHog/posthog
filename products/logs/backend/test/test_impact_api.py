@@ -13,7 +13,17 @@ from products.logs.backend.models import TeamLogsConfig
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
-_ZERO_IMPACT = {"total": 0, "logsWithSessionId": 0, "sessions": 0, "logsWithDistinctId": 0, "users": 0}
+_ZERO_IMPACT = {
+    "total": 0,
+    "logsWithSessionId": 0,
+    "sessions": 0,
+    "logsWithDistinctId": 0,
+    "users": 0,
+    "topSessions": [],
+    "topUsers": [],
+    "sessionGroupKey": None,
+    "personGroupKey": None,
+}
 
 
 def _log_row(
@@ -55,9 +65,10 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
         super().setUpTestData()
         rows = [
             _log_row(cls.team.id, "checkout started", attributes={"sessionId": "s1", "posthogDistinctId": "u1"}),
-            _log_row(cls.team.id, "cart loaded", attributes={"sessionId": "s1"}),
+            _log_row(cls.team.id, "cart loaded", attributes={"sessionId": "s1", "posthogDistinctId": "u1"}),
             _log_row(cls.team.id, "payment authorized", attributes={"session_id": "s2", "distinct_id": "u2"}),
             _log_row(cls.team.id, "receipt rendered", resource_attributes={"sessionId": "s3"}),
+            _log_row(cls.team.id, "cache warmed", attributes={"sessionId": "s4"}),
             _log_row(cls.team.id, "upstream timed out", severity_text="error", severity_number=17),
             _log_row(cls.team.id, "inventory synced", attributes={"my_session": "s9"}),
         ]
@@ -78,19 +89,41 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
             (
                 "full_window",
                 _FIXTURE_WINDOW,
-                {"total": 6, "logsWithSessionId": 4, "sessions": 3, "logsWithDistinctId": 2, "users": 2},
+                {
+                    "total": 7,
+                    "logsWithSessionId": 5,
+                    "sessions": 4,
+                    "topSessions": [
+                        {"value": "s1", "count": 2},
+                        {"value": "s2", "count": 1},
+                        {"value": "s3", "count": 1},
+                        {"value": "s4", "count": 1},
+                    ],
+                    "logsWithDistinctId": 3,
+                    "users": 2,
+                    "topUsers": [{"value": "u1", "count": 2}, {"value": "u2", "count": 1}],
+                    # Three rows carry `sessionId` in the log attributes; every other session
+                    # key appears once, so this is the dominant group-by dimension. Same
+                    # shape for `posthogDistinctId` on the person side.
+                    "sessionGroupKey": {"source": "log", "key": "sessionId"},
+                    "personGroupKey": {"source": "log", "key": "posthogDistinctId"},
+                },
             ),
             ("empty_window", {"date_from": "2000-01-01T00:00:00Z", "date_to": "2000-01-02T00:00:00Z"}, _ZERO_IMPACT),
         ]
     )
     @freeze_time("2025-12-18T12:00:00Z")
     def test_impact_counts_identity_coverage(self, _name: str, date_range: dict, expected: dict) -> None:
-        self.assertEqual(self._impact({"dateRange": date_range}), expected)
+        response = self._impact({"dateRange": date_range})
+        # topK breaks count ties in an unspecified order, so only the value set is stable.
+        for top_list in ("topSessions", "topUsers"):
+            response[top_list] = sorted(response[top_list], key=lambda entry: entry["value"])
+        self.assertEqual(response, expected)
 
     @freeze_time("2025-12-18T12:00:00Z")
     def test_impact_accepts_null_filter_lists(self) -> None:
         response = self._impact({"dateRange": _FIXTURE_WINDOW, "severityLevels": None, "serviceNames": None})
-        self.assertEqual(response["total"], 6)
+        self.assertEqual(response["total"], 7)
 
     @freeze_time("2025-12-18T12:00:00Z")
     def test_impact_applies_filters(self) -> None:
@@ -105,8 +138,8 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
             team=self.team, defaults={"logs_session_id_attribute_keys": ["my_session"]}
         )
         response = self._impact({"dateRange": _FIXTURE_WINDOW})
-        self.assertEqual(response["logsWithSessionId"], 5)
-        self.assertEqual(response["sessions"], 4)
+        self.assertEqual(response["logsWithSessionId"], 6)
+        self.assertEqual(response["sessions"], 5)
 
     def test_impact_rejects_non_object_query(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/logs/impact", data={"query": "not-an-object"})

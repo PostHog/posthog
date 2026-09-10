@@ -443,7 +443,7 @@ describe("AgentServer HTTP Mode", () => {
     appendLogCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
-  });
+  }, 30_000);
 
   afterEach(async () => {
     const runningServer = server;
@@ -452,7 +452,7 @@ describe("AgentServer HTTP Mode", () => {
       await runningServer?.stop();
     } finally {
       mswServer.resetHandlers();
-      await repo.cleanup();
+      await repo?.cleanup();
     }
   });
 
@@ -2578,6 +2578,39 @@ describe("AgentServer HTTP Mode", () => {
       expect(() => testServer.broadcastEvent(event)).not.toThrow();
 
       expect(testServer.pendingEvents).toEqual([event]);
+    });
+
+    it("redacts authorization headers before an event leaves the sandbox", () => {
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      testServer.session = null;
+
+      testServer.broadcastEvent({
+        type: "notification",
+        notification: {
+          method: "session/new",
+          params: {
+            mcpServers: [
+              {
+                name: "posthog",
+                headers: [
+                  { name: "Authorization", value: "Bearer mcp-secret" },
+                  { name: "x-posthog-mcp-consumer", value: "cloud" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      const [broadcast] = testServer.eventStreamSender.enqueue.mock.calls[0];
+      const serialized = JSON.stringify(broadcast);
+      expect(serialized).not.toContain("mcp-secret");
+      expect(serialized).toContain("x-posthog-mcp-consumer");
+      expect(testServer.pendingEvents).toEqual([broadcast]);
     });
   });
 
