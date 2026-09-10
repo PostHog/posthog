@@ -359,6 +359,14 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
     _record_subscription_dispatch_outcome(region, "accepted", accepted)
     _record_subscription_dispatch_outcome(region, "already_running", already_running)
     _record_subscription_dispatch_outcome(region, "failed", len(failed_ids))
+    temporalio.workflow.logger.info(
+        "subscription_scheduler.dispatch_completed",
+        extra={
+            "accepted_count": accepted,
+            "already_running_count": already_running,
+            "failed_count": len(failed_ids),
+        },
+    )
     if failed_ids:
         raise ApplicationError(
             f"Failed to start {len(failed_ids)} subscription deliveries; first IDs: {failed_ids[:50]}",
