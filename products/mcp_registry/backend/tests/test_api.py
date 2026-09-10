@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -271,7 +272,7 @@ class TestMCPRegistryAPI(APIBaseTest):
             PersonalAPIKey.objects.create(
                 label="staff key", user=self.user, secure_value=hash_key_value(key), scopes=["mcp_registry:read"]
             )
-            return {"HTTP_AUTHORIZATION": f"Bearer {key}"}
+            return {"authorization": f"Bearer {key}"}
         application = OAuthApplication.objects.create(
             name="agent",
             client_id="agent_client_id",
@@ -284,9 +285,9 @@ class TestMCPRegistryAPI(APIBaseTest):
             application=application,
             token="pha_staff_token",
             scope="mcp_registry:read",
-            expires=timezone.now() + timezone.timedelta(hours=1),
+            expires=timezone.now() + timedelta(hours=1),
         )
-        return {"HTTP_AUTHORIZATION": "Bearer pha_staff_token"}
+        return {"authorization": "Bearer pha_staff_token"}
 
     def test_fleet_tier_refuses_oauth_tokens_even_for_staff(self) -> None:
         # A self-registered OAuth client that consents a staff user must not inherit the
@@ -296,8 +297,8 @@ class TestMCPRegistryAPI(APIBaseTest):
 
         headers = self._staff_bearer_headers("oauth")
 
-        assert self.client.get(self._url("measured_projects/"), **headers).status_code == 403
-        detail = self.client.get(self._url(f"{servers['measured'].id}/"), **headers).json()
+        assert self.client.get(self._url("measured_projects/"), headers=headers).status_code == 403
+        detail = self.client.get(self._url(f"{servers['measured'].id}/"), headers=headers).json()
         assert [row["calls"] for row in detail["measured_stats"]] == [50_000]
 
     def test_fleet_tier_accepts_staff_personal_api_keys(self) -> None:
@@ -307,9 +308,9 @@ class TestMCPRegistryAPI(APIBaseTest):
 
         headers = self._staff_bearer_headers("personal_api_key")
 
-        rows = self.client.get(self._url("measured_projects/"), **headers).json()
+        rows = self.client.get(self._url("measured_projects/"), headers=headers).json()
         assert [row["team_id"] for row in rows] == [self.team.id + 1, self.team.id]
-        detail = self.client.get(self._url(f"{servers['measured'].id}/"), **headers).json()
+        detail = self.client.get(self._url(f"{servers['measured'].id}/"), headers=headers).json()
         assert sorted(row["calls"] for row in detail["measured_stats"]) == [50_000, 999_999]
 
     def _reassign_measurements_to_another_project(self, server: MCPRegistryServer) -> None:
