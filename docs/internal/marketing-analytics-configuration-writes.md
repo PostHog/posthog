@@ -7,3 +7,9 @@ Explicit conversion-goal list updates still replace the list; simultaneous edits
 Loading a project replaces the current and saved Marketing settings with that project’s configuration, including an empty configuration when none exists.
 
 Setup is available when either `marketing-analytics-setup` or `new-marketing-analytics-dashboard` is enabled for the requesting person. Both Setup endpoints use the same rule; existing project permissions still apply.
+
+Setup usage emits `marketing analytics setup section viewed` on entry and section changes.
+Suggestion review, dismissal, restoration, batch review, capability filters, rescans and navigation have separate events.
+`marketing analytics setup change submitted`, `change completed` and `change failed` share the same prefix and report operation types, counts, source and whether the change is an undo. Completed reports the server's applied count, which may be zero.
+`marketing analytics setup sync retry completed` reports requested and failed counts; it measures scheduling retries, not completed syncs.
+Payloads exclude suggestion IDs, titles, evidence, goal names and UTM values. Source navigation measures entry into connection flows; existing warehouse connection events measure their completion.
