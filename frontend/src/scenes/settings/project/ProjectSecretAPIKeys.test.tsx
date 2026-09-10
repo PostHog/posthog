@@ -7,8 +7,8 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { initKeaTests } from '~/test/init'
 import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
+import { initKeaTests } from '~/test/init'
 
 import { ProjectSecretAPIKeys } from './ProjectSecretAPIKeys'
 import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
