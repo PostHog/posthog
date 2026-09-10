@@ -37,7 +37,6 @@ from products.tasks.backend.constants import (
     get_vm_sandbox_flag_payload,
     is_same_run_resume_state,
     modal_sandbox_region_from_payload,
-    validated_modal_regions,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
@@ -874,18 +873,7 @@ def _is_dev_stack_preview_enabled(
     return enabled
 
 
-def _resolve_modal_sandbox_region(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-    state: dict | None = None,
-) -> list[str] | None:
-    state_override = validated_modal_regions((state or {}).get("modal_sandbox_region"))
-    if state_override is not None:
-        log_with_activity_context("modal_sandbox_region_state_override", run_id=run_id, region=state_override)
-        return state_override
-
+def _resolve_modal_sandbox_region(*, distinct_id: str, organization_id: str, run_id: str) -> list[str] | None:
     payload = get_org_flag_payload(
         MODAL_SANDBOX_REGION_FEATURE_FLAG, distinct_id=distinct_id, organization_id=organization_id
     )
@@ -1328,10 +1316,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         state=state,
     )
     modal_sandbox_region = _resolve_modal_sandbox_region(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
+        distinct_id=distinct_id, organization_id=organization_id, run_id=run_id
     )
     emit_agent_log(
         run_id,
@@ -1487,7 +1472,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         has_user_custom_image=environment_custom_image_name is not None,
     )
     if sandbox_backend == "hogland":
-        # Hogland runs are plain golden-template runs, so the Modal VM-runtime,
+        # Hogland runs are plain golden-template runs, so the Modal VM-runtime, region,
         # network-allowlist, and org-default-image preferences don't apply. Force them off
         # so provisioning builds a plain hogland box on the golden (not a Modal VM_BASE
         # config with a default image) and skips the Modal provider-layer allowlist. Egress
@@ -1495,6 +1480,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # independently of use_modal_network_allowlist.
         use_modal_vm_sandbox = False
         use_modal_network_allowlist = False
+        modal_sandbox_region = None
         custom_image_name = None
     emit_agent_log(
         run_id,

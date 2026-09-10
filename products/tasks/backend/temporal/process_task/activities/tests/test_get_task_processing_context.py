@@ -1688,18 +1688,6 @@ class TestResolveModalSandboxRegion:
     def test_reads_only_this_deployments_known_regions(self, payload, deployment, expected):
         assert modal_sandbox_region_from_payload(payload, deployment) == expected
 
-    def test_state_override_wins_without_consulting_the_flag(self):
-        with patch(ORG_FLAG_PAYLOAD_TARGET) as payload_mock:
-            region = _resolve_modal_sandbox_region(
-                distinct_id="distinct-id",
-                organization_id="organization-id",
-                run_id="run-id",
-                state={"modal_sandbox_region": ["eu-north"]},
-            )
-
-        assert region == ["eu-north"]
-        payload_mock.assert_not_called()
-
     def test_flag_failure_keeps_the_deployment_default(self):
         with patch(ORG_FLAG_PAYLOAD_TARGET, side_effect=RuntimeError("flags unavailable")):
             assert (
