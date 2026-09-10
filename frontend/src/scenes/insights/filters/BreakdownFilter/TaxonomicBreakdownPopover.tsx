@@ -34,9 +34,14 @@ export const TaxonomicBreakdownPopover = ({
     // allEventNames resolves action series through actionsModel, which the shared insight logic does not mount
     useMountedLogic(actionsModel)
     const { insightProps } = useValues(insightLogic)
-    const { allEventNames, query, hasDataWarehouseSeries, dataWarehouseSeriesTableNames, isTrends } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    const {
+        allEventNames,
+        query,
+        hasDataWarehouseSeries,
+        hasOnlyDataWarehouseSeries,
+        dataWarehouseSeriesTableNames,
+        isTrends,
+    } = useValues(insightVizDataLogic(insightProps))
     const { databaseLoading } = useValues(databaseTableListLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { includeSessions, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
@@ -44,16 +49,19 @@ export const TaxonomicBreakdownPopover = ({
     const { currentDataWarehouseSchemaColumns } = useValues(taxonomicBreakdownFilterLogic)
     const { addBreakdown, replaceBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
+    // A SQL expression breakdown is parsed once per series, in that series' own scope, so one
+    // expression can only resolve when every series reads the same warehouse table. Mixing an events
+    // series in, or using two warehouse tables, fails on whichever series the expression does not
+    // fit, and one failing series fails the whole insight.
+    const allSeriesShareOneWarehouseTable = hasOnlyDataWarehouseSeries && dataWarehouseSeriesTableNames.length === 1
+
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
     if (hasDataWarehouseSeries) {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.DataWarehouseProperties,
-            // A funnel evaluates a SQL expression breakdown on its events steps only. On a warehouse
-            // step the breakdown column falls back to an empty value, so an all-warehouse funnel
-            // collapses into one empty group, and on a mixed funnel the expression resolves against
-            // `events`, where a warehouse column does not exist. Trends parses the expression in the
-            // series' own scope, so the escape hatch works there.
-            ...(isTrends ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+            // Funnels evaluate the expression on their events steps only, so a warehouse step gets
+            // an empty breakdown value instead of a result.
+            ...(isTrends && allSeriesShareOneWarehouseTable ? [TaxonomicFilterGroupType.HogQLExpression] : []),
         ]
     } else if (taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         taxonomicGroupTypes = [TaxonomicFilterGroupType.CohortsWithAllUsers]
@@ -117,7 +125,7 @@ export const TaxonomicBreakdownPopover = ({
                     metadataSource={
                         // Without this the SQL expression editor validates against the events table
                         // and marks every warehouse column as unknown.
-                        dataWarehouseSeriesTableNames.length === 1
+                        allSeriesShareOneWarehouseTable
                             ? {
                                   kind: NodeKind.HogQLQuery,
                                   query: hogql`SELECT * FROM ${hogql.identifier(dataWarehouseSeriesTableNames[0])}`,
