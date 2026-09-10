@@ -51,7 +51,7 @@ class EmptyDAGOrCycleError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExecuteDAGInputs:
     """Inputs for the ExecuteDAGWorkflow.
 

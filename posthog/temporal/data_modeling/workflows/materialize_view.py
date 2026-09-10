@@ -878,22 +878,20 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             row_count_matched = clickhouse_row_count == shadow_result.row_count
             status = "completed" if shadow_result.error is None else "failed"
 
-            for metric in get_managed_warehouse_shadow_finished_metrics(status):
-                metric.add(1)
+            get_managed_warehouse_shadow_finished_metrics(status).add(1)
             get_clickhouse_materialization_duration_metric().record(clickhouse_duration_seconds)
             if shadow_result.error is None:
-                for metric in get_managed_warehouse_shadow_duration_metrics():
-                    metric.record(shadow_result.duration_seconds)
-                for metric in get_managed_warehouse_shadow_rows_materialized_metrics():
-                    metric.record(shadow_result.row_count)
-                for metric in get_managed_warehouse_shadow_row_count_match_metrics(row_count_matched):
-                    metric.add(1)
+                get_managed_warehouse_shadow_duration_metrics().record(shadow_result.duration_seconds)
+                get_managed_warehouse_shadow_rows_materialized_metrics().record(shadow_result.row_count)
+                get_managed_warehouse_shadow_row_count_match_metrics(row_count_matched).add(1)
                 if shadow_result.file_size_bytes > 0:
-                    for metric in get_managed_warehouse_shadow_storage_mib_metrics():
-                        metric.record(shadow_result.file_size_bytes / (1024 * 1024))
+                    get_managed_warehouse_shadow_storage_mib_metrics().record(
+                        shadow_result.file_size_bytes / (1024 * 1024)
+                    )
                     if shadow_result.file_size_delta_bytes >= 0:
-                        for metric in get_managed_warehouse_shadow_storage_delta_mib_metrics():
-                            metric.record(shadow_result.file_size_delta_bytes / (1024 * 1024))
+                        get_managed_warehouse_shadow_storage_delta_mib_metrics().record(
+                            shadow_result.file_size_delta_bytes / (1024 * 1024)
+                        )
 
             temporalio.workflow.logger.info(
                 "managed_warehouse_shadow_comparison",
@@ -910,8 +908,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 },
             )
         except Exception as shadow_err:
-            for metric in get_managed_warehouse_shadow_finished_metrics("error"):
-                metric.add(1)
+            get_managed_warehouse_shadow_finished_metrics("error").add(1)
             await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
             temporalio.workflow.logger.warning(
                 f"Managed warehouse shadow comparison failed: {str(shadow_err)}",

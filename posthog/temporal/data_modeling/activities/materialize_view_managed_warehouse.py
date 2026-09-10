@@ -51,7 +51,7 @@ class ManagedWarehouseShadowEligibilityInputs:
     node_id: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ManagedWarehouseShadowInputs:
     team_id: int
     dag_id: str
@@ -69,7 +69,7 @@ class ManagedWarehouseShadowInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ManagedWarehouseShadowResult:
     row_count: int
     duration_seconds: float
