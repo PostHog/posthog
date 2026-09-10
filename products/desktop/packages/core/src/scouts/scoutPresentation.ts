@@ -285,6 +285,30 @@ export function prettifyScoutSkillName(skillName: string): string {
 }
 
 /**
+ * The name a scout goes by: the one its team set, falling back to the name
+ * derived from the skill when the team never set one.
+ */
+export function scoutDisplayName(
+  config: Pick<ScoutConfig, "skill_name" | "display_name">,
+): string {
+  return (
+    config.display_name?.trim() || prettifyScoutSkillName(config.skill_name)
+  );
+}
+
+/**
+ * The name a scout goes by, for surfaces that hold only its skill name. Falls
+ * back to the skill-derived name while the fleet has not loaded.
+ */
+export function scoutNameForSkill(
+  configs: readonly ScoutConfig[] | undefined,
+  skillName: string,
+): string {
+  const config = configs?.find((entry) => entry.skill_name === skillName);
+  return config ? scoutDisplayName(config) : prettifyScoutSkillName(skillName);
+}
+
+/**
  * Resolve a scout route value against the team's configs.
  *
  * The route carries the full skill name. Older links carry the name with the
@@ -1010,7 +1034,7 @@ export function sortConfigsForDisplay(configs: ScoutConfig[]): ScoutConfig[] {
     .map((config) => ({
       config,
       systemPaused: deriveScoutLifecycle(config).isSystemPaused,
-      name: prettifyScoutSkillName(config.skill_name),
+      name: scoutDisplayName(config),
     }))
     .sort((a, b) => {
       if (a.config.enabled !== b.config.enabled) {

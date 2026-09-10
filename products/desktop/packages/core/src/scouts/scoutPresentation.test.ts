@@ -33,6 +33,8 @@ import {
   scoutCreatorDisplayName,
   scoutCreatorKey,
   scoutCronScheduleError,
+  scoutDisplayName,
+  scoutNameForSkill,
   scoutRunOutcomeLabel,
   sortConfigsForDisplay,
   summarizeRunWindow,
@@ -81,6 +83,30 @@ describe("naming", () => {
       "Ai observability",
     );
     expect(prettifyScoutSkillName("custom_thing")).toBe("Custom thing");
+  });
+
+  it.each<[string, string | null | undefined, string]>([
+    ["a name the team set", "Revenue watch", "Revenue watch"],
+    ["a blank name", "", "Error tracking"],
+    ["a whitespace-only name", "   ", "Error tracking"],
+    ["no name at all", undefined, "Error tracking"],
+    ["a null name", null, "Error tracking"],
+  ])("shows %s", (_case, displayName, expected) => {
+    expect(scoutDisplayName(makeConfig({ display_name: displayName }))).toBe(
+      expected,
+    );
+  });
+
+  it("falls back to the skill-derived name when the fleet has not loaded", () => {
+    const configs = [
+      makeConfig({ display_name: "Revenue watch" }),
+      makeConfig({ id: "config-2", skill_name: "signals-scout-logs" }),
+    ];
+    expect(scoutNameForSkill(configs, "signals-scout-error-tracking")).toBe(
+      "Revenue watch",
+    );
+    expect(scoutNameForSkill(configs, "signals-scout-logs")).toBe("Logs");
+    expect(scoutNameForSkill(undefined, "signals-scout-logs")).toBe("Logs");
   });
 
   it.each<[string, string[], string]>([
@@ -405,14 +431,18 @@ describe("intervals and ordering", () => {
   it("sorts enabled scouts first, then alphabetically", () => {
     const configs = [
       makeConfig({ skill_name: "signals-scout-logs", enabled: false }),
-      makeConfig({ skill_name: "signals-scout-surveys" }),
+      // Sorts under "S" for its display name, not "A" for its skill name.
+      makeConfig({
+        skill_name: "signals-scout-apm",
+        display_name: "Surveys",
+      }),
       makeConfig({ skill_name: "signals-scout-error-tracking" }),
     ];
     expect(
       sortConfigsForDisplay(configs).map((config) => config.skill_name),
     ).toEqual([
       "signals-scout-error-tracking",
-      "signals-scout-surveys",
+      "signals-scout-apm",
       "signals-scout-logs",
     ]);
   });
