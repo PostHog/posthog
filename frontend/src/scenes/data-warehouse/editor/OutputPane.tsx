@@ -4,7 +4,15 @@ import 'react-data-grid/lib/styles.css'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
+import DataGrid, {
+    CellClickArgs,
+    // CellMouseEvent, onCellContextMenu, and event.preventGridDefault() are beta-only APIs from the
+    // exactly-pinned react-data-grid 7.0.0-beta.47; a manual bump could reshape them without a semver signal.
+    CellMouseEvent,
+    DataGridProps,
+    RenderHeaderCellProps,
+    SortColumn,
+} from 'react-data-grid'
 
 import {
     IconCode,
@@ -29,6 +37,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -586,6 +595,26 @@ interface OutputPaneProps {
     showToolbar?: boolean
     biMode?: boolean
     onShareTab?: () => void
+}
+
+/** The copyable text for a right-clicked grid cell, or null when the cell should fall through to the
+ *  native context menu. Exported so the branches below (details column, empty value, HogQLX skip) are
+ *  unit-testable, mirroring extractCellText in LemonTable. */
+export function extractGridCellValue(columnKey: string, row: Record<string, any>): string | null {
+    if (columnKey === '__details') {
+        return null
+    }
+    const value = row[columnKey]
+    if (value === null || value === undefined || value === '') {
+        return null
+    }
+    // HogQLX-shaped values render as rich content (links, sparklines, recording buttons) via
+    // renderHogQLX; copying String(value) would put the internal AST JSON on the clipboard, so skip
+    // them and let the native menu handle the cell instead.
+    if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
+        return null
+    }
+    return String(value)
 }
 
 export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
@@ -1207,6 +1236,24 @@ const Content = ({
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
+
+    // Right-click a results cell to copy its value. Unlike the LemonTable feature (which reads DOM
+    // text), react-data-grid hands us the raw row value, so datetimes/numbers copy accurately.
+    const handleGridCellContextMenu = useCallback(
+        (args: CellClickArgs<any, any>, event: CellMouseEvent) => {
+            const text = extractGridCellValue(args.column.key, args.row)
+            if (text === null) {
+                closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
+                return
+            }
+            event.preventGridDefault()
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, text)
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
+
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
             return rows
@@ -1355,7 +1402,9 @@ const Content = ({
                             rows={sortedRows}
                             sortColumns={sortColumns}
                             onSortColumnsChange={setSortColumns}
+                            onCellContextMenu={handleGridCellContextMenu}
                         />
+                        {copyMenu}
                     </TabScroller>
                 )}
             </div>
