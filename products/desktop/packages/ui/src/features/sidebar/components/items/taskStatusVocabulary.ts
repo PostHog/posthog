@@ -82,11 +82,7 @@ export interface TaskDot {
   style: "solid" | "hollow";
   /** Flashing = happening now, or wanting you now. */
   pulse: boolean;
-  /**
-   * Draw as the dot-ring spinner instead of one dot — still dot-shaped, so it
-   * stays in the dot column's vocabulary, but the motion is a *cycle* rather
-   * than a blink, which is the honest shape for "output is arriving".
-   */
+  /** Draw the dot-ring spinner instead of a status dot. */
   spinner?: boolean;
   /**
    * Draw the dot barely there. For states that are deliberately inert — the task

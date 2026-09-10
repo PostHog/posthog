@@ -20,14 +20,10 @@ import { DotRingSpinner } from "@posthog/ui/primitives/DotRingSpinner";
 import type { ReactElement, ReactNode } from "react";
 
 const DOT_SIZE = 8;
-// Drawn at the row-icon size the rest of the app spins at, not at the dot's own
-// 8px: eight dots inside an 8px box are 1.6px across, and that reads as a smudge
-// rather than as something turning, which leaves the one row that is working the
-// faintest mark in the list.
+// The row-icon size, not the dot's own 8px: eight dots in an 8px box are 1.6px
+// across and read as a smudge.
 const SPINNER_SIZE = 12;
-// The box the ring is centered in and measured by. It stays the plain dot's, so
-// the icon column holds one width and a working row's label lines up with its
-// neighbours' — the ring's extra width spills evenly into the row's padding.
+// Keep the status column stable when a dot changes to a larger spinner.
 const SPINNER_BOX = DOT_SIZE;
 // Enough to still find the dot if you look for it, not enough to count as one of
 // the list's live rows.
@@ -81,8 +77,6 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
       <span
         {...naming}
         className="relative flex shrink-0 items-center justify-center"
-        // The spinner draws its dots in `currentColor`, so the tone is set
-        // here rather than passed down.
         style={{
           color: TONE_ICON_VAR[dot.tone],
           width: SPINNER_BOX,
@@ -91,7 +85,6 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
       >
         <DotRingSpinner
           size={SPINNER_SIZE}
-          // Out of flow, so the box measures the dot rather than the ring.
           className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2"
         />
       </span>
