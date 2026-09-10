@@ -13,9 +13,9 @@ import {
 } from '@posthog/quill-components/metric'
 import { Card, CardContent, cn, Skeleton } from '@posthog/quill-primitives'
 
-import { IntervalType } from '~/types'
+import { formatBucketLabel } from 'lib/utils/timeBuckets'
 
-import { formatBucketLabel } from '../timeBuckets'
+import { IntervalType } from '~/types'
 
 export interface MetricTileProps {
     label: string
