@@ -21,18 +21,28 @@ tools:
         title: Discover MCP servers for a task
         description: >
             Find the MCP servers most likely to perform a task, ranked, with the instructions to connect to each one.
-            Describe the task in `intent` the way a person would ("deploy my site to vercel"), not as keywords.
 
 
-            Each candidate carries why it ranked where it did: `liveness` from a real handshake against the server,
-            `why` with the score breakdown, and `measured` with observed call volume and success rate when PostHog
-            Analytics has seen the server in use. `connect` gives the connection methods, most automated first, with
-            each step marked for the agent to run or for a person to do.
+            Name the vendor or product in `intent` when you know it, as in "vercel deploy" or "linear issues".
+            Matching is lexical: it compares your words against the words a server uses about itself, so a
+            paraphrase misses and a natural-sounding sentence can rank a novelty server above the vendor's own.
 
 
-            The index is a global crawl of the official MCP registry rather than a table in this project, so it is not
-            queryable in SQL. Relevance is keyword-based today, so a paraphrase can miss: prefer the words a server
-            would use about itself. Use `mcp-registry-server-get` for the full tool list of one candidate.
+            Each candidate carries `liveness` from a real handshake against the server, `why` with the breakdown
+            behind `score`, and `measured` with observed call volume and success rate where PostHog Analytics has
+            seen the server in use. `score` is the server's own standing. Ordering also weighs how well its text
+            matched `intent`, which the response does not return yet, so adjacent scores can look out of order.
+
+
+            Most of the index is still unprobed, and an unprobed server scores below a confirmed live one. A
+            first-party server behind OAuth can therefore sit under an anonymous one that needs no auth. Read a
+            low-ranked vendor server as unproven rather than bad.
+
+
+            `connect` gives the connection methods, most automated first, with each step marked for the agent to run
+            or for a person to do. The index is a global crawl of the official MCP registry rather than a table in
+            this project, so it is not queryable in SQL. Use `mcp-registry-server-get` for one candidate's full
+            tool list.
         include_params:
             - intent
             - version
@@ -52,8 +62,10 @@ tools:
             per-version ranking scores, and connection instructions to what discover returns.
 
 
-            Measured usage is limited to what the calling project may see, so a server another project measured shows
-            its ranking but not that project's figures.
+            Measured usage is tiered. A project reads its own figures, and not those of other projects that
+            measured the same server. A PostHog staff caller reads every contributing project's figures instead, so
+            treat them as customer data: they belong to named projects, and must not be repeated into a pull
+            request, a message, or a shared document.
     mcp-registry-servers-compare-retrieve:
         operation: mcp_registry_servers_compare_retrieve
         enabled: false

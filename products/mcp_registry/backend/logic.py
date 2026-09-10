@@ -81,14 +81,19 @@ def visible_components(components: dict[str, Any], sees_every_row: bool) -> dict
     return {key: value for key, value in components.items() if key not in _DERIVED_COMPONENT_KEYS}
 
 
-def visible_tools(server: MCPRegistryServer, can_see_measured: bool) -> list[MCPRegistryTool]:
+def visible_tools(server: MCPRegistryServer, sees_every_row: bool) -> list[MCPRegistryTool]:
     """Tools known only from another project's traffic stay hidden.
 
     A probed tools/list is ours, because we asked the server for it. A tool learned from
     analytics is evidence of somebody's calls, so it follows the same tier as the stats.
+
+    Gated on seeing every row rather than on having one, because a tool row records no
+    team: when several projects measure one server there is no way to tell whose traffic
+    named a given tool, so a co-measurer would otherwise read the others' tool names. A
+    sole measurer still sees its own.
     """
     tools = list(server.tools.all())
-    if can_see_measured:
+    if sees_every_row:
         return tools
     return [tool for tool in tools if tool.source != "analytics"]
 
