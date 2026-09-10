@@ -322,6 +322,15 @@ tokens = token_response.json()
 print(tokens)
 ```
 
+## Self-registered client logos
+
+Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client that sends none gets the first letter of its name instead.
+
+- Dynamic client registration (`POST /oauth/register/`, RFC 7591): send `logo_uri` alongside `redirect_uris`. The response echoes it back.
+- Client ID metadata documents: put `logo_uri` in the document.
+
+The URI must be `https` and must not resolve to an internal address, because a browser loads it from a PostHog page. A URI that fails either check is dropped and left out of the registration response. It never fails the registration, since a client can complete every OAuth flow without a logo.
+
 ## Signed-out visitors
 
 `/oauth/authorize/` needs a session. A visitor without one is redirected to `/login?next=<the authorize URL>`. The login, signup, and email verification screens keep `next`, so the visitor lands on the consent screen once they have a session, and `/oauth` paths are exempt from the onboarding redirect.
