@@ -121,6 +121,8 @@ test.describe('Organization billing API', () => {
             let page = await (await get('invoices/', { limit: 1, status: 'paid' })).json()
             expect(page.previous).toBeNull()
             const seen: string[] = []
+            // A repeated cursor would otherwise loop until the test timed out.
+            const followed = new Set<string>()
             while (true) {
                 seen.push(...page.results.map((row: { id: string }) => row.id))
                 if (page.next === null) {
@@ -128,6 +130,8 @@ test.describe('Organization billing API', () => {
                 }
                 expect(page.next).toContain('limit=1')
                 expect(page.next).toContain('status=paid')
+                expect(followed.has(page.next), `cursor repeated: ${page.next}`).toBe(false)
+                followed.add(page.next)
                 page = await (await request.get(page.next, { headers: { Authorization: `Bearer ${ownerKey}` } })).json()
             }
             const paid = (await (await get('invoices/', { status: 'paid' })).json()).results.map(

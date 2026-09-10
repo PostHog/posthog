@@ -79,7 +79,13 @@ def _response(payload: dict, status_code: int = 200) -> MagicMock:
     return response
 
 
-class TestOrganizationBillingAPI(APILicensedTest):
+class OrganizationBillingTestMixin(APILicensedTest):
+    """Setup shared by the organization billing cases.
+
+    It carries no cases of its own, and its name keeps pytest from collecting it, so the cases on
+    the classes below run once each instead of once per subclass.
+    """
+
     def setUp(self):
         super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -98,14 +104,36 @@ class TestOrganizationBillingAPI(APILicensedTest):
     def _url(self, path: str) -> str:
         return f"/api/organizations/{self.organization.id}/billing/{path}"
 
-    @patch("ee.billing.billing_manager.requests.get")
+    def _oauth_token(self, scope: str) -> str:
+        app = OAuthApplication.objects.create(
+            name="MCP client",
+            client_id="test_billing_oauth_client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_test_billing_access_token",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        self.client.logout()
+        return token.token
+
+
+class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_endpoints_are_behind_the_feature_flag(self, mock_get):
         self.api_flag.return_value = False
         response = self.client.get(self._url("subscription/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_session_callers_are_throttled_too(self, mock_get):
         mock_get.return_value = _response(SUBSCRIPTION)
         with (
@@ -118,7 +146,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
             (first.status_code, second.status_code), (status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS)
         )
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_subscription_is_reshaped_to_the_organization_contract(self, mock_get):
         mock_get.return_value = _response(SUBSCRIPTION)
         response = self.client.get(self._url("subscription/"))
@@ -137,7 +165,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         called_url = mock_get.call_args.args[0]
         self.assertTrue(called_url.endswith("/api/v2/billing/subscription/"), called_url)
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_the_call_to_billing_carries_a_minted_token_with_the_grants(self, mock_get):
         mock_get.return_value = _response(SUBSCRIPTION)
         self.client.get(self._url("subscription/"))
@@ -150,13 +178,13 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertEqual(claims["org_id"], str(self.organization.id))
         self.assertIsNone(claims["projects"])
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_current_alias_resolves_the_organization(self, mock_get):
         mock_get.return_value = _response(SUBSCRIPTION)
         response = self.client.get("/api/organizations/@current/billing/subscription/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_usage_merges_todays_usage_and_the_quota_state(self, mock_get):
         mock_get.return_value = _response(USAGE)
         self.organization.usage = {
@@ -176,7 +204,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertEqual(body["products"][0]["current_usage"], 3120520)
         self.assertEqual(body["products"][0]["usage_ratio"], 3120520 / 5000000)
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_member_reads_the_usage_status_and_never_the_organization_counts(self, mock_get):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -201,7 +229,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertNotIn("current_usage", products["session_replay"])
         self.assertNotIn("usage_summary", response.json())
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_products_and_one_product(self, mock_get):
         mock_get.return_value = _response(PRODUCTS)
         response = self.client.get(self._url("products/?include_plans=true"))
@@ -215,7 +243,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertEqual(response.json()["key"], "product_analytics")
         self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/product_analytics/"))
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billings_refusals_come_back_as_the_matching_errors(self, mock_get):
         mock_get.return_value = _response({"detail": "No product time_travel."}, 404)
         response = self.client.get(self._url("products/time_travel/"))
@@ -224,7 +252,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         response = self.client.get(self._url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_key_without_billing_scope_is_refused_before_billing_is_called(self, mock_get):
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -234,27 +262,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
-    def _oauth_token(self, scope: str) -> str:
-        app = OAuthApplication.objects.create(
-            name="MCP client",
-            client_id="test_billing_oauth_client",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            algorithm="RS256",
-            user=self.user,
-        )
-        token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=app,
-            token="pha_test_billing_access_token",
-            scope=scope,
-            expires=timezone.now() + timedelta(hours=1),
-        )
-        self.client.logout()
-        return token.token
-
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_oauth_token_with_billing_read_reads_like_a_key(self, mock_get):
         # The credential the MCP tools carry: an OAuth access token instead of a personal key.
         mock_get.return_value = _response(SUBSCRIPTION)
@@ -268,14 +276,14 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertEqual((claims["scope"], claims["roles"]), ("billing:read", ["owner"]))
         self.assertEqual(claims["entitlements"], entitlements_for(BillingEntitlement.FULL_ACCESS))
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_oauth_token_without_billing_scope_is_refused_before_billing_is_called(self, mock_get):
         bearer = self._oauth_token("insight:read")
         response = self.client.get(self._url("subscription/"), headers={"authorization": f"Bearer {bearer}"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_key_with_billing_read_reads_subscription(self, mock_get):
         mock_get.return_value = _response(SUBSCRIPTION)
         raw = generate_random_token_personal()
@@ -285,7 +293,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         response = self.client.get(self._url("subscription/"), HTTP_AUTHORIZATION=f"Bearer {raw}")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_non_member_is_refused(self, mock_get):
         self.organization_membership.delete()
         response = self.client.get(self._url("subscription/"))
@@ -338,8 +346,8 @@ SERIES: dict[str, Any] = {
 }
 
 
-class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
-    @patch("ee.billing.billing_manager.requests.get")
+class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin, APILicensedTest):
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_spend_and_forecast_are_reshaped(self, mock_get):
         mock_get.return_value = _response(SPEND)
         response = self.client.get(self._url("spend/"))
@@ -353,7 +361,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["computed_at"], "2026-09-01T00:00:00Z")
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_member_without_the_read_flag_is_refused_spend_before_billing_is_called(self, mock_get):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -363,7 +371,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_timeseries_pages_by_cursor_the_way_the_api_does(self, mock_get):
         mock_get.return_value = _response({**SERIES, "next": "c2", "total_count": 7})
         response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&limit=2"))
@@ -425,7 +433,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("scoped projects", response.json()["detail"])
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_member_series_are_clipped_to_the_teams_they_can_see(self, mock_get):
         mock_get.return_value = _response(SERIES)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -444,7 +452,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_a_credential_scoped_to_no_project_is_refused_rather_than_widened(self, mock_get):
         # PostHog never mints an empty project list today, so this guards the shape rather than a
         # reachable path: an empty filter would read downstream as no filter at all.
@@ -460,7 +468,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_a_whole_organization_caller_may_name_a_project_the_organization_no_longer_has(self, mock_get):
         mock_get.return_value = _response(SERIES)
         response = self.client.get(
@@ -478,7 +486,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
             )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_a_caller_who_can_see_no_project_is_refused_rather_than_given_an_empty_list(self, mock_get):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -488,7 +496,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
                 self.assertEqual(self.client.get(self._url(path)).status_code, status.HTTP_403_FORBIDDEN, path)
         self.member_read.return_value = False
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_projects_names_live_projects_and_marks_deleted_ones(self, mock_get):
         mock_get.return_value = _response({"results": [{"id": 424242}, {"id": self.team.id}]})
         response = self.client.get(self._url("projects/"))
@@ -552,8 +560,8 @@ LIMITS: dict[str, Any] = {
 }
 
 
-class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
-    @patch("ee.billing.billing_manager.requests.get")
+class TestOrganizationBillingInvoicesAndLimits(OrganizationBillingTestMixin, APILicensedTest):
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_invoices_carry_iso_dates_and_cursor_urls(self, mock_get):
         mock_get.return_value = _response(INVOICES)
         response = self.client.get(self._url("invoices/?limit=1&status=paid"))
@@ -570,7 +578,7 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, query)
 
     @patch("ee.api.organization_billing.fetch_invoice_document")
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     async def test_invoice_content_streams_the_pdf_without_exposing_the_link(self, mock_billing_get, mock_upstream_get):
         mock_billing_get.return_value = _response(
             {"status": "ok", "customer_id": 42, "url": "https://pay.example/in_1/pdf"}
@@ -602,7 +610,7 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
         upstream.close.assert_called_once()
 
     @patch("ee.api.organization_billing.fetch_invoice_document")
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_invoice_content_is_a_404_when_the_provider_has_no_document(self, mock_billing_get, mock_upstream_get):
         mock_billing_get.return_value = _response(
             {"status": "ok", "customer_id": 42, "url": "https://pay.example/in_1/pdf"}
@@ -615,14 +623,14 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
         upstream.iter_content.assert_not_called()
         upstream.close.assert_called_once()
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_limits_pass_through(self, mock_get):
         mock_get.return_value = _response(LIMITS)
         response = self.client.get(self._url("limits/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["results"][0]["reached"], False)
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_admin_under_owner_only_billing_is_refused_invoices_and_limits(self, mock_get):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

@@ -228,7 +228,8 @@ def effective_billing_grants(
         return _grants_for_project_secret_key(authenticator, organization)
     if user is None or not isinstance(user, User):
         return NO_GRANTS
-    sub = f"user:{user.distinct_id}"
+    # distinct_id is nullable, and a subject has to identify one user for billing's own logs.
+    sub = f"user:{user.distinct_id or user.uuid}"
     membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
     if membership is None:
         return EffectiveBillingGrants(sub=sub)

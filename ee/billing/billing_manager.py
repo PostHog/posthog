@@ -230,6 +230,28 @@ def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, s
     }
 
 
+def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool = True) -> None:
+    """Map billing's refusals on the organization routes onto the matching DRF errors.
+
+    The body is read defensively. A non-JSON error, from billing or from a proxy in front of it,
+    must not turn a mapped refusal into a 500.
+    """
+    if res.status_code not in (400, 403, 404):
+        return
+    try:
+        parsed = res.json()
+    except JSONDecodeError:
+        parsed = None
+    body = parsed if isinstance(parsed, dict) else {}
+    if res.status_code == 403:
+        raise PermissionDenied(body.get("detail", "You do not have access to Billing for this organization."))
+    if res.status_code == 404:
+        if not map_not_found:
+            return
+        raise NotFound(body.get("detail", "Not found."))
+    raise ValidationError(parsed if parsed else "Billing rejected the request.")
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
@@ -756,18 +778,13 @@ class BillingManager:
     ) -> dict[str, Any]:
         """One read of billing's organization API routes, with the envelope removed. Billing's own refusals
         come back as the matching DRF errors, so the caller sees why."""
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/v2/billing/{path}",
             headers=self.organization_api_headers(organization, grants),
             params=params or None,
             timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
         )
-        if res.status_code == 403:
-            raise PermissionDenied(res.json().get("detail", "You do not have access to Billing for this organization."))
-        if res.status_code == 404:
-            raise NotFound(res.json().get("detail", "Not found."))
-        if res.status_code == 400:
-            raise ValidationError(res.json())
+        _raise_for_organization_error(res)
         handle_billing_service_error(res, valid_codes=(200,))
         data = res.json()
         data.pop("status", None)
@@ -822,7 +839,10 @@ class BillingManager:
     def get_organization_invoice_pdf_url(
         self, organization: Organization, grants: EffectiveBillingGrants, invoice_id: str
     ) -> str:
-        return self._organization_get(organization, grants, f"invoices/{invoice_id}/pdf-url/")["url"]
+        url = self._organization_get(organization, grants, f"invoices/{invoice_id}/pdf-url/").get("url")
+        if not url:
+            raise NotFound(f"No document for invoice {invoice_id}.")
+        return url
 
     def get_organization_limits(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "limits/")
@@ -837,17 +857,15 @@ class BillingManager:
         for the organization's teams map, as the root usage and spend reads do."""
         url = f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/timeseries/"
         headers = self.organization_api_headers(organization, grants)
-        res = requests.get(
+        res = http_session.get(
             url, headers=headers, params=self._to_query_params(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
         )
         if res.status_code in (414, 431):
-            res = requests.post(
+            res = http_session.post(
                 url, headers=headers, json=self._to_post_body(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
             )
-        if res.status_code == 403:
-            raise PermissionDenied(res.json().get("detail", "You do not have access to Billing for this organization."))
-        if res.status_code == 400:
-            raise ValidationError(res.json())
+        # A 404 here means the route is missing rather than the resource, so it stays a server error.
+        _raise_for_organization_error(res, map_not_found=False)
         handle_billing_service_error(res, valid_codes=(200,))
         data = res.json()
         data.pop("status", None)

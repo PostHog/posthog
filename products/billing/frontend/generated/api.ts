@@ -624,11 +624,7 @@ export const getBillingFeaturesRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get the features the organization's plans include
  */
 export const billingFeaturesRetrieve = async (
@@ -646,11 +642,7 @@ export const getBillingForecastRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get the forecast for the rest of the billing period
  */
 export const billingForecastRetrieve = async (
@@ -680,11 +672,7 @@ export const getBillingInvoicesListUrl = (organizationId: string, params?: Billi
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary List the organization's invoices
  */
 export const billingInvoicesList = async (
@@ -703,8 +691,7 @@ export const getBillingInvoicesContentRetrieveUrl = (organizationId: string, inv
 }
 
 /**
- * The invoice document, streamed from the billing provider by PostHog under the same access
- * check as the list. The provider's own link never reaches the client.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Download an invoice as PDF
  */
 export const billingInvoicesContentRetrieve = async (
@@ -723,11 +710,7 @@ export const getBillingLimitsRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get the organization's spend limits
  */
 export const billingLimitsRetrieve = async (
@@ -757,11 +740,7 @@ export const getBillingProductsListUrl = (organizationId: string, params?: Billi
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary List the organization's products
  */
 export const billingProductsList = async (
@@ -796,11 +775,7 @@ export const getBillingProductsRetrieveUrl = (
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get one product
  */
 export const billingProductsRetrieve = async (
@@ -820,7 +795,7 @@ export const getBillingProjectListUrl = (organizationId: string) => {
 }
 
 /**
- * Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta. Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
  * @summary List the projects with usage
  */
 export const billingProjectList = async (
@@ -838,11 +813,7 @@ export const getBillingSpendSummaryRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get spend so far this billing period
  */
 export const billingSpendSummaryRetrieve = async (
@@ -875,11 +846,7 @@ export const getBillingSpendTimeseriesRetrieveUrl = (
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Spend over time
  */
 export const billingSpendTimeseriesRetrieve = async (
@@ -901,11 +868,7 @@ export const getBillingSubscriptionRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get the organization's subscription
  */
 export const billingSubscriptionRetrieve = async (
@@ -923,11 +886,7 @@ export const getBillingUsageSummaryRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get usage so far this billing period
  */
 export const billingUsageSummaryRetrieve = async (
@@ -945,9 +904,7 @@ export const getBillingUsageStatusRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * What any member may know about usage: per product and add-on, the limit in effect,
- * whether usage is over or approaching it, and whether the resource is being limited right
- * now. The counts themselves are on `usage` and need usage read access.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get usage against limits, without the counts
  */
 export const billingUsageStatusRetrieve = async (
@@ -980,11 +937,7 @@ export const getBillingUsageTimeseriesRetrieveUrl = (
 }
 
 /**
- * Read billing state for an organization: subscription, products, features and usage.
- *
- * The schema attributes every operation here to the billing product. Without that the route
- * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
- * the billing tools that name them.
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Usage over time
  */
 export const billingUsageTimeseriesRetrieve = async (

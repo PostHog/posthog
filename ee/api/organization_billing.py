@@ -463,6 +463,12 @@ class BillingInvoiceListParamsSerializer(serializers.Serializer):
     cursor = serializers.CharField(required=False, help_text="The cursor from a previous page.")
 
 
+BETA_NOTICE = (
+    "In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 "
+    "without it, so ask support for access. Its shapes may change while it is in beta."
+)
+
+
 @extend_schema(extensions={"x-product": "billing"})
 class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Read billing state for an organization: subscription, products, features and usage.
@@ -611,6 +617,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_subscription_retrieve",
         summary="Get the organization's subscription",
+        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingSubscriptionSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="subscription")
@@ -660,6 +667,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_features_retrieve",
         summary="Get the features the organization's plans include",
+        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingFeaturesSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="features")
@@ -672,6 +680,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_products_list",
         summary="List the organization's products",
+        description=BETA_NOTICE,
         parameters=[INCLUDE_PLANS],
         responses={200: OpenApiResponse(response=BillingProductsSerializer)},
     )
@@ -687,6 +696,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_products_retrieve",
         summary="Get one product",
+        description=BETA_NOTICE,
         parameters=[
             OpenApiParameter("product_key", str, OpenApiParameter.PATH, description="The product's key."),
             INCLUDE_PLANS,
@@ -705,6 +715,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_spend_summary_retrieve",
         summary="Get spend so far this billing period",
+        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingSpendSummarySerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="spend")
@@ -718,6 +729,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_forecast_retrieve",
         summary="Get the forecast for the rest of the billing period",
+        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingForecastSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="forecast")
@@ -737,6 +749,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_usage_timeseries_retrieve",
         summary="Usage over time",
+        description=BETA_NOTICE,
         parameters=[OrganizationTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
     )
@@ -747,6 +760,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_spend_timeseries_retrieve",
         summary="Spend over time",
+        description=BETA_NOTICE,
         parameters=[OrganizationTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
     )
@@ -776,6 +790,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_invoices_list",
         summary="List the organization's invoices",
+        description=BETA_NOTICE,
         parameters=[BillingInvoiceListParamsSerializer],
         responses={200: OpenApiResponse(response=BillingInvoicesSerializer)},
     )
@@ -809,6 +824,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         operation_id="billing_invoices_content_retrieve",
         parameters=[OpenApiParameter("invoice_id", str, OpenApiParameter.PATH, description="The invoice's id.")],
         summary="Download an invoice as PDF",
+        description=BETA_NOTICE,
         responses={(200, "application/pdf"): OpenApiResponse(response=bytes)},
     )
     @action(methods=["GET"], detail=False, url_path=r"invoices/(?P<invoice_id>[^/.]+)/content")
@@ -835,6 +851,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         operation_id="billing_project_list",
         summary="List the projects with usage",
         description=(
+            f"{BETA_NOTICE} "
             "Every project the organization has reported usage for, deleted ones included, so a caller knows "
             "which ids a project breakdown or a team_ids filter can name. Below full billing access the list is "
             "the projects the caller can see."
@@ -864,6 +881,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_limits_retrieve",
         summary="Get the organization's spend limits",
+        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingLimitsSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="limits")
@@ -876,6 +894,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_usage_summary_retrieve",
         summary="Get usage so far this billing period",
+        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingUsageSummarySerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="usage")
@@ -911,6 +930,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_usage_status_retrieve",
         summary="Get usage against limits, without the counts",
+        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingUsageStatusSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="usage/status")
