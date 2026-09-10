@@ -4,11 +4,11 @@ import { ReactNode, useRef } from 'react'
 
 import {
     IconArrowUpRight,
+    IconCheckbox,
     IconCheckCircle,
     IconChevronRight,
     IconCopy,
     IconExternal,
-    IconCheckbox,
     IconHide,
     IconPeople,
     IconPullRequest,
