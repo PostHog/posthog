@@ -224,7 +224,7 @@ class MetricNamesQueryRunner:
             """
                 SELECT
                     metric_name AS name,
-                    toDateTime(toUInt64((toUnixTimestamp(timestamp) - toUnixTimestamp(now() - {window_interval})) / {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp(now() - {window_interval})) AS bucket_start,
+                    toDateTime(intDiv(toUnixTimestamp(timestamp) - toUnixTimestamp(now() - {window_interval}), {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp(now() - {window_interval})) AS bucket_start,
                     avg(value) AS bucket_value
                 FROM posthog.metric_samples
                 WHERE timestamp > now() - {window_interval}
