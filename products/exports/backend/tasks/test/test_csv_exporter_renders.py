@@ -10,6 +10,7 @@ from posthog.models.team.team import Team
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import csv_exporter
+from products.exports.backend.tasks.csv_exporter import CSV_EXPORT_ENCODING
 
 TEST_BUCKET = "Test-Exports"
 
@@ -57,7 +58,7 @@ def test_csv_rendering(
         csv_exporter.export_tabular(asset)
         content = asset.content
         assert isinstance(content, bytes)
-        csv_rows = content.decode("utf-8").split("\r\n")
+        csv_rows = content.decode(CSV_EXPORT_ENCODING).split("\r\n")
 
         assert csv_rows == fixture["csv_rows"]
 
@@ -76,6 +77,6 @@ def test_csv_rendering(
         csv_exporter.export_tabular(asset)
         content = asset.content
         assert isinstance(content, bytes)
-        csv_rows = content.decode("utf-8").split("\r\n")
+        csv_rows = content.decode(CSV_EXPORT_ENCODING).split("\r\n")
 
         assert csv_rows == fixture["csv_rows"]

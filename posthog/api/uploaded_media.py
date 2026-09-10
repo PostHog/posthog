@@ -1,12 +1,10 @@
 from io import BytesIO
 from typing import NoReturn, Optional
-from urllib.parse import quote
 
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from django.utils.http import content_disposition_header
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
@@ -22,6 +20,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.content_disposition import attachment_disposition
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import MEDIA_PURPOSES, ObjectStorageUnavailable
 from posthog.storage import object_storage
@@ -56,33 +55,6 @@ def _normalize_content_type(value: str | None) -> str:
 
 def _is_inline_safe_content_type(content_type: str | None) -> bool:
     return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
-
-
-def _attachment_disposition(file_name: str | None) -> str:
-    """Build a Content-Disposition header that preserves the original filename.
-
-    Without an explicit filename the browser falls back to the URL's last path
-    segment — here the media UUID — so downloads lose their name and extension.
-
-    file_name is attacker-influenced (inbound email/Slack attachments), so strip
-    control characters (defends against CR/LF header injection) before encoding.
-    Non-ASCII names get a quote-escaped ASCII ``filename`` fallback for legacy
-    browsers alongside the RFC 5987 ``filename*`` parameter.
-    """
-    if not file_name:
-        return "attachment"
-
-    cleaned = "".join(ch for ch in file_name if ch.isprintable()).strip()
-    if not cleaned:
-        return "attachment"
-
-    try:
-        cleaned.encode("ascii")
-        return content_disposition_header(as_attachment=True, filename=cleaned) or "attachment"
-    except UnicodeEncodeError:
-        ascii_fallback = cleaned.encode("ascii", "ignore").decode().strip() or "download"
-        escaped = ascii_fallback.replace("\\", "\\\\").replace('"', '\\"')
-        return f"attachment; filename=\"{escaped}\"; filename*=UTF-8''{quote(cleaned, safe='')}"
 
 
 def validate_image_file(file: Optional[bytes], user: int) -> bool:
@@ -215,7 +187,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
         response_content_type = instance.content_type
     else:
         response_content_type = "application/octet-stream"
-        response_headers["Content-Disposition"] = _attachment_disposition(instance.file_name)
+        response_headers["Content-Disposition"] = attachment_disposition(instance.file_name)
 
     return HttpResponse(
         file_bytes,
