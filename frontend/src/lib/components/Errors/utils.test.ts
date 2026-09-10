@@ -343,6 +343,8 @@ describe('Error Display', () => {
         ['two symbol sets uploaded without a release', {}, [UPLOADED_SET, UPLOADED_SET], true],
         ['a frame whose record did not load', {}, [UPLOADED_SET, undefined], false],
         ['a Node.js exception', { $lib: 'posthog-node' }, [UPLOADED_SET, UPLOADED_SET], true],
+        ['an edge runtime exception', { $lib: 'posthog-edge' }, [UPLOADED_SET, UPLOADED_SET], true],
+        ['a Segment Node.js exception', { $lib: 'analytics-node' }, [UPLOADED_SET, UPLOADED_SET], false],
         ['a Rust exception', { $lib: 'posthog-rs' }, [UPLOADED_SET, UPLOADED_SET], false],
         ['an exception from an unknown SDK', { $lib: undefined }, [UPLOADED_SET, UPLOADED_SET], false],
     ])('reports a release the SDK never sent for %s', (_name, properties, records, expected) => {
@@ -352,7 +354,7 @@ describe('Error Display', () => {
                 record ? [[`frame-${index}`, record as ErrorTrackingStackFrameRecord]] : []
             )
         )
-        const eventProperties = { $lib: 'posthog-js', ...properties } as ErrorEventProperties
+        const eventProperties = { $lib: 'web', ...properties } as ErrorEventProperties
         expect(isReleaseIdMissingFromSDK(eventProperties, frames, keyedRecords)).toBe(expected)
     })
 })

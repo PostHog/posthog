@@ -264,8 +264,9 @@ export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrac
     }
 }
 
-// Only the JavaScript SDKs (posthog-js and posthog-node) report `$release_id` on exceptions.
-const RUNTIMES_REPORTING_RELEASE_ID: ReadonlySet<ErrorTrackingRuntime> = new Set(['web', 'node'])
+// Only posthog-js (`web`) and posthog-node (`posthog-node`, `posthog-edge`) report `$release_id`.
+// Other libraries that share their runtime, such as analytics-node, never send it.
+const LIBS_REPORTING_RELEASE_ID: ReadonlySet<string> = new Set(['web', 'posthog-node', 'posthog-edge'])
 
 // Uploaded symbol sets without a release leave the SDK's `$release_id` as the only source of a release.
 // A symbol set fetched by URL never carries one, so it cannot signal a missing `$release_id`.
@@ -278,7 +279,7 @@ export function isReleaseIdMissingFromSDK(
     if (!properties || properties['$release_id'] || getExceptionRelease(properties)) {
         return false
     }
-    if (!RUNTIMES_REPORTING_RELEASE_ID.has(getRuntimeFromLib(properties['$lib']))) {
+    if (!LIBS_REPORTING_RELEASE_ID.has(String(properties['$lib'] ?? '').toLowerCase())) {
         return false
     }
 
