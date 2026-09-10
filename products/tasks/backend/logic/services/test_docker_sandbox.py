@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import os
 import shlex
 import subprocess
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
+from products.tasks.backend.exceptions import ProcessTaskError, SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, ENV_LOCAL_SKILLS_HOST_PATH
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
@@ -19,6 +22,9 @@ from products.tasks.backend.logic.services.sandbox import (
     parse_sandbox_repo_mount_map,
     redact_sandbox_command,
 )
+
+if TYPE_CHECKING:
+    from pytest_django.fixtures import Settings
 
 
 def _agent_server_launch_command(mock_execute: Any) -> str:
@@ -109,6 +115,65 @@ class TestSandboxFactory:
 
 
 class TestDockerSandboxUnit:
+    @pytest.mark.parametrize(
+        "source,debug,template,expected",
+        [
+            ("local", True, SandboxTemplate.DEFAULT_BASE, "local"),
+            ("production", True, SandboxTemplate.DEFAULT_BASE, "production"),
+            ("local", False, SandboxTemplate.DEFAULT_BASE, None),
+            ("local", True, SandboxTemplate.SLIM_BASE, None),
+        ],
+    )
+    def test_create_installs_fixed_skills_only_for_development_tasks(
+        self, settings: Settings, source: str, debug: bool, template: SandboxTemplate, expected: str | None
+    ) -> None:
+        settings.DEBUG = debug
+        with (
+            patch.dict(os.environ, {"POSTHOG_DESKTOP_SKILLS": source}),
+            patch.object(DockerSandbox, "_get_image", return_value="test-image"),
+            patch.object(DockerSandbox, "_run", return_value=MagicMock(stdout="test-container", returncode=0)) as run,
+            patch("products.tasks.backend.logic.services.docker_sandbox.snapshot_local_task_skills") as snapshot,
+            patch.object(DockerSandbox, "_install_local_skills") as install,
+        ):
+            DockerSandbox.create(SandboxConfig(name="test-skills", template=template))
+        if expected == "local":
+            snapshot.assert_called_once()
+            snapshot_dir = snapshot.call_args.args[0]
+            install.assert_called_once_with(snapshot_dir)
+            assert not snapshot_dir.exists()
+        else:
+            snapshot.assert_not_called()
+            if expected == "production":
+                install.assert_called_once_with(None)
+            else:
+                install.assert_not_called()
+        assert any(call.args[0][:2] == ["docker", "run"] for call in run.call_args_list)
+
+    @pytest.mark.parametrize("failure_stage", ["build", "install"])
+    def test_create_stops_on_local_skill_failure(self, settings: Settings, failure_stage: str) -> None:
+        settings.DEBUG = True
+        with (
+            patch.dict(os.environ, {"POSTHOG_DESKTOP_SKILLS": "local"}),
+            patch.object(DockerSandbox, "_get_image", return_value="test-image"),
+            patch.object(DockerSandbox, "_run", return_value=MagicMock(stdout="test-container", returncode=0)) as run,
+            patch("products.tasks.backend.logic.services.docker_sandbox.snapshot_local_task_skills") as snapshot,
+            patch.object(DockerSandbox, "_install_local_skills") as install,
+            patch.object(DockerSandbox, "destroy") as destroy,
+        ):
+            failing_step = snapshot if failure_stage == "build" else install
+            failing_step.side_effect = RuntimeError("skill failure")
+            with pytest.raises(ProcessTaskError, match="local task skills") as error:
+                DockerSandbox.create(SandboxConfig(name="test-skills"))
+        assert error.value.context["error"] == "skill failure"
+        assert not snapshot.call_args.args[0].exists()
+        if failure_stage == "build":
+            assert error.value.non_retryable
+            assert not any(call.args[0][:2] == ["docker", "run"] for call in run.call_args_list)
+            install.assert_not_called()
+            destroy.assert_not_called()
+        else:
+            destroy.assert_called_once()
+
     """Unit tests that don't require Docker."""
 
     @pytest.mark.parametrize(
@@ -126,7 +191,7 @@ class TestDockerSandboxUnit:
         assert "secret token" not in redacted
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted>" in redacted
 
-    def test_redact_sandbox_command_hides_mcp_credentials(self):
+    def test_redact_sandbox_command_hides_mcp_credentials(self) -> None:
         command = 'agent-server --mcpServers \'[{"headers":{"Authorization":"Bearer secret-token"}}]\' --port 8080'
 
         redacted = redact_sandbox_command(command)
@@ -140,6 +205,21 @@ class TestDockerSandboxUnit:
 
         assert "c2VjcmV0" not in redacted
         assert "<redacted>" in redacted
+
+    def test_redact_sandbox_command_hides_github_clone_token(self) -> None:
+        command = "git clone https://x-access-token:github-secret@github.com/PostHog/posthog.git"
+
+        redacted = redact_sandbox_command(command)
+
+        assert "github-secret" not in redacted
+        assert "https://x-access-token:<redacted>@github.com/PostHog/posthog.git" in redacted
+
+    @pytest.mark.parametrize("name", ("GITHUB_TOKEN", "POSTHOG_WIZARD_API_KEY"))
+    def test_redact_sandbox_command_hides_worker_credentials(self, name: str) -> None:
+        redacted = redact_sandbox_command(f"docker run -e {name}=worker-secret sandbox")
+
+        assert "worker-secret" not in redacted
+        assert f"{name}=<redacted>" in redacted
 
     @pytest.mark.parametrize(
         "input_url,expected_url",
@@ -477,6 +557,9 @@ class TestDockerSandboxUnit:
         with (
             patch.object(sandbox, "is_running", return_value=True),
             patch.object(sandbox, "write_file"),
+            patch.object(
+                sandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            ),
             patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=False),
             pytest.raises(RuntimeError, match="does not support the Pi runtime"),
         ):
@@ -552,6 +635,46 @@ class TestDockerSandboxUnit:
         docker_args = docker_run_call[0][0]
         args_str = " ".join(docker_args)
         assert f"-v {tmp_path}:/tmp/workspace/repos/posthog/posthog" in args_str
+
+    @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
+    def test_create_skips_local_skill_mounts_when_bundled_skills_disabled(self, mock_run, tmp_path) -> None:
+        mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
+        skill_dir = tmp_path / "sample-skill"
+        skill_dir.mkdir()
+        config = SandboxConfig(
+            name="test-sandbox",
+            environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
+        )
+
+        with (
+            patch.dict(os.environ, {ENV_LOCAL_SKILLS_HOST_PATH: str(tmp_path)}),
+            patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"),
+        ):
+            DockerSandbox.create(config)
+
+        docker_args = mock_run.call_args_list[-1][0][0]
+        assert str(skill_dir) not in " ".join(docker_args)
+
+    def test_start_agent_server_clears_bundled_skills_before_launch(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(
+            name="test",
+            environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
+        )
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True), patch.object(sandbox, "execute") as mock_execute:
+            mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+            sandbox.start_agent_server("posthog/posthog", "task-123", "run-456", wait_for_health=False)
+
+        commands = [call.args[0] for call in mock_execute.call_args_list]
+        clear_index = next(
+            index for index, command in enumerate(commands) if "rm -rf" in command and "skills" in command
+        )
+        launch_index = next(index for index, command in enumerate(commands) if "agent-server" in command)
+        assert clear_index < launch_index
 
     def test_start_agent_server_without_domains_skips_agentsh(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)

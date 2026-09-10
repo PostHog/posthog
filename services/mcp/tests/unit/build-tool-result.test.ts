@@ -72,6 +72,10 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         // No structuredContent: Claude Code would otherwise prefer it over text,
         // defeating the purpose of the formatted_results override.
         expect(payload).not.toHaveProperty('structuredContent')
+        // A host that registers the tools directly still mounts the UI app from the
+        // resource URI it read in `tools/list`. Without this the app has no data at all
+        // and renders its failure state instead of the chart.
+        expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
     })
 
     it('keeps structuredContent when suppression is false', () => {

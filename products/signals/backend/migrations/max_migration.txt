@@ -1,1 +1,1 @@
-0117_drop_signalscoutconfig_team_id_fk_idx
+0126_signalteamconfig_issue_tracking_config_and_more

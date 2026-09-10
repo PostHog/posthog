@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
+import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
@@ -16,6 +16,7 @@ import {
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
+import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
@@ -117,11 +118,15 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
-export interface ToolCallIntentMeta {
+export interface ToolCallAnalyticsMeta {
     /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
     intent?: string
     /** Where it came from → `$mcp_intent_source`. */
     intentSource?: MCPAnalyticsIntentSource
+    /** The calling model -> `$mcp_llm_model`. */
+    llmModel?: string
+    /** Where the model identifier came from -> `$mcp_llm_model_source`. */
+    llmModelSource?: MCPAnalyticsModelSource
 }
 
 export async function trackToolCall(
@@ -130,7 +135,7 @@ export async function trackToolCall(
     isError: boolean,
     state: ResolvedState,
     extraProperties?: Record<string, unknown>,
-    intentMeta?: ToolCallIntentMeta,
+    analyticsMeta?: ToolCallAnalyticsMeta,
     servedDescription?: string
 ): Promise<void> {
     try {
@@ -170,8 +175,10 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
-            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
+            ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
+            ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
+            ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
+            ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
             properties: {
                 ...properties,
                 tool_name: toolName,
@@ -206,7 +213,7 @@ export async function trackExecuteSqlGeneration(
     args: unknown,
     state: ResolvedState,
     meta: ExecuteSqlGenerationMeta,
-    intentMeta?: ToolCallIntentMeta
+    analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
     if (toolName !== EXECUTE_SQL_TOOL_NAME) {
         return
@@ -229,7 +236,7 @@ export async function trackExecuteSqlGeneration(
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 $ai_trace_id: sessionUuid ?? randomUUID(),
                 $ai_span_name: EXECUTE_SQL_TOOL_NAME,
-                $ai_input: [{ role: 'user', content: intentMeta?.intent ?? '' }],
+                $ai_input: [{ role: 'user', content: analyticsMeta?.intent ?? '' }],
                 $ai_output_choices: [{ role: 'assistant', content: query }],
                 $ai_latency: meta.durationMs / 1000,
                 $ai_is_error: meta.isError,
@@ -481,6 +488,38 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+/**
+ * Captures `skill invoked` when a skill's content is consumed through exec `learn`,
+ * whichever read kind delivered it (full load, file read, file search, line range) —
+ * the consumption counterpart of the authoring `llma skill *` events emitted by
+ * `products/skills`. The caller dedupes per skill identifier per request, so a
+ * command that reads one skill several ways still counts once. Keep property keys
+ * additive: they feed the same LLMA skills adoption dashboards.
+ */
+export async function trackSkillInvoked(state: ResolvedState, invocation: SkillInvocation): Promise<void> {
+    try {
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        getPostHogClient().capture({
+            distinctId: state.distinctId,
+            event: 'skill invoked',
+            groups,
+            properties: {
+                ...properties,
+                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
+                skill_source: invocation.source,
+                skill_name: invocation.skill,
+                skill_identifier: `${invocation.source}:${invocation.skill}`,
+                skill_read_kind: invocation.readKind,
             },
         })
     } catch {

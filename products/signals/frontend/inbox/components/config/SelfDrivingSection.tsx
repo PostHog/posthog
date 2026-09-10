@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconRocket, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    Link,
+} from '@posthog/lemon-ui'
 import {
     Button,
     ButtonGroup,
@@ -21,8 +30,12 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { JiraProjectPicker } from 'lib/integrations/JiraIntegrationHelpers'
+import { LinearTeamPicker } from 'lib/integrations/LinearIntegrationHelpers'
+import { urls } from 'scenes/urls'
 
-import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
+import { IntegrationType } from '~/types'
+
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
@@ -226,14 +239,195 @@ function BaseBranchOverrides(): JSX.Element {
     )
 }
 
+/** Providers that can hold a tracker issue, with the label the picker shows for each. */
+const ISSUE_TRACKER_LABELS: Partial<Record<IntegrationType['kind'], string>> = {
+    github: 'GitHub issues',
+    linear: 'Linear',
+    jira: 'Jira',
+    gitlab: 'GitLab issues',
+}
+
+/** LemonSelect has no null option value, so "off" needs a sentinel that no integration id can take. */
+const ISSUE_TRACKER_OFF = -1
+
+/**
+ * Where inside the chosen tracker the issues land. The shape follows the provider, so this renders
+ * one picker per provider. GitLab needs no pick at all: its integration is already bound to one
+ * project.
+ */
+function IssueTrackerTarget({
+    integration,
+    target,
+    disabled,
+    onSave,
+}: {
+    integration: IntegrationType
+    target: Record<string, string>
+    disabled: boolean
+    onSave: (config: Record<string, string>) => void
+}): JSX.Element | null {
+    if (integration.kind === 'github') {
+        return (
+            <GitHubRepositoryCombobox
+                integrationId={integration.id}
+                // Stored bare so the issue link can re-prefix the account that owns it, while the
+                // picker works in the `owner/repo` form it shows.
+                value={target.repository ? `${integration.display_name}/${target.repository}` : ''}
+                disabled={disabled}
+                placeholder="Repository"
+                onChange={(repo) => repo && onSave({ ...target, repository: repo.split('/')[1] })}
+            />
+        )
+    }
+    if (integration.kind === 'linear') {
+        return (
+            <LinearTeamPicker
+                integration={integration}
+                value={target.team_id}
+                disabled={disabled}
+                onChange={(teamId) => teamId && onSave({ team_id: teamId })}
+            />
+        )
+    }
+    if (integration.kind === 'jira') {
+        return (
+            <JiraProjectPicker
+                integrationId={integration.id}
+                value={target.project_key ?? ''}
+                disabled={disabled}
+                onChange={(projectKey) => projectKey && onSave({ project_key: projectKey })}
+            />
+        )
+    }
+    return <p className="text-[11px] text-tertiary leading-snug mb-0">Issues go to {integration.display_name}.</p>
+}
+
+/**
+ * Per-project switch for the change-management control some teams work under: a pull request can
+ * only merge when a tracked work item points at it. Off unless a tracker is picked, so one field is
+ * both the switch and the target and the two can never disagree.
+ */
+function IssueTracker(): JSX.Element {
+    const { issueTrackerConfig, issueTrackerIntegrationId, selectedIssueTrackerIntegrationId, teamConfigUpdating } =
+        useValues(signalTeamConfigLogic)
+    const { patchTeamConfig, setDraftIssueTrackerIntegrationId } = useActions(signalTeamConfigLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
+
+    const trackers = (integrations ?? []).filter((integration) => integration.kind in ISSUE_TRACKER_LABELS)
+    const selected = trackers.find((integration) => integration.id === selectedIssueTrackerIntegrationId) ?? null
+    // A freshly picked provider has no target yet, so the stored one belongs to the old provider.
+    const target = selectedIssueTrackerIntegrationId === issueTrackerIntegrationId ? issueTrackerConfig : {}
+    const saved = trackers.find((integration) => integration.id === issueTrackerIntegrationId) ?? null
+    const summary =
+        integrations === null ? 'Loading…' : saved ? (ISSUE_TRACKER_LABELS[saved.kind] ?? saved.kind) : 'Off'
+
+    const saveTarget = (config: Record<string, string>): void => {
+        if (selected) {
+            patchTeamConfig({
+                issue_tracking_integration: selected.id,
+                issue_tracking_config: { ...target, ...config },
+            })
+        }
+    }
+
+    const chooseTracker = (next: number): void => {
+        if (next === ISSUE_TRACKER_OFF) {
+            setDraftIssueTrackerIntegrationId(null)
+            patchTeamConfig({ issue_tracking_integration: null, issue_tracking_config: {} })
+            return
+        }
+
+        setDraftIssueTrackerIntegrationId(next)
+        if (trackers.find((integration) => integration.id === next)?.kind === 'gitlab') {
+            patchTeamConfig({ issue_tracking_integration: next, issue_tracking_config: {} })
+        }
+    }
+
+    const content = (
+        <div className="flex flex-col gap-1.5">
+            <p className="text-[11px] text-tertiary leading-snug mb-0">
+                Open an issue for every PR agents make, and link the two. Use this when a PR can only merge with a
+                tracked work item behind it.
+            </p>
+            {integrations === null ? (
+                integrationsLoading ? (
+                    <LemonSkeleton className="h-7 max-w-xs" />
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-tertiary">Could not load integrations.</span>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => loadIntegrations()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )
+            ) : trackers.length > 0 ? (
+                <>
+                    <LemonSelect
+                        size="xsmall"
+                        fullWidth
+                        className="max-w-xs"
+                        value={selectedIssueTrackerIntegrationId ?? ISSUE_TRACKER_OFF}
+                        options={[
+                            { value: ISSUE_TRACKER_OFF, label: 'Off' },
+                            ...trackers.map((integration) => ({
+                                value: integration.id,
+                                label: `${ISSUE_TRACKER_LABELS[integration.kind]} · ${integration.display_name}`,
+                            })),
+                        ]}
+                        disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                        onChange={chooseTracker}
+                    />
+                    {selected && (
+                        <IssueTrackerTarget
+                            integration={selected}
+                            target={target}
+                            disabled={teamConfigUpdating}
+                            onSave={saveTarget}
+                        />
+                    )}
+                    <p className="text-[11px] text-tertiary leading-snug mb-0">
+                        If the tracker fails, the PR still opens and the report shows that the issue is missing.
+                    </p>
+                </>
+            ) : (
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    <Link to={urls.settings('project-integrations')}>Connect GitHub, GitLab, Linear, or Jira</Link> to
+                    track issues.
+                </p>
+            )}
+        </div>
+    )
+
+    return (
+        <LemonCollapse
+            embedded
+            size="small"
+            panels={[
+                {
+                    key: 'issue-tracker',
+                    header: (
+                        <div className="flex flex-1 items-center justify-between gap-2">
+                            <span className="text-xs text-secondary">Issue tracker</span>
+                            <span className="text-xs text-tertiary">{summary}</span>
+                        </div>
+                    ),
+                    content,
+                },
+            ]}
+        />
+    )
+}
+
 /**
  * A self-imposed cap on reports per day, deliberately housed with the autonomy throttles rather
  * than the billing usage card: it is "how much should the agents do", not "what does the plan
  * allow", and placing it next to plan usage read as if the two limits were one system. Renders
  * regardless of the auto-start toggle, since the cap pauses report generation, not just PRs.
- * While the billing quota has the pipeline paused, the live count is withheld so remaining daily
- * headroom is not advertised on a day when nothing will arrive. Same collapsed-by-default shape
- * as Base branch overrides: the trigger's count keeps the state readable without opening.
+ * The billing quota deliberately does not overwrite this row: it caps pull requests, not reports,
+ * so stamping its pause here reported the wrong limit as the reason nothing arrived. Same
+ * collapsed-by-default shape as Base branch overrides: the trigger's count keeps the state
+ * readable without opening.
  */
 function DailyReportLimit(): JSX.Element {
     const {
@@ -245,13 +439,11 @@ function DailyReportLimit(): JSX.Element {
         teamConfigUpdating,
     } = useValues(signalTeamConfigLogic)
     const { setDraftMaxReportsPerDay, saveDraftMaxReportsPerDay } = useActions(signalTeamConfigLogic)
-    const { quotaLimited } = useValues(inboxUsageLogic)
 
-    const summary = quotaLimited
-        ? 'Paused by plan limit'
-        : maxReportsPerDay != null
-          ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
-          : null
+    const summary =
+        maxReportsPerDay != null
+            ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
+            : null
 
     return (
         <>
@@ -289,12 +481,42 @@ function DailyReportLimit(): JSX.Element {
                     </div>
                 </CollapsibleContent>
             </Collapsible>
-            {dailyReportLimitReached && !quotaLimited && (
+            {dailyReportLimitReached && (
                 <p className="text-xs font-medium text-danger mb-0 px-2.5 pb-1.5">
                     Daily report limit reached. New reports resume at midnight in your project's timezone.
                 </p>
             )}
         </>
+    )
+}
+
+/**
+ * Per-user opt-in to being added as a GitHub assignee on the implementation PR for reports that
+ * suggest this user as reviewer. Off by default, because being assigned is visible to everybody on
+ * the pull request. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox
+ * assigns reviewers too.
+ */
+function GitHubAssignmentRow(): JSX.Element {
+    const { autonomyConfig, autonomyConfigLoading, githubAssignUpdating } = useValues(userAutonomyLogic)
+    const { setGithubAssignOnPullRequest } = useActions(userAutonomyLogic)
+
+    return (
+        <div className="flex items-start justify-between gap-2 px-2.5 py-1.5">
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <span className="text-xs text-secondary">Assign me on GitHub</span>
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    Add you as an assignee on PRs for reports that suggest you as reviewer, across all your projects.
+                </p>
+            </div>
+            <LemonSwitch
+                checked={autonomyConfig?.github_assign_on_pull_request ?? false}
+                loading={githubAssignUpdating}
+                disabledReason={autonomyConfigLoading && autonomyConfig === null ? 'Loading settings' : undefined}
+                onChange={setGithubAssignOnPullRequest}
+                aria-label="Assign me on GitHub pull requests"
+                data-attr="signals-github-assign-on-pull-request"
+            />
+        </div>
     )
 }
 
@@ -402,6 +624,12 @@ export function SelfDrivingSection(): JSX.Element {
                         Reports still arrive and notify your team.
                     </p>
                 )}
+                <div className="border-t border-primary">
+                    <GitHubAssignmentRow />
+                </div>
+                <div className="border-t border-primary">
+                    <IssueTracker />
+                </div>
                 <div className="border-t border-primary">
                     <DailyReportLimit />
                 </div>
