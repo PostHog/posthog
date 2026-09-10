@@ -15,7 +15,8 @@ Entry point:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Protocol
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone as django_timezone
@@ -29,7 +30,35 @@ from products.tasks.backend.facade.api import TaskRunStatus
 logger = structlog.get_logger(__name__)
 
 
-def handle_task_run_completed(task_run: Any) -> None:
+class FinishedTaskRun(Protocol):
+    """The fields of a terminal ``TaskRun`` that this product reads, so the tasks model stays off its import path."""
+
+    @property
+    def id(self) -> UUID: ...
+
+    @property
+    def team_id(self) -> int: ...
+
+    @property
+    def status(self) -> str: ...
+
+    @property
+    def state(self) -> object: ...
+
+    @property
+    def error_message(self) -> str | None: ...
+
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
+
+    def _task_run_satisfies_contract(run: TaskRun) -> FinishedTaskRun:
+        # A tasks-side rename or type change of a field read here fails mypy instead of ingestion.
+        # ty has no Django plugin, so it cannot see the team_id attribute the team foreign key adds.
+        return run  # ty: ignore[invalid-return-type]
+
+
+def handle_task_run_completed(task_run: FinishedTaskRun) -> None:
     """
     Finalize a completed (or failed/cancelled) TaskRun for an autoresearch pipeline.
 

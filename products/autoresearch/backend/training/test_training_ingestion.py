@@ -13,22 +13,25 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
-from products.autoresearch.backend.training.ingestion import handle_task_run_completed
+from products.autoresearch.backend.training.ingestion import FinishedTaskRun, handle_task_run_completed
 
 _TASK_RUN_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
-    def _task_run(self, state, status: str = "completed"):
+    def _task_run(self, state: object, status: str = "completed", error_message: str | None = None) -> FinishedTaskRun:
         class FakeTaskRun:
-            pass
+            id = _TASK_RUN_ID
+            team_id = 0
+            status = ""
+            state: object = None
+            error_message: str | None = None
 
         tr = FakeTaskRun()
-        tr.id = _TASK_RUN_ID  # type: ignore[attr-defined]
-        tr.team_id = self.team.id  # type: ignore[attr-defined]
-        tr.status = status  # type: ignore[attr-defined]
-        tr.state = state  # type: ignore[attr-defined]
-        tr.error_message = None  # type: ignore[attr-defined]
+        tr.team_id = self.team.id
+        tr.status = status
+        tr.state = state
+        tr.error_message = error_message
         return tr
 
     def _make_pipeline(self, **kwargs) -> AutoresearchPipeline:
@@ -93,8 +96,11 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
     def test_marks_failed_on_failed_task_run(self) -> None:
         pipeline = self._make_pipeline()
         training_run = self._make_training_run(pipeline)
-        tr = self._task_run(status="failed", state={"autoresearch_training_run_id": str(training_run.id)})
-        tr.error_message = "sandbox crashed"
+        tr = self._task_run(
+            status="failed",
+            state={"autoresearch_training_run_id": str(training_run.id)},
+            error_message="sandbox crashed",
+        )
 
         handle_task_run_completed(tr)
 

@@ -5,16 +5,21 @@ Registered in AutoresearchConfig.ready() (apps.py) after the app registry
 is initialised so cross-product model imports are safe.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from posthog.models.scoping import team_scope
 
+if TYPE_CHECKING:
+    from products.autoresearch.backend.training.ingestion import FinishedTaskRun
+
 logger = structlog.get_logger(__name__)
 
 
-def on_task_run_saved(sender: Any, instance: Any, created: bool, **kwargs: Any) -> None:
+def on_task_run_saved(sender: Any, instance: FinishedTaskRun, created: bool, **kwargs: Any) -> None:
     """
     Detect autoresearch TaskRun completion and trigger recipe ingestion.
 
