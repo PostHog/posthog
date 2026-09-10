@@ -56,6 +56,8 @@ declare module '@tanstack/react-table' {
 export interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
+    /** Opens or selects a record when the user clicks a non-interactive part of its row. */
+    onRowClick?: (row: TData) => void
     /** Sizing/scroll classes for the table container (forwarded to the Table primitive). */
     className?: string
     /** Sticky header mode, forwarded to the Table primitive. `'page'` sticks to document scroll. */
@@ -122,10 +124,10 @@ function DataTablePagination<TData>({
     const end = Math.min((pageIndex + 1) * pageSize, total)
     const range = getPaginationRange(pageCount, pageIndex)
 
-    // px-3 matches the cells' 0.75rem inline padding so the pager lines up under
-    // the column content.
+    // px-3 matches the cells' 0.75rem inline padding. Bottom padding keeps the
+    // controls clear of a flush card's edge.
     return (
-        <div className="flex flex-wrap items-center justify-between gap-2 px-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="tabular-nums">
                     {start}–{end} of {total}
@@ -193,6 +195,7 @@ function DataTablePagination<TData>({
 function DataTable<TData, TValue>({
     columns,
     data,
+    onRowClick,
     className,
     stickyHeader,
     fullWidth,
@@ -277,7 +280,40 @@ function DataTable<TData, TValue>({
             <TableBody>
                 {rows.length ? (
                     rows.map((row) => (
-                        <TableRow key={row.id} data-state={row.getIsSelected() ? 'selected' : undefined}>
+                        <TableRow
+                            key={row.id}
+                            data-state={row.getIsSelected() ? 'selected' : undefined}
+                            className={
+                                onRowClick
+                                    ? 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
+                                    : undefined
+                            }
+                            tabIndex={onRowClick ? 0 : undefined}
+                            onClick={
+                                onRowClick
+                                    ? (event) => {
+                                          if (
+                                              !(event.target as Element).closest('a, button, input, select, textarea')
+                                          ) {
+                                              onRowClick(row.original)
+                                          }
+                                      }
+                                    : undefined
+                            }
+                            onKeyDown={
+                                onRowClick
+                                    ? (event) => {
+                                          if (
+                                              event.target === event.currentTarget &&
+                                              (event.key === 'Enter' || event.key === ' ')
+                                          ) {
+                                              event.preventDefault()
+                                              onRowClick(row.original)
+                                          }
+                                      }
+                                    : undefined
+                            }
+                        >
                             {row.getVisibleCells().map((cell) => (
                                 <TableCell
                                     key={cell.id}

@@ -145,6 +145,18 @@ export const FullWidth: Story = {
     ),
 }
 
+export const ClickableRows: Story = {
+    render: () => (
+        <DataTable
+            columns={fullWidthColumns}
+            data={people}
+            fullWidth
+            onRowClick={() => undefined}
+            className="rounded-md border border-[var(--border)]"
+        />
+    ),
+}
+
 // Client-side pagination — pass `pageSize` to page the data and render a pager
 // below the table. `pageSizeOptions` adds a rows-per-page selector.
 export const Paginated: Story = {
@@ -174,4 +186,3 @@ export const FullWidthPaginated: Story = {
         />
     ),
 }
-
