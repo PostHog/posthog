@@ -108,20 +108,7 @@ _PLACEHOLDER_PATTERNS = {
     "<host>": _HOST_PATTERN,
     "<hex>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{16,})",
 }
-_PLACEHOLDER_PATTERNS.update(
-    {
-        "<N>": _PLACEHOLDER_PATTERNS["<num>"],
-        "<TIMESTAMP>": _PLACEHOLDER_PATTERNS["<timestamp>"],
-        "<KLOGTIME>": _PLACEHOLDER_PATTERNS["<klogtime>"],
-        "<UUID>": _PLACEHOLDER_PATTERNS["<uuid>"],
-        "<IP>": _PLACEHOLDER_PATTERNS["<ip>"],
-        "<HOST>": _PLACEHOLDER_PATTERNS["<host>"],
-        "<HEX>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{8,})",
-        "<ID>": r"[a-z]{2,10}_[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*",
-        "<EMAIL>": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-    }
-)
-_PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS) + r"|<JSON_ARRAY>")
+_PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
 
 # Templates whose literal content is thinner than this compile to uselessly broad
 # predicates (worst case "<*> <*> <*>" matches everything), so they get no regex.
@@ -375,10 +362,7 @@ def compile_match_regex(
     pos = 0
     for match in _PLACEHOLDER_RE.finditer(template):
         parts.append(_escape_literal(template[pos : match.start()]))
-        fragment = _PLACEHOLDER_PATTERNS.get(match.group(0))
-        if fragment is None:
-            return None
-        parts.append(fragment)
+        parts.append(_PLACEHOLDER_PATTERNS[match.group(0)])
         pos = match.end()
     parts.append(_escape_literal(template[pos:]))
     core = "".join(parts)

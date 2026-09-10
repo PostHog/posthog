@@ -527,8 +527,8 @@ class TestCompileMatchRegex(TestCase):
         [
             ("longest_run_wins", "at <uuid> failed to charge card for team <num>", "failed to charge card for team"),
             ("too_thin", "<*> ab <num>", None),
-            ("ingestion_placeholders", "At <ID> sent to <EMAIL>", "sent to"),
-            ("unknown_ingestion_placeholder", "<JSON_ARRAY>", None),
+            ("ingestion_placeholders_are_literal", "At <ID> sent to <EMAIL>", "At <ID> sent to <EMAIL>"),
+            ("ingestion_array_is_literal", "<JSON_ARRAY>", "<JSON_ARRAY>"),
         ]
     )
     def test_extract_match_literal(self, _name: str, template: str, expected: str | None) -> None:
@@ -543,8 +543,22 @@ class TestCompileMatchRegex(TestCase):
         assert extract_match_literal("job done ok", ["job   done\n\nok"]) is None
         assert extract_match_literal("Job Done OK", ["prefix job done ok suffix"]) == "Job Done OK"
 
-    def test_unknown_ingestion_placeholders_withhold_regex(self) -> None:
-        assert _compile_prose("payload <JSON_ARRAY>", ["payload [1,2,3]"]) is None
+    @parameterized.expand(
+        [
+            ("<ID>", "abc_123"),
+            ("<TIMESTAMP>", "2026-09-01T12:00:00Z"),
+            ("<HOST>", "worker.example.com"),
+            ("<JSON_ARRAY>", "[1,2,3]"),
+            ("<JSON:key>", '{"key":1}'),
+        ]
+    )
+    def test_ingestion_tokens_are_literal_in_body_predicates(self, token: str, value: str) -> None:
+        template = f"payload {token}"
+        predicate = _compile_prose(template, [template])
+        assert predicate is not None
+        assert re.search(predicate, template)
+        assert re.search(predicate, f"payload {value}") is None
+        assert _compile_prose(template, [f"payload {value}"]) is None
 
 
 class TestPrepareJsonBody(TestCase):

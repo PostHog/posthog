@@ -253,27 +253,34 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         max_examples = _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int)
         if max_examples <= 0:
             return patterns
+        member_groups = {
+            member: group_id for group_id, pattern in enumerate(patterns, start=1) for member in pattern.match_patterns
+        }
         rows = self._execute(
             parse_select(
-                "SELECT pattern, substringUTF8(body, 1, 4096), severity_text, service_name, timestamp "
+                "SELECT transform(pattern, {patterns}, {group_ids}, 0) AS pattern_group, "
+                "substringUTF8(body, 1, 4096), severity_text, service_name, timestamp "
                 "FROM logs WHERE {where} AND pattern IN {patterns} "
-                "LIMIT {max_examples} BY pattern LIMIT {limit}",
+                "LIMIT {max_examples} BY pattern_group LIMIT {limit}",
                 placeholders={
                     "where": self._stored_where(version),
-                    "patterns": ast.Constant(value=[pattern.match_patterns[0] for pattern in patterns]),
+                    "patterns": ast.Constant(value=list(member_groups)),
+                    "group_ids": ast.Constant(value=list(member_groups.values())),
                     "max_examples": ast.Constant(value=max_examples),
                     "limit": ast.Constant(value=len(patterns) * max_examples),
                 },
             )
         ).results
-        examples: dict[str, list[LogSample]] = {}
+        examples: dict[int, list[LogSample]] = {}
         for row in rows:
             examples.setdefault(row[0], []).append(
                 LogSample(
                     body=row[1], severity_text=row[2], service_name=row[3], timestamp=row[4].replace(tzinfo=dt.UTC)
                 )
             )
-        return [replace(pattern, examples=examples.get(pattern.match_patterns[0], [])) for pattern in patterns]
+        return [
+            replace(pattern, examples=examples.get(group_id, [])) for group_id, pattern in enumerate(patterns, start=1)
+        ]
 
     def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
         response = super().run(*args, **kwargs)
