@@ -98,6 +98,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         hasUnrenderableWindow,
         unrenderableWindowMs,
         hasOversizedMutations,
+        fullyLoaded,
     } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -172,18 +173,29 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         [hasLateFullSnapshot]
     )
 
+    // An unrenderable span keeps growing while sources arrive, so the duration is only final once
+    // the recording is fully loaded. `fullyLoaded` also drops back while the inspector fetches full
+    // event data, so remember which recording was reported to keep this one event per view.
+    const reportedUnrenderableWindowFor = useRef<string | null>(null)
+
     useEffect(
         () => {
-            if (hasUnrenderableWindow) {
-                posthog.capture('session loaded with unrenderable window', {
-                    viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
-                    unrenderableWindowMs,
-                })
+            if (
+                !hasUnrenderableWindow ||
+                !fullyLoaded ||
+                reportedUnrenderableWindowFor.current === sessionRecordingId
+            ) {
+                return
             }
+            reportedUnrenderableWindowFor.current = sessionRecordingId
+            posthog.capture('session loaded with unrenderable window', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionPlayerData?.start,
+                unrenderableWindowMs,
+            })
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [hasUnrenderableWindow]
+        [hasUnrenderableWindow, fullyLoaded, sessionRecordingId]
     )
 
     // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
