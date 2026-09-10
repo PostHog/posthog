@@ -37,12 +37,16 @@ from products.exports.backend.tasks.failure_handler import (
 )
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    complete_subscription_scheduler_claim_activity,
+    confirm_subscription_scheduler_claim_activity,
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
     notify_subscription_delivery_failure,
+    recover_subscription_scheduler_claims_activity,
+    release_subscription_scheduler_claim_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -68,8 +72,10 @@ from products.exports.backend.temporal.subscriptions.types import (
     NoExportableInsightsErrorDetails,
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
+    RecoverSubscriptionSchedulerClaimsInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SnapshotInsightsInputs,
+    SubscriptionSchedulerClaimInputs,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
@@ -187,6 +193,223 @@ def _record_subscription_failure(
     )
 
 
+def _build_scheduled_subscription_child(
+    subscription: DueSubscription,
+) -> tuple[Callable[..., Coroutine[Any, Any, None]], TrackedSubscriptionInputs, str]:
+    tracked = TrackedSubscriptionInputs(
+        subscription_id=subscription.subscription_id,
+        team_id=subscription.team_id,
+        distinct_id=subscription.distinct_id,
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+        scheduled_at=subscription.next_delivery_date,
+        resource_type=subscription.resource_type,
+        scheduler_claim_id=subscription.scheduler_claim_id,
+        scheduler_claim_token=subscription.scheduler_claim_token,
+        slo=SloConfig(
+            operation=SloOperation.SUBSCRIPTION_DELIVERY,
+            area=SloArea.ANALYTIC_PLATFORM,
+            team_id=subscription.team_id,
+            resource_id=str(subscription.subscription_id),
+            distinct_id=subscription.distinct_id,
+            start_properties={
+                "resource_type": subscription.resource_type,
+                "trigger_type": SubscriptionTriggerType.SCHEDULED,
+            },
+            completion_properties={
+                "resource_type": subscription.resource_type,
+                "trigger_type": SubscriptionTriggerType.SCHEDULED,
+            },
+        ),
+    )
+    workflow: Callable[..., Coroutine[Any, Any, None]]
+    if subscription.resource_type == AI_PROMPT_RESOURCE_TYPE:
+        workflow = ProcessAISubscriptionWorkflow.run
+        child_id = f"process-ai-subscription-{subscription.subscription_id}"
+    else:
+        workflow = ProcessSubscriptionWorkflow.run
+        child_id = f"process-subscription-{subscription.subscription_id}"
+    return workflow, tracked, child_id
+
+
+def _record_subscription_dispatch_outcome(region: str, outcome: str, count: int) -> None:
+    if not count:
+        return
+    try:
+        (
+            temporalio.workflow.metric_meter()
+            .with_additional_attributes(
+                {
+                    "scheduler": "subscriptions",
+                    "region": region,
+                    "outcome": outcome,
+                }
+            )
+            .create_counter(
+                "posthog_temporal_scheduler_child_start",
+                "Subscription scheduler child-start outcomes.",
+            )
+            .add(count)
+        )
+    except Exception:
+        temporalio.workflow.logger.exception("subscription_scheduler.dispatch_metric_failed")
+
+
+async def _run_legacy_subscription_children(subscription_infos: list[DueSubscription]) -> None:
+    tasks = []
+    for subscription in subscription_infos:
+        workflow, tracked, child_id = _build_scheduled_subscription_child(subscription)
+        tasks.append(
+            temporalio.workflow.execute_child_workflow(
+                workflow,
+                tracked,
+                id=child_id,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=dt.timedelta(hours=2),
+            )
+        )
+
+    if not tasks:
+        return
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    failed_ids = []
+    for subscription, result in zip(subscription_infos, results, strict=True):
+        if isinstance(result, BaseException):
+            if isinstance(result, WorkflowAlreadyStartedError):
+                temporalio.workflow.logger.info(
+                    "process_subscription.already_running",
+                    extra={"subscription_id": subscription.subscription_id},
+                )
+            else:
+                failed_ids.append(subscription.subscription_id)
+                temporalio.workflow.logger.warning(
+                    "process_subscription.child_workflow_error",
+                    extra={"subscription_id": subscription.subscription_id, "error": str(result)},
+                )
+
+    if failed_ids:
+        raise ApplicationError(
+            f"Subscription deliveries failed for IDs: {failed_ids}",
+            non_retryable=True,
+        )
+
+
+async def _start_claimed_subscription_children(subscription_infos: list[DueSubscription], region: str) -> None:
+    failed_ids: list[int] = []
+    accepted = 0
+    already_running = 0
+    for subscription in subscription_infos:
+        workflow, tracked, child_id = _build_scheduled_subscription_child(subscription)
+        claim_inputs = (
+            SubscriptionSchedulerClaimInputs(
+                claim_id=subscription.scheduler_claim_id,
+                claim_token=subscription.scheduler_claim_token,
+            )
+            if subscription.scheduler_claim_id and subscription.scheduler_claim_token
+            else None
+        )
+        if claim_inputs is None:
+            failed_ids.append(subscription.subscription_id)
+            continue
+        try:
+            await temporalio.workflow.start_child_workflow(
+                workflow,
+                tracked,
+                id=child_id,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=dt.timedelta(hours=2),
+            )
+            accepted += 1
+        except WorkflowAlreadyStartedError:
+            already_running += 1
+            temporalio.workflow.logger.info(
+                "process_subscription.already_running",
+                extra={"subscription_id": subscription.subscription_id},
+            )
+            try:
+                await temporalio.workflow.execute_activity(
+                    release_subscription_scheduler_claim_activity,
+                    claim_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                temporalio.workflow.logger.exception(
+                    "subscription_scheduler.claim_release_failed",
+                    extra={"subscription_id": subscription.subscription_id},
+                )
+        except Exception as error:
+            failed_ids.append(subscription.subscription_id)
+            temporalio.workflow.logger.warning(
+                "process_subscription.child_workflow_start_error",
+                extra={"subscription_id": subscription.subscription_id, "error": str(error)},
+            )
+            try:
+                await temporalio.workflow.execute_activity(
+                    release_subscription_scheduler_claim_activity,
+                    claim_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                temporalio.workflow.logger.exception(
+                    "subscription_scheduler.claim_release_failed",
+                    extra={"subscription_id": subscription.subscription_id},
+                )
+
+    _record_subscription_dispatch_outcome(region, "accepted", accepted)
+    _record_subscription_dispatch_outcome(region, "already_running", already_running)
+    _record_subscription_dispatch_outcome(region, "failed", len(failed_ids))
+    if failed_ids:
+        raise ApplicationError(
+            f"Failed to start {len(failed_ids)} subscription deliveries; first IDs: {failed_ids[:50]}",
+            non_retryable=True,
+        )
+
+
+def _scheduler_claim_inputs(inputs: TrackedSubscriptionInputs) -> SubscriptionSchedulerClaimInputs | None:
+    if inputs.scheduler_claim_id is None and inputs.scheduler_claim_token is None:
+        return None
+    if not inputs.scheduler_claim_id or not inputs.scheduler_claim_token:
+        raise ApplicationError("Scheduled subscription claim input is incomplete", non_retryable=True)
+    return SubscriptionSchedulerClaimInputs(
+        claim_id=inputs.scheduler_claim_id,
+        claim_token=inputs.scheduler_claim_token,
+    )
+
+
+async def _confirm_subscription_scheduler_claim(inputs: SubscriptionSchedulerClaimInputs | None) -> None:
+    if inputs is None:
+        return
+    confirmed = await temporalio.workflow.execute_activity(
+        confirm_subscription_scheduler_claim_activity,
+        inputs,
+        start_to_close_timeout=dt.timedelta(minutes=1),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+    )
+    if not confirmed:
+        raise ApplicationError("Scheduled subscription claim is no longer owned by this workflow", non_retryable=True)
+
+
+async def _finish_subscription_scheduler_claim(
+    inputs: SubscriptionSchedulerClaimInputs | None,
+    *,
+    schedule_advanced: bool,
+) -> bool:
+    if inputs is None:
+        return True
+    activity = (
+        complete_subscription_scheduler_claim_activity
+        if schedule_advanced
+        else release_subscription_scheduler_claim_activity
+    )
+    return await temporalio.workflow.execute_activity(
+        activity,
+        inputs,
+        start_to_close_timeout=dt.timedelta(minutes=1),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+    )
+
+
 @temporalio.workflow.defn(name="schedule-all-subscriptions")
 class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
     @staticmethod
@@ -199,10 +422,26 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
+        durable_dispatch = temporalio.workflow.patched("subscription-scheduler-durable-dispatch-v1")
+        if durable_dispatch:
+            try:
+                await temporalio.workflow.execute_activity(
+                    recover_subscription_scheduler_claims_activity,
+                    RecoverSubscriptionSchedulerClaimsInputs(
+                        region=inputs.region,
+                        limit=inputs.max_subscriptions_per_run,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                temporalio.workflow.logger.exception("subscription_scheduler.claim_recovery_failed")
+
         fetch_inputs = FetchDueSubscriptionsActivityInputs(
             buffer_minutes=inputs.buffer_minutes,
             max_subscriptions_per_run=inputs.max_subscriptions_per_run,
             region=inputs.region,
+            use_durable_claims=durable_dispatch,
         )
         subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
             fetch_due_subscriptions_activity,
@@ -216,72 +455,10 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
-        # Fan-out child workflows — one per subscription, fully isolated. Awaiting
-        # start_child_workflow waits only for Temporal to accept the start; accepted children use
-        # ABANDON so this bounded coordinator can finish without waiting for delivery completion.
-        # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
-        # schedule runs overlap: Temporal guarantees no two open workflows can
-        # share the same ID, so a still-running child rejects the duplicate start.
-        failed_ids: list[int] = []
-        for sub in subscription_infos:
-            tracked = TrackedSubscriptionInputs(
-                subscription_id=sub.subscription_id,
-                team_id=sub.team_id,
-                distinct_id=sub.distinct_id,
-                trigger_type=SubscriptionTriggerType.SCHEDULED,
-                scheduled_at=sub.next_delivery_date,
-                resource_type=sub.resource_type,
-                slo=SloConfig(
-                    operation=SloOperation.SUBSCRIPTION_DELIVERY,
-                    area=SloArea.ANALYTIC_PLATFORM,
-                    team_id=sub.team_id,
-                    resource_id=str(sub.subscription_id),
-                    distinct_id=sub.distinct_id,
-                    start_properties={
-                        "resource_type": sub.resource_type,
-                        "trigger_type": SubscriptionTriggerType.SCHEDULED,
-                    },
-                    completion_properties={
-                        "resource_type": sub.resource_type,
-                        "trigger_type": SubscriptionTriggerType.SCHEDULED,
-                    },
-                ),
-            )
-            # AI-prompt subs run a dedicated workflow; distinct child-ID prefixes keep the
-            # overlapping-duplicate guarantee per type.
-            workflow: Callable[..., Coroutine[Any, Any, None]]
-            if sub.resource_type == AI_PROMPT_RESOURCE_TYPE:
-                workflow = ProcessAISubscriptionWorkflow.run
-                child_id = f"process-ai-subscription-{sub.subscription_id}"
-            else:
-                workflow = ProcessSubscriptionWorkflow.run
-                child_id = f"process-subscription-{sub.subscription_id}"
-            try:
-                await temporalio.workflow.start_child_workflow(
-                    workflow,
-                    tracked,
-                    id=child_id,
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(hours=2),
-                )
-            except WorkflowAlreadyStartedError:
-                # A previous schedule run's child is still processing this subscription.
-                temporalio.workflow.logger.info(
-                    "process_subscription.already_running",
-                    extra={"subscription_id": sub.subscription_id},
-                )
-            except Exception as error:
-                failed_ids.append(sub.subscription_id)
-                temporalio.workflow.logger.warning(
-                    "process_subscription.child_workflow_start_error",
-                    extra={"subscription_id": sub.subscription_id, "error": str(error)},
-                )
-
-        if failed_ids:
-            raise ApplicationError(
-                f"Failed to start {len(failed_ids)} subscription deliveries; first IDs: {failed_ids[:50]}",
-                non_retryable=True,
-            )
+        if durable_dispatch:
+            await _start_claimed_subscription_children(subscription_infos, inputs.region)
+        else:
+            await _run_legacy_subscription_children(subscription_infos)
 
 
 @temporalio.workflow.defn(name="process-subscription")
@@ -295,6 +472,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
+        scheduler_claim = _scheduler_claim_inputs(inputs)
+        await _confirm_subscription_scheduler_claim(scheduler_claim)
+        schedule_advanced = inputs.trigger_type != SubscriptionTriggerType.SCHEDULED
         assets_with_content = 0
         total_assets = 0
         asset_errors: list[ExportError] = []
@@ -595,6 +775,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
+                    schedule_advanced = True
                 except Exception as schedule_error:
                     temporalio.workflow.logger.exception(
                         "advance_next_delivery_date failed (schedule update is best-effort when a prior error exists)"
@@ -604,6 +785,16 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, schedule_error
                         )
                         raise
+
+            claim_finished = await _finish_subscription_scheduler_claim(
+                scheduler_claim,
+                schedule_advanced=schedule_advanced,
+            )
+            if not claim_finished and caught_error is None:
+                caught_error = ApplicationError(
+                    "Scheduled subscription claim could not reach a terminal state",
+                    non_retryable=True,
+                )
 
             # Enrich SLO event with per-insight detail (non-user errors only).
             if inputs.slo:
@@ -648,6 +839,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
+        scheduler_claim = _scheduler_claim_inputs(inputs)
+        await _confirm_subscription_scheduler_claim(scheduler_claim)
+        schedule_advanced = inputs.trigger_type != SubscriptionTriggerType.SCHEDULED
         delivery_id: uuid.UUID | None = None
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
@@ -821,6 +1015,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
+                    schedule_advanced = True
                 except Exception as schedule_error:
                     temporalio.workflow.logger.exception(
                         "advance_next_delivery_date failed (schedule update is best-effort when a prior error exists)"
@@ -830,6 +1025,16 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                             inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, schedule_error
                         )
                         raise
+
+            claim_finished = await _finish_subscription_scheduler_claim(
+                scheduler_claim,
+                schedule_advanced=schedule_advanced,
+            )
+            if not claim_finished and caught_error is None:
+                caught_error = ApplicationError(
+                    "Scheduled subscription claim could not reach a terminal state",
+                    non_retryable=True,
+                )
 
             # Auto-disable aborts (consent revoked / prompt invalid) return normally rather
             # than raising, so they record delivery status FAILED but keep the SLO outcome
