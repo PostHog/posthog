@@ -43,6 +43,14 @@ export function dataWarehouseColumnsWithJoins(
                 if (HIDDEN_FIELD_TYPES.includes(joinedField.type)) {
                     continue
                 }
+                // A traverser reaches another field through a chain, and the chain can end at a table
+                // instead of a value. `events.person` is one, so a warehouse table joined to `events`
+                // would offer a breakdown the printer rejects with "Can't select a table when a
+                // column is expected". Telling the two apart needs the chain resolved, so the scalar
+                // traversers such as `$virt_revenue` on persons and groups are dropped as well.
+                if (joinedField.type === 'field_traverser') {
+                    continue
+                }
                 columns.push({
                     ...joinedField,
                     name: `${field.name}.${joinedField.name}`,
