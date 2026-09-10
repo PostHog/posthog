@@ -66,6 +66,32 @@ def _scan_result(**overrides) -> ScanResult:
     return ScanResult(**defaults)
 
 
+def _bands_result(**overrides) -> SeriesBandsResult:
+    defaults: dict = {
+        "service_name": "svc",
+        "window_start": T0 - dt.timedelta(days=7),
+        "window_end": T0,
+        "interval_minutes": 60,
+        "series_truncated": False,
+        "series": [
+            BandSeries(
+                namespace="ns",
+                environment="prod",
+                severity="error",
+                total_count=25,
+                baseline_weeks=5,
+                history_start=T0 - dt.timedelta(weeks=5),
+                band_ready_at=None,
+                interval_minutes=60,
+                coarsened_reason="sparse",
+                buckets=[BandBucket(time=T0 - dt.timedelta(hours=1), observed=25, lower=9.0, upper=57.0)],
+            )
+        ],
+    }
+    defaults.update(overrides)
+    return SeriesBandsResult(**defaults)
+
+
 class TestScanRequestValidation(SimpleTestCase):
     @parameterized.expand(
         [
@@ -174,12 +200,17 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
 
 
 class TestSeriesBandsRequestValidation(SimpleTestCase):
-    @parameterized.expand([(5, True), (15, True), (30, True), (60, True), (7, False), (120, False)])
-    def test_interval_must_sit_on_the_ladder(self, interval_minutes: int, valid: bool) -> None:
+    @parameterized.expand([(5, True), (15, True), (30, True), (60, True), (None, True), (7, False), (120, False)])
+    def test_interval_must_sit_on_the_ladder_or_be_null(self, interval_minutes: int | None, valid: bool) -> None:
         serializer = LogsSeriesBandsRequestSerializer(data={"serviceName": "svc", "intervalMinutes": interval_minutes})
         assert serializer.is_valid() is valid, serializer.errors
         if valid:
             assert serializer.validated_data["intervalMinutes"] == interval_minutes
+
+    def test_interval_may_be_omitted(self) -> None:
+        serializer = LogsSeriesBandsRequestSerializer(data={"serviceName": "svc"})
+        assert serializer.is_valid(), serializer.errors
+        assert "intervalMinutes" not in serializer.validated_data
 
 
 class TestLogsSeriesBandsAPI(APIBaseTest):
@@ -197,27 +228,8 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
         run.assert_not_called()
 
     def test_response_shape(self):
-        result = SeriesBandsResult(
-            service_name="svc",
-            window_start=T0 - dt.timedelta(days=7),
-            window_end=T0,
-            interval_minutes=60,
-            series_truncated=False,
-            series=[
-                BandSeries(
-                    namespace="ns",
-                    environment="prod",
-                    severity="error",
-                    total_count=25,
-                    baseline_weeks=5,
-                    history_start=T0 - dt.timedelta(weeks=5),
-                    band_ready_at=None,
-                    buckets=[BandBucket(time=T0 - dt.timedelta(hours=1), observed=25, lower=9.0, upper=57.0)],
-                )
-            ],
-        )
         with patch(
-            "products.logs.backend.presentation.views.anomalies_api.run_series_bands", return_value=result
+            "products.logs.backend.presentation.views.anomalies_api.run_series_bands", return_value=_bands_result()
         ) as run:
             response = self.client.post(self.url, {"serviceName": "svc"}, format="json")
 
@@ -235,12 +247,27 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
         assert series["baseline_weeks"] == 5
         assert series["history_start"] == (T0 - dt.timedelta(weeks=5)).isoformat().replace("+00:00", "Z")
         assert series["band_ready_at"] is None
+        assert series["interval_minutes"] == 60
+        assert series["coarsened_reason"] == "sparse"
         assert series["buckets"][0] == {
             "time": (T0 - dt.timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
             "observed": 25,
             "lower": 9.0,
             "upper": 57.0,
         }
+
+    @parameterized.expand([("-7d", 60), ("-1d", 15)])
+    def test_omitted_interval_is_picked_from_the_window(self, date_from: str, expected_interval: int):
+        with patch(
+            "products.logs.backend.presentation.views.anomalies_api.run_series_bands",
+            return_value=_bands_result(interval_minutes=expected_interval),
+        ) as run:
+            response = self.client.post(
+                self.url, {"serviceName": "svc", "dateRange": {"date_from": date_from}}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert run.call_args.kwargs["interval_minutes"] == expected_interval
+        assert response.json()["interval_minutes"] == expected_interval
 
     @parameterized.expand(
         [

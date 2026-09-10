@@ -695,7 +695,7 @@ database "posthog" {
       topic_list          = "clickhouse_property_values"
       group_name          = "clickhouse_property_values"
       format              = "JSONEachRow"
-      num_consumers       = 8
+      num_consumers       = 1
       thread_per_consumer = true
     }
   }

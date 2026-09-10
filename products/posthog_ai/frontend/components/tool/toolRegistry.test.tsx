@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
@@ -159,10 +159,11 @@ describe('toolRegistry', () => {
                     })}
                 />
             )
-            // Skeleton first (registry displayName), then the resolved card with the command. The
-            // generous timeout covers jest compiling the lazy chunk's heavy deps on first load.
+            // Skeleton first (registry displayName), then the resolved card whose header expands to the
+            // command. The generous timeout covers jest compiling the lazy chunk's heavy deps on first load.
             expect(screen.getByText('Terminal')).toBeInTheDocument()
-            expect(await screen.findByText('echo hello-bash', {}, { timeout: 10000 })).toBeInTheDocument()
+            fireEvent.click(await screen.findByRole('button', {}, { timeout: 10000 }))
+            expect(screen.getByText('echo hello-bash')).toBeInTheDocument()
         })
 
         it('renders an unmapped MCP tool through the generic card', async () => {

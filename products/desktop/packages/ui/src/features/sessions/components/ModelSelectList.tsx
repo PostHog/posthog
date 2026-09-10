@@ -13,6 +13,7 @@ import { isSelectGroup } from "@posthog/shared";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
+import { toPickerOption } from "@posthog/ui/features/sessions/modelPickerOption";
 import { Fragment } from "react";
 import { flattenSelectOptions } from "../sessionStore";
 
@@ -35,7 +36,7 @@ const renderEntries = (
     .map((model) => (
       <ModelRadioItem
         key={model.value}
-        model={model}
+        model={toPickerOption(model)}
         closeOnClick={false}
         unavailableReason={unavailableReason?.(model.value)}
       />

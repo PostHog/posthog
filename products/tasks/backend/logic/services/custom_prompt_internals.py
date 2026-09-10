@@ -211,6 +211,7 @@ async def create_task_and_trigger(
     origin_product: Task.OriginProduct | None = None,
     signal_report_id: str | None = None,
     ai_stage: str | None = None,
+    ai_agent_name: str | None = None,
     internal: bool = False,
     workflow_id_prefix: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
@@ -236,6 +237,7 @@ async def create_task_and_trigger(
         branch=branch,
         signal_report_id=signal_report_id,
         ai_stage=ai_stage,
+        ai_agent_name=ai_agent_name,
         posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
@@ -683,7 +685,7 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
     """Scan log lines for the agent's structured terminal-error notification.
 
     Returns the last `_posthog/error` entry carrying a non-empty message (with the
-    classified `error_category` when the agent build provides it), or None when no
+    classified `errorCategory` when the agent build provides it), or None when no
     such entry exists — e.g. an older agent build or a non-agent failure — in which
     case the caller falls back to the generic terminal-status message.
     """
@@ -708,7 +710,7 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
         message = params.get("message")
         if not isinstance(message, str) or not message.strip():
             continue
-        raw_category = params.get("error_category")
+        raw_category = params.get("errorCategory") or params.get("error_category")
         category = raw_category.strip() if isinstance(raw_category, str) and raw_category.strip() else None
         found = AgentError(message=message.strip(), category=category)
     return found

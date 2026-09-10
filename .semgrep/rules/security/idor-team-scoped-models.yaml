@@ -115,6 +115,7 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
@@ -307,6 +308,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationUsage
+                              |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
@@ -520,6 +522,7 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
@@ -702,6 +705,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationUsage
+                        |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
@@ -1223,7 +1227,6 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
-                              |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
                               |UserFacetSettings
@@ -1297,7 +1300,6 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
-                        |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
                         |UserFacetSettings

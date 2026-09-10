@@ -199,6 +199,14 @@ export const ScoreDefinitionConfigSchema = z
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    label: z
+        .string()
+        .min(1)
+        .max(128)
+        .optional()
+        .describe(
+            "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
+        ),
     content: z
         .enum(['full', 'preview', 'none'])
         .default('none')
@@ -206,43 +214,6 @@ export const PromptListInputSchema = z.object({
             "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely."
         ),
 })
-
-export const ReportInboxInputSchema = z
-    .object({
-        view: z
-            .enum(['actionable', 'needs_input', 'monitoring', 'resolved', 'dismissed', 'not_actionable', 'all'])
-            .default('actionable')
-            .describe('Inbox section to return. Defaults to actionable reports that are ready to pick up.'),
-        scope: z
-            .enum(['for_me', 'entire_project', 'teammate'])
-            .default('entire_project')
-            .describe('Limit results by suggested reviewer, or search the entire project.'),
-        teammate_uuid: z.string().uuid().optional().describe('PostHog user UUID required when scope is teammate.'),
-        priorities: z
-            .array(z.enum(['P0', 'P1', 'P2', 'P3', 'P4']))
-            .optional()
-            .describe(
-                "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold."
-            ),
-        source_products: z.array(z.string()).optional(),
-        scouts: z.array(z.string()).optional().describe('Scout skill_name slugs to include.'),
-        search: z.string().optional().describe('Case-insensitive substring match against report title and summary.'),
-        sort: z.enum(['priority', 'last_updated', 'newest', 'oldest']).default('priority'),
-        limit: z.number().int().min(1).max(10).default(10),
-        offset: z.number().int().min(0).optional(),
-    })
-    .superRefine((data, context) => {
-        if (data.scope === 'teammate' && !data.teammate_uuid) {
-            context.addIssue({ code: 'custom', path: ['teammate_uuid'], message: 'Required when scope is teammate.' })
-        }
-    })
-    .transform(({ priorities, source_products, scouts, ...query }) => ({
-        ...query,
-        priority: priorities?.join(','),
-        use_priority_preference: priorities === undefined ? true : undefined,
-        source_product: source_products?.join(','),
-        scout: scouts?.join(','),
-    }))
 
 export const FeedbackSubmitSchema = z
     .object({

@@ -150,6 +150,55 @@ function describeItems(items: JSONSchema): string {
 // schemas are finite trees, but array/union unwrapping recurses — cap it anyway.
 const MAX_SUMMARY_DEPTH = 6
 
+/** A tool-level control the executor strips before dispatch, so it doesn't count
+ *  as one of the tool's own parameters when deciding whether a field is the sole
+ *  wrapper. */
+const TOOL_CONTROL_PROPERTIES = new Set(['output_format'])
+
+/**
+ * Whether a field is the wrapper a tool's whole payload sits under — the single
+ * required top-level object on `query-logs`, `query-apm-spans`, `read-data-schema`
+ * and their siblings.
+ *
+ * Callers flatten these: they send `{dateRange, limit}` where `{query: {dateRange,
+ * limit}}` was wanted, because the fields they know about are the nested ones and
+ * the drill-down hint alone never says the wrapper is mandatory. Naming it on the
+ * field keeps the nesting in the summarized schema, which is all a caller sees once
+ * the full schema overflows the token budget.
+ *
+ * Being the tool's ONLY parameter is what makes "everything goes inside it" true.
+ * A required object sitting beside other top-level fields — `query-retention`'s
+ * `retentionFilter`, `view-create`'s `query` next to `name` — is a component of the
+ * payload, not the envelope, and saying otherwise would flatten calls that were
+ * already correct.
+ */
+function isPayloadWrapper(
+    name: string,
+    prop: JSONSchema,
+    schema: JSONSchema,
+    requiredFields: readonly string[],
+    fieldPath: string | undefined
+): boolean {
+    // Nested paths describe a field the caller already reached through the wrapper.
+    if (fieldPath !== undefined || !requiredFields.includes(name)) {
+        return false
+    }
+    const siblings = Object.keys((schema.properties || {}) as Record<string, unknown>).filter(
+        (field) => field !== name && !TOOL_CONTROL_PROPERTIES.has(field)
+    )
+    if (siblings.length > 0) {
+        return false
+    }
+    if (prop.type === 'object' && prop.properties) {
+        return true
+    }
+    // A wrapper keyed by a discriminator (`read-data-schema`'s `query`) arrives as a
+    // union of object variants, and gets flattened just as often.
+    const variants = (prop.anyOf || prop.oneOf) as JSONSchema[] | undefined
+    const nonNull = variants?.filter((variant) => variant.type !== 'null') ?? []
+    return nonNull.length > 0 && nonNull.every((variant) => variant.type === 'object' && !!variant.properties)
+}
+
 /**
  * Summarize an object's top-level properties: field names, types, descriptions,
  * and drill-down hints for complex fields. Intentionally does NOT recurse into a
@@ -197,6 +246,9 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
         // the directive lives on the field the model is about to populate.
         if (isComplex(prop)) {
             entry.hint = `DO NOT GUESS — you MUST run \`schema ${toolName} ${pathPrefix}${name}\` before populating this field`
+            if (isPayloadWrapper(name, prop, schema, requiredFields, fieldPath)) {
+                entry.hint += `. Every parameter goes inside it — send {"${name}": {...}}, not the fields at the top level`
+            }
         }
 
         result[name] = entry

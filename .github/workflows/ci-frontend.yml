@@ -668,7 +668,7 @@ jobs:
                       echo "Skipping toolbar bundle section — script not present on this checkout"
                   fi
 
-            - name: Check eager graph budgets (warn only)
+            - name: Check eager graph budgets and forbidden imports
               if: always() && github.event_name == 'pull_request'
               run: |
                   if [ ! -f frontend/bin/check-eager-graph.mjs ]; then
@@ -683,7 +683,7 @@ jobs:
                       echo "Skipping eager graph check — no report found (branch may predate the check)"
                       exit 0
                   fi
-                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT"
+                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT" --fail-forbidden-hits
 
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval

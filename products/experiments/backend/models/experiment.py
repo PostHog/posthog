@@ -56,10 +56,6 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         RUNNING = "running", "Running"
         STOPPED = "stopped", "Stopped"
 
-    class AnalysisContract(models.TextChoices):
-        V1 = "v1", "v1"
-        V2 = "v2", "v2"
-
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=3000, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -156,10 +152,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # is skipped when the team has several — never inferred.
     repository = models.CharField(max_length=255, null=True, blank=True)
 
-    # Rules v2 link and analysis contract, deliberately nullable with no default so the column add is
-    # metadata-only; the v1 backfill, default, NOT NULL, and partial unique index each ship separately.
+    # A started experiment's rule ID selects v2 analysis; legacy experiments keep both fields null.
+    # The snapshot preserves the original rule after winner shipping removes its experiment fields.
     feature_flag_rule_id = models.UUIDField(null=True, blank=True)
-    analysis_contract = models.CharField(max_length=8, choices=AnalysisContract, null=True, blank=True)
     analysis_snapshot = models.JSONField(null=True, blank=True)
 
     class Meta:

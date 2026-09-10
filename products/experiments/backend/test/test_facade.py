@@ -34,7 +34,6 @@ class TestCreateExperiment(APIBaseTest):
         assert experiment.name == "Test Experiment"
         assert experiment.feature_flag.key == "test-flag"
         assert experiment.feature_flag_rule_id is None
-        assert experiment.analysis_contract is None
         assert experiment.analysis_snapshot is None
 
     def test_create_experiment_with_description(self):

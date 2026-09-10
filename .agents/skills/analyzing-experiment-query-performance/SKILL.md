@@ -154,6 +154,8 @@ Both tables are partitioned by `toYYYYMMDD(expires_at)` with TTL-driven part dro
 so each partition id is the **day that data expires** —
 the partition list doubles as a TTL/growth timeline
 (a bulge N days out means a large recent build; a missing near-term partition means little recent activity).
+Frozen-band chunks get a per-chunk expiry jitter (`PRECOMPUTE_TTL_JITTER_SECONDS`, 14 days),
+so a big build shows up as data spread over up to 14 expiry partitions, not as one large partition.
 
 ### Not available via PAT
 

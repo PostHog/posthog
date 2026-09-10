@@ -21,7 +21,6 @@ import type {
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
-    EnvironmentsEvaluationContextSuggestionsDestroyParams,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
@@ -501,74 +500,6 @@ export const organizationsProjectsEvaluationContextSuggestionsDestroy = async (
     )
 }
 
-export const getEnvironmentsEvaluationContextSuggestionsCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
-}
-
-/**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsCreate = async (
-    projectId: string,
-    id: number,
-    evaluationContextSuggestionRequestApi: EvaluationContextSuggestionRequestApi,
-    options?: RequestInit
-): Promise<EvaluationContextSuggestionResponseApi> => {
-    return apiMutator<EvaluationContextSuggestionResponseApi>(
-        getEnvironmentsEvaluationContextSuggestionsCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(evaluationContextSuggestionRequestApi),
-        }
-    )
-}
-
-export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
-    projectId: string,
-    id: number,
-    params: EnvironmentsEvaluationContextSuggestionsDestroyParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
-}
-
-/**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsDestroy = async (
-    projectId: string,
-    id: number,
-    params: EnvironmentsEvaluationContextSuggestionsDestroyParams,
-    options?: RequestInit
-): Promise<EvaluationContextSuggestionResponseApi> => {
-    return apiMutator<EvaluationContextSuggestionResponseApi>(
-        getEnvironmentsEvaluationContextSuggestionsDestroyUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
-}
-
 export const getFeatureFlagRequestUsageListUrl = (projectId: string, params: FeatureFlagRequestUsageListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -814,26 +745,6 @@ export const featureFlagsCreateStaticCohortForFlagCreate = async (
     })
 }
 
-export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/feature_flags/${id}/dashboard/`
-}
-
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
- *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const featureFlagsDashboardCreate = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsDashboardCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
 }
@@ -895,26 +806,6 @@ export const featureFlagsEnableCreate = async (
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsEnableCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/feature_flags/${id}/enrich_usage_dashboard/`
-}
-
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
- *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const featureFlagsEnrichUsageDashboardCreate = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsEnrichUsageDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })

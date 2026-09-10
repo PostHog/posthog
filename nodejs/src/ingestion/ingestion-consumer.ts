@@ -242,6 +242,9 @@ export class IngestionConsumer {
             mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
             mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
             mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
+            mergeNoopMappingEmissionEnabled: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED,
+            mergeNoopMappingEmissionCacheSize: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE,
+            mergeNoopMappingEmissionTtlMs: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS,
         })
 
         this.groupStore = new BatchWritingGroupStore(this.deps.groupRepository, this.deps.clickhouseGroupRepository, {
