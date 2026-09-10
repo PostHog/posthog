@@ -720,11 +720,14 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             display=GroupUsageMetric.Display.NUMBER,
             filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
         )
+        # Inside the 7-day window measured from 12:11, but on the day that drops out of the
+        # window if `now` is read a second time later in the same run.
         _create_event(
             event="metric_event",
             team=self.team,
             person_id=str(self.person.uuid),
             distinct_id=self.person_distinct_id,
+            timestamp=datetime(2025, 10, 2, 13, 0, 0, tzinfo=ZoneInfo("UTC")),
         )
         flush_persons_and_events()
 
@@ -755,7 +758,6 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             query_result = runner.calculate().model_dump()
 
-        self.assertEqual(len(call_log), 1)
         results = query_result["results"]
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["value"], 1.0)

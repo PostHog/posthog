@@ -112,12 +112,6 @@ class TestColumnHandling:
 
 
 class TestBuildWindows:
-    @pytest.fixture(autouse=True)
-    def _frozen_clock(self):
-        # 2026-07-15 is a Wednesday.
-        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
-            yield
-
     @parameterized.expand(
         [
             # Mid-week start aligns down to Monday; the current (incomplete) ISO week is excluded.

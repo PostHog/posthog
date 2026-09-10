@@ -633,11 +633,6 @@ class TestEmitTraceEvaluationEventActivity:
 
 
 class TestEmitSessionEvaluationEvent:
-    @pytest.fixture(autouse=True)
-    def _frozen_clock(self):
-        with time_machine.travel(FROZEN_NOW, tick=False):
-            yield
-
     @pytest.mark.parametrize(
         "target,ai_session_id,expected_target_type,expected_target_id",
         [
@@ -672,7 +667,7 @@ class TestEmitSessionEvaluationEvent:
                     distinct_id="user-1",
                     session_id="ph-session-1",
                     result={"verdict": True, "reasoning": "", "result_type": "boolean"},
-                    start_time=datetime.now(UTC),
+                    start_time=FROZEN_NOW,
                     target=target,
                     ai_session_id=ai_session_id,
                 )
@@ -709,7 +704,7 @@ class TestEmitSessionEvaluationEvent:
                     distinct_id="user-1",
                     session_id=None,
                     result={"verdict": True, "reasoning": "", "result_type": "boolean"},
-                    start_time=datetime.now(UTC),
+                    start_time=FROZEN_NOW,
                     target="session",
                     ai_session_id="session-abc",
                 )

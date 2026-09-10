@@ -215,11 +215,6 @@ class TestSensitiveDataStripping:
 
 
 class TestSampleCapture:
-    @pytest.fixture(autouse=True)
-    def _frozen_clock(self):
-        with time_machine.travel("2022-05-15T12:00:00Z", tick=False):
-            yield
-
     @parameterized.expand(
         [
             ("pods", False),

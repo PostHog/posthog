@@ -2,7 +2,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-import time_machine
 from unittest.mock import Mock, patch
 
 from asgiref.sync import async_to_sync
@@ -143,11 +142,6 @@ class TestFormatSessionForJudge:
 
 
 class TestCountSessionEvents:
-    @pytest.fixture(autouse=True)
-    def _frozen_clock(self):
-        with time_machine.travel(FROZEN_NOW, tick=False):
-            yield
-
     def test_the_count_stays_an_ungrouped_aggregate(self):
         """An ungrouped aggregate always returns exactly one row, so `query_ai_events`'s
         empty-result probe never fires and the stripped events-table fallback stays structurally
@@ -177,7 +171,7 @@ class TestCountSessionEvents:
             "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
             return_value=Mock(results=[[7, first_seen]]),
         ) as mock_query_ai_events:
-            result = _count_session_events(Mock(), "s-1", datetime.now(UTC), datetime.now(UTC))
+            result = _count_session_events(Mock(), "s-1", FROZEN_NOW, FROZEN_NOW)
 
         assert result.event_count == 7
         assert result.first_seen == first_seen
@@ -346,11 +340,6 @@ class TestFetchSessionForEvaluation:
 
 
 class TestExecuteSessionActivities:
-    @pytest.fixture(autouse=True)
-    def _frozen_clock(self):
-        with time_machine.travel(FROZEN_NOW, tick=False):
-            yield
-
     @pytest.mark.parametrize(
         "skip_reason",
         ["session_not_found", "session_too_large", "session_payload_too_large", "session_truncated"],
@@ -369,7 +358,7 @@ class TestExecuteSessionActivities:
                     },
                     team_id=1,
                     session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
+                    window_start=FROZEN_NOW.isoformat(),
                 )
             )
         assert result["skipped"] is True
@@ -383,7 +372,7 @@ class TestExecuteSessionActivities:
                     evaluation={"evaluation_type": "hog", "output_type": "boolean"},
                     team_id=1,
                     session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
+                    window_start=FROZEN_NOW.isoformat(),
                 )
             )
 
@@ -405,7 +394,7 @@ class TestExecuteSessionActivities:
                     },
                     team_id=1,
                     session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
+                    window_start=FROZEN_NOW.isoformat(),
                 )
             )
         assert result["skipped"] is True
@@ -435,7 +424,7 @@ class TestExecuteSessionActivities:
                     },
                     team_id=1,
                     session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
+                    window_start=FROZEN_NOW.isoformat(),
                 )
             )
         assert result["skipped"] is True
@@ -471,6 +460,6 @@ class TestExecuteSessionActivities:
                         },
                         team_id=1,
                         session_id="s-1",
-                        window_start=datetime.now(UTC).isoformat(),
+                        window_start=FROZEN_NOW.isoformat(),
                     )
                 )
