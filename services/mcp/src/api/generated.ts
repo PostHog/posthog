@@ -48491,7 +48491,7 @@ export namespace Schemas {
       readonly team_id: number;
       readonly name: string;
       readonly source_type: SourceTypeEnum;
-      /** Whether PostHog manages this source from resolved support knowledge gaps. */
+      /** Whether PostHog manages this source with knowledge learned from resolved support tickets. */
       readonly is_generated: boolean;
       readonly status: SourceStatusEnum;
       readonly error_message: string;

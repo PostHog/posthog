@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             field=models.BooleanField(
                 db_default=False,
                 default=False,
-                help_text="Whether PostHog manages this source from resolved support knowledge gaps.",
+                help_text="Whether PostHog manages this source with knowledge learned from resolved support tickets.",
             ),
         ),
     ]

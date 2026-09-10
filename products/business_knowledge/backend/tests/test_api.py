@@ -26,7 +26,10 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         result = logic.create_generated_knowledge_document(
             logic.CreateGeneratedKnowledgeDocument(
                 team_id=self.team.id,
+                provider="conversations",
                 ticket_id=UUID("10000000-0000-0000-0000-000000000001"),
+                ticket_number=42,
+                source_team_id=self.team.id,
                 resolution_comment_id=UUID("20000000-0000-0000-0000-000000000002"),
                 analysis_version="post_resolution_v1",
                 title="Refund policy",

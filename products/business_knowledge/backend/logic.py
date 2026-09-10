@@ -93,9 +93,10 @@ from .url_fetch import sha256_of
 
 logger = structlog.get_logger(__name__)
 
-GENERATED_SOURCE_NAME = "Generated from resolved tickets"
-GENERATED_KNOWLEDGE_ORIGIN = "resolved_ticket_gap"
+GENERATED_SOURCE_NAME = "Learned from support"
+GENERATED_KNOWLEDGE_ORIGIN = "support_ticket"
 MAX_ANALYSIS_VERSION_LENGTH = 128
+MAX_PROVIDER_LENGTH = 64
 MAX_GENERATED_DOCUMENT_TITLE_LENGTH = 512
 
 # Deterministic namespace for chunk uuid5. Rolling this breaks id stability
@@ -134,7 +135,12 @@ class InvalidGeneratedKnowledgeDocument(ValueError):
 @frozen
 class CreateGeneratedKnowledgeDocument:
     team_id: int
+    # The product that supplied the evidence, e.g. "conversations". Part of the document identity.
+    provider: str
     ticket_id: UUID
+    ticket_number: int
+    # The environment team the ticket lives in; the document row itself is stored on the canonical team.
+    source_team_id: int
     resolution_comment_id: UUID
     analysis_version: str
     title: str
@@ -150,6 +156,7 @@ class GeneratedKnowledgeDocument:
 
 @frozen
 class _ValidatedGeneratedDocumentInput:
+    provider: str
     analysis_version: str
     title: str
     content: str
@@ -469,10 +476,19 @@ def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
 def _validate_generated_document_input(
     document_input: CreateGeneratedKnowledgeDocument,
 ) -> _ValidatedGeneratedDocumentInput:
+    provider = document_input.provider.strip()
     analysis_version = document_input.analysis_version.strip()
     title = document_input.title.strip()
     content = document_input.content
 
+    if not provider or len(provider) > MAX_PROVIDER_LENGTH:
+        raise InvalidGeneratedKnowledgeDocument("provider is invalid")
+    if re.fullmatch(r"[a-z0-9_-]+", provider) is None:
+        raise InvalidGeneratedKnowledgeDocument("provider is invalid")
+    if document_input.ticket_number <= 0:
+        raise InvalidGeneratedKnowledgeDocument("ticket_number is invalid")
+    if document_input.source_team_id <= 0:
+        raise InvalidGeneratedKnowledgeDocument("source_team_id is invalid")
     if not analysis_version or len(analysis_version) > MAX_ANALYSIS_VERSION_LENGTH:
         raise InvalidGeneratedKnowledgeDocument("analysis_version is invalid")
     if re.fullmatch(r"[A-Za-z0-9._-]+", analysis_version) is None:
@@ -493,6 +509,7 @@ def _validate_generated_document_input(
         raise InvalidGeneratedKnowledgeDocument("provenance identifiers cannot appear in generated content")
 
     return _ValidatedGeneratedDocumentInput(
+        provider=provider,
         analysis_version=analysis_version,
         title=title,
         content=content,
@@ -505,11 +522,11 @@ def _generated_source_id(team_id: int) -> UUID:
 
 def _generated_document_stable_id(
     document_input: CreateGeneratedKnowledgeDocument,
-    analysis_version: str,
+    validated_input: _ValidatedGeneratedDocumentInput,
 ) -> str:
     return (
-        f"{GENERATED_KNOWLEDGE_ORIGIN}:"
-        f"{document_input.ticket_id}:{document_input.resolution_comment_id}:{analysis_version}"
+        f"{GENERATED_KNOWLEDGE_ORIGIN}:{validated_input.provider}:"
+        f"{document_input.ticket_id}:{document_input.resolution_comment_id}:{validated_input.analysis_version}"
     )
 
 
@@ -586,7 +603,7 @@ def _create_generated_knowledge_document(
     if not source.is_generated or source.source_type != SourceType.TEXT:
         raise InvalidGeneratedKnowledgeDocument("generated source identity is already in use")
 
-    stable_id = _generated_document_stable_id(document_input, validated_input.analysis_version)
+    stable_id = _generated_document_stable_id(document_input, validated_input)
     document_id = uuid.uuid5(source.id, stable_id)
     existing = KnowledgeDocument.objects.filter(
         team_id=team_id,
@@ -625,7 +642,10 @@ def _create_generated_knowledge_document(
             "metadata": {
                 "source_type": SourceType.TEXT,
                 "origin": GENERATED_KNOWLEDGE_ORIGIN,
+                "provider": validated_input.provider,
                 "ticket_id": str(document_input.ticket_id),
+                "ticket_number": document_input.ticket_number,
+                "source_team_id": document_input.source_team_id,
                 "resolution_comment_id": str(document_input.resolution_comment_id),
                 "analysis_version": validated_input.analysis_version,
             },

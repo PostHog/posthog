@@ -23,6 +23,9 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         self,
         *,
         team_id: int | None = None,
+        provider: str = "conversations",
+        ticket_number: int = 42,
+        source_team_id: int | None = None,
         resolution_comment_id: uuid.UUID | None = None,
         analysis_version: str = "post_resolution_v1",
         title: str = "Refund policy",
@@ -30,7 +33,10 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
     ) -> logic.CreateGeneratedKnowledgeDocument:
         return logic.CreateGeneratedKnowledgeDocument(
             team_id=team_id or self.team.id,
+            provider=provider,
             ticket_id=uuid.UUID("10000000-0000-0000-0000-000000000001"),
+            ticket_number=ticket_number,
+            source_team_id=source_team_id if source_team_id is not None else (team_id or self.team.id),
             resolution_comment_id=resolution_comment_id or uuid.UUID("20000000-0000-0000-0000-000000000002"),
             analysis_version=analysis_version,
             title=title,
@@ -47,7 +53,10 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         chunks = list(KnowledgeChunk.objects.unscoped().filter(document=document))
         provenance = {
             "origin": logic.GENERATED_KNOWLEDGE_ORIGIN,
+            "provider": input.provider,
             "ticket_id": str(input.ticket_id),
+            "ticket_number": input.ticket_number,
+            "source_team_id": input.source_team_id,
             "resolution_comment_id": str(input.resolution_comment_id),
             "analysis_version": input.analysis_version,
         }
@@ -89,9 +98,17 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert KnowledgeSource.objects.unscoped().filter(team=self.team, is_generated=True).count() == 1
         assert KnowledgeDocument.objects.unscoped().filter(source_id=first.source_id).count() == 1
 
-    def test_new_analysis_revision_reuses_team_source(self) -> None:
+    @parameterized.expand(
+        [
+            ("analysis_version", "conversations", "post_resolution_v2"),
+            ("provider", "other_provider", "post_resolution_v1"),
+        ]
+    )
+    def test_new_identity_reuses_team_source(self, _name: str, provider: str, analysis_version: str) -> None:
         first = logic.create_generated_knowledge_document(self._input())
-        second = logic.create_generated_knowledge_document(self._input(analysis_version="post_resolution_v2"))
+        second = logic.create_generated_knowledge_document(
+            self._input(provider=provider, analysis_version=analysis_version)
+        )
 
         assert first.source_id == second.source_id
         assert first.id != second.id
@@ -123,8 +140,10 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
 
         result = logic.create_generated_knowledge_document(self._input(team_id=child_team.id))
 
+        document = KnowledgeDocument.objects.unscoped().get(id=result.id)
         assert KnowledgeSource.objects.unscoped().get(id=result.source_id).team_id == self.team.id
-        assert KnowledgeDocument.objects.unscoped().get(id=result.id).team_id == self.team.id
+        assert document.team_id == self.team.id
+        assert document.metadata["source_team_id"] == child_team.id
 
     def test_disabling_generated_source_removes_it_from_search_without_deleting_data(self) -> None:
         result = logic.create_generated_knowledge_document(self._input())
@@ -236,6 +255,23 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
     def test_rejects_invalid_analysis_version(self, _name: str, analysis_version: str) -> None:
         with self.assertRaises(logic.InvalidGeneratedKnowledgeDocument):
             logic.create_generated_knowledge_document(self._input(analysis_version=analysis_version))
+
+    @parameterized.expand(
+        [
+            ("empty_provider", "", 42, 1),
+            ("uppercase_provider", "Conversations", 42, 1),
+            ("too_long_provider", "x" * (logic.MAX_PROVIDER_LENGTH + 1), 42, 1),
+            ("zero_ticket_number", "conversations", 0, 1),
+            ("zero_source_team", "conversations", 42, 0),
+        ]
+    )
+    def test_rejects_invalid_provenance(
+        self, _name: str, provider: str, ticket_number: int, source_team_id: int
+    ) -> None:
+        with self.assertRaises(logic.InvalidGeneratedKnowledgeDocument):
+            logic.create_generated_knowledge_document(
+                self._input(provider=provider, ticket_number=ticket_number, source_team_id=source_team_id)
+            )
 
     @parameterized.expand(
         [
