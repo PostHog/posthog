@@ -340,19 +340,23 @@ def upsert_pattern(
             return None, False
 
         try:
-            pattern = TicketPattern.objects.create(
-                team=team,
-                fingerprint=candidate.fingerprint,
-                topic=candidate.topic,
-                source=TicketPatternSource.TERMS,
-                title=_fallback_title(candidate),
-                ticket_count=candidate.ticket_count,
-                requester_count=candidate.requester_count,
-                peak_ticket_count=candidate.ticket_count,
-                first_ticket_at=candidate.first_ticket_at,
-                opened_at=now,
-                last_seen_at=now,
-            )
+            # The insert needs its own savepoint. A unique violation aborts the transaction it
+            # runs in, so without one there would be nothing left to recover into and the retry
+            # below would raise instead of finding the winner.
+            with transaction.atomic():
+                pattern = TicketPattern.objects.create(
+                    team=team,
+                    fingerprint=candidate.fingerprint,
+                    topic=candidate.topic,
+                    source=TicketPatternSource.TERMS,
+                    title=_fallback_title(candidate),
+                    ticket_count=candidate.ticket_count,
+                    requester_count=candidate.requester_count,
+                    peak_ticket_count=candidate.ticket_count,
+                    first_ticket_at=candidate.first_ticket_at,
+                    opened_at=now,
+                    last_seen_at=now,
+                )
         except IntegrityError:
             # A racing tick opened it first; treat this tick as the update it would have been.
             return upsert_pattern(candidate, team=team, now=now, settings=settings)

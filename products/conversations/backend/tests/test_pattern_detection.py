@@ -4,6 +4,7 @@ from datetime import timedelta
 from io import StringIO
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -184,6 +185,28 @@ class TestRunDetection(BaseTest):
         assert pattern.status == status
         assert pattern.ticket_count == 8
         assert pattern.peak_ticket_count == 8
+
+    def test_a_tick_that_loses_the_race_updates_the_winning_pattern(self):
+        self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
+        first = run_detection(self.team, now=self.now)
+        self._burst("Cannot login to the dashboard", requesters=5, tickets=3)
+
+        real_for_team = TicketPattern.objects.for_team
+        lookups: list[int] = []
+
+        def blind_on_the_first_lookup(team_id: int):
+            # Concurrency cannot be staged from one connection, so this stands in for a tick that
+            # looked before the winner committed: it finds no pattern and its insert then loses to
+            # the partial unique constraint.
+            lookups.append(team_id)
+            return real_for_team(team_id).none() if len(lookups) == 1 else real_for_team(team_id)
+
+        with patch.object(TicketPattern.objects, "for_team", blind_on_the_first_lookup):
+            second = run_detection(self.team, now=self.now + timedelta(minutes=15))
+
+        assert second.opened == ()
+        assert second.updated == first.opened
+        assert TicketPattern.objects.for_team(self.team.id).count() == 1
 
     def test_a_confirmed_pattern_stops_blocking_once_its_topic_goes_quiet(self):
         self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
