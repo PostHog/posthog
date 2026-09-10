@@ -9,6 +9,9 @@ Tracks applied migrations in a _persons_migrations_applied table so each
 migration is only executed once. Also bridges the sqlx _sqlx_migrations
 tracking table so that environments transitioning from sqlx don't re-apply
 already-applied migrations.
+
+A migration file that starts with ``-- no-transaction`` is applied outside a
+transaction, matching sqlx. See ``NO_TRANSACTION_MARKER``.
 """
 
 from __future__ import annotations
@@ -34,6 +37,12 @@ HOBBY_SKIP_MIGRATIONS = {
 }
 
 TRACKING_TABLE = "_persons_migrations_applied"
+
+# sqlx applies a file that begins with this marker outside a transaction, which is what
+# CREATE/DROP INDEX CONCURRENTLY needs: PostgreSQL rejects those statements inside a
+# transaction block with SQLSTATE 25001. Both runners read the same directory, so this
+# check must stay identical to sqlx's own prefix check in sqlx-core migrate/source.rs.
+NO_TRANSACTION_MARKER = "-- no-transaction"
 
 
 def _ensure_tracking_table(cursor) -> None:
@@ -72,6 +81,22 @@ def _get_sqlx_applied_versions(cursor) -> set[str]:
 
 def _record_migration(cursor, filename: str) -> None:
     cursor.execute(f"INSERT INTO {TRACKING_TABLE} (filename) VALUES (%s)", [filename])
+
+
+def _apply_migration(conn, cursor, filename: str, sql_content: str) -> None:
+    if sql_content.startswith(NO_TRANSACTION_MARKER):
+        # The connection is in autocommit, so the migration commits on its own and the
+        # tracking row is written only after it succeeded. A marked file therefore gets no
+        # rollback, which is the trade sqlx makes for the same marker. It must also hold a
+        # single statement, because PostgreSQL puts a multi-statement query in an implicit
+        # transaction that CREATE/DROP INDEX CONCURRENTLY still rejects.
+        cursor.execute(sql_content)
+        _record_migration(cursor, filename)
+        return
+
+    with conn.transaction():
+        cursor.execute(sql_content)
+        _record_migration(cursor, filename)
 
 
 def _ensure_database_exists(persons_url: str) -> None:
@@ -190,9 +215,7 @@ class Command(BaseCommand):
 
                 sql_content = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                with conn.transaction():
-                    cursor.execute(sql_content)
-                    _record_migration(cursor, sql_file.name)
+                _apply_migration(conn, cursor, sql_file.name, sql_content)
                 applied_count += 1
 
         action = "Would apply" if dry_run else "Applied"
