@@ -134,10 +134,7 @@ def _latest_archived_urn(organization_id: str) -> Optional[str]:
 
 
 async def _poll_prior_status(ctx: EnrichmentContext, provider: EnrichmentProvider) -> Optional[str]:
-    """Poll the provider for the status of the org's most recently archived tracking URN.
-
-    Never raises: a status-check failure must not block the recheck's own lookup below.
-    """
+    """Never raises: a status-check failure must not block the recheck's own lookup below."""
     if not ctx.is_recheck:
         return None
     urn = await sync_to_async(_latest_archived_urn)(ctx.organization_id)
@@ -263,20 +260,17 @@ def _score_and_mirror(
         return None, None
 
 
-def _read_bridge_inputs(*, organization_id: str) -> Optional[OrganizationBridgeInputs]:
-    try:
-        return read_organization_bridge_inputs(organization_id=organization_id)
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization_id})
-        return None
-
-
-async def _read_bridge(
+def _read_bridge_inputs(
     ctx: EnrichmentContext, fields: Optional[EnrichmentFields]
 ) -> Optional[OrganizationBridgeInputs]:
+    """Empty means the run never asked; None means the read failed, which the scorers treat differently."""
     if fields is None and not ctx.is_recheck:
         return OrganizationBridgeInputs()
-    return await sync_to_async(_read_bridge_inputs)(organization_id=ctx.organization_id)
+    try:
+        return read_organization_bridge_inputs(organization_id=ctx.organization_id)
+    except Exception as e:
+        capture_exception(e, {"organization_id": ctx.organization_id})
+        return None
 
 
 def _persisted_wizard_ai_sdk(*, organization_id: str) -> bool:
@@ -338,31 +332,12 @@ def _score_fit(
 async def enrich_organization(
     ctx: EnrichmentContext, *, provider: EnrichmentProvider, pha_client: Client
 ) -> EnrichmentOutcome:
-    """Look up enrichment for a domain, archive the raw response, and persist the live stores.
+    """Archiving precedes the live-store write, so a fetch survives a later step failing.
 
-    Every fetch is archived verbatim — including a not-found — before the live-store write.
-    The Postgres writes run via sync_to_async to bridge the async provider.
-
-    On a recheck, the most recently archived non-null enrichmentUrn (if any) is polled for
-    its status before this attempt's own lookup runs, and the result rides along on this
-    fetch's archived payload as enrichmentStatus. The archive then shows what happened to
-    the tracking id a prior attempt saved, alongside the new observation. A first attempt
-    has no prior URN to poll, so it carries no enrichmentStatus key at all.
-
-    A matched org is scored twice: under the legacy clay formula (see `_score_and_mirror`
-    for its scoring and person-mirror policy) and under the ICP fit score (`_score_fit`),
-    which also evaluates misses — from the last matched archived payload when one exists,
-    or to an honest not_found status otherwise, which is what the re-enrichment sweep
-    selects on. Either score failing degrades to writing what the rest produced, rather
-    than a silently-wrong value; the delayed recheck gets a second chance, and the fetch
-    archive backstops a later batch recompute.
-
-    On a miss, a prior `OrganizationEnrichment` record (if any) is reconstructed into fields
-    and clay-scored anyway — first attempt or recheck alike — so an org can't end up
-    permanently score-less because of one flaky lookup. provider_fields on the returned
-    outcome keeps tracking the provider lookup itself (None on a miss, even when the
-    fallback wrote a score), since that is what the workflow's matched/upgraded reporting
-    reads.
+    Either scorer failing degrades to writing what the rest produced rather than a
+    silently-wrong value. The returned provider_fields tracks the lookup itself, staying
+    None on a miss even when an archived payload still scored, because that is what the
+    workflow's matched and upgraded reporting reads.
     """
     enrichment_status = await _poll_prior_status(ctx, provider)
 
@@ -370,7 +345,7 @@ async def enrich_organization(
     await _archive_lookup(ctx, provider, lookup, enrichment_status)
 
     fields = await _resolve_fields(ctx, lookup)
-    bridge_inputs = await _read_bridge(ctx, fields)
+    bridge_inputs = await sync_to_async(_read_bridge_inputs)(ctx, fields)
 
     icp_score: Optional[int] = None
     mirror_distinct_id: Optional[str] = None

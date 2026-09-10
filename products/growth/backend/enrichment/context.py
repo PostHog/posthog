@@ -1,3 +1,5 @@
+"""The identity and cadence of one enrichment run."""
+
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -11,8 +13,6 @@ class EnrichmentPhase(StrEnum):
 
 @frozen
 class EnrichmentContext:
-    """Decided once at the entry point so no step re-derives which cadence it is running in."""
-
     organization_id: str
     domain: str
     phase: EnrichmentPhase

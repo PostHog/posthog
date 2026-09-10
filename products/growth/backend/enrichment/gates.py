@@ -1,4 +1,4 @@
-"""One implementation of each guard an enrichment entry point applies, so a new cadence cannot skip one."""
+"""The guards every enrichment entry point applies before it reaches the provider."""
 
 import datetime as dt
 from email.utils import parseaddr
