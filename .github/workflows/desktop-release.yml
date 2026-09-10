@@ -331,6 +331,9 @@ jobs:
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
+            AZURE_TENANT_ID: ${{ secrets.DESKTOP_AZURE_CODESIGN_TENANT_ID }}
+            AZURE_CLIENT_ID: ${{ secrets.DESKTOP_AZURE_CODESIGN_CLIENT_ID }}
+            AZURE_CLIENT_SECRET: ${{ secrets.DESKTOP_AZURE_CODESIGN_CLIENT_SECRET }}
         steps:
             - name: Get app token
               id: app-token
@@ -428,6 +431,18 @@ jobs:
                       exit 1
                     }
                     echo "OK: codex-acp/$f"
+                  }
+                  if ($env:AZURE_CLIENT_ID) {
+                    $signed = @(Get-ChildItem "apps/code/out" -File -Filter "*.exe")
+                    $signed += Get-Item "apps/code/out/win-unpacked/PostHog.exe"
+                    foreach ($f in $signed) {
+                      $sig = Get-AuthenticodeSignature -LiteralPath $f.FullName
+                      if ($sig.Status -ne "Valid") {
+                        Write-Error "FAIL: $($f.Name) signature status is $($sig.Status)"
+                        exit 1
+                      }
+                      echo "OK: $($f.Name) signed by $($sig.SignerCertificate.Subject)"
+                    }
                   }
 
             - name: Upload release artifacts
