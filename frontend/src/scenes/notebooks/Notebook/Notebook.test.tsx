@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import { useLayoutEffect } from 'react'
 
 import api from 'lib/api'
@@ -151,6 +152,37 @@ describe('Notebook load states', () => {
 
         expect(sceneLogic.values.breadcrumbs.at(-1)?.name).toBeNull()
         sceneLogic.unmount()
+    })
+
+    it('counts a failed load once per mount, however many retries fail', async () => {
+        jest.spyOn(api.notebooks, 'get').mockRejectedValue({ status: 500 })
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+
+        render(<Notebook shortId={SHORT_ID} mode="notebook" />)
+        expect(await screen.findByText(/We couldn't load this notebook/)).toBeTruthy()
+
+        await act(async () => {
+            fireEvent.click(screen.getAllByText('Try again')[0])
+        })
+        await expectLogic(logic).toDispatchActions(['loadNotebookFailure', 'loadNotebookFailure'])
+
+        expect(capture.mock.calls.filter(([event]) => event === 'notebook load failed')).toHaveLength(1)
+    })
+
+    it('does not count a reload that fails while the notebook is still on screen', async () => {
+        const get = jest.spyOn(api.notebooks, 'get').mockResolvedValue(notebook)
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+
+        render(<Notebook shortId={SHORT_ID} mode="notebook" />)
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toMatchValues({ notebook })
+
+        get.mockRejectedValue({ status: 500 })
+        await act(async () => {
+            logic.actions.loadNotebook()
+        })
+        await expectLogic(logic).toDispatchActions(['loadNotebookFailure'])
+
+        expect(capture.mock.calls.filter(([event]) => event === 'notebook load failed')).toHaveLength(0)
     })
 
     it('shows "not found" when the notebook does not exist', async () => {
