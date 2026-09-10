@@ -27,7 +27,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
-from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
+from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
@@ -90,6 +90,7 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import code_access_required_response
 
 logger = structlog.get_logger(__name__)
 
@@ -1759,8 +1760,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             )
         verb_payload = entry.payload_serializer(data=payload.validated_data["payload"])
         verb_payload.is_valid(raise_exception=True)
+        if entry.starts_cloud_run:
+            if access_response := code_access_required_response(request, self.organization):
+                return access_response
         try:
             result = entry.execute(self.team_id, user.id, canvas, verb_payload.validated_data)
+        except CanvasActionDenied as error:
+            return error.response
         except ValueError as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         # Every execution is audited: the trigger names the verb, the activity
