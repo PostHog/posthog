@@ -81,6 +81,7 @@ import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
+import type { QueryScanSummary, QueryScanWarning } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import type { MathDefinition } from '../trends/mathsLogic'
@@ -212,6 +213,11 @@ export interface insightLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?:
+                | (QueryScanSummary & {
+                      warnings?: QueryScanWarning[] | undefined
+                  })
+                | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -259,6 +265,11 @@ export interface insightLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?:
+                | (QueryScanSummary & {
+                      warnings?: QueryScanWarning[] | undefined
+                  })
+                | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -383,6 +394,11 @@ export interface insightLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
+            query_scan?:
+                | (QueryScanSummary & {
+                      warnings?: QueryScanWarning[] | undefined
+                  })
+                | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
@@ -429,6 +445,11 @@ export interface insightLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
+            query_scan?:
+                | (QueryScanSummary & {
+                      warnings?: QueryScanWarning[] | undefined
+                  })
+                | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any

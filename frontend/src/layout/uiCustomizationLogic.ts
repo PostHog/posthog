@@ -75,6 +75,7 @@ export interface uiCustomizationLogicValues {
     isSidebarItemShown: (item: keyof SidebarItemsConfiguration) => boolean
     isSidebarSectionShown: (section: keyof SidebarSectionsConfiguration) => boolean
     pendingUiConfiguration: UserUIConfiguration | null
+    showQueryScanAdvice: boolean
     sidebarDensity: SidebarDensity
     uiConfiguration: UserUIConfiguration | null
     uiCustomizationEnabled: boolean
@@ -114,6 +115,9 @@ export interface uiCustomizationLogicActions {
     setPendingUiConfiguration: (configuration: UserUIConfiguration | null) => {
         configuration: UserUIConfiguration | null
     }
+    setQueryScanAdviceShown: (shown: boolean) => {
+        shown: boolean
+    }
     setSidebarDensity: (density: SidebarDensity) => {
         density: SidebarDensity
     }
@@ -150,6 +154,7 @@ export interface uiCustomizationLogicMeta {
             uiCustomizationEnabled: boolean
         ) => (item: keyof SidebarItemsConfiguration) => boolean
         sidebarDensity: (uiConfiguration: UserUIConfiguration | null, uiCustomizationEnabled: boolean) => SidebarDensity
+        showQueryScanAdvice: (uiConfiguration: UserUIConfiguration | null) => boolean
     }
 }
 
@@ -176,6 +181,7 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
         setSidebarDensity: (density: SidebarDensity) => ({ density }),
         setSidebarItemShown: (item: SidebarItemKey, shown: boolean) => ({ item, shown }),
         setPendingUiConfiguration: (configuration: UserUIConfiguration | null) => ({ configuration }),
+        setQueryScanAdviceShown: (shown: boolean) => ({ shown }),
     }),
     reducers({
         // Optimistic copy held while the user PATCH is in flight, so toggles apply instantly.
@@ -214,6 +220,12 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
             (uiConfiguration: UserUIConfiguration | null, uiCustomizationEnabled: boolean): SidebarDensity =>
                 (uiCustomizationEnabled ? uiConfiguration?.sidebar?.density : null) ?? 'comfortable',
         ],
+        // Outside the UI_CUSTOMIZATION flag: this toggle belongs to the query scan, not to
+        // sidebar customization.
+        showQueryScanAdvice: [
+            (s) => [s.uiConfiguration],
+            (uiConfiguration: UserUIConfiguration | null): boolean => uiConfiguration?.hide_query_scan_advice !== true,
+        ],
     }),
     listeners(({ actions, values }) => ({
         setSidebarSectionShown: ({ section, shown }) => {
@@ -244,6 +256,15 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
                 element_kind: 'density',
                 element_key: density,
             })
+        },
+        setQueryScanAdviceShown: ({ shown }) => {
+            const configuration: UserUIConfiguration = {
+                version: UI_CONFIGURATION_VERSION,
+                ...values.uiConfiguration,
+                hide_query_scan_advice: !shown,
+            }
+            actions.setPendingUiConfiguration(configuration)
+            actions.updateUser({ ui_configuration: configuration })
         },
         updateUserSuccess: () => {
             actions.setPendingUiConfiguration(null)

@@ -23,7 +23,7 @@ from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
-from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method
+from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, is_api_key_access_method
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 from posthog.query_scan.flag import QueryScanFlag
@@ -71,6 +71,13 @@ FLAG_OFF = QueryScanTrigger(triggered=False, skipped_reason="flag_off")
 NO_PRINCIPAL = QueryScanTrigger(triggered=False, skipped_reason="no_principal")
 
 
+def _is_mcp_run() -> bool:
+    """An MCP agent authenticates with a personal API key, but it does read the findings in the
+    block above its results, so the skip for API callers with nowhere to read advice leaves it
+    out."""
+    return get_query_tag_value("feature") == Feature.MCP
+
+
 def is_analyzable_principal(user: object) -> TypeGuard[User]:
     """Whether the response may carry the scan summary. Only a real user row is a member of the project;
     a shared-link viewer must not see the project's data volume.
@@ -101,7 +108,7 @@ def maybe_trigger_query_scan(
     # stopped, however fast it died, so a stopped run is analyzed at any duration.
     if duration_ms < flag.floor_ms and not killed:
         return QueryScanTrigger(triggered=False, skipped_reason="below_floor")
-    if is_api_key_access_method(get_query_tag_value("access_method")):
+    if is_api_key_access_method(get_query_tag_value("access_method")) and not _is_mcp_run():
         # An API caller has no surface to read the advice on, so the analysis would only cost.
         return QueryScanTrigger(triggered=False, skipped_reason="api_key")
     if getattr(query, "connectionId", None):

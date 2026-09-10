@@ -24689,6 +24689,13 @@ class UsageMetricsQuery(BaseModel):
 
 
 class UserUIConfiguration(BaseModel):
+    hide_query_scan_advice: bool | None = Field(
+        default=None,
+        description=(
+            "Hide the advice a query scan produces, including the Slow query tag on"
+            " dashboard tiles. The stat line stays."
+        ),
+    )
     sidebar: SidebarConfiguration | None = None
     version: int = Field(
         ...,

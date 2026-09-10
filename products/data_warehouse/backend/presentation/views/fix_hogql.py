@@ -2,37 +2,75 @@ import uuid
 from typing import cast
 
 import posthoganalytics
+from drf_spectacular.utils import OpenApiResponse
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer, extend_schema
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+
+
+class FixHogQLRequestSerializer(serializers.Serializer):
+    query = serializers.CharField(
+        help_text="The HogQL query to work on.",
+    )
+    error = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="The error the query returned. When set, the tool fixes that error and changes nothing else.",
+    )
+    connection_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Id of the data warehouse connection the query runs against, so the tool sees that "
+            "connection's tables instead of only the ClickHouse catalog."
+        ),
+    )
+
+
+class FixHogQLResponseSerializer(serializers.Serializer):
+    query = serializers.CharField(help_text="The updated HogQL query.")
+    trace_id = serializers.CharField(help_text="Id of the LLM trace, for support and debugging.")
+
+
+class FixHogQLErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Why the query could not be updated.")
+    trace_id = serializers.CharField(help_text="Id of the LLM trace, for support and debugging.")
 
 
 class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     serializer_class = _FallbackSerializer
+    # Every request runs an LLM, so this endpoint carries the same budget as the other AI ones.
+    throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
 
     @extend_schema(operation_id="fix_hogql_list")
     def list(self, request: Request, *args, **kwargs) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def create(self, request: Request, *args, **kwargs) -> Response:
+    @validated_request(
+        FixHogQLRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=FixHogQLResponseSerializer, description="The updated query."),
+            400: OpenApiResponse(response=FixHogQLErrorSerializer, description="The query could not be updated."),
+        },
+        summary="Fix a HogQL query",
+    )
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         from products.data_warehouse.backend.facade.api import HogQLQueryFixerTool
 
-        query = request.data.get("query", None)
-        error = request.data.get("error", "")
-        connection_id = request.data.get("connection_id", None)
-
-        if query is None:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "No query provided"},
-            )
+        query = request.validated_data["query"]
+        error = request.validated_data["error"]
+        connection_id = request.validated_data["connection_id"]
 
         trace_id = f"fix_hogql_query_{uuid.uuid4()}"
         user = cast(User, request.user)

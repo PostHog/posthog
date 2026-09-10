@@ -57405,6 +57405,10 @@
             "additionalProperties": {},
             "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\", which for visibility is \"shown\", so newly added UI surfaces appear for everyone until explicitly hidden. Writers must send the complete object; the server validates and replaces it wholesale.",
             "properties": {
+                "hide_query_scan_advice": {
+                    "description": "Hide the advice a query scan produces, including the Slow query tag on dashboard tiles. The stat line stays.",
+                    "type": "boolean"
+                },
                 "sidebar": {
                     "$ref": "#/definitions/SidebarConfiguration"
                 },

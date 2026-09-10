@@ -168,6 +168,7 @@ from posthog.query_cache.failures import (
 )
 from posthog.query_scan.flag import QueryScanFlag, get_query_scan_flag
 from posthog.query_scan.serve import attach_scan_slot
+from posthog.query_scan.slot import get as get_query_scan_slot
 from posthog.query_scan.trigger import (
     FLAG_OFF as QUERY_SCAN_FLAG_OFF,
     NO_PRINCIPAL as QUERY_SCAN_NO_PRINCIPAL,
@@ -2656,6 +2657,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             }
             if scan.triggered:
                 query_scan["status"] = "pending"
+            elif scan.skipped_reason == "slot_exists":
+                # An earlier run of the same query is already analyzed, or is being analyzed now.
+                # Reporting that status is what lets the assistant and the frontend fetch those
+                # findings by cache key, instead of treating the kill as unexplained.
+                slot = get_query_scan_slot(self.team.pk, cache_key, thresholds=flag.thresholds_fingerprint)
+                if slot is not None:
+                    query_scan["status"] = str(slot.status)
             error.query_scan = query_scan  # type: ignore[attr-defined]
             error.cache_key = cache_key  # type: ignore[attr-defined]
         except Exception as scan_error:

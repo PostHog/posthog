@@ -10154,6 +10154,8 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
+    /** Hide the advice a query scan produces, including the Slow query tag on dashboard tiles. The stat line stays. */
+    hide_query_scan_advice?: boolean
     [key: string]: unknown
 }
 

@@ -30,6 +30,7 @@ import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsi
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
@@ -188,6 +189,7 @@ function DashboardScene({
                     })}
                 >
                     <DashboardRetentionBanner />
+                    <DashboardQueryScanBanner />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

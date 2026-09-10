@@ -24,6 +24,7 @@ import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
+import { QueryScanApiResponse } from '~/queries/nodes/DataNode/queryScan'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AggregatedSpanRow,
@@ -1740,6 +1741,10 @@ export class ApiRequest {
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
+    }
+
+    public queryScan(cacheKey: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent('scan').addPathComponent(cacheKey)
     }
 
     public queryCancel(clientQueryId: string, teamId?: TeamType['id']): ApiRequest {
@@ -6373,6 +6378,12 @@ const api = {
     queryLog: {
         async get(queryId: string): Promise<HogQLQueryResponse> {
             return await new ApiRequest().queryLog(queryId).get()
+        },
+    },
+
+    queryScan: {
+        async get(cacheKey: string): Promise<QueryScanApiResponse> {
+            return await new ApiRequest().queryScan(cacheKey).get()
         },
     },
 
