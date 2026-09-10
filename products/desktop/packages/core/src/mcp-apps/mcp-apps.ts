@@ -602,12 +602,16 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     toolName: string,
     args?: Record<string, unknown>,
   ): Promise<unknown> {
-    // Validate visibility: reject if tool is model-only
     const toolKey = `mcp__${serverName}__${toolName}`;
-    const association = this.toolAssociations.get(toolKey);
-    if (association?.visibility && !association.visibility.includes("app")) {
+    const association = await this.resolveAssociation(toolKey);
+    const isAppCallable =
+      association !== undefined &&
+      (!association.visibility || association.visibility.includes("app"));
+    if (!isAppCallable) {
+      const visibility =
+        association?.visibility?.join(", ") ?? "no UI association";
       throw new Error(
-        `Tool "${toolName}" is not accessible to apps (visibility: ${association.visibility.join(", ")})`,
+        `Tool "${toolName}" is not accessible to apps (${visibility})`,
       );
     }
 

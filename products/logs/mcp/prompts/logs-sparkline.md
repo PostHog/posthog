@@ -1,6 +1,10 @@
 Get a time-bucketed sparkline of log volume, broken down by severity or service. Use this to understand log volume patterns before querying individual log entries — it is much cheaper than a full log query.
 
-All parameters must be nested inside a `query` object.
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
 
 # Parameters
 

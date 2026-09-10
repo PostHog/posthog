@@ -9,6 +9,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,9 +19,10 @@ import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
-import { determineColumnKey, getStickyColumnInfo } from './columnLayoutUtils'
+import { determineColumnKey, getColumnWidthCap, getStickyColumnInfo } from './columnLayoutUtils'
 import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+import { TableColumnResizeHandle } from './TableColumnResizeHandle'
 import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBulkSelection'
@@ -28,6 +30,21 @@ import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBu
 /** Sentinel passed to `useBulkSelection` when `bulkSelection` is undefined — the hook still runs
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
+
+/** Text extracted from a cell for "Copy cell contents". Joins the cell's direct child nodes with a
+ *  space — using `textContent` on the whole cell would both smush visually-separated children
+ *  (e.g. a label plus a tag) together and lose nothing to `text-overflow` clipping, since
+ *  `textContent` always reflects the full DOM value regardless of CSS. Exported for testing. */
+export function extractCellText(cell: HTMLElement): string {
+    const parts: string[] = []
+    cell.childNodes.forEach((node) => {
+        const text = node.textContent?.trim()
+        if (text) {
+            parts.push(text)
+        }
+    })
+    return parts.join(' ').replace(/\s+/g, ' ').trim()
+}
 
 export interface LemonTableProps<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
@@ -94,6 +111,7 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     nouns?: [string, string]
     className?: string
     style?: React.CSSProperties
+    tableStyle?: React.CSSProperties
     'data-attr'?: string
     /** Footer to be shown below the table. */
     footer?: React.ReactNode
@@ -116,6 +134,11 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     /** Enable bulk-selection — adds a leading checkbox column and renders the consumer-provided
      *  action bar above the table whenever any rows are selected. */
     bulkSelection?: BulkSelectionConfig<T, K>
+    /** Enable a right-click "Copy cell contents" affordance on each data cell. Off by default —
+     *  only opt in on data-result tables (query/insight/SQL result tables) where cells are scalar
+     *  values. Not for entity-list tables, where composed cells (dates, tags, avatars) would copy
+     *  a misleading rendered string. */
+    enableCellCopy?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey>({
@@ -149,6 +172,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     nouns = ['entry', 'entries'],
     className,
     style,
+    tableStyle,
     'data-attr': dataAttr,
     footer,
     firstColumnSticky,
@@ -159,6 +183,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     rowActions,
     hideSortingIndicatorWhenInactive = false,
     bulkSelection,
+    enableCellCopy = false,
 }: LemonTableProps<T, K>): JSX.Element {
     if (bulkSelection && !bulkSelection.getKey && rowKey === undefined) {
         throw new Error(
@@ -209,6 +234,23 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     const baseColumns = useMemo(() => baseColumnGroups.flatMap((group) => group.children), [baseColumnGroups])
 
     const scrollRef = useRef<HTMLDivElement>(null)
+
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
+
+    // A single stable handler shared by every data cell keeps the per-cell cost to just a prop
+    // reference (no extra components or DOM), so this stays cheap even on very large tables.
+    const handleCellContextMenu = useCallback(
+        (event: React.MouseEvent<HTMLTableCellElement>) => {
+            const text = extractCellText(event.currentTarget)
+            if (!text) {
+                closeCopyMenu() // Nothing to copy — close any open menu and fall back to the native one
+                return
+            }
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, text)
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
 
     // Width calculation for pinned columns
     const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
@@ -367,6 +409,21 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     }
 
     const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
+    const preserveResizableColumnWidths = (header: HTMLTableCellElement): void => {
+        const headerOffset = Number(isRowExpansionToggleShown)
+        const headerCells = header.parentElement?.children
+        if (!headerCells) {
+            return
+        }
+        columns
+            .filter((column) => !column.isHidden)
+            .forEach((column, index) => {
+                const width = headerCells[index + headerOffset]?.getBoundingClientRect().width
+                if (column.resizable && column.onResize && width) {
+                    column.onResize(width)
+                }
+            })
+    }
 
     const visibleDataColumnCount = useMemo(() => columns.filter((column) => !column.isHidden).length, [columns])
     // Matches the main header row cell count so the loader row does not add an extra table column (which shifts headers while loading)
@@ -402,7 +459,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     scrollRef={scrollRef}
                 >
                     <div className="LemonTable__content">
-                        <table ref={tableRef} className={tableLayout === 'fixed' ? 'table-fixed' : undefined}>
+                        <table
+                            ref={tableRef}
+                            className={tableLayout === 'fixed' ? 'table-fixed' : undefined}
+                            style={tableStyle}
+                        >
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (
@@ -481,6 +542,8 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                     // Truncate only when a max width is set and the column isn't sized by its author.
                                                     const truncateHeader =
                                                         !!maxHeaderWidth && !column.width && !column.fullWidth
+                                                    const widthCap = getColumnWidthCap(column)
+                                                    const clipTitle = truncateHeader || !!widthCap
 
                                                     return (
                                                         <th
@@ -489,6 +552,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                 'LemonTable__header',
                                                                 column.sorter && 'LemonTable__header--actionable',
                                                                 columnIndex === 0 && 'LemonTable__boundary',
+                                                                column.resizable && 'relative',
                                                                 firstColumnSticky &&
                                                                     columnGroupIndex === 0 &&
                                                                     columnIndex === 0 &&
@@ -499,6 +563,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                             /* eslint-disable-next-line react/forbid-dom-props */
                                                             style={{
                                                                 textAlign: column.align,
+                                                                ...(widthCap ? { maxWidth: widthCap } : {}),
                                                                 ...(isPinned ? { left: `${leftPosition}px` } : {}),
                                                             }}
                                                         >
@@ -552,7 +617,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                         'flex items-center',
                                                                         // Clip at maxWidth: sticky headers keep `overflow: visible` on the th, so
                                                                         // without this an over-wide title spills across the neighbouring headers
-                                                                        truncateHeader && 'overflow-hidden',
+                                                                        clipTitle && 'min-w-0 overflow-hidden',
                                                                         column?.fullWidth && 'w-full',
                                                                         column.sorter && 'cursor-pointer'
                                                                     )}
@@ -570,7 +635,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                 <IconInfo className="ml-1 text-base" />
                                                                             </div>
                                                                         </Tooltip>
-                                                                    ) : truncateHeader &&
+                                                                    ) : clipTitle &&
                                                                       typeof column.title === 'string' ? (
                                                                         <div
                                                                             className="min-w-0 truncate"
@@ -661,6 +726,13 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                         />
                                                                     ))}
                                                             </div>
+                                                            {column.resizable && column.onResize ? (
+                                                                <TableColumnResizeHandle
+                                                                    onResize={column.onResize}
+                                                                    onResizeStart={preserveResizableColumnWidths}
+                                                                    onResizeEnd={column.onResizeEnd}
+                                                                />
+                                                            ) : null}
                                                         </th>
                                                     )
                                                 })
@@ -711,6 +783,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 pinnedColumnWidths={pinnedColumnWidths}
                                                 columns={columns}
                                                 rowActions={rowActions}
+                                                onCellContextMenu={enableCellCopy ? handleCellContextMenu : undefined}
                                             />
                                         )
                                     })
@@ -752,6 +825,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     </div>
                 </ScrollableShadows>
             </div>
+            {enableCellCopy && copyMenu}
         </>
     )
 }

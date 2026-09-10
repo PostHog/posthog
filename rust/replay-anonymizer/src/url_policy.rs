@@ -13,6 +13,7 @@
 
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::sync::LazyLock;
 
 use percent_encoding::percent_decode_str;
 use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
@@ -64,6 +65,111 @@ const CREDENTIAL_PARAMS: &[&str] = &[
 
 const SCOPED_VOLATILE_PARAMS: &[(&str, &[&str])] =
     &[("_nc_ohc", &["_nc_ohc", "_nc_ht", "ccb", "oe", "oh", "stp"])];
+
+/// The advertising and analytics beacons the lane refuses. The file documents its own format.
+const TRACKING_BEACONS: &str = include_str!("tracking_beacons.txt");
+
+enum BeaconHost {
+    Any,
+    /// `*.example.com`: every host below the suffix, never the suffix itself.
+    Below(String),
+    Exact(String),
+}
+
+struct BeaconPattern {
+    host: BeaconHost,
+    path_prefix: String,
+}
+
+impl BeaconPattern {
+    /// A prefix that does not end with `/` must end at a segment boundary, so that `host/tr` refuses
+    /// `/tr` and `/tr/x` but not `/trending/x.png`. A `;` also ends the segment, because Floodlight
+    /// puts its parameters after one (`/activityi;src=...`).
+    fn matches(&self, host: &str, path: &str) -> bool {
+        let host_matches = match &self.host {
+            BeaconHost::Any => true,
+            BeaconHost::Below(suffix) => host.ends_with(suffix.as_str()),
+            BeaconHost::Exact(exact) => host == exact,
+        };
+        let Some(rest) = path.strip_prefix(self.path_prefix.as_str()) else {
+            return false;
+        };
+        host_matches
+            && (self.path_prefix.ends_with('/')
+                || rest.is_empty()
+                || rest.starts_with('/')
+                || rest.starts_with(';'))
+    }
+}
+
+static TRACKING_BEACON_PATTERNS: LazyLock<Vec<BeaconPattern>> = LazyLock::new(|| {
+    parse_beacon_list(TRACKING_BEACONS)
+        .unwrap_or_else(|line| panic!("tracking_beacons.txt has a malformed entry: {line:?}"))
+});
+
+fn parse_beacon_list(text: &str) -> Result<Vec<BeaconPattern>, String> {
+    let mut patterns = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some(slash) = line.find('/') else {
+            return Err(line.to_string());
+        };
+        let (host, path) = line.split_at(slash);
+        // A scheme, port, space, or trailing dot in the host, or a comment, query, or percent-encoding
+        // in the path, would parse as an entry that can never match, so it is refused instead of
+        // shipping as a silent no-op. A catch-all entry is refused too, because it would stop the
+        // whole lane with only a counter as evidence.
+        let host_is_malformed = host.contains(|c: char| c == ':' || c.is_whitespace())
+            || (host != "*" && (!host.contains('.') || host.ends_with('.')));
+        let path_is_malformed =
+            path.contains(|c: char| c.is_whitespace() || matches!(c, '#' | '?' | '%'));
+        if host_is_malformed || path_is_malformed || (host == "*" && path == "/") {
+            return Err(line.to_string());
+        }
+        let host = match host {
+            "*" => BeaconHost::Any,
+            _ if host.starts_with("*.") && host.len() > 2 && !host[1..].contains('*') => {
+                BeaconHost::Below(host[1..].to_ascii_lowercase())
+            }
+            _ if !host.is_empty() && !host.contains('*') => {
+                BeaconHost::Exact(host.to_ascii_lowercase())
+            }
+            _ => return Err(line.to_string()),
+        };
+        patterns.push(BeaconPattern {
+            host,
+            path_prefix: path.to_ascii_lowercase(),
+        });
+    }
+    Ok(patterns)
+}
+
+/// Whether a host and decoded path name an entry in `tracking_beacons.txt`.
+pub fn is_tracking_beacon(host: &str, path: &str) -> bool {
+    let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+    matches_beacon_list(&host, &collapse_slashes(&path.to_ascii_lowercase()))
+}
+
+/// `host` and `path` must already be lowercase, and the path decoded with its slashes collapsed.
+fn matches_beacon_list(host: &str, path: &str) -> bool {
+    TRACKING_BEACON_PATTERNS
+        .iter()
+        .any(|pattern| pattern.matches(host, path))
+}
+
+/// Origin servers collapse a doubled slash, so `//adsct` and `/adsct` name one resource to them.
+fn collapse_slashes(path: &str) -> String {
+    let mut collapsed = String::with_capacity(path.len());
+    for character in path.chars() {
+        if character == '/' && collapsed.ends_with('/') {
+            continue;
+        }
+        collapsed.push(character);
+    }
+    collapsed
+}
 
 /// Longer than this and we neither collect nor fetch it. Well past what a real image URL needs,
 /// and it bounds what one message can pin in memory alongside the count cap.
@@ -179,6 +285,7 @@ fn is_public_domain_name(lowercase_host: &str) -> bool {
 /// Why a URL was not collected. Each variant is a label on the decline counter. A lane
 /// that collects less than it should then reads off a dashboard, rather than being guessed at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Decline {
     /// Longer than [`MAX_URL_LEN`], before or after normalization.
     TooLong,
@@ -197,9 +304,19 @@ pub enum Decline {
     Credential,
     /// A query parameter name could not be percent-decoded as UTF-8.
     InvalidQuery,
+    /// An advertising or analytics beacon from `tracking_beacons.txt`. Nobody sees the one-pixel
+    /// image, and a fetch of it reports a conversion or a visit to the network that serves it.
+    TrackingBeacon,
 }
 
 impl Decline {
+    /// True for a URL the policy refuses because nobody wants it fetched, not because it is
+    /// malformed or unsafe. A consumer that reads jobs from a queue drops only that job for such a
+    /// decline, and rejects the whole record for every other one.
+    pub fn is_unwanted(self) -> bool {
+        matches!(self, Decline::TrackingBeacon)
+    }
+
     /// The metric label. Stable, because a dashboard and an alert both key on it.
     pub fn label(self) -> &'static str {
         match self {
@@ -211,6 +328,7 @@ impl Decline {
             Decline::NonPublicHost => "non_public_host",
             Decline::Credential => "credential",
             Decline::InvalidQuery => "invalid_query",
+            Decline::TrackingBeacon => "tracking_beacon",
         }
     }
 }
@@ -255,8 +373,12 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if host != host_str {
         url.set_host(Some(&host)).map_err(|_| Decline::NoHost)?;
     }
-    if has_credential_query(&url)? || has_credential_path(&url, &host)? {
+    let lowercase_path = decoded_lowercase_path(&url)?;
+    if has_credential_query(&url)? || has_credential_path(&lowercase_path, &host) {
         return Err(Decline::Credential);
+    }
+    if matches_beacon_list(&host, &collapse_slashes(&lowercase_path)) {
+        return Err(Decline::TrackingBeacon);
     }
 
     let original_query = original_query(raw);
@@ -335,14 +457,20 @@ fn has_valid_percent_encoding(value: &str) -> bool {
     true
 }
 
-fn has_credential_path(url: &Url, host: &str) -> Result<bool, Decline> {
+/// The request path with percent-encoding removed and ASCII lowercased. A path that cannot be
+/// decoded is refused as a credential, because the lane cannot prove it carries none.
+fn decoded_lowercase_path(url: &Url) -> Result<String, Decline> {
     if !has_valid_percent_encoding(url.path()) {
         return Err(Decline::Credential);
     }
-    let path = percent_decode_str(url.path())
+    Ok(percent_decode_str(url.path())
         .decode_utf8()
         .map_err(|_| Decline::Credential)?
-        .to_ascii_lowercase();
+        .to_ascii_lowercase())
+}
+
+/// `path` is the decoded lowercase path from [`decoded_lowercase_path`].
+fn has_credential_path(path: &str, host: &str) -> bool {
     let segments: Vec<&str> = path.split('/').collect();
     let first_segment_has_bunny_token = segments
         .get(1)
@@ -370,11 +498,11 @@ fn has_credential_path(url: &Url, host: &str) -> Result<bool, Decline> {
             .is_some_and(|token| !token.is_empty())
     });
 
-    Ok(first_segment_has_bunny_token
+    first_segment_has_bunny_token
         || has_oracle_token
         || has_cloudinary_signature
         || has_supabase_signature
-        || has_session_token)
+        || has_session_token
 }
 
 fn remove_volatile_params(raw_query: Option<&str>) -> Result<Option<String>, Decline> {
@@ -428,6 +556,69 @@ mod tests {
         }
         let long = format!("https://example.com/{}", "a".repeat(MAX_URL_LEN));
         assert!(canonicalize(&long).is_none());
+    }
+
+    #[test]
+    fn tracking_beacons_are_refused_by_host_pattern_and_path_prefix() {
+        for raw in [
+            "https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter",
+            "https://ANALYTICS.twitter.com/I/ADSCT",
+            "https://analytics.twitter.com/i/%61dsct",
+            "https://analytics.twitter.com/i//adsct",
+            "https://www.facebook.com//tr?id=1",
+            "https://www.facebook.com/tr?id=1&ev=PageView",
+            "https://bat.bing.com/action/0?ti=123&Ver=2",
+            "https://123456.fls.doubleclick.net/activityi;src=1;type=a",
+            "https://metrics.example.com/b/ss/rsid/1/JS-2.0/s123",
+            "https://ct.pinterest.com/v3/?tid=1&noscript=1",
+        ] {
+            assert_eq!(try_canonicalize(raw), Err(Decline::TrackingBeacon), "{raw}");
+        }
+        for raw in [
+            "https://pbs.twimg.com/media/abc.jpg",
+            "https://analytics.twitter.com/transparency/logo.png",
+            "https://notanalytics.twitter.com/i/adsct",
+            "https://fls.doubleclick.net/activityi",
+            "https://example.com/b/ss.png",
+            "https://www.facebook.com/trending/x.png",
+            "https://bat.bing.com/actions/x.png",
+            "https://example.com/matomo.php.png",
+            "https://cdn.shopify.com/s/files/1/photo.png",
+            "https://d111.cloudfront.net/photo.png",
+        ] {
+            assert!(canonicalize(raw).is_some(), "{raw} is not a beacon");
+        }
+        assert_eq!(
+            try_canonicalize("https://analytics.twitter.com/i/adsct?token=abc"),
+            Err(Decline::Credential),
+            "a credential is refused before the beacon list is consulted"
+        );
+    }
+
+    #[test]
+    fn the_beacon_list_parses_and_refuses_a_malformed_entry() {
+        assert!(!TRACKING_BEACON_PATTERNS.is_empty());
+        for malformed in [
+            "no-slash",
+            "/path-only",
+            "*x.example.com/",
+            "a.*.example.com/",
+            "*.example.com",
+            "*/",
+            "https://host.example.com/path",
+            "host.example.com:443/path",
+            "host.example.com/path # note",
+            "host example.com/path",
+            "host.example.com./path",
+            "localhost/path",
+            "host.example.com/path?x=1",
+            "host.example.com/%61",
+        ] {
+            assert!(
+                parse_beacon_list(malformed).is_err(),
+                "{malformed:?} must not parse"
+            );
+        }
     }
 
     #[test]

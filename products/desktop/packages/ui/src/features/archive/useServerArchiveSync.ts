@@ -1,13 +1,20 @@
+import {
+  ARCHIVE_CLIENT,
+  type ArchiveClient,
+} from "@posthog/core/archive/identifiers";
 import { pendingServerArchiveIds } from "@posthog/core/archive/serverArchiveSync";
+import { useService } from "@posthog/di/react";
 import { useServerArchiveSyncStore } from "@posthog/ui/features/archive/serverArchiveSyncStore";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useServerArchiveScope } from "./useServerArchiveScope";
 
 const log = logger.scope("server-archive-sync");
+const SERVER_ARCHIVE_IMPORT_LIMIT = 100;
 
 /**
  * A restore that couldn't reach the server. Until the clear lands the session
@@ -26,25 +33,11 @@ export function forgetServerArchive(taskId: string): void {
   useServerArchiveSyncStore.getState().forgetSynced(taskId);
 }
 
-/**
- * Tell the server about the sessions this device has archived.
- *
- * Archiving has always been local, so the server kept listing sessions the app
- * hides. Its count is what a space row's "view all" number is drawn from, which
- * left that number reading hundreds above the list it leads to. Marking the
- * task archived server-side drops it from the same list every count comes from,
- * and carries the archive to the user's other devices.
- *
- * The work list is the local archive itself, diffed against a durable record of
- * what this device has already mirrored — not a task-list page. Pages are
- * capped at the newest hundred rows, and an archive is precisely the sessions
- * too old to be there: discovery through a page synced whatever happened to be
- * recent and then starved. The drain runs once per backlog ever (the record
- * survives relaunch), sequentially, so it never competes with requests the
- * user is waiting on.
- */
+/** Keep the local archive and the shared server archive aligned across devices. */
 export function useServerArchiveSync(): void {
   const client = useOptionalAuthenticatedClient();
+  const serverArchiveScope = useServerArchiveScope();
+  const archiveClient = useService<ArchiveClient>(ARCHIVE_CLIENT);
   const archivedTaskIds = useArchivedTaskIds();
   const queryClient = useQueryClient();
   // Queued restores re-fire the effect. Mirrored-id progress deliberately
@@ -53,112 +46,165 @@ export function useServerArchiveSync(): void {
   const pendingUnarchive = useServerArchiveSyncStore(
     (s) => s.pendingUnarchiveTaskIds,
   );
+  const [drainGeneration, setDrainGeneration] = useState(0);
   const running = useRef(false);
+  const rerunRequested = useRef(false);
   const archivedRef = useRef(archivedTaskIds);
   const clientRef = useRef(client);
+  const archiveClientRef = useRef(archiveClient);
+  const importedScopes = useRef(new Set<string>());
 
-  // The drain loop re-reads these between passes, so a session archived while
-  // it runs is picked up by the loop that's already going, and the effect that
-  // fires for it lands on the `running` guard and is skipped. Written after the
-  // render rather than during it, and before the drain effect below, which runs
-  // later in the same commit — so the drain never reads a ref left behind by a
-  // render React went on to discard.
+  // The drain loop re-reads these between passes. If a trigger lands too late
+  // for the running drain to see it, rerunRequested starts another pass.
   useEffect(() => {
     archivedRef.current = archivedTaskIds;
     clientRef.current = client;
+    archiveClientRef.current = archiveClient;
   });
 
   useEffect(() => {
-    if (!client || running.current) return;
-    // The triggers, checked directly: don't start a drain that would find
-    // nothing. The loop below re-reads both sources fresh each pass.
+    if (!client) return;
+    if (running.current) {
+      rerunRequested.current = true;
+      return;
+    }
     const mirrored = new Set(
       useServerArchiveSyncStore.getState().syncedTaskIds,
     );
-    if (
-      pendingUnarchive.length === 0 &&
-      pendingServerArchiveIds(archivedTaskIds, mirrored).length === 0
-    ) {
-      // Distinguishes "nothing to mirror" from "never ran" — the two are
-      // otherwise identical in the console, and each app instance has its own
-      // archive DB (dev vs packaged), so an unexpectedly small count here is
-      // the tell that you're looking at the other instance's backlog.
-      log.debug("Archive sync idle", {
-        archivedLocally: archivedTaskIds.size,
-        alreadyMirrored: mirrored.size,
-      });
-      return;
-    }
 
     running.current = true;
     void (async () => {
       // Ids this run has already tried and the server refused — retried on the
       // next launch or trigger, but not by the very next pass of this loop.
       const attempted = new Set<string>();
-      let changed = 0;
-      // The drain's outcome IS the diagnosis when a count reads wrong, and a
-      // run that finds work is rare (once per backlog) — so say what was found
-      // and what happened to it, not just the failures.
-      log.info("Draining archive state to the server", {
+      let serverChanges = 0;
+      let imported = 0;
+      log.info("Synchronizing archive state", {
         archivedLocally: archivedTaskIds.size,
         alreadyMirrored: mirrored.size,
+        drainGeneration,
         pendingUnarchive: pendingUnarchive.length,
       });
-      try {
-        for (;;) {
-          const api = clientRef.current;
-          if (!api) break;
-          const store = useServerArchiveSyncStore.getState();
-          const unarchive = store.pendingUnarchiveTaskIds.filter(
-            (id) => !attempted.has(id),
-          );
-          const archive = pendingServerArchiveIds(
-            archivedRef.current,
-            new Set([...store.syncedTaskIds, ...attempted]),
-          );
-          // No await stands between this read and the guard release below, so
-          // a trigger either lands early enough for the next pass to see it or
-          // late enough to start its own drain. There is no gap to lose one in.
-          if (unarchive.length === 0 && archive.length === 0) break;
+      for (;;) {
+        const api = clientRef.current;
+        if (!api) break;
+        const store = useServerArchiveSyncStore.getState();
+        const unarchive = store.pendingUnarchiveTaskIds.filter(
+          (id) => !attempted.has(id),
+        );
+        const archive = pendingServerArchiveIds(
+          archivedRef.current,
+          new Set([...store.syncedTaskIds, ...attempted]),
+        );
+        // No await stands between this read and the guard release below, so
+        // a trigger either lands early enough for the next pass to see it or
+        // late enough to start its own drain. There is no gap to lose one in.
+        if (unarchive.length === 0 && archive.length === 0) break;
 
-          // Restores lead: a session the server still has archived is
-          // invisible everywhere, which is worse than a count that reads high.
-          for (const taskId of unarchive) {
+        // Restores lead: a session the server still has archived is
+        // invisible everywhere, which is worse than a count that reads high.
+        for (const taskId of unarchive) {
+          try {
+            await api.setTaskArchived(taskId, false);
+            store.clearUnarchive(taskId);
+            store.forgetSynced(taskId);
+            serverChanges++;
+          } catch (error) {
+            attempted.add(taskId);
+            log.warn(`Failed to unarchive task ${taskId} on the server`, error);
+          }
+        }
+        for (const taskId of archive) {
+          try {
+            await api.setTaskArchived(taskId, true);
+            store.markSynced(taskId);
+            serverChanges++;
+          } catch (error) {
+            attempted.add(taskId);
+            log.warn(`Failed to archive task ${taskId} on the server`, error);
+          }
+        }
+      }
+      try {
+        const api = clientRef.current;
+        if (
+          api &&
+          serverArchiveScope !== null &&
+          !importedScopes.current.has(serverArchiveScope)
+        ) {
+          importedScopes.current.add(serverArchiveScope);
+          const store = useServerArchiveSyncStore.getState();
+          const offset = store.archiveImportOffsets[serverArchiveScope] ?? 0;
+          const serverArchive = await api.getTasksPage({
+            archived: true,
+            limit: SERVER_ARCHIVE_IMPORT_LIMIT,
+            offset,
+          });
+          const pendingUnarchiveIds = new Set(store.pendingUnarchiveTaskIds);
+          let importFailed = false;
+          for (const task of serverArchive.tasks) {
+            if (pendingUnarchiveIds.has(task.id)) {
+              continue;
+            }
+            if (archivedRef.current.has(task.id)) {
+              useServerArchiveSyncStore.getState().markSynced(task.id);
+              continue;
+            }
             try {
-              await api.setTaskArchived(taskId, false);
-              store.clearUnarchive(taskId);
-              store.forgetSynced(taskId);
-              changed++;
+              await archiveClientRef.current.archive({
+                taskId: task.id,
+                title: task.title,
+                taskCreatedAt: task.created_at,
+                repository: task.repository,
+                serverArchiveScope,
+              });
+              useServerArchiveSyncStore.getState().markSynced(task.id);
+              imported++;
             } catch (error) {
-              attempted.add(taskId);
+              importFailed = true;
               log.warn(
-                `Failed to unarchive task ${taskId} on the server`,
+                `Failed to import archived task ${task.id} from the server`,
                 error,
               );
             }
           }
-          for (const taskId of archive) {
-            try {
-              await api.setTaskArchived(taskId, true);
-              store.markSynced(taskId);
-              changed++;
-            } catch (error) {
-              attempted.add(taskId);
-              log.warn(`Failed to archive task ${taskId} on the server`, error);
-            }
+          if (!importFailed) {
+            const reachedEnd =
+              serverArchive.tasks.length === 0 ||
+              offset + serverArchive.tasks.length >= serverArchive.count;
+            store.setArchiveImportOffset(
+              serverArchiveScope,
+              reachedEnd ? 0 : offset + serverArchive.tasks.length,
+            );
           }
         }
-      } finally {
-        running.current = false;
+      } catch (error) {
+        log.warn("Failed to read archived tasks from the server", error);
       }
       log.info("Archive drain finished", {
-        synced: changed,
+        synced: serverChanges,
+        imported,
         refused: attempted.size,
       });
-      if (changed === 0) return;
-      // Refetches the lists the drain just shortened, which is what moves the
-      // space counts drawn from them.
-      await queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-    })();
-  }, [client, archivedTaskIds, pendingUnarchive, queryClient]);
+      if (serverChanges > 0 || imported > 0) {
+        await queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+      }
+      if (imported > 0) {
+        await archiveClientRef.current.refreshArchiveState();
+      }
+    })().finally(() => {
+      running.current = false;
+      if (rerunRequested.current) {
+        rerunRequested.current = false;
+        setDrainGeneration((value) => value + 1);
+      }
+    });
+  }, [
+    archivedTaskIds,
+    client,
+    pendingUnarchive,
+    queryClient,
+    drainGeneration,
+    serverArchiveScope,
+  ]);
 }

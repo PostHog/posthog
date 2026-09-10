@@ -18,6 +18,7 @@ import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
 import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
 import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
+import { ConversionWatchersService } from './services/conversion-watchers/conversion-watchers.service'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -134,6 +135,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_TLS'
         | 'CDP_VALKEY_READ_FEATURES'
+        | 'CYCLOTRON_NODE_DATABASE_URL'
+        | 'CYCLOTRON_NODE_MAX_CONNECTIONS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -149,6 +152,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_STATE_LOCK_TTL'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
+        | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
@@ -159,7 +163,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
-        | 'EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -441,7 +444,6 @@ export function createCdpCoreServices(
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
             teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
-            teamEmailCapTeamsCreatedAfter: config.EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -523,20 +525,27 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         emailValidationService,
         cohortMembershipRepository,
+        deps.integrationManager,
         hogFlowDuplicateObserver,
-        cdpUsageReporter
+        cdpUsageReporter,
+        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
+    const conversionWatchersService = new ConversionWatchersService(
+        config.CYCLOTRON_NODE_DATABASE_URL,
+        config.CYCLOTRON_NODE_MAX_CONNECTIONS
+    )
     const invocationResultsService = new InvocationResultsService(
         hogFunctionMonitoringService,
         hogInvocationResultsService,
         warehouseWebhooksService,
         capturedEventsService,
-        messageAssetsService
+        messageAssetsService,
+        conversionWatchersService
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)

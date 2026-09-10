@@ -6,7 +6,7 @@ from dataclasses import field
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -94,7 +94,10 @@ class ClickHouseUser(StrEnum):
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
     REPLAY_VISION = "replay_vision"
+    # Session replay surfacing scoring sweep
+    SURFACING_SCORING = "surfacing_scoring"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -161,8 +164,9 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     Retrieve ClickHouse credentials for the specified user.
 
     This function retrieves the credentials associated with a given ClickHouse
-    user. If the specified user is not found, it will fall back to the default
-    user credentials.
+    user. Most missing dedicated users fall back to the default user credentials.
+    Business Knowledge fails closed so a deployment cannot silently bypass its
+    isolated query limit.
 
     The user and password must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
@@ -175,7 +179,14 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()
-    return __user_dict.get(user, __user_dict[ClickHouseUser.DEFAULT])
+    if creds := __user_dict.get(user):
+        return creds
+    if user == ClickHouseUser.BUSINESS_KNOWLEDGE:
+        raise RuntimeError(
+            "Business Knowledge ClickHouse credentials are missing; set "
+            "CLICKHOUSE_BUSINESS_KNOWLEDGE_USER and CLICKHOUSE_BUSINESS_KNOWLEDGE_PASSWORD"
+        )
+    return __user_dict[ClickHouseUser.DEFAULT]
 
 
 class ProxyClient:
@@ -294,6 +305,32 @@ def get_kwargs_for_client(
     return base_kwargs
 
 
+def _is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
+    # True when the resolved connection authenticates as a user whose credential comes from a
+    # rotating token file. The LOGS and readonly paths resolve to their own static credentials, so
+    # they are excluded and keep the static password.
+    return bool(creds.password_file) and workload != Workload.LOGS and user == creds.user
+
+
+def get_http_kwargs(
+    workload: Workload = Workload.DEFAULT,
+    team_id: int | None = None,
+    readonly: bool = False,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> dict[str, Any]:
+    """Build kwargs for the short-lived HTTP client, reading a file-backed credential fresh.
+
+    The HTTP client is rebuilt on every call, so one read here is enough to send a rotated token.
+    The native pool path does not use this helper because RefreshingChPool already re-reads the file
+    on every checkout, which means a read here would only duplicate it on the hot query path.
+    """
+    kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    creds = get_clickhouse_creds(ch_user)
+    if _is_file_backed_user(creds, workload, kwargs.get("user")):
+        kwargs["password"] = creds.read_password()
+    return kwargs
+
+
 @patchable
 def get_client_from_pool(
     workload: Workload = Workload.DEFAULT,
@@ -308,10 +345,7 @@ def get_client_from_pool(
     """
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
-        # File-backed credential refresh currently covers only the native pool below. This HTTP path
-        # (and default_client / ClickhouseCluster) still send the static CLICKHOUSE_*_PASSWORD, so a
-        # user must keep its static password until the HTTP path also reads the token file.
-        kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+        kwargs = get_http_kwargs(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
         return get_http_client(**kwargs)
 
     return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
@@ -332,18 +366,18 @@ def get_pool(
     creds = get_clickhouse_creds(ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
-    # Only when the resolved pool authenticates as this user: the LOGS and readonly paths resolve to
-    # their own static credentials and keep a plain pool.
-    if creds.password_file and workload != Workload.LOGS and kwargs.get("user") == creds.user:
+    if _is_file_backed_user(creds, workload, kwargs.get("user")):
         kwargs.pop("password", None)
         return make_ch_pool(credential_provider=creds.read_password, **kwargs)
     return make_ch_pool(**kwargs)
 
 
-def default_client(host=settings.CLICKHOUSE_HOST):
+def default_client(host=settings.CLICKHOUSE_HOST, password=None):
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
+
+    password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
     """
     return SyncClient(
         host=host,
@@ -356,7 +390,7 @@ def default_client(host=settings.CLICKHOUSE_HOST):
         database="system",
         secure=settings.CLICKHOUSE_SECURE,
         user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
+        password=settings.CLICKHOUSE_PASSWORD if password is None else password,
         ca_certs=settings.CLICKHOUSE_CA,
         verify=settings.CLICKHOUSE_VERIFY,
     )

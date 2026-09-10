@@ -138,6 +138,14 @@ describe('ToolCatalog', () => {
 
             expect(result.type).toBe('object')
         })
+
+        it('returns plain data with no handle back to the zod instance', () => {
+            // zod puts a non-enumerable `~standard` handle on its JSON Schema output. Kept on a
+            // catalog entry, it would pin every built schema for the life of the process.
+            const result = toMcpInputSchema(z.object({ a: z.string() }))
+
+            expect('~standard' in result).toBe(false)
+        })
     })
 
     describe('warmup', () => {
@@ -151,6 +159,14 @@ describe('ToolCatalog', () => {
             await catalog.warmup()
             await catalog.warmup()
             expect(catalog.warmedUp).toBe(true)
+        })
+
+        it('builds a fresh tool on every lookup instead of keeping one', async () => {
+            await catalog.warmup()
+
+            const preBuilt = catalog.getToolByName('gen-tool-c')!
+
+            expect(preBuilt.build().schema).not.toBe(preBuilt.build().schema)
         })
     })
 

@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Final, Literal
 
+from posthog.dataclasses import frozen
+
 # Shared by the workflow definition, the schedule, and the management command.
 CANARY_WORKFLOW_NAME = "experiment-precompute-canary"
 
@@ -138,14 +140,17 @@ class CanaryVariantStats:
     number_of_samples: int
 
 
-@dataclasses.dataclass
+@frozen
 class CanaryRunSnapshot:
     """Per-variant aggregates from one execution of the metric query."""
 
     label: str  # "a" | "b" (forced precomputed) | "c" (forced direct scan)
     query_id: str  # client_query_id, for system.query_log forensics
-    is_precomputed: bool
+    is_precomputed: bool  # exposures side
     variants: dict[str, CanaryVariantStats]
+    # "precomputed" | "direct_scan" | "not_applicable". Defaulted so snapshots
+    # recorded before this field existed still decode during Temporal replay.
+    metric_events_path: str = "not_applicable"
 
 
 @dataclasses.dataclass(frozen=False)

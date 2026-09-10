@@ -68,13 +68,12 @@ export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
- * rollout gate and the per-team feature-flag count override.
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
  *
- * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
- * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
- * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
- * unlike the cache tools' rebuild and clear.
+ * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -91,6 +90,13 @@ export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.obje
         .optional()
         .describe(
             "New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape."
+        ),
+    property_matching_version: zod
+        .union([zod.literal(1), zod.literal(2)])
+        .describe('\* `1` - Legacy\n\* `2` - Explicit')
+        .optional()
+        .describe(
+            "New property matching version for the team. Version 1 preserves legacy behavior. Version 2 uses explicit scalar and array equality. Only set version 2 after confirming that the team's local-evaluation SDK versions support it. Omit to leave it unchanged.\n\n\* `1` - Legacy\n\* `2` - Explicit"
         ),
     max_feature_flags_override: zod
         .number()
@@ -156,23 +162,6 @@ export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @_
     context_name: zod
         .string()
         .max(organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax)
-        .describe(
-            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
-        ),
-})
-
-/**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
-
-export const EnvironmentsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
-    context_name: zod
-        .string()
-        .max(environmentsEvaluationContextSuggestionsCreateBodyContextNameMax)
         .describe(
             "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
         ),
@@ -1190,6 +1179,10 @@ export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
  */
 export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const featureFlagsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const featureFlagsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -1201,7 +1194,10 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(featureFlagsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(featureFlagsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set.'),
 })
 
 /**

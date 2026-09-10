@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -12,7 +13,13 @@ import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
 
-export function AccountRelatedUsersExpansion({ externalId }: { externalId: string }): JSX.Element {
+export function AccountRelatedUsersExpansion({
+    externalId,
+    embedded = true,
+}: {
+    externalId: string
+    embedded?: boolean
+}): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
     const { membersResponse, membersResponseLoading, page, searchTerm } = useValues(logic)
     const { user } = useValues(userLogic)
@@ -46,6 +53,11 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             title: 'Access level',
             key: 'level',
             render: (_, member) => capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? 'Unknown'),
+        },
+        {
+            title: 'Last logged in',
+            key: 'last_login',
+            render: (_, member) => (member.last_login ? <TZLabel time={member.last_login} /> : 'Never'),
         },
     ]
 
@@ -90,7 +102,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             />
             <LemonTable<AccountOrganizationMember>
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={membersResponse?.results ?? []}
                 rowKey="id"
                 loading={membersResponseLoading}

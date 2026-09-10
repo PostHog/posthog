@@ -1,15 +1,18 @@
 import { useMemo } from 'react'
 
-import { LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 
 import type {
     AIReportQueryDiagnosticApi,
     SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { SubscriptionQueryPlanStatus } from './SubscriptionQueryPlanStatus'
 
 /** A completed AI delivery whose report couldn't compute some queries still shipped — but with missing
  * metrics — so it reads as "Partial", not a clean "Completed". Derived from the (query:viewer-gated)
@@ -357,9 +360,13 @@ function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQuery
                     content: (
                         <div className="flex flex-col gap-2">
                             {d.ok === false ? (
-                                <div className={d.human_readable_error ? 'text-danger' : 'text-secondary'}>
-                                    {queryFailureReason(d)}
-                                </div>
+                                d.human_readable_error ? (
+                                    <LemonBanner type="error" hideIcon className="!min-h-0">
+                                        {renderDetailWithLinks(d.human_readable_error)}
+                                    </LemonBanner>
+                                ) : (
+                                    <div className="text-secondary">{queryFailureReason(d)}</div>
+                                )
                             ) : null}
                             {d.hogql ? (
                                 <CodeSnippet language={Language.SQL} compact>
@@ -428,8 +435,9 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
             ) : null}
             {diagnostics.length > 0 ? (
                 <div className="flex flex-col gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                        Generated queries
+                    <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-secondary">
+                        <span>Generated queries</span>
+                        <SubscriptionQueryPlanStatus status={row.ai_query_plan_status} />
                     </div>
                     <GeneratedQueries diagnostics={diagnostics} />
                 </div>

@@ -38,10 +38,11 @@ would otherwise be repeatable free work.
 
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, OuterRef, QuerySet, Subquery, Sum
+from django.db.models import F, Min, OuterRef, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -248,6 +249,22 @@ def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> Query
         .values("task__runs__created_at")[:1]
     )
     return queryset.annotate(first_billable_pr_run_at=Subquery(earliest))
+
+
+def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) -> dict[str, datetime]:
+    """`annotate_first_billable_pr_run_at` for a known set of reports, in one grouped query.
+
+    The annotation is a correlated subquery, so it costs one bridge-and-run walk per row the
+    query returns. A list that already knows its page asks for the whole page at once instead.
+    Reports with no billable PR run are absent from the map, matching the annotation's NULL.
+    """
+    rows = (
+        _bridges_with_pr_run()
+        .filter(report_id__in=report_ids)
+        .values("report_id")
+        .annotate(first_run_at=Min("task__runs__created_at"))
+    )
+    return {str(row["report_id"]): row["first_run_at"] for row in rows}
 
 
 # Why a report can't be refunded right now (`refund_ineligibility_reason`); None = refundable.

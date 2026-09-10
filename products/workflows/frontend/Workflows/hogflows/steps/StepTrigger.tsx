@@ -61,6 +61,7 @@ import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './ba
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
+import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {
@@ -83,9 +84,9 @@ type TriggerOptionItem = {
 }
 
 function getTriggerDisplayType(type: string, config: any): string {
-    if (type !== 'event') {
-        return type
-    }
+    // Several tiles can share one config type (`event`, `internal-event`), so the tile is whichever
+    // one claims this config, not the type itself. Types owned by a single tile fall through to the
+    // type, which is that tile's value.
     const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(config))
     return match ? match.value : type
 }
@@ -349,6 +350,9 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             {registeredMatch?.ConfigComponent ? (
                 <>
                     <registeredMatch.ConfigComponent node={node} />
+                    {featureFlags[FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE] ? (
+                        <TriggerVolumeEstimate action={node.data} />
+                    ) : null}
                     {registeredMatch.frequencyOptions ? (
                         <>
                             <LemonDivider />
@@ -394,6 +398,7 @@ function StepTriggerConfigurationEvents({
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const validationResult = actionValidationErrorsById[action.id]
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
@@ -427,6 +432,10 @@ function StepTriggerConfigurationEvents({
                     })
                 }
             />
+
+            {featureFlags[FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE] ? (
+                <TriggerVolumeEstimate action={action} />
+            ) : null}
 
             <LemonDivider />
             <FrequencySection />

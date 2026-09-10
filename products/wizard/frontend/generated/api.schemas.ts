@@ -8,6 +8,352 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `local` - local
+ * * `cloud` - cloud
+ */
+export type RunEnvironmentEnumApi = (typeof RunEnvironmentEnumApi)[keyof typeof RunEnvironmentEnumApi]
+
+export const RunEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
+export interface WizardProgramApi {
+    /** Stable identifier used to select the program. */
+    readonly id: string
+    /** Display name of the program. */
+    readonly name: string
+    /** What the program does. */
+    readonly description: string
+    /** Exact Wizard package version used by the program. */
+    readonly wizard_version: string
+    /** Wizard CLI arguments used to start the program. */
+    readonly command: readonly string[]
+    /** Labels that categorize the program. */
+    readonly tags: readonly string[]
+    /** Programs that should run before this program. */
+    readonly required_programs: readonly string[]
+    /** Environments where the program can run. */
+    readonly supported_environments: readonly RunEnvironmentEnumApi[]
+}
+
+export interface PaginatedWizardProgramListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WizardProgramApi[]
+}
+
+/**
+ * Selects a folder on the user's machine as the workspace.
+ */
+export type LocalFolderWorkspaceApiType = (typeof LocalFolderWorkspaceApiType)[keyof typeof LocalFolderWorkspaceApiType]
+
+export const LocalFolderWorkspaceApiType = {
+    LocalFolder: 'local_folder',
+} as const
+
+export interface LocalFolderWorkspaceApi {
+    /** Selects a folder on the user's machine as the workspace. */
+    type: LocalFolderWorkspaceApiType
+    /**
+     * Name of the project in the local folder.
+     * @maxLength 255
+     */
+    project_name: string
+}
+
+/**
+ * Selects a GitHub repository as the workspace.
+ */
+export type GitRepositoryWorkspaceApiType =
+    (typeof GitRepositoryWorkspaceApiType)[keyof typeof GitRepositoryWorkspaceApiType]
+
+export const GitRepositoryWorkspaceApiType = {
+    GitRepository: 'git_repository',
+} as const
+
+export interface GitRepositoryWorkspaceApi {
+    /** Selects a GitHub repository as the workspace. */
+    type: GitRepositoryWorkspaceApiType
+    /**
+     * GitHub repository in owner/name format.
+     * @maxLength 255
+     */
+    repository: string
+}
+
+export type WizardWorkspaceApi = LocalFolderWorkspaceApi | GitRepositoryWorkspaceApi
+
+/**
+ * * `created` - created
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
+ */
+export type WizardRunStatusEnumApi = (typeof WizardRunStatusEnumApi)[keyof typeof WizardRunStatusEnumApi]
+
+export const WizardRunStatusEnumApi = {
+    Created: 'created',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `dispatching` - dispatching
+ * * `provisioning` - provisioning
+ * * `preparing_workspace` - preparing_workspace
+ * * `executing_wizard` - executing_wizard
+ * * `creating_artifacts` - creating_artifacts
+ */
+export type WizardRunStageEnumApi = (typeof WizardRunStageEnumApi)[keyof typeof WizardRunStageEnumApi]
+
+export const WizardRunStageEnumApi = {
+    Dispatching: 'dispatching',
+    Provisioning: 'provisioning',
+    PreparingWorkspace: 'preparing_workspace',
+    ExecutingWizard: 'executing_wizard',
+    CreatingArtifacts: 'creating_artifacts',
+} as const
+
+export interface WizardRunApi {
+    /** Unique ID of the Wizard run. */
+    readonly id: string
+    /** Project that owns the Wizard run. */
+    readonly team_id: number
+    /**
+     * User who created the Wizard run, or null if that user no longer exists.
+     * @nullable
+     */
+    readonly created_by_id: number | null
+    /** Where the setup agent runs.
+     *
+     * * `local` - local
+     * * `cloud` - cloud */
+    readonly environment: RunEnvironmentEnumApi
+    /** Project that the setup agent works on. */
+    readonly workspace: WizardWorkspaceApi
+    /** Registry program selected for this run. */
+    readonly program: WizardProgramApi
+    /** Current lifecycle status of the Wizard run.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    readonly status: WizardRunStatusEnumApi
+    /**
+     * Machine-readable failure reason, or null if the run has not failed.
+     * @nullable
+     */
+    readonly error_code: string | null
+    /**
+     * Safe failure explanation, or null if the run has not failed.
+     * @nullable
+     */
+    readonly error_message: string | null
+    /** Current cloud worker stage, or null outside active cloud execution.
+     *
+     * * `dispatching` - dispatching
+     * * `provisioning` - provisioning
+     * * `preparing_workspace` - preparing_workspace
+     * * `executing_wizard` - executing_wizard
+     * * `creating_artifacts` - creating_artifacts */
+    readonly stage: WizardRunStageEnumApi | null
+    /** When the Wizard run was created. */
+    readonly created_at: string
+    /**
+     * When the run last changed.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /**
+     * When execution started, or null while queued.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When execution reached a terminal status, or null while active.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Cloud execution deadline, or null for local runs.
+     * @nullable
+     */
+    readonly deadline_at: string | null
+}
+
+export interface PaginatedWizardRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WizardRunApi[]
+}
+
+export interface WizardRunCreateRequestApi {
+    /**
+     * Registry program to run.
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+    program_id: string
+    /** Where the setup agent runs.
+     *
+     * * `local` - local
+     * * `cloud` - cloud */
+    environment: RunEnvironmentEnumApi
+    /** Project that the setup agent works on. */
+    workspace: WizardWorkspaceApi
+    /**
+     * Unique key that makes cloud run creation safe to retry.
+     * @maxLength 255
+     */
+    idempotency_key?: string
+    /** Wizard package version to run. Defaults to the backend pin and accepts latest explicitly. */
+    wizard_version?: string
+}
+
+export interface WizardRunErrorApi {
+    /** Error category. */
+    readonly type: string
+    /** Machine-readable error code. */
+    readonly code: string
+    /** What happened and how to continue. */
+    readonly detail: string
+    /**
+     * Request field associated with the error, when available.
+     * @nullable
+     */
+    readonly attr: string | null
+}
+
+/**
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
+ */
+export type WizardRunStatusUpdateRequestStatusEnumApi =
+    (typeof WizardRunStatusUpdateRequestStatusEnumApi)[keyof typeof WizardRunStatusUpdateRequestStatusEnumApi]
+
+export const WizardRunStatusUpdateRequestStatusEnumApi = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface PatchedWizardRunStatusUpdateRequestApi {
+    /** New terminal status for the Wizard run.
+     *
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    status?: WizardRunStatusUpdateRequestStatusEnumApi
+    /**
+     * Machine-readable reason the Wizard run failed.
+     * @maxLength 50
+     * @nullable
+     */
+    error_code?: string | null
+}
+
+/**
+ * Format of the changes produced by the run.
+ *
+ * * `git_diff` - git_diff
+ */
+export type WizardRunGitDiffArtifactApiArtifactType =
+    (typeof WizardRunGitDiffArtifactApiArtifactType)[keyof typeof WizardRunGitDiffArtifactApiArtifactType]
+
+export const WizardRunGitDiffArtifactApiArtifactType = {
+    GitDiff: 'git_diff',
+} as const
+
+export interface WizardRunGitDiffArtifactApi {
+    /** Unique ID of the run artifact. */
+    readonly id: string
+    /** Project that owns the run artifact. */
+    readonly team_id: number
+    /** Wizard run that produced the artifact. */
+    readonly run_id: string
+    /** Format of the changes produced by the run.
+     *
+     * * `git_diff` - git_diff */
+    readonly artifact_type: WizardRunGitDiffArtifactApiArtifactType
+    /** Stored artifact size in bytes. */
+    readonly size_bytes: number
+    /** SHA-256 hash of the stored artifact content. */
+    readonly content_hash: string
+    /**
+     * Number of added lines in the diff.
+     * @nullable
+     */
+    readonly additions: number | null
+    /**
+     * Number of removed lines in the diff.
+     * @nullable
+     */
+    readonly removals: number | null
+    /** Time when the artifact was stored. */
+    readonly created_at: string
+}
+
+/**
+ * Format of the changes produced by the run.
+ *
+ * * `pull_request` - pull_request
+ */
+export type WizardRunPullRequestArtifactApiArtifactType =
+    (typeof WizardRunPullRequestArtifactApiArtifactType)[keyof typeof WizardRunPullRequestArtifactApiArtifactType]
+
+export const WizardRunPullRequestArtifactApiArtifactType = {
+    PullRequest: 'pull_request',
+} as const
+
+export interface WizardRunPullRequestArtifactApi {
+    /** Unique ID of the run artifact. */
+    readonly id: string
+    /** Project that owns the run artifact. */
+    readonly team_id: number
+    /** Wizard run that produced the artifact. */
+    readonly run_id: string
+    /** Format of the changes produced by the run.
+     *
+     * * `pull_request` - pull_request */
+    readonly artifact_type: WizardRunPullRequestArtifactApiArtifactType
+    /** GitHub URL of the pull request. */
+    readonly url: string
+    /** Repository-local pull request number. */
+    readonly number: number
+    /** GitHub repository in owner/name format. */
+    readonly repository: string
+    /** Branch containing the setup agent's changes. */
+    readonly head_branch: string
+    /** Branch that the pull request targets. */
+    readonly base_branch: string
+    /** Time when the artifact was stored. */
+    readonly created_at: string
+}
+
+export type WizardRunArtifactApi = WizardRunGitDiffArtifactApi | WizardRunPullRequestArtifactApi
+
+export interface PaginatedWizardRunArtifactListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WizardRunArtifactApi[]
+}
+
+/**
  * The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
  * widget renders is enforced at the edge instead of trusted from the producer.
  */
@@ -107,11 +453,11 @@ export interface WizardSessionDTOApi {
     /** @nullable */
     error: WizardSessionDTOApiError
     /**
-     * Markdown handoff doc the wizard produced for this run (its setup report), or null while the run hasn't written one. Sticky once set.
+     * Markdown handoff doc the wizard produced for this run (its setup report), or null while the run hasn't written one.
      * @nullable
      */
     handoff_text: string | null
-    /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
+    /** The user who initiated this wizard run (null for runs created before attribution existed). */
     created_by: WizardSessionUserDTOApi | null
     created_at: string
     updated_at: string
@@ -188,7 +534,27 @@ export interface UpsertWizardSessionRequestApi {
     error?: UpsertWizardSessionRequestApiError
 }
 
-export type WizardSessionsListParams = {
+/**
+ * * `git_diff` - git_diff
+ */
+export type WizardRunGitDiffArtifactArtifactTypeEnumApi =
+    (typeof WizardRunGitDiffArtifactArtifactTypeEnumApi)[keyof typeof WizardRunGitDiffArtifactArtifactTypeEnumApi]
+
+export const WizardRunGitDiffArtifactArtifactTypeEnumApi = {
+    GitDiff: 'git_diff',
+} as const
+
+/**
+ * * `pull_request` - pull_request
+ */
+export type WizardRunPullRequestArtifactArtifactTypeEnumApi =
+    (typeof WizardRunPullRequestArtifactArtifactTypeEnumApi)[keyof typeof WizardRunPullRequestArtifactArtifactTypeEnumApi]
+
+export const WizardRunPullRequestArtifactArtifactTypeEnumApi = {
+    PullRequest: 'pull_request',
+} as const
+
+export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -197,28 +563,73 @@ export type WizardSessionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type WizardRunsListParams = {
     /**
-     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WizardRunsArtifactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WizardSessionsListParams = {
+    /**
+     * Maximum number of sessions to return.
+     * @minimum 0
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Number of sessions to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Return sessions for this skill only.
      */
     skill_id?: string
     /**
-     * Filter to a single workflow (e.g. 'onboarding').
+     * Return sessions for this workflow only.
+     * @minLength 1
      */
     workflow_id?: string
 }
 
 export type WizardSessionsLatestRetrieveParams = {
     /**
-     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     * Optional skill within the workflow.
      */
     skill_id?: string
     /**
-     * Filter to a single workflow (e.g. 'posthog-integration').
+     * Workflow to inspect.
+     * @minLength 1
      */
     workflow_id: string
 }
 
 export type WizardSessionsStreamRetrieveParams = {
+    /**
+     * Optional skill within the workflow.
+     */
     skill_id?: string
+    /**
+     * Workflow to inspect.
+     * @minLength 1
+     */
     workflow_id: string
 }
