@@ -391,6 +391,7 @@ def test_execute_wizard_surfaces_wizard_error_code(get_sandbox_class: MagicMock)
     assert error.value.wizard_error_code == "PHW_DETECT_NO_POSTHOG_SDK"
 
 
+@patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
 @patch("products.wizard.backend.logic.workers.service.create_pull_request")
 @patch("products.wizard.backend.logic.workers.service.create_signed_commit")
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
@@ -398,6 +399,7 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
     get_sandbox_class: MagicMock,
     create_signed_commit: MagicMock,
     create_pull_request: MagicMock,
+    stage_publishable_changes: MagicMock,
 ) -> None:
     request = GitRepositoryHandoffRequest(
         team_id=7,
@@ -425,11 +427,12 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
     result = create_git_repository_handoff(request)
 
     assert result == WizardWorkerResult(diff=b"diff --git a/a b/a\n", pull_request=pull_request)
-    assert "git add -N --all" in sandbox.execute.call_args_list[0].args[0]
+    assert "git diff --cached" in sandbox.execute.call_args_list[0].args[0]
     assert WIZARD_DIFF_OUTPUT_PATH in sandbox.execute.call_args_list[0].args[0]
     assert f"head -c {MAX_GIT_DIFF_BYTES + 1}" in sandbox.execute.call_args_list[0].args[0]
     assert wizard_handoff_output_path(request.run_id) in sandbox.execute.call_args_list[1].args[0]
     assert "head -c 60000" in sandbox.execute.call_args_list[1].args[0]
+    stage_publishable_changes.assert_called_once_with(sandbox, request.workspace_path)
     create_signed_commit.assert_called_once_with(
         sandbox,
         team_id=request.team_id,
@@ -457,6 +460,7 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
         _execution_result(stdout="  \n"),
     ),
 )
+@patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
 @patch("products.wizard.backend.logic.workers.service.create_pull_request")
 @patch("products.wizard.backend.logic.workers.service.create_signed_commit")
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
@@ -466,6 +470,7 @@ def test_git_repository_handoff_uses_generic_body_when_handoff_is_unavailable(
     get_sandbox_class: MagicMock,
     create_signed_commit: MagicMock,
     create_pull_request: MagicMock,
+    _stage_publishable_changes: MagicMock,
     handoff_result: SimpleNamespace,
 ) -> None:
     request = GitRepositoryHandoffRequest(
@@ -487,11 +492,13 @@ def test_git_repository_handoff_uses_generic_body_when_handoff_is_unavailable(
     handoff_body_fallback.assert_called_once_with(request.team_id, request.run_id)
 
 
+@patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
 @patch("products.wizard.backend.logic.workers.service.create_pull_request")
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
 def test_git_repository_handoff_skips_publish_without_changes(
     get_sandbox_class: MagicMock,
     create_pull_request: MagicMock,
+    _stage_publishable_changes: MagicMock,
 ) -> None:
     request = GitRepositoryHandoffRequest(
         team_id=7,
