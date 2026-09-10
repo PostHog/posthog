@@ -7,6 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
@@ -16,12 +17,13 @@ import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.event_definition import create_event_definitions_sql
+from posthog.api.event_definition import create_event_definitions_count_sql, create_event_definitions_sql
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.constants import EventDefinitionType
 from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
+from posthog.taxonomy import definition_search
 
 from products.actions.backend.models.action import Action
 
@@ -222,6 +224,35 @@ class TestEventDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/?{query_params}")
         assert response.status_code == status.HTTP_200_OK
         assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == expected_results
+
+    @parameterized.expand(
+        [
+            (
+                "default_order_is_by_name",
+                "",
+                ["$pageview", "entered_free_trial", "installed_app", "purchase", "rated_app", "watched_movie"],
+            ),
+            (
+                "explicit_order_is_kept",
+                "?ordering=-name",
+                ["watched_movie", "rated_app", "purchase", "installed_app", "entered_free_trial", "$pageview"],
+            ),
+        ]
+    )
+    def test_large_project_pages_by_name_and_caps_the_count(
+        self, _name: str, query_string: str, expected_names: list[str]
+    ):
+        # The large-project flag is cached per project, so an earlier request in this class must not decide it.
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 3),
+        ):
+            response = self.client.get(f"/api/projects/@current/event_definitions/{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == expected_names
+        assert response.json()["count"] == 3
 
     @patch("posthoganalytics.capture")
     def test_delete_event_definition(self, mock_capture):
@@ -754,6 +785,36 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
         sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=True)
         assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
         assert "FULL OUTER JOIN" not in sql
+
+    def test_not_null_sort_keys_carry_no_nulls_clause(self):
+        # `name ASC NULLS FIRST` cannot use the unique index, whose default order is NULLS LAST.
+        sql = create_event_definitions_sql(
+            EventDefinitionType.EVENT, order_expressions=[("last_seen_at::date", "DESC"), ("name", "ASC")]
+        )
+        assert "last_seen_at::date DESC NULLS LAST" in sql
+        assert "name ASC" in sql
+        assert "name ASC NULLS" not in sql
+
+    def test_bounded_count_stops_at_the_cap(self):
+        sql = create_event_definitions_count_sql(EventDefinitionType.EVENT, bounded=True)
+        assert sql.startswith("SELECT count(*) FROM (SELECT 1")
+        assert "LIMIT %(count_cap)s) bounded" in sql
+
+
+class TestEventDefinitionListStatementTimeout(APIBaseTest):
+    def test_cancelled_list_query_returns_a_retryable_503(self) -> None:
+        # Postgres cancels the statement, psycopg raises, and Django re-raises it as a bare OperationalError,
+        # which would render as a 500 that the pickers show as an empty list.
+        slow_count_sql = "SELECT count(*) FROM (SELECT pg_sleep(3)) s WHERE %(project_id)s IS NOT NULL"
+
+        with (
+            patch("posthog.api.event_definition.create_event_definitions_count_sql", return_value=slow_count_sql),
+            patch("posthog.api.event_definition.EVENT_DEFINITIONS_STATEMENT_TIMEOUT_MS", 250),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["code"] == "event_definitions_timeout"
 
 
 class TestEventDefinitionExcludeStale(APIBaseTest):

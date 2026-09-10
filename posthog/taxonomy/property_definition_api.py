@@ -3,7 +3,7 @@ import uuid
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
-from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router, transaction
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router
 from django.db.models import Manager, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.documentation import extend_schema
 from posthog.api.pagination import PrecountedLimitOffsetPagination
@@ -27,6 +27,12 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.statement_timeout import (
+    DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+    DefinitionListTimedOut,
+    bounded_statement_timeout,
+    is_query_canceled,
+)
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
@@ -45,17 +51,8 @@ EXCLUDED_EVENT_CORE_PROPERTIES = [
 
 PROPERTY_DEFINITION_TYPES = ["event", "person", "group", "session"]
 
-# Listing runs two raw queries (a count, then a page fetch) that take seconds on projects with
-# very many property definitions. The app database sets no statement_timeout, so a slow one keeps
-# consuming database CPU for the full request until the gateway gives up at 120s, long after the
-# client stopped waiting for it. Bounding each statement well below that ceiling sheds the load
-# instead of queueing it, and returns a 503 the caller can retry or report.
-PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS = 25_000
-
-# Postgres reports a statement cancelled by statement_timeout as SQLSTATE 57014. psycopg2 exposes
-# it as `pgcode` and psycopg3 as `sqlstate`, and Django re-raises either as its own
-# OperationalError, so both attribute names have to be checked on the error and on its cause.
-QUERY_CANCELED_SQLSTATE = "57014"
+# A module attribute of its own, so the bound can be tuned per endpoint.
+PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS = DEFINITION_LIST_STATEMENT_TIMEOUT_MS
 
 PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
     "property_definitions_list_timed_out_total",
@@ -64,11 +61,7 @@ PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
 )
 
 
-class PropertyDefinitionsTimedOut(APIException):
-    # The taxonomic filter renders a failed list the same way as an empty one, so a generic 5xx here
-    # reads to the user as "this project has no properties". A stable code lets the client tell a
-    # timed-out list apart from any other server error and offer a retry instead.
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+class PropertyDefinitionsTimedOut(DefinitionListTimedOut):
     default_code = "property_definitions_timeout"
     default_detail = "Loading properties took too long. Try a narrower search, or try again in a moment."
 
@@ -78,15 +71,6 @@ def read_db_alias() -> str:
     # opt-in list). The count query and the statement timeout have to land on that same connection
     # or they describe a different session than the one doing the work.
     return router.db_for_read(PropertyDefinition) or DEFAULT_DB_ALIAS
-
-
-def is_query_canceled(error: BaseException) -> bool:
-    for exc in (error, error.__cause__):
-        if exc is None:
-            continue
-        if (getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)) == QUERY_CANCELED_SQLSTATE:
-            return True
-    return False
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -810,12 +794,7 @@ class PropertyDefinitionViewSet(
         # RawQuerySet that the paginator does not evaluate until super().list() serializes it.
         alias = read_db_alias()
         try:
-            with transaction.atomic(using=alias):
-                with connections[alias].cursor() as cursor:
-                    cursor.execute(
-                        "SET LOCAL statement_timeout = %s",
-                        [PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS],
-                    )
+            with bounded_statement_timeout(alias, PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS):
                 response = super().list(request, *args, **kwargs)
         except OperationalError as error:
             if not is_query_canceled(error):
