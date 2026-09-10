@@ -1725,7 +1725,8 @@ BASELINE_HEADER = f"""\
 # Counts may only go down, and a line that disappears must be deleted here too.
 #
 # Regenerate after a removal: {REGENERATE_COMMAND}
-# That command refuses to write when the scan holds a line this file does not. A coupling that
+# That command refuses to write when the scan holds a line this file does not, or a count that
+# went up. A coupling that
 # must stand is a hand-edited line here, together with the amendment in products/architecture.md
 # § Wiring couplings that permits it, because a reviewer can see both.
 """
@@ -1741,6 +1742,33 @@ def render_baseline(uses: Iterable[CrossingUse]) -> str:
 
 def read_baseline(path: Path = BASELINE_PATH) -> list[str]:
     return [line for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
+
+
+def _line_identity_and_count(line: str) -> tuple[str, int]:
+    identity, count = line.rsplit(" ", 1)
+    return identity, int(count)
+
+
+def baseline_drift(recorded: Iterable[str], scanned: Iterable[str]) -> tuple[list[str], list[str]]:
+    """Split the difference between the file and a scan into growth and shrinkage.
+
+    A line is (crossing, consumer, kind, count), and only the count is allowed to move down.
+    So growth is a scanned line whose identity the file does not hold, or whose count went up;
+    shrinkage is a recorded line whose identity the scan no longer holds, or whose count went
+    down. Comparing whole lines would call a count drop growth and refuse it."""
+    recorded_counts = dict(_line_identity_and_count(line) for line in recorded)
+    scanned_counts = dict(_line_identity_and_count(line) for line in scanned)
+    grown = [
+        f"{identity} {count}"
+        for identity, count in sorted(scanned_counts.items())
+        if count > recorded_counts.get(identity, 0)
+    ]
+    shrunk = [
+        f"{identity} {count}"
+        for identity, count in sorted(recorded_counts.items())
+        if count > scanned_counts.get(identity, 0)
+    ]
+    return grown, shrunk
 
 
 def baseline_drift_message(added: Sequence[str], removed: Sequence[str]) -> str:
@@ -1781,9 +1809,8 @@ def write_baseline(uses: Iterable[CrossingUse], path: Path = BASELINE_PATH) -> N
     flag would be pasted from one change into the next."""
     scanned = list(uses)
     if path.exists():
-        recorded = set(read_baseline(path))
-        added = [line for line in scanned_baseline_lines(scanned) if line not in recorded]
-        if added:
-            raise BaselineWouldGrow(path, added)
+        grown, _ = baseline_drift(read_baseline(path), scanned_baseline_lines(scanned))
+        if grown:
+            raise BaselineWouldGrow(path, grown)
     path.write_text(render_baseline(scanned))
     _baseline_lines.cache_clear()

@@ -39,6 +39,7 @@ which is what a reviewer reads.
 from hogli_commands.product.crossings import (
     BASELINE_PATH,
     all_crossing_uses,
+    baseline_drift,
     baseline_drift_message,
     names_defined_in,
     read_baseline,
@@ -53,8 +54,7 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
     if scanned == recorded:
         return
 
-    added = [line for line in scanned if line not in recorded]
-    removed = [line for line in recorded if line not in scanned]
+    added, removed = baseline_drift(recorded, scanned)
     raise AssertionError(baseline_drift_message(added, removed))
 
 

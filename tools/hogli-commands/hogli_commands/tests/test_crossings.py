@@ -223,8 +223,8 @@ class TestBaselineRatchet:
     LINE_B = "alerts.AlertConfiguration posthog.api.b instance-many(all) 1"
 
     @staticmethod
-    def _use(consumer: str) -> crossings.CrossingUse:
-        return crossings.CrossingUse("alerts.AlertConfiguration", consumer, "instance-many(all)", 1)
+    def _use(consumer: str, count: int = 1) -> crossings.CrossingUse:
+        return crossings.CrossingUse("alerts.AlertConfiguration", consumer, "instance-many(all)", count)
 
     def _recorded(self, tmp_path: Path, *consumers: str) -> Path:
         path = tmp_path / "baseline.txt"
@@ -239,6 +239,20 @@ class TestBaselineRatchet:
         assert refusal.value.added == [self.LINE_B]
         assert self.LINE_B in str(refusal.value)
         assert path.read_text() == before
+
+    @pytest.mark.parametrize(("recorded", "scanned", "written"), [(2, 1, True), (1, 2, False)])
+    def test_a_count_may_only_go_down(self, tmp_path: Path, recorded: int, scanned: int, written: bool) -> None:
+        path = tmp_path / "baseline.txt"
+        crossings.write_baseline([self._use("posthog.api.a", recorded)], path)
+        if written:
+            crossings.write_baseline([self._use("posthog.api.a", scanned)], path)
+            assert crossings.read_baseline(path) == [
+                f"alerts.AlertConfiguration posthog.api.a instance-many(all) {scanned}"
+            ]
+            return
+        with pytest.raises(crossings.BaselineWouldGrow) as refusal:
+            crossings.write_baseline([self._use("posthog.api.a", scanned)], path)
+        assert refusal.value.added == [f"alerts.AlertConfiguration posthog.api.a instance-many(all) {scanned}"]
 
     def test_a_removal_is_written(self, tmp_path: Path) -> None:
         path = self._recorded(tmp_path, "posthog.api.a", "posthog.api.b")
