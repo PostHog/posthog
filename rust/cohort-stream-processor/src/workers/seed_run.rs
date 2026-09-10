@@ -163,8 +163,9 @@ impl Default for RunBudget {
 /// full run of leaves that can emit nothing slip under the ceiling.
 ///
 /// It is a ceiling on what a run retains and emits, not on the reads inside each composed
-/// evaluation: those scale with that cohort's tree exactly as under the per-seed apply, and the
-/// maintenance lane's permits are what meter them.
+/// evaluation: those scale with the trees of every cohort a person is in. The maintenance lane
+/// still meters them, one permit per bounded section of a person's reads rather than one per
+/// evaluation (see [`stage2_person_inputs`](crate::workers::stage2_person_inputs)).
 ///
 /// A seed the catalog cannot place weighs one, so a run of them is still bounded by the seed cap
 /// rather than by nothing. Control and skip seeds weigh nothing: they are always their own group.

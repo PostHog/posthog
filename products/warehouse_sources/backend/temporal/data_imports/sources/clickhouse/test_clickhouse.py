@@ -1015,6 +1015,12 @@ class TestTranslateError:
         msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
         assert ClickHouseSource._translate_error(msg) == "Invalid user or password"
 
+    def test_unknown_database_names_the_field_to_fix(self):
+        # A wrong database name is the common cause, so the message must point at that field
+        # rather than leaving the user to guess between the database, the host, and permissions.
+        msg = "Code: 81. DB::Exception: Database analytics does not exist"
+        assert ClickHouseSource._translate_error(msg) == "Database does not exist. Check the database name is correct."
+
     def test_returns_none_for_unrecognised_error(self):
         assert ClickHouseSource._translate_error("Some random error") is None
 
