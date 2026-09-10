@@ -981,7 +981,7 @@ def _format_size(bytes_size: float) -> str:
 # ---------------------------------------------------------------------------
 
 # Executable basenames that should never be reported as PostHog dev processes.
-# Matched against the executable's basename only (not the full args string)
+# Matched against the first token's basename only (not the full args string)
 # to avoid false positives from directory names like "/Users/x/code/github/...".
 _EXCLUDED_EXECUTABLES: frozenset[str] = frozenset(
     {
@@ -1039,10 +1039,7 @@ class DevProcess:
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be killed without killing")
 @click.option("--yes", "-y", is_flag=True, help="Auto-confirm kill of all orphaned processes")
-@click.option(
-    "--all", "include_all", is_flag=True, help="Include managed dev processes; Codex infrastructure stays excluded"
-)
-def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
+def doctor_zombies(dry_run: bool, yes: bool) -> None:
     """Find and kill orphaned PostHog dev processes left behind after an unclean shutdown."""
 
     def _record() -> None:
@@ -1060,37 +1057,22 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
 
     orphans = [p for p in processes if p.is_orphan]
     managed = [p for p in processes if not p.is_orphan]
-    targets = processes if include_all else orphans
+    targets = orphans
 
     if not targets:
         click.echo(f"No orphaned processes found ({len(managed)} process(es) under an active process manager).")
-        click.echo("Use --all to include managed processes.")
         _record()
         return
 
-    if include_all:
-        # Show orphans and managed groups separately
-        if orphans:
-            _display_process_table(orphans, "Orphaned processes", REPO_ROOT, number_offset=0)
-        if managed:
-            # Group managed processes by their manager
-            managers: dict[str, list[DevProcess]] = {}
-            for p in managed:
-                managers.setdefault(p.manager, []).append(p)
-            offset = len(orphans)
-            for mgr, procs in managers.items():
-                _display_process_table(procs, f"Managed by {mgr}", REPO_ROOT, number_offset=offset)
-                offset += len(procs)
-    else:
-        _display_process_table(orphans, "Orphaned processes", REPO_ROOT)
+    _display_process_table(orphans, "Orphaned processes", REPO_ROOT)
 
-    if managed and not include_all:
+    if managed:
         # Summarize managed groups
         managed_groups: dict[str, list[DevProcess]] = {}
         for p in managed:
             managed_groups.setdefault(p.manager, []).append(p)
         parts = [f"{len(procs)} under {mgr}" for mgr, procs in managed_groups.items()]
-        click.echo(f"   ({', '.join(parts)} — use --all to include)\n")
+        click.echo(f"   ({', '.join(parts)})\n")
 
     total_rss = sum(p.memory_rss_kb for p in targets)
     click.echo(f"   Total: {len(targets)} process(es) using ~{_format_rss(total_rss)}\n")
@@ -1137,10 +1119,9 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
 
     # Build a full PID→(PPID, args) map for ancestor lookups
     all_procs: dict[int, tuple[int, str]] = {pid: (ppid, args) for pid, ppid, _, _, _, args in parsed}
-    executables = _get_process_executables()
-    codex_pids = _codex_infrastructure_pids(all_procs, executables)
 
-    own_tree = _get_own_process_tree(all_procs)
+    codex_pids = _codex_infrastructure_pids(all_procs, _get_process_executables())
+    own_tree = _get_own_process_tree()
     repo_str = str(repo_root)
     repo_prefix = repo_str + "/"
 
@@ -1152,12 +1133,11 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
     cwd_pids: list[int] = []
     for entry in parsed:
         pid, _, _, _, _, args = entry
-        executable = executables.get(pid) or _command_executable(args)
-        if pid in own_tree or pid in codex_pids or _is_excluded(args, executable):
+        if pid in own_tree or pid in codex_pids or _is_excluded(args):
             continue
         if _matches_repo_path(args, repo_str, repo_prefix):
             candidates.append((entry, True))
-        elif _has_known_executable(executable):
+        elif _has_known_executable(args):
             candidates.append((entry, False))
             cwd_pids.append(pid)
 
@@ -1172,9 +1152,9 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
             if cwd is None or not (cwd == repo_str or cwd.startswith(repo_prefix)):
                 continue
 
-        name = Path(executables.get(pid) or _command_executable(args)).name
+        name = _extract_process_name(args)
         category = _categorize_process(args)
-        is_orphan, manager = _resolve_orphan_status(pid, all_procs, executables, codex_pids)
+        is_orphan, manager = _resolve_orphan_status(pid, all_procs)
 
         processes.append(
             DevProcess(
@@ -1194,17 +1174,12 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
     return processes
 
 
-def _resolve_orphan_status(
-    pid: int,
-    all_procs: dict[int, tuple[int, str]],
-    executables: dict[int, str],
-    codex_pids: set[int],
-) -> tuple[bool, str]:
+def _resolve_orphan_status(pid: int, all_procs: dict[int, tuple[int, str]]) -> tuple[bool, str]:
     """Walk the ancestor chain to determine if a process is orphaned or managed.
 
     Returns (is_orphan, manager_description).
-    PID 1 also parents live applications, so only an unmanaged dev executable
-    or leftover shell at that boundary is evidence of an abandoned process tree.
+    A process is orphaned if any ancestor has PPID=1 (reparented to launchd).
+    Otherwise, identifies the nearest recognizable manager.
     """
 
     visited: set[int] = {pid}
@@ -1212,16 +1187,15 @@ def _resolve_orphan_status(
 
     while current in all_procs:
         ppid, args = all_procs[current]
-        executable = executables.get(current) or _command_executable(args)
-
-        manager_name = "Codex" if current in codex_pids else _identify_manager(executable, args)
-        if manager_name:
-            return False, f"{manager_name} (PID {current})"
 
         if ppid <= 1:
-            if ppid == 1 and (_has_known_executable(executable) or Path(executable).name in _SHELL_EXECUTABLES):
-                return True, ""
-            break
+            # Reached launchd — this process (or ancestor) is orphaned
+            return True, ""
+
+        # Check if the parent is a known process manager
+        manager_name = _identify_manager(args)
+        if manager_name:
+            return False, f"{manager_name} (PID {current})"
 
         if ppid in visited:
             break
@@ -1246,25 +1220,18 @@ _KNOWN_MANAGERS = (
     ("kitty", "kitty"),
     ("alacritty", "alacritty"),
     ("wezterm", "wezterm"),
-    ("wezterm-gui", "wezterm"),
     ("Terminal", "Terminal.app"),
     ("iTerm", "iTerm2"),
-    ("iTerm2", "iTerm2"),
 )
 
 
-def _identify_manager(executable: str, args: str) -> str | None:
-    if executable.endswith(("/Warp.app/Contents/MacOS/stable", "/WarpPreview.app/Contents/MacOS/stable")):
-        return "Warp"
+def _identify_manager(args: str) -> str | None:
+    """Check if a command line belongs to a known process manager or terminal."""
 
-    names = {Path(executable).name, Path(_command_executable(args, executable)).name}
     for keyword, display_name in _KNOWN_MANAGERS:
-        if keyword in names:
+        if keyword in args:
             return display_name
     return None
-
-
-_SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "fish", "dash", "ksh"})
 
 
 def _get_process_executables() -> dict[int, str]:
@@ -1280,9 +1247,7 @@ def _get_process_executables() -> dict[int, str]:
     return executables
 
 
-def _command_executable(args: str, executable: str = "") -> str:
-    if executable and (args == executable or args.startswith(executable + " ")):
-        return executable
+def _command_executable(args: str) -> str:
     try:
         return next(_command_words(args), "")
     except ValueError:
@@ -1372,18 +1337,27 @@ def _parse_ps_line(line: str) -> _PsLine | None:
     return pid, ppid, cpu, rss, start_time, args
 
 
-def _get_own_process_tree(all_procs: dict[int, tuple[int, str]]) -> set[int]:
+def _get_own_process_tree() -> set[int]:
     """Return PIDs of the current process and all its ancestors up to PID 1."""
 
     pids: set[int] = set()
     pid = os.getpid()
 
     # Walk up the PPID chain
-    while pid > 1 and pid not in pids:
+    while pid > 1:
         pids.add(pid)
-        if pid not in all_procs:
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
             break
-        pid = all_procs[pid][0]
+        try:
+            pid = int(result.stdout.strip())
+        except ValueError:
+            break
 
     return pids
 
@@ -1403,39 +1377,20 @@ def _matches_repo_path(args: str, repo_str: str, repo_prefix: str) -> bool:
         idx = end
 
 
-def _is_excluded(args: str, executable: str | None = None) -> bool:
+def _is_excluded(args: str) -> bool:
     """Check if the executable basename is in the exclusion set."""
     if not args or not args.strip():
         return False
-    # Script launchers can retain their own argv[0] while ps identifies the interpreter.
-    names = {Path(executable or "").name, Path(_command_executable(args, executable or "")).name}
-    return bool(names & _EXCLUDED_EXECUTABLES)
+    basename = args.split()[0].rsplit("/", 1)[-1]
+    return basename in _EXCLUDED_EXECUTABLES
 
 
-def _has_known_executable(executable: str) -> bool:
-    known = (
-        "node",
-        "nodejs",
-        "celery",
-        "granian",
-        "uvicorn",
-        "gunicorn",
-        "dagster",
-        "cargo",
-        "air",
-        "tsx",
-        "esbuild",
-        "pnpm",
-        "capture",
-        "feature-flags",
-        "property-defs-rs",
-        "cymbal",
-        "cyclotron",
-        "personhog",
-        "batch-import",
-    )
-    name = Path(executable).name
-    return name in known or re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name) is not None
+def _has_known_executable(args: str) -> bool:
+    """Check if the command starts with a known PostHog dev executable."""
+
+    known = ("python", "node", "celery", "granian", "uvicorn", "dagster", "cargo", "air", "tsx", "esbuild", "pnpm")
+    first_word = args.split()[0].rsplit("/", 1)[-1] if args else ""
+    return first_word in known
 
 
 def _get_process_cwds(pids: Sequence[int]) -> dict[int, str]:
@@ -1471,6 +1426,13 @@ def _get_process_cwds(pids: Sequence[int]) -> dict[int, str]:
         elif tag == "n" and current is not None:
             cwds[current] = value
     return cwds
+
+
+def _extract_process_name(args: str) -> str:
+    """Extract a short display name from a full command line."""
+
+    first = args.split()[0] if args else ""
+    return first.rsplit("/", 1)[-1]
 
 
 def _categorize_process(args: str) -> str:
