@@ -24,6 +24,7 @@ test('authors and runs a custom SQL check against a saved metric', async ({ page
         },
     })
     expect(metricResponse.ok()).toBe(true)
+    const metricId = (await metricResponse.json()).id
     const unsupportedResponse = await page.request.post(`/api/projects/${workspace.team_id}/data_catalog/metrics/`, {
         ...auth,
         data: { name: 'orders_manual_e2e', description: 'A metric awaiting a query definition' },
@@ -64,6 +65,35 @@ test('authors and runs a custom SQL check against a saved metric', async ({ page
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page.getByText(checkName, { exact: true })).toBeVisible()
     await expect(page.getByTestId('data-quality-schedule-interval')).toHaveText('Daily')
+
+    const scheduleUrl = `/api/projects/${workspace.team_id}/data_catalog/metrics/${metricId}/checks/schedule/`
+    const pauseResponse = page.waitForResponse(
+        (response) => response.url().endsWith(scheduleUrl) && response.request().method() === 'PATCH'
+    )
+    await page.getByTestId('data-quality-schedule-enabled').click()
+    expect((await (await pauseResponse).json()).next_run_at).toBeNull()
+    await expect(page.getByText('Next run', { exact: false })).toHaveCount(0)
+    await page.getByTestId('data-quality-schedule-interval').click()
+    await page.getByRole('menuitem', { name: 'Every 6 hours', exact: true }).click()
+    await expect(page.getByTestId('data-quality-schedule-interval')).toHaveText('Every 6 hours')
+    await page.reload()
+    await expect(page.getByTestId('data-quality-schedule-interval')).toHaveText('Every 6 hours')
+    await expect(page.getByTestId('data-quality-schedule-enabled')).toHaveAttribute('aria-checked', 'false')
+
+    await page.route(`**${scheduleUrl}`, async (route) => {
+        if (route.request().method() === 'PATCH') {
+            await route.fulfill({ status: 503, json: { detail: 'Schedule service unavailable' } })
+        } else {
+            await route.continue()
+        }
+    })
+    await page.getByTestId('data-quality-schedule-enabled').click()
+    await expect(page.getByText('Could not confirm the schedule update. Reload it before trying again.')).toBeVisible()
+    await expect(page.getByTestId('data-quality-schedule-enabled')).toBeDisabled()
+    await page.unroute(`**${scheduleUrl}`)
+    await page.getByRole('button', { name: 'Reload', exact: true }).click()
+    await expect(page.getByTestId('data-quality-schedule-enabled')).toBeEnabled()
+    await expect(page.getByTestId('data-quality-schedule-enabled')).toHaveAttribute('aria-checked', 'false')
 
     await page.getByLabel(`Actions for check ${checkName}`).click()
     await page.getByRole('menuitem', { name: 'Run now', exact: true }).click()
