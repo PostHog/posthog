@@ -563,15 +563,15 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
     clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
     assert queue_row() == first
 
-    # A blocked row must still be unblocked even when deleted_at matches, or the drain never
-    # retries a person the sweep still sees as deleted.
+    # A blocked row is not touched by a same-run retry either: only a newer deleted_at is evidence
+    # the drain should try again, and rewriting the row here would defeat the no-dead-tuple guard.
     with persons_database.cursor() as cursor:
         cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET blocked_at = now()")
     persons_database.commit()
+    blocked = queue_row()
     clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
-    rearmed = queue_row()
-    assert rearmed[2] is None
-    assert rearmed[0] != first[0]
+    assert queue_row() == blocked
+    assert blocked[2] is not None
 
 
 @pytest.mark.django_db

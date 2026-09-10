@@ -1153,12 +1153,13 @@ def persist_deleted_persons(
                 page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
                 if not page:
                     break
-                # A row still pending from an earlier sweep takes this run's deleted_at, and a row the
-                # drain marked blocked (tombstoned person still owning a live distinct id) is unblocked,
-                # because a fresh ClickHouse tombstone is new evidence the drain should act on. The
-                # WHERE keeps a retried op from rewriting rows that already hold these values: an
-                # unconditional DO UPDATE writes a new tuple version per row, so a retry over millions
-                # of rows would leave that many dead tuples for the persons writer to vacuum.
+                # A row still pending from an earlier sweep takes this run's deleted_at, and if the drain
+                # had marked it blocked (tombstoned person still owning a live distinct id) the block is
+                # lifted, because a fresh ClickHouse tombstone is new evidence the drain should act on.
+                # The WHERE keeps a retried op from rewriting rows that already hold this run's
+                # deleted_at: an unconditional DO UPDATE writes a new tuple version per row, so a retry
+                # over millions of rows would leave that many dead tuples for the persons writer to
+                # vacuum.
                 execute_values(
                     cursor,
                     f"""
@@ -1167,7 +1168,6 @@ def persist_deleted_persons(
                     ON CONFLICT (team_id, person_uuid) DO UPDATE
                     SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
                     WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
-                       OR {PG_CLEANUP_QUEUE_TABLE}.blocked_at IS NOT NULL
                     """,
                     [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
                     page_size=1000,
