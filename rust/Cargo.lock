@@ -2243,6 +2243,7 @@ dependencies = [
  "metrics",
  "opentelemetry-proto 0.29.0",
  "prost 0.13.5",
+ "rustls 0.23.37",
  "serde",
  "serde_json",
  "siphasher 1.0.2",

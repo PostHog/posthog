@@ -568,6 +568,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
                 user_avatar_url=payload.get("user_avatar_url"),
                 user_name=payload.get("user_name"),
                 user_email=payload.get("user_email"),
+                user_email_verified=payload.get("user_email_verified"),
             )
         elif auth_type == "system":
             self._validate_system_claims(payload)

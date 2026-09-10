@@ -25,8 +25,11 @@ Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNN
 To retire a model/table:
 
 1. Remove all usage and the model class. `makemigrations`, then wrap the generated `DeleteModel` in `migrations.SeparateDatabaseAndState(state_operations=[...])` (state only, no DB change). KEEP this file. Keep the app in `INSTALLED_APPS`.
+   **If the model has a `ForeignKey` to `posthog_team`, `posthog_user`, `posthog_organization` or `posthog_project`, drop that constraint in `database_operations` in this same migration.** This is required, not a cleanup. Django stops cascading into a table it can no longer see, so the child rows survive a parent delete. Those constraints are `DEFERRABLE INITIALLY DEFERRED`, so the parent delete runs its whole cascade and then fails at `COMMIT`, and team and organization deletion stay broken until someone drops the table.
 2. Deploy, wait at least one full deploy cycle.
-3. Optionally `DROP TABLE` later in a NEW `RunSQL` migration — never by deleting old files.
+3. `DROP TABLE` later in a NEW `RunSQL` migration — never by deleting old files. Treat this as owed work rather than an option whenever step 1 left a foreign key to a hot parent in place.
+   `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its foreign keys reference, so a drop that still points at a hot parent must `SET LOCAL lock_timeout` to bound the wait. See [hot table hazard](#hot-table-hazard).
+   `python manage.py audit_orphan_hot_table_fks` lists tables already in this state. Run it against a long-lived database: a squashed history has no `CreateModel` for a table that left Django's state before the squash, so a fresh database never creates it and the migration files hold no trace of it.
 
 Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
 

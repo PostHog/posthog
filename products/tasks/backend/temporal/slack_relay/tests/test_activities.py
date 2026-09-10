@@ -10,6 +10,7 @@ from django.test import TestCase, override_settings
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -134,6 +135,79 @@ class TestRelaySlackMessage(TestCase):
         )
 
         assert mock_post.call_args.args[0].turn_trace_id == trace_id
+
+    _RICH_ANSWER = "## Heading\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] todo"
+
+    @parameterized.expand(
+        [
+            ("mrkdwn", False, "*Heading*\n\n```\na  b\n1  2\n```\n\n\u2022 \u2610 todo"),
+            ("markdown", True, _RICH_ANSWER),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_the_gate_decides_whether_the_answer_is_converted(
+        self, _name, markdown, expected, mock_delete_progress, mock_post
+    ):
+        # The conversion exists to survive Slack's own mrkdwn, and it costs the answer its
+        # headings, its tables, and its task lists. A markdown block renders all three, so
+        # running the conversion under the gate would throw away what the gate is for.
+        with patch(
+            "products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=markdown
+        ):
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id=f"relay-conversion-{markdown}",
+                    text=self._RICH_ANSWER,
+                )
+            )
+
+        assert mock_post.call_args.args[0].endswith(expected)
+
+    @parameterized.expand(
+        [
+            # The converter turns the heading into inline bold, which survives an inline mention.
+            ("mrkdwn", False, "<@U123> *Heading*"),
+            ("markdown", True, "<@U123>\n\n## Heading"),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_the_mention_keeps_off_the_line_the_answer_opens(
+        self, _name, markdown, expected_opening, mock_delete_progress, mock_post
+    ):
+        # Markdown reads a heading only at the start of a line, so a mention glued to the front
+        # of the answer renders the `##` as literal text. That is the formatting the gate exists
+        # to keep, and it is the opening of every mentioned reply.
+        with patch(
+            "products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=markdown
+        ):
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id=f"relay-mention-{markdown}",
+                    text="## Heading\n\nBody text.",
+                )
+            )
+
+        assert mock_post.call_args.args[0].startswith(expected_opening)
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_the_mention_comes_out_of_the_chunk_budget(self, mock_delete_progress, mock_post):
+        # The mention is added after splitting, so without a reserved allowance the chunk it
+        # lands on exceeds the block cap and posts as plain text, showing the Markdown source.
+        with patch("products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=True):
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id="relay-mention-budget",
+                    text="word " * 4000,  # 20,000 chars, so the first chunk fills the block
+                )
+            )
+
+        assert all(len(call.args[0]) <= SLACK_MARKDOWN_TEXT_MAX_LEN for call in mock_post.call_args_list)
 
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
@@ -550,7 +624,7 @@ class TestRelaySlackMessage(TestCase):
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
         self.assertEqual(artifact.location["delivery_status"], "pending")
-        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True)
+        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True, markdown=False)
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
@@ -1004,5 +1078,5 @@ class TestRelaySlackMessageChunking(TestCase):
             )
         )
 
-        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True)
+        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True, markdown=False)
         mock_post_footer.assert_not_called()

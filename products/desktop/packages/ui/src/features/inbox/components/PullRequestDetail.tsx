@@ -42,7 +42,7 @@ export function PullRequestDetail({
  * they're pipeline machinery, and the decision block distills what matters
  * from them into one line.
  */
-function PullRequestDetailContent({ report }: { report: SignalReport }) {
+export function PullRequestDetailContent({ report }: { report: SignalReport }) {
   const prRef = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
     : null;
@@ -54,16 +54,6 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
       backTo="/inbox/pulls"
       backLabel="Back to pull requests"
       fallbackTitle="Untitled pull request"
-      breadcrumb={
-        prRef ? (
-          <>
-            <span className="text-(--gray-8)">/</span>
-            <span className="font-mono text-[13px] text-gray-11">
-              {prRef.repoSlug}#{prRef.number}
-            </span>
-          </>
-        ) : undefined
-      }
       metaSuffix={
         prUrl ? (
           <>

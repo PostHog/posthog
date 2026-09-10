@@ -1512,6 +1512,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
     # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
+    display_name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Name shown in the UI. Does not change the skill name. Leave blank to use the default name.",
+    )
     # Derived from `status` (`enabled = status in RUNNABLE_STATUSES`), but kept as a real
     # column because the coordinator filters on it at SQL level and the warehouse mirrors it.
     # `save` reconciles the pair for writers that only set one side; a DB constraint backstop

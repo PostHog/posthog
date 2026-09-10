@@ -6,6 +6,9 @@ logic surface and model classes so the isolation boundary stays clean: presentat
 into ``logic`` or ``models`` directly.
 """
 
+from uuid import UUID
+
+from ..logic import metric_reads
 from ..logic.analytics import certification_target_name
 from ..logic.certifications import (
     certifications_for_team,
@@ -16,6 +19,7 @@ from ..logic.certifications import (
 )
 from ..logic.drift import compute_drift
 from ..logic.execution import run_metric
+from ..logic.metric_reads import get_metric_summary, live_metric_summaries, metric_names_for_ids, metric_reads_for_ids
 from ..logic.metrics import (
     BULK_SKIP_NOT_FOUND,
     METRIC_BULK_MAX,
@@ -34,6 +38,7 @@ from ..logic.metrics import (
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from ..models import METRIC_NAME_MAX_LENGTH
+from .contracts import HogQLMetricDefinition, MetricRead, MetricSummary
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
@@ -41,8 +46,12 @@ __all__ = [
     "MAX_DESCRIPTION_LENGTH",
     "METRIC_BULK_MAX",
     "METRIC_NAME_MAX_LENGTH",
+    "HogQLMetricDefinition",
     "Metric",
     "MetricBulkSkip",
+    "MetricSummary",
+    "MetricRead",
+    "metric_reads_for_ids",
     "RelationshipProposal",
     "TableCertification",
     "accept_proposal",
@@ -55,6 +64,10 @@ __all__ = [
     "certify",
     "compute_drift",
     "deprecate",
+    "get_hogql_metric_definition",
+    "get_metric_summary",
+    "live_metric_summaries",
+    "metric_names_for_ids",
     "metrics_for_team",
     "metrics_visible_to_user",
     "propose_certification",
@@ -69,3 +82,8 @@ __all__ = [
     "upsert_metric",
     "validate_metric_definition",
 ]
+
+
+def get_hogql_metric_definition(team_id: int, metric_id: UUID) -> HogQLMetricDefinition | None:
+    metric = metric_reads.get_hogql_metric_definition(team_id, metric_id)
+    return metric

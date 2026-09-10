@@ -248,7 +248,7 @@ export const legacyEntityToNode = (
     ) as any
 }
 
-export const exlusionEntityToNode = (
+const exlusionEntityToNode = (
     entity: FunnelExclusionLegacy
 ): FunnelExclusionEventsNode | FunnelExclusionActionsNode => {
     const baseEntity = legacyEntityToNode(entity as ActionFilter, false, MathAvailability.None) as
@@ -538,7 +538,7 @@ export const filtersToQueryNode = (
     return objectCleanWithEmpty(query as Record<string, any>, ['series']) as InsightQueryNode
 }
 
-export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsFilter => {
+const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsFilter => {
     return objectCleanWithEmpty({
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
@@ -560,7 +560,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
     })
 }
 
-export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): FunnelsFilter => {
+const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): FunnelsFilter => {
     return objectCleanWithEmpty({
         funnelVizType: filters.funnel_viz_type,
         funnelFromStep: filters.funnel_from_step,
@@ -582,7 +582,7 @@ export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): Funne
     })
 }
 
-export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): RetentionFilter => {
+const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): RetentionFilter => {
     return objectCleanWithEmpty({
         retentionType: filters.retention_type,
         retentionReference: filters.retention_reference,
@@ -596,7 +596,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
     // TODO: query.aggregation_group_type_index
 }
 
-export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilter => {
+const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilter => {
     return objectCleanWithEmpty({
         pathsHogQLExpression: filters.paths_hogql_expression,
         includeEventTypes: filters.include_event_types,
@@ -625,7 +625,7 @@ export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): Fu
     }
 }
 
-export const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {
+const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {
     return objectCleanWithEmpty({
         display: filters.display,
         showLegend: filters.show_legend,
@@ -635,7 +635,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
     })
 }
 
-export const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleFilter => {
+const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleFilter => {
     return objectCleanWithEmpty({
         showLegend: filters.show_legend,
         toggledLifecycles: filters.toggledLifecycles,
@@ -643,7 +643,7 @@ export const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleF
     })
 }
 
-export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: boolean): BreakdownFilter => {
+const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: boolean): BreakdownFilter => {
     return objectCleanWithEmpty({
         breakdown_type: filters.breakdown_type,
         breakdown: filters.breakdown,
@@ -660,7 +660,7 @@ export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: b
     })
 }
 
-export const compareFilterToQuery = (filters: Record<string, any>): CompareFilter => {
+const compareFilterToQuery = (filters: Record<string, any>): CompareFilter => {
     return objectCleanWithEmpty({
         compare: filters.compare,
         compare_to: filters.compare_to,
