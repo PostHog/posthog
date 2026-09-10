@@ -1,8 +1,9 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { Task } from "@posthog/shared/domain-types";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import { domRect, place } from "@posthog/ui/test/rects";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -113,6 +114,8 @@ function renderRows(models: ChannelItemModel[]) {
   );
 }
 
+const ROW_HEIGHT = 28;
+
 async function openCardOn(title: string) {
   await userEvent.hover(screen.getByRole("button", { name: title }));
   return screen.findByRole("button", { name: "Pin" }, { timeout: 2000 });
@@ -178,6 +181,27 @@ describe("ChannelItemHoverCard", () => {
     const titles = screen.getAllByText("Second session");
     expect(titles).toHaveLength(2);
     expect(screen.getAllByText("First session")).toHaveLength(1);
+  });
+
+  it("keeps the card while a row is clipped on the way to it", async () => {
+    mocks.status = {};
+    renderRows([item("First session"), item("Second session")]);
+    const pin = await openCardOn("First session");
+
+    const rows = document.querySelectorAll("[data-preview-card-trigger]");
+    rows.forEach((row, index) => {
+      place(row, domRect(0, index * ROW_HEIGHT, 200, (index + 1) * ROW_HEIGHT));
+    });
+    place(
+      pin.closest("[data-slot='card']") as Element,
+      domRect(210, 0, 500, 300),
+    );
+
+    fireEvent.pointerLeave(rows[0], { clientX: 100, clientY: 28 });
+    fireEvent.mouseEnter(rows[1], { clientX: 100, clientY: 28 });
+    fireEvent.pointerMove(document, { clientX: 130, clientY: 40 });
+
+    expect(screen.getAllByText("Second session")).toHaveLength(1);
   });
 
   it("leaves a row usable where no list is hosting a card", async () => {

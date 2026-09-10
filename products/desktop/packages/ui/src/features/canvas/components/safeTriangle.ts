@@ -27,11 +27,26 @@
 export const PREVIEW_TRIGGER_SELECTOR = "[data-preview-card-trigger]";
 
 /**
- * Half the height of the sliver the corridor starts as, at the point the
- * pointer left the row. The corridor is a triangle in spirit and a very thin
- * quadrilateral in fact, which is what keeps the maths to one shape.
+ * Half the height of the corridor where it starts, at the point the pointer
+ * left the row, and equally the radius of the blind spot around that point.
+ *
+ * The two are one measurement because they are one fact. A pointer crosses
+ * from one row to the next inside a single mouse sample, so the row's
+ * `pointerleave` and the next row's `mouseenter` carry one position between
+ * them: everything this close to the exit belongs to both a run at the card
+ * and a step down the list, and the corridor is asked about the heading there
+ * instead of about the position.
  */
-const EXIT_HALF_HEIGHT = 2;
+const EXIT_BUFFER = 4;
+
+/**
+ * How long a held row waits before the pointer resting on it counts as an
+ * answer.
+
+ */
+const HOLD_MS = 100;
+
+const HEADING_STEP = 24;
 
 interface Point {
   x: number;
@@ -67,10 +82,8 @@ function isInsideRect(point: Point, rect: DOMRect): boolean {
 }
 
 /**
- * Is the pointer still on its way from `exit` to `card`? The corridor is a
- * sliver at the exit point that fans out to the whole of the card's near edge,
- * so a card five hundred pixels tall can be reached from a row twenty-eight
- * pixels tall at any angle that actually arrives.
+ * Is the pointer still on its way from `exit` to `card`?
+
  *
  * The near edge is picked rather than assumed: these cards open on the row's
  * right, but a card near the screen's right edge is flipped to the left, and a
@@ -83,11 +96,30 @@ export function isInSafeTriangle(
 ): boolean {
   const nearEdgeX = card.left >= exit.x ? card.left : card.right;
   return isInsideQuadrilateral(point, [
-    { x: exit.x, y: exit.y + EXIT_HALF_HEIGHT },
-    { x: exit.x, y: exit.y - EXIT_HALF_HEIGHT },
+    { x: exit.x, y: exit.y + EXIT_BUFFER },
+    { x: exit.x, y: exit.y - EXIT_BUFFER },
     { x: nearEdgeX, y: card.top },
     { x: nearEdgeX, y: card.bottom },
   ]);
+}
+
+function isAtExit(point: Point, exit: Point): boolean {
+  return (
+    Math.abs(point.x - exit.x) <= EXIT_BUFFER &&
+    Math.abs(point.y - exit.y) <= EXIT_BUFFER
+  );
+}
+
+/**
+ * One step further along the way the pointer is going, at a fixed length so
+ * that a slow gesture and a fast one in the same direction read the same.
+ */
+function stepAhead(point: Point, heading: Point): Point {
+  const length = Math.hypot(heading.x, heading.y);
+  return {
+    x: point.x + (heading.x / length) * HEADING_STEP,
+    y: point.y + (heading.y / length) * HEADING_STEP,
+  };
 }
 
 export interface SafeTriangleGuard {
@@ -101,6 +133,7 @@ export interface SafeTriangleGuard {
   release(): void;
   /** Stop guarding and hand nothing back. Safe to call while unarmed. */
   disarm(): void;
+  destroy(): void;
 }
 
 export function createSafeTriangleGuard(): SafeTriangleGuard {
@@ -111,8 +144,55 @@ export function createSafeTriangleGuard(): SafeTriangleGuard {
     /** The row whose `mouseenter` was held back, and where the pointer was. */
     held: Element | null;
     at: Point;
+    heading: Point | null;
+    settling: ReturnType<typeof setTimeout> | undefined;
   }
   let run: Run | null = null;
+
+  let previous: Point | null = null;
+  let latest: Point | null = null;
+
+  function heading(from: Point | null, to: Point | null): Point | null {
+    if (!from || !to) {
+      return null;
+    }
+    const step = { x: to.x - from.x, y: to.y - from.y };
+    return step.x === 0 && step.y === 0 ? null : step;
+  }
+  document.addEventListener("pointermove", trackPointer);
+
+  function onSettled(): void {
+    if (!run) {
+      return;
+    }
+    if (run.held && isInsideRect(run.at, run.held.getBoundingClientRect())) {
+      release();
+      return;
+    }
+    run.held = null;
+  }
+
+  function holdUntilSettled(): void {
+    if (!run) {
+      return;
+    }
+    clearTimeout(run.settling);
+    run.settling = setTimeout(onSettled, HOLD_MS);
+  }
+
+  function isOnTheRun(at: Point): boolean {
+    if (!run) {
+      return false;
+    }
+    const card = run.card.getBoundingClientRect();
+    if (!isAtExit(at, run.exit)) {
+      return isInSafeTriangle(at, run.exit, card);
+    }
+    if (!run.heading) {
+      return true;
+    }
+    return isInSafeTriangle(stepAhead(at, run.heading), run.exit, card);
+  }
 
   /**
    * Capture, on the document, so this runs before the listener Base UI puts on
@@ -139,34 +219,41 @@ export function createSafeTriangleGuard(): SafeTriangleGuard {
     }
     const { clientX, clientY } = event as MouseEvent;
     const at = { x: clientX, y: clientY };
-    if (!isInSafeTriangle(at, run.exit, run.card.getBoundingClientRect())) {
-      // Off the corridor, so the pointer wants this row and not the card.
+    // Already off the corridor as the row is met: the pointer wants this row
+    // and not the card, and nothing has been taken from it yet to give back.
+    if (!isOnTheRun(at)) {
       disarm();
       return;
     }
     run.held = row;
     run.at = at;
+    holdUntilSettled();
     event.stopPropagation();
   }
 
-  /** Only while armed, and only to know where a held row was last pointed at. */
-  function onMove(event: Event): void {
+  function trackPointer(event: Event): void {
+    const { clientX, clientY } = event as MouseEvent;
+    previous = latest;
+    latest = { x: clientX, y: clientY };
     if (!run) {
       return;
     }
-    const { clientX, clientY } = event as MouseEvent;
-    run.at = { x: clientX, y: clientY };
+    run.at = latest;
+    run.heading = heading(previous, latest);
+    if (!isOnTheRun(run.at)) {
+      release();
+    }
   }
 
   function detach(): void {
     document.removeEventListener("mouseenter", onEnterCapture, true);
-    document.removeEventListener("pointermove", onMove);
   }
 
   function disarm(): void {
     if (!run) {
       return;
     }
+    clearTimeout(run.settling);
     run = null;
     detach();
   }
@@ -194,11 +281,23 @@ export function createSafeTriangleGuard(): SafeTriangleGuard {
   return {
     arm({ trigger, card, x, y }) {
       disarm();
-      run = { trigger, card, exit: { x, y }, held: null, at: { x, y } };
+      const exit = { x, y };
+      run = {
+        trigger,
+        card,
+        exit,
+        held: null,
+        at: exit,
+        heading: heading(latest, exit),
+        settling: undefined,
+      };
       document.addEventListener("mouseenter", onEnterCapture, true);
-      document.addEventListener("pointermove", onMove);
     },
     release,
     disarm,
+    destroy() {
+      disarm();
+      document.removeEventListener("pointermove", trackPointer);
+    },
   };
 }

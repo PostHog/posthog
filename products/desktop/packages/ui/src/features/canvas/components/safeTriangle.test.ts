@@ -3,29 +3,11 @@ import {
   isInSafeTriangle,
   type SafeTriangleGuard,
 } from "@posthog/ui/features/canvas/components/safeTriangle";
+import { domRect, place } from "@posthog/ui/test/rects";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-function rect(
-  left: number,
-  top: number,
-  right: number,
-  bottom: number,
-): DOMRect {
-  return {
-    left,
-    top,
-    right,
-    bottom,
-    x: left,
-    y: top,
-    width: right - left,
-    height: bottom - top,
-    toJSON: () => ({}),
-  };
-}
-
 /** A card 300 wide and 500 tall, open to the right of a row in a 240px sidebar. */
-const CARD = rect(250, 100, 550, 600);
+const CARD = domRect(250, 100, 550, 600);
 
 describe("isInSafeTriangle", () => {
   /** Where the pointer left the row: its bottom edge, under the status dot. */
@@ -46,7 +28,7 @@ describe("isInSafeTriangle", () => {
   it("aims at the card's right edge when the card sits to the left", () => {
     // A card a screen edge flipped. Fanning out rightwards anyway would guard
     // empty screen and leave the run over the rows unprotected.
-    const flipped = rect(-400, 100, -100, 600);
+    const flipped = domRect(-400, 100, -100, 600);
 
     expect(isInSafeTriangle({ x: 20, y: 112 }, exit, flipped)).toBe(true);
     expect(isInSafeTriangle({ x: 60, y: 112 }, exit, flipped)).toBe(false);
@@ -69,7 +51,7 @@ describe("createSafeTriangleGuard", () => {
     if (isRow) {
       node.setAttribute("data-preview-card-trigger", "");
     }
-    node.getBoundingClientRect = () => at;
+    place(node, at);
     const hovers = vi.fn();
     node.addEventListener("mouseenter", hovers);
     document.body.append(node);
@@ -82,32 +64,106 @@ describe("createSafeTriangleGuard", () => {
     );
   }
 
-  /** A card open on the row at the top of the list, just left of the row below. */
-  function scenario() {
-    const guard = createSafeTriangleGuard();
-    guards.push(guard);
-    const source = element(rect(0, 100, 240, 128), true);
-    const crossed = element(rect(0, 300, 240, 328), true);
-    const card = element(CARD, false);
-    guard.arm({ trigger: source.node, card: card.node, x: 40, y: 128 });
-    return { guard, source, crossed, card };
+  function move(x: number, y: number) {
+    document.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: x, clientY: y }),
+    );
   }
 
-  it("holds back a row crossed on the way to the card", () => {
-    const { crossed } = scenario();
+  function scenario(from?: { x: number; y: number }) {
+    const guard = createSafeTriangleGuard();
+    guards.push(guard);
+    const source = element(domRect(0, 100, 240, 128), true);
+    const next = element(domRect(0, 128, 240, 156), true);
+    const crossed = element(domRect(0, 300, 240, 328), true);
+    const card = element(CARD, false);
+    if (from) {
+      move(from.x, from.y);
+    }
+    guard.arm({ trigger: source.node, card: card.node, x: 40, y: 128 });
+    return { guard, source, next, crossed, card };
+  }
 
-    enter(crossed.node, 150, 320);
+  interface Crossing {
+    case: string;
+    row: "next" | "crossed";
+    from?: { x: number; y: number };
+    at: { x: number; y: number };
+    hovered: boolean;
+  }
 
-    expect(crossed.hovers).not.toHaveBeenCalled();
+  it.each<Crossing>([
+    {
+      case: "crossed well inside the corridor",
+      row: "crossed",
+      at: { x: 150, y: 320 },
+      hovered: false,
+    },
+    {
+      case: "crossed well outside it, nowhere near the card",
+      row: "crossed",
+      at: { x: 40, y: 320 },
+      hovered: true,
+    },
+    {
+      case: "met at the exit point, running at the card",
+      row: "next",
+      from: { x: 26, y: 122 },
+      at: { x: 40, y: 128 },
+      hovered: false,
+    },
+    {
+      case: "met at the exit point, stepping down the list",
+      row: "next",
+      from: { x: 40, y: 114 },
+      at: { x: 40, y: 128 },
+      hovered: true,
+    },
+    {
+      case: "met at the exit point by a pointer with no history",
+      row: "next",
+      at: { x: 40, y: 128 },
+      hovered: false,
+    },
+  ])("$case, hover heard: $hovered", ({ row, from, at, hovered }) => {
+    const scene = scenario(from);
+    const target = row === "next" ? scene.next : scene.crossed;
+
+    enter(target.node, at.x, at.y);
+
+    expect(target.hovers).toHaveBeenCalledTimes(hovered ? 1 : 0);
   });
 
-  it("lets a row outside the corridor take the card", () => {
-    const { crossed } = scenario();
+  it("gives the card to a row a run set out across and stopped on", () => {
+    vi.useFakeTimers();
+    try {
+      const { next } = scenario({ x: 26, y: 122 });
 
-    // Straight down the list, nowhere near the card.
-    enter(crossed.node, 40, 320);
+      enter(next.node, 40, 128);
+      expect(next.hovers).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(200);
 
-    expect(crossed.hovers).toHaveBeenCalledOnce();
+      expect(next.hovers).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps running when the pointer is past the row it last crossed", () => {
+    vi.useFakeTimers();
+    try {
+      const { next, crossed } = scenario({ x: 26, y: 122 });
+
+      enter(next.node, 40, 128);
+      move(150, 200);
+      vi.advanceTimersByTime(200);
+      enter(crossed.node, 200, 320);
+
+      expect(next.hovers).not.toHaveBeenCalled();
+      expect(crossed.hovers).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stops guarding once a row outside the corridor has taken over", () => {
