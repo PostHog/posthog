@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -73,20 +73,20 @@ class TestValidateCredentials:
 
 
 class TestWindowsForActions:
-    @freeze_time("2026-06-01")
+    @time_machine.travel("2026-06-01", tick=False)
     def test_full_refresh_backfills_max_lookback(self) -> None:
         windows = _windows_for_actions(False, None)
         assert windows[0][0] == datetime(2023, 6, 2, tzinfo=UTC)
         assert windows[-1][1] == datetime(2026, 6, 1, tzinfo=UTC)
 
-    @freeze_time("2026-06-01")
+    @time_machine.travel("2026-06-01", tick=False)
     def test_cursor_older_than_max_lookback_is_clamped(self) -> None:
         # Impact rejects a start date more than 3 years back, so a stale cursor is clamped
         # rather than sent as-is.
         windows = _windows_for_actions(True, datetime(2015, 1, 1, tzinfo=UTC))
         assert windows[0][0] == datetime(2023, 6, 2, tzinfo=UTC)
 
-    @freeze_time("2026-06-01")
+    @time_machine.travel("2026-06-01", tick=False)
     def test_future_cursor_yields_no_windows(self) -> None:
         assert _windows_for_actions(True, datetime(2027, 1, 1, tzinfo=UTC)) == []
 
@@ -162,7 +162,7 @@ class TestGetRowsSimple:
 
 
 class TestGetRowsActions:
-    @freeze_time("2026-06-01")
+    @time_machine.travel("2026-06-01", tick=False)
     def test_windows_walked_with_paired_date_params_and_no_campaign_filter(self) -> None:
         manager = FakeResumableManager()
         seen_params: list[dict[str, Any]] = []
@@ -199,7 +199,7 @@ class TestGetRowsActions:
         # One save per page, each bookmarking its window.
         assert [(s.window_start is not None, s.page) for s in manager.saved] == [(True, 1), (True, 1)]
 
-    @freeze_time("2026-06-01")
+    @time_machine.travel("2026-06-01", tick=False)
     def test_resume_skips_earlier_windows_and_starts_at_saved_page(self) -> None:
         # Recompute the window grid the run will see, then bookmark the second window at page 2.
         cursor = datetime(2026, 4, 2, tzinfo=UTC)
@@ -232,7 +232,7 @@ class TestGetRowsActions:
         # Only the bookmarked window is fetched, from its saved page onward.
         assert seen == [(impact_partner._format_datetime(windows[1][0]), 2)]
 
-    @freeze_time("2026-06-01")
+    @time_machine.travel("2026-06-01", tick=False)
     def test_stale_bookmark_restarts_from_the_first_window(self) -> None:
         manager = FakeResumableManager(
             state=ImpactPartnerResumeConfig(page=5, window_start="2020-01-01T00:00:00+00:00")

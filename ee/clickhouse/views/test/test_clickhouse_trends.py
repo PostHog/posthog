@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Optional, Union
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -55,7 +55,7 @@ def test_includes_only_intervals_within_range(client: Client):
     #  simplest way to reproduce
 
     # "2021-09-19" is a sunday, i.e. beginning of week
-    with freeze_time("2021-09-20T16:00:00"):
+    with time_machine.travel("2021-09-20T16:00:00", tick=False):
         #  First identify as a member of the cohort
         distinct_id = "abc"
         update_or_create_person(
@@ -142,7 +142,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
 
     client.force_login(user)
 
-    with freeze_time("2021-09-20T16:00:00"):
+    with time_machine.travel("2021-09-20T16:00:00", tick=False):
         journeys_for(
             events_by_person={
                 "abc": [
@@ -310,7 +310,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
     client.force_login(user)
     cache.clear()
 
-    with freeze_time("2021-09-20T16:00:00"):
+    with time_machine.travel("2021-09-20T16:00:00", tick=False):
         journeys_for(
             events_by_person={
                 "abc": [
@@ -513,7 +513,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -551,7 +551,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -594,7 +594,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsPie",
@@ -653,7 +653,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         journeys_for(events_by_person, self.team, create_people=False)
 
         # Total Volume
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraphCumulative",
@@ -679,7 +679,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
 
         # DAU
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraphCumulative",
@@ -704,7 +704,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
 
         # breakdown
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraphCumulative",
@@ -731,7 +731,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data_response["val"]["2012-01-14"].label == "14-Jan-2012"
 
         # breakdown wau
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraphCumulative",
@@ -759,7 +759,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data_response["val"]["2012-01-14"].label == "14-Jan-2012"
 
         # breakdown dau
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraphCumulative",
@@ -805,7 +805,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             params = TrendsRequestBreakdown(
                 date_from="-14d",
                 breakdown="key",
@@ -817,7 +817,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data_response["val"]["2012-01-13"].value == 1
         assert data_response["val"]["2012-01-13"].breakdown_value == "val"
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             params = TrendsRequestBreakdown(
                 date_from="-14d",
                 breakdown="key",
@@ -857,7 +857,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-7d",
                 compare=True,
@@ -1021,7 +1021,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1047,7 +1047,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         events_by_person = {"1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 15, 3)}]}
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1098,7 +1098,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1144,7 +1144,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1210,7 +1210,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1275,7 +1275,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1329,7 +1329,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-14T04:01:34.000Z"):
+        with time_machine.travel("2012-01-14T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1357,7 +1357,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         }
         journeys_for(events_by_person, self.team)
 
-        with freeze_time("2012-01-16T04:01:34.000Z"):
+        with time_machine.travel("2012-01-16T04:01:34.000Z", tick=False):
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
