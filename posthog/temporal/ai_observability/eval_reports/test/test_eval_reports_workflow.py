@@ -15,12 +15,23 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
     ack_eval_report_cursors_activity,
+    check_count_triggered_eval_reports_activity,
     deliver_report_activity,
     fetch_count_triggered_eval_report_candidates_activity,
     fetch_due_eval_reports_activity,
     update_next_delivery_date_activity,
 )
-from posthog.temporal.ai_observability.eval_reports.constants import GENERATE_EVAL_REPORT_WORKFLOW_NAME
+from posthog.temporal.ai_observability.eval_reports.constants import (
+    CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
+    COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
+    COUNT_TRIGGER_MAX_CONCURRENT_CHECKS,
+    FETCH_ACTIVITY_TIMEOUT,
+    FETCH_RETRY_POLICY,
+    GENERATE_EVAL_REPORT_WORKFLOW_NAME,
+    UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+    UPDATE_SCHEDULE_RETRY_POLICY,
+    WORKFLOW_EXECUTION_TIMEOUT,
+)
 from posthog.temporal.ai_observability.eval_reports.types import (
     AckEvalReportCursorsInput,
     CheckCountTriggeredEvalReportOutput,
@@ -44,6 +55,71 @@ from posthog.temporal.ai_observability.eval_reports.workflow import (
     _check_count_triggered_eval_report_candidates_batched,
     _start_report_workflows,
 )
+
+
+# Temporal rejects a workflow class defined inside a function, so the stubs that a real
+# coordinator run needs are declared at module level.
+@temporalio.workflow.defn(name=GENERATE_EVAL_REPORT_WORKFLOW_NAME)
+class StubReportChildWorkflow:
+    @temporalio.workflow.run
+    async def run(self, _inputs: GenerateAndDeliverEvalReportWorkflowInput) -> None:
+        return None
+
+
+# Reproduces the command order a count coordinator recorded before the windowed dispatch:
+# every check window first, then the combined child starts. A history recorded by the
+# workflow under test would only ever agree with itself, so the order the current code has
+# to stay replay-compatible with is written out here instead.
+@temporalio.workflow.defn(name=CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME)
+class PreWindowedDispatchCountCoordinator:
+    @temporalio.workflow.run
+    async def run(self, inputs: CheckCountTriggeredReportsWorkflowInputs) -> None:
+        result = await temporalio.workflow.execute_activity(
+            fetch_count_triggered_eval_report_candidates_activity,
+            inputs,
+            start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
+            retry_policy=FETCH_RETRY_POLICY,
+        )
+        groups = result.report_id_groups or []
+        due_report_ids: list[str] = []
+        for index in range(0, len(groups), COUNT_TRIGGER_MAX_CONCURRENT_CHECKS):
+            window = groups[index : index + COUNT_TRIGGER_MAX_CONCURRENT_CHECKS]
+            window_results = await asyncio.gather(
+                *(
+                    temporalio.workflow.execute_activity(
+                        check_count_triggered_eval_reports_activity,
+                        CheckCountTriggeredEvalReportsBatchInput(report_ids=group),
+                        start_to_close_timeout=COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
+                        retry_policy=FETCH_RETRY_POLICY,
+                    )
+                    for group in window
+                )
+            )
+            for group_result in window_results:
+                due_report_ids.extend(output.report_id for output in group_result.results if output.due)
+
+        await asyncio.gather(
+            *(
+                temporalio.workflow.execute_child_workflow(
+                    GenerateAndDeliverEvalReportWorkflow.run,
+                    GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
+                    id=f"eval-report-count-{report_id}",
+                    execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
+                )
+                for report_id in due_report_ids
+            )
+        )
+        await temporalio.workflow.execute_activity(
+            ack_eval_report_cursors_activity,
+            AckEvalReportCursorsInput(
+                trigger_type="count_triggered",
+                region=inputs.region,
+                cursor_before=result.cursor_before or "",
+                report_ids=result.report_ids,
+            ),
+            start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+            retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+        )
 
 
 @pytest.mark.asyncio
@@ -165,7 +241,7 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
 
 
 @pytest.mark.asyncio
-async def test_count_coordinator_replays_pre_windowed_dispatch_history(monkeypatch) -> None:
+async def test_count_coordinator_replays_pre_windowed_dispatch_history() -> None:
     report_ids = [f"report-{index}" for index in range(6)]
 
     @temporalio.activity.defn(name="fetch_count_triggered_eval_report_candidates_activity")
@@ -190,32 +266,24 @@ async def test_count_coordinator_replays_pre_windowed_dispatch_history(monkeypat
     async def ack_cursor(_inputs: AckEvalReportCursorsInput) -> bool:
         return True
 
-    @temporalio.workflow.defn(name=GENERATE_EVAL_REPORT_WORKFLOW_NAME)
-    class LegacyReportChild:
-        @temporalio.workflow.run
-        async def run(self, _inputs: GenerateAndDeliverEvalReportWorkflowInput) -> None:
-            return None
-
     task_queue = str(uuid.uuid4())
     pre_patch_history: WorkflowHistory
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
-            workflows=[CheckCountTriggeredReportsWorkflow, LegacyReportChild],
+            workflows=[PreWindowedDispatchCountCoordinator, StubReportChildWorkflow],
             activities=[fetch_candidates, check_candidates, ack_cursor],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            monkeypatch.setattr(temporalio.workflow, "patched", lambda _patch_id: False)
             handle = await env.client.start_workflow(
-                CheckCountTriggeredReportsWorkflow.run,
+                PreWindowedDispatchCountCoordinator.run,
                 CheckCountTriggeredReportsWorkflowInputs(region="test"),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
             await handle.result()
             pre_patch_history = await handle.fetch_history()
-            monkeypatch.undo()
 
     await Replayer(
         workflows=[CheckCountTriggeredReportsWorkflow],
