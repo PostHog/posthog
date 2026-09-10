@@ -15,6 +15,7 @@ from llm_gateway.anthropic_request import drop_orphaned_clear_thinking, enable_r
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
+    CREDENTIAL_REJECTION_ERROR_TYPE,
     ProviderError,
     _sanitize_request_data,
     handle_llm_request,
@@ -445,6 +446,13 @@ def _is_anthropic_billing_block(exc: HTTPException) -> bool:
         return False
     error = detail.get("error")
     if not isinstance(error, dict):
+        return False
+    # A rejected-credential 400 is also a ProviderError, and its gateway-owned copy says "not a
+    # usage limit on your account", which contains the "usage limit" billing signature. It is a
+    # PostHog-side credential failure, not an Anthropic spend-limit block, so exclude it by its
+    # stable error type before the prose match. Otherwise it opens the shared breaker and fails
+    # opted-in traffic over to Bedrock under a "billing_block" label.
+    if error.get("type") == CREDENTIAL_REJECTION_ERROR_TYPE:
         return False
     message = str(error.get("message", "")).lower()
     return any(signature in message for signature in _ANTHROPIC_BILLING_SIGNATURES)

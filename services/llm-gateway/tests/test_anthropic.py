@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
 from llm_gateway.api.anthropic import _is_anthropic_billing_block
-from llm_gateway.api.handler import ProviderError
+from llm_gateway.api.handler import CREDENTIAL_REJECTION_ERROR_TYPE, ProviderError, classify_provider_failure
 from llm_gateway.request_context import (
     extract_posthog_flags_from_headers,
     extract_posthog_properties_from_headers,
@@ -2070,3 +2070,24 @@ class TestAnthropicBillingBlockDetection:
             },
         )
         assert _is_anthropic_billing_block(exc) is False
+
+    def test_credential_rejection_is_not_billing(self) -> None:
+        """A credential rejection that litellm maps onto a 400 is a ProviderError whose copy says
+        "not a usage limit on your account", which contains the "usage limit" billing signature. It
+        is a PostHog-side credential failure, not an Anthropic spend-limit block, so it must not open
+        the shared breaker or fail opted-in traffic over to Bedrock."""
+
+        class _ProviderException(Exception):
+            def __init__(self) -> None:
+                super().__init__("Invalid API key")
+                self.status_code = 400
+                self.code = "invalid_api_key"
+                self.message = "Invalid API key"
+                self.type = "invalid_request_error"
+
+        error_type, provider_error = classify_provider_failure(_ProviderException(), "anthropic")
+
+        assert error_type == CREDENTIAL_REJECTION_ERROR_TYPE
+        assert provider_error.status_code == 400
+        assert "usage limit" in provider_error.detail["error"]["message"].lower()
+        assert _is_anthropic_billing_block(provider_error) is False
