@@ -798,7 +798,9 @@ export function FreeformCanvasView({
   const askAgentToFix = () => {
     if (!runtimeError) return;
     prefillComposer(
-      `The app threw a runtime error: "${runtimeError}". Fix it and rewrite the whole file.`,
+      /\bFragment fragments\//.test(runtimeError)
+        ? `A fragment threw a runtime error: "${runtimeError}". Fix that fragment file and publish it with canvas-edit-create.`
+        : `The app threw a runtime error: "${runtimeError}". Fix it and rewrite the whole file.`,
     );
   };
 

@@ -236,6 +236,8 @@ The fragment imports `../shared/date-range` and gets the same module instance th
 It must not import another file under `src/fragments/`.
 
 A fragment is a normal component: it receives the marker's `props`, and a change to `props` re-renders it in place.
+Export its props type (`export type Props`) and use `import type { Props } from "./fragments/<name>"` in the layout to type the marker's `props`.
+A fragment that throws while it renders shows its `fallback`; the rest of the canvas keeps running.
 A fragment whose content changed in a newer build loses its local component state: React mounts the new component fresh, so `useState` values, scroll positions, and in-flight requests inside it are gone. Unchanged fragments keep their state.
 Keep durable state in `src/shared` stores or in `ph.state`; keep only view-local state in the fragment.
 

@@ -850,6 +850,7 @@ bridge.port1.close();
         self.assertIn('"fragments/revenue-chart"', layout)
         self.assertIn('"fragments/nested/table"', layout)
         self.assertIn(" days", layout)
+        self.assertIn("getDerivedStateFromError", layout)
         self.assertNotIn("__posthogCanvasModules", layout)
 
     def test_progressive_fragment_importing_another_fragment_fails(self) -> None:

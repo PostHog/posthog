@@ -30,16 +30,43 @@ const canvasSdkModule = readFileSync(new URL('./canvas-sdk.mjs', import.meta.url
 // preview document, which has no builder, renders every marker's fallback.
 const fragmentSdkSpecifier = '@posthog/canvas-sdk/fragment'
 const inlineFragmentsSpecifier = 'canvas-fragments-inline'
+// A panel that throws shows its fallback and reports the error; the rest of
+// the canvas keeps running. `resetKey` is the loaded component, so the error
+// clears only when a newer build's component is in hand, not when its chunk is
+// still loading and the old one would throw again. reportError reaches the
+// runtime's window error listener, which posts it to the host.
+const fragmentBoundarySource = `class FragmentBoundary extends React.Component {
+    state = { error: null }
+    static getDerivedStateFromError(error) {
+        return { error }
+    }
+    componentDidCatch(error) {
+        reportError(error instanceof Error ? new Error('Fragment ' + this.props.path + ': ' + error.message, { cause: error }) : error)
+    }
+    componentDidUpdate(previous) {
+        if (this.state.error && previous.resetKey !== this.props.resetKey) this.setState({ error: null })
+    }
+    render() {
+        return this.state.error ? this.props.fallback : this.props.children
+    }
+}
+`
 const inlineFragmentSdkModule = `import React from 'react'
 import components from '${inlineFragmentsSpecifier}'
+${fragmentBoundarySource}
 export function CanvasFragment({ path, fallback = null, props }) {
     const Component = components[path]
     if (!Component) return fallback
-    return <Component {...(props ?? {})} />
+    return (
+        <FragmentBoundary path={path} fallback={fallback}>
+            <Component {...(props ?? {})} />
+        </FragmentBoundary>
+    )
 }
 `
 const fragmentSdkModule = `import React, { useEffect, useState } from 'react'
 const registry = globalThis.__posthogCanvasFragments ?? { base: '', fragments: {}, subscribe: () => () => {}, report() {}, error() {} }
+${fragmentBoundarySource}
 export function CanvasFragment({ path, fallback = null, props }) {
     const [entry, setEntry] = useState(() => registry.fragments[path])
     useEffect(() => registry.subscribe(() => setEntry(registry.fragments[path])), [path])
@@ -65,7 +92,11 @@ export function CanvasFragment({ path, fallback = null, props }) {
     // its own base, so an unchanged fragment must keep its mounted component.
     }, [path, entry?.contentHash])
     if (!Loaded) return fallback
-    return <Loaded {...(props ?? {})} />
+    return (
+        <FragmentBoundary path={path} fallback={fallback} resetKey={Loaded}>
+            <Loaded {...(props ?? {})} />
+        </FragmentBoundary>
+    )
 }
 `
 const sharedDirectory = 'src/shared/'

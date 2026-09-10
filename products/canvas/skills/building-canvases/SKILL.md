@@ -172,6 +172,9 @@ Rules:
 - A fragment must not import another fragment. Validation reports `fragment_imports_fragment`.
 - Shared state lives in `src/shared`. A fragment that needs a value from another panel reads it from a shared store, never from the other fragment.
 - A marker whose fragment file does not exist yet is not an error. It renders its `fallback` and counts as pending. Validation lists these in the `fragment_marker_without_file` warning.
+- Give the `fallback` the final panel's size (a skeleton with the same height) so the layout does not jump when the fragment lands.
+- A fragment that throws while it renders shows its `fallback`; the other panels keep running. The host reports the error as `Fragment fragments/<name>: <message>`. Fix that one file and publish it.
+- For typed props, `export type Props = { ... }` from the fragment and `import type { Props } from "./fragments/<name>"` in the layout. A type-only import is erased at build time, so it does not bundle the fragment into the layout.
 
 ### Build order
 
