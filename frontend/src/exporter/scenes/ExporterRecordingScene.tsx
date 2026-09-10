@@ -27,6 +27,7 @@ export default function ExporterRecordingScene({
             withSidebar={showInspector ?? false}
             noBorder={noBorder ?? false}
             accessToken={exportToken}
+            deepLinkFromUrl
         />
     )
 }

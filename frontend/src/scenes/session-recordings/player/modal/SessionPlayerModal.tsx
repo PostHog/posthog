@@ -47,6 +47,8 @@ export function SessionPlayerModal(): JSX.Element | null {
                   matchedEvents: matchedEvents,
               },
         skipToFirstMatchingEvent: isChoosingHeatmapBackground,
+        // The modal carries its start time in the page URL, so this player reads it back from there.
+        deepLinkFromUrl: true,
     }
 
     const playerLogic = sessionRecordingPlayerLogic(logicProps)

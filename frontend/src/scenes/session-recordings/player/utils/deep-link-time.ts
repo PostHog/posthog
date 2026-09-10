@@ -47,13 +47,15 @@ function toFiniteNumber(value: string | number): number | null {
 }
 
 // Zone-less and partial dates parse in the viewer's local zone, so the same link would land on
-// different frames for different viewers. Require a full ISO datetime with an explicit zone.
-const ISO_DATETIME_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/
+// different frames for different viewers. Require a full datetime with an explicit zone.
+// The date and the time can be separated by a `T` or by a space: our own APIs emit both forms.
+const DATETIME_WITH_ZONE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/
 
 function parseDate(value: string | number): number | null {
-    if (typeof value !== 'string' || !ISO_DATETIME_WITH_ZONE.test(value)) {
+    if (typeof value !== 'string' || !DATETIME_WITH_ZONE.test(value)) {
         return null
     }
-    const parsed = dayjs(value)
+    // dayjs reads the zone only from a strict ISO string, so give it the `T` separator.
+    const parsed = dayjs(value.replace(' ', 'T'))
     return parsed.isValid() ? parsed.valueOf() : null
 }

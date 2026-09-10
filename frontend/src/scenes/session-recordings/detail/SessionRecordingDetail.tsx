@@ -37,7 +37,7 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps)
             ) : null}
             <div className="mt-4 flex-1">
                 {id ? (
-                    <SessionRecordingPlayer sessionRecordingId={id} playerKey={`${id}-detail`} />
+                    <SessionRecordingPlayer sessionRecordingId={id} playerKey={`${id}-detail`} deepLinkFromUrl />
                 ) : (
                     <RecordingNotFound sessionRecordingId={id} />
                 )}

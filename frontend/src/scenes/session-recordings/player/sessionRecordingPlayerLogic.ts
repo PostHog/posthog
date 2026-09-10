@@ -167,6 +167,9 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
+    // Only the player that owns the page URL may read `timestamp`/`t` from it. A player embedded
+    // in another scene gets its seek target from that scene, and the params belong to the host.
+    deepLinkFromUrl?: boolean
     playNextRecording?: (automatic: boolean) => void
     skipToFirstMatchingEvent?: boolean
 }
@@ -2536,7 +2539,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Check for the "t" search param in the url on first load
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
-                    const searchParams = router.values.searchParams
+                    const searchParams: Record<string, any> = props.deepLinkFromUrl ? router.values.searchParams : {}
                     if (searchParams.fullscreen) {
                         actions.setIsFullScreen(true)
                     }
@@ -3490,11 +3493,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.schedulePlayerTimeTracking()
     }),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, props }) => ({
         '*': (_, searchParams, hashParams, { pathname, search, hash }, previousLocation) => {
             const shouldPause = searchParams.pause || hashParams.pause
             if (shouldPause && !values.pauseForced) {
                 actions.forcePause()
+            }
+            if (!props.deepLinkFromUrl) {
+                return
             }
             // Unrelated param changes (inspector toggle, sidebar tab) keep `t`. Seek only when the
             // linked time changed, or the same URL was pushed again so a repeat click still seeks.
