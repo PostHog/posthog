@@ -156,8 +156,9 @@ class TestExpectationsForRouting:
     @pytest.mark.parametrize(
         "routing,expected_keys",
         [
-            ("clarify", {"clarification_asked", "canonical_metric_run"}),
-            ("no_match", {"metrics_catalog_before_data_discovery", "canonical_metric_run"}),
+            ("clarify_before_execution", {"clarification_asked", "canonical_metric_run"}),
+            ("no_approved_match_then_noncanonical", {"metrics_catalog_before_data_discovery", "canonical_metric_run"}),
+            ("schema_discovery_only", {"metrics_catalog_not_queried", "canonical_metric_run"}),
             (
                 "canonical_metric",
                 {
@@ -167,18 +168,22 @@ class TestExpectationsForRouting:
                 },
             ),
             (
-                "derive_from_approved",
+                "canonical_then_drilldown",
                 {
                     "metrics_catalog_before_data_discovery",
                     "canonical_metric_run",
                     "metric_describe_before_adapted_sql",
-                    "proposed_metric_not_run",
                 },
             ),
         ],
     )
     def test_known_routings_map_to_their_checks(self, routing: str, expected_keys: set[str]) -> None:
         assert set(expectations_for(routing, METRIC)) == expected_keys
+
+    def test_two_expected_metrics_become_a_list(self) -> None:
+        expectations = expectations_for("canonical_then_drilldown", f"{METRIC} + mrr_monthly")
+
+        assert expectations["canonical_metric_run"]["metric_name"] == [METRIC, "mrr_monthly"]
 
     def test_an_unknown_routing_is_rejected_rather_than_guessed(self) -> None:
         with pytest.raises(UnknownRouting):
@@ -215,7 +220,7 @@ class TestScoreCase:
             _tool_call("call-2", "AskUserQuestion", {"questions": [{"question": "Which customers?"}]}),
         )
 
-        row = score_case(_case(expected_routing="clarify", expected_metric=None), raw_log)
+        row = score_case(_case(expected_routing="clarify_before_execution", expected_metric=None), raw_log)
 
         assert row["verdict"] == "pass"
 
@@ -226,22 +231,38 @@ class TestScoreCase:
             _tool_call("call-3", "AskUserQuestion", {"questions": [{"question": "Which customers?"}]}),
         )
 
-        row = score_case(_case(expected_routing="clarify", expected_metric=None), raw_log)
+        row = score_case(_case(expected_routing="clarify_before_execution", expected_metric=None), raw_log)
 
         assert row["verdict"] == "fail"
         assert "clarification_asked" in row["failed_checks"]
 
-    def test_running_the_proposed_metric_fails_a_derive_case(self) -> None:
+    def test_a_negative_control_that_lists_the_catalog_fails(self) -> None:
         raw_log = _log(
             _tool_call("call-1", "metric-list", {}),
-            _tool_call("call-2", "metric-describe", {"name": METRIC}),
-            _tool_call("call-3", "data-catalog-metric-run", {"name": METRIC}),
+            _tool_call("call-2", "read-data-schema", {"query": {"kind": "events"}}),
         )
 
-        row = score_case(_case(expected_routing="derive_from_approved"), raw_log)
+        row = score_case(_case(expected_routing="schema_discovery_only", expected_metric=None), raw_log)
 
         assert row["verdict"] == "fail"
-        assert row["failed_checks"] == ["proposed_metric_not_run"]
+        assert row["failed_checks"] == ["metrics_catalog_not_queried"]
+
+    @pytest.mark.parametrize(
+        "metrics_run,verdict",
+        [([METRIC], "fail"), ([METRIC, "mrr_monthly"], "pass")],
+        ids=["one_of_two", "both"],
+    )
+    def test_every_expected_metric_must_run(self, metrics_run: list[str], verdict: str) -> None:
+        raw_log = _log(
+            _tool_call("call-1", "metric-list", {}),
+            *(_tool_call(f"run-{name}", "data-catalog-metric-run", {"name": name}) for name in metrics_run),
+        )
+
+        row = score_case(
+            _case(expected_routing="canonical_then_drilldown", expected_metric=f"{METRIC} + mrr_monthly"), raw_log
+        )
+
+        assert row["verdict"] == verdict
 
     def test_adapted_sql_without_describe_is_advisory_only(self) -> None:
         raw_log = _log(
@@ -338,7 +359,7 @@ class TestBatchReconstruction:
                 + _tool_call("call-2", "AskUserQuestion", {"questions": [{"question": "Which customers?"}]})
                 + _question_permission_request("Which customers?")
             },
-            expected_routing="clarify",
+            expected_routing="clarify_before_execution",
         )
 
         _results, row = _score_batch(client)

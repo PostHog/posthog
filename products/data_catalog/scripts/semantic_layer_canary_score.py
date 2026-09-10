@@ -34,7 +34,7 @@ from products.data_catalog.evals.scorers import (
     ClarificationAsked,
     MetricDescribeBeforeAdaptedSql,
     MetricsCatalogBeforeDataDiscovery,
-    ProposedMetricNotRun,
+    MetricsCatalogNotQueried,
 )
 from products.data_catalog.scripts.semantic_layer_canary import (
     DATASET_ITEMS_PATH,
@@ -65,10 +65,26 @@ BATCH_ID_PREFIX = "tasks"
 CANARY_ORIGIN_PRODUCT = "posthog_ai"
 PERMISSION_REQUEST_METHOD = "session/request_permission"
 
-CANONICAL_ROUTING = "canonical_metric"
-CLARIFY_ROUTING = "clarify"
-NO_MATCH_ROUTING = "no_match"
-DERIVE_ROUTING = "derive_from_approved"
+CANONICAL_ROUTINGS = frozenset(
+    {
+        "canonical_metric",
+        "canonical_then_drilldown",
+        "approved_over_proposed",
+        "proposed_discovery_noncanonical_derivation",
+    }
+)
+CLARIFY_ROUTINGS = frozenset({"clarify_before_execution"})
+NO_MATCH_ROUTINGS = frozenset({"no_approved_match_then_noncanonical"})
+NEGATIVE_CONTROL_ROUTINGS = frozenset(
+    {
+        "schema_discovery_only",
+        "availability_query_only",
+        "source_discovery_only",
+        "row_level_debugging_only",
+        "query_diagnosis_only",
+    }
+)
+EXPECTED_METRIC_SEPARATOR = " + "
 
 COMPLETED_STATUS = "completed"
 CANCELLED_STATUS = "cancelled"
@@ -82,17 +98,17 @@ TERMINAL_RUN_STATUSES = frozenset({COMPLETED_STATUS, CANCELLED_STATUS, FAILED_ST
 HARD_CHECKS = frozenset(
     {
         "metrics_catalog_before_data_discovery",
+        "metrics_catalog_not_queried",
         "canonical_metric_run",
         "clarification_asked",
-        "proposed_metric_not_run",
     }
 )
 
 SCORERS: list[Scorer] = [
     MetricsCatalogBeforeDataDiscovery(),
+    MetricsCatalogNotQueried(),
     CanonicalMetricRun(),
     ClarificationAsked(),
-    ProposedMetricNotRun(),
     MetricDescribeBeforeAdaptedSql(),
 ]
 
@@ -150,25 +166,29 @@ def parse_batch_moment(raw: str) -> datetime:
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
+def _expected_metric_names(expected_metric: str) -> str | list[str]:
+    names = [name.strip() for name in expected_metric.split(EXPECTED_METRIC_SEPARATOR) if name.strip()]
+    return names[0] if len(names) == 1 else names
+
+
 def expectations_for(routing: str, expected_metric: str | None) -> dict[str, Any]:
-    if routing == CLARIFY_ROUTING:
+    if routing in CLARIFY_ROUTINGS:
         return {"clarification_asked": {}, "canonical_metric_run": {"outcome": "not_called"}}
-    if routing == NO_MATCH_ROUTING:
+    if routing in NO_MATCH_ROUTINGS:
         return {
             "metrics_catalog_before_data_discovery": {},
             "canonical_metric_run": {"outcome": "not_called"},
         }
-    if routing in (CANONICAL_ROUTING, DERIVE_ROUTING):
+    if routing in NEGATIVE_CONTROL_ROUTINGS:
+        return {"metrics_catalog_not_queried": {}, "canonical_metric_run": {"outcome": "not_called"}}
+    if routing in CANONICAL_ROUTINGS:
         if not expected_metric:
             raise UnknownRouting(f"routing '{routing}' needs an expected_metric")
-        expectations: dict[str, Any] = {
+        return {
             "metrics_catalog_before_data_discovery": {},
-            "canonical_metric_run": {"metric_name": expected_metric, "outcome": "succeeded"},
+            "canonical_metric_run": {"metric_name": _expected_metric_names(expected_metric), "outcome": "succeeded"},
             "metric_describe_before_adapted_sql": {},
         }
-        if routing == DERIVE_ROUTING:
-            expectations["proposed_metric_not_run"] = {"metric_name": expected_metric}
-        return expectations
     raise UnknownRouting(routing)
 
 

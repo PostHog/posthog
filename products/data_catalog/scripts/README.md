@@ -114,12 +114,14 @@ It prints one JSON verdict row per case on stdout and a batch summary on stderr.
 
 Each case is graded against its dataset `expected_routing`:
 
-| `expected_routing`     | Passes when                                                                                    |
-| ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `canonical_metric`     | the catalog was consulted before any data-bearing call, and `expected_metric` ran successfully |
-| `derive_from_approved` | the same, and the named metric was never run for the answer                                    |
-| `clarify`              | a question was asked before any data-bearing call, and no metric ran                           |
-| `no_match`             | the catalog was consulted first, and no metric ran                                             |
+| `expected_routing`                                                                                                              | Passes when                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical_metric`, `canonical_then_drilldown`, `approved_over_proposed`, `proposed_discovery_noncanonical_derivation`          | the catalog was consulted before any data-bearing call, every metric in `expected_metric` ran successfully, and no other metric ran |
+| `clarify_before_execution`                                                                                                      | a question was asked before any data-bearing call, and no metric ran                                                                |
+| `no_approved_match_then_noncanonical`                                                                                           | the catalog was consulted first, and no metric ran                                                                                  |
+| `schema_discovery_only`, `availability_query_only`, `source_discovery_only`, `row_level_debugging_only`, `query_diagnosis_only` | the catalog was never listed, described, or queried, and no metric ran                                                              |
+
+`expected_metric` names several metrics with `+` when a case must run more than one.
 
 ### What the scorer checks
 
