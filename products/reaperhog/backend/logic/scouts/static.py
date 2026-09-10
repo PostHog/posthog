@@ -12,6 +12,7 @@ from products.reaperhog.backend.logic.scouts.base import ScoutContext
 logger = logging.getLogger(__name__)
 
 KNIP_CONFIG = "knip.json"
+KNIP_TIMEOUT_SECONDS = 900.0
 KnipRunner = Callable[[Path], dict | None]
 
 
@@ -33,13 +34,18 @@ def run_knip(workspace: Path) -> dict | None:
     if pnpm is None or not (workspace / "node_modules").is_dir():
         logger.info("Skipping knip in %s: pnpm or node_modules missing", workspace)
         return None
-    result = subprocess.run(
-        [pnpm, "exec", "knip", "--reporter", "json", "--no-progress", "--no-exit-code"],
-        cwd=workspace,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [pnpm, "exec", "knip", "--reporter", "json", "--no-progress", "--no-exit-code"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=KNIP_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("knip in %s did not finish within %ss", workspace, KNIP_TIMEOUT_SECONDS)
+        return None
     start = result.stdout.find("{")
     if start == -1:
         logger.warning("knip in %s produced no JSON: %s", workspace, result.stderr.strip()[:200])

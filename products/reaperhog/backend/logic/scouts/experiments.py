@@ -5,6 +5,7 @@ from products.reaperhog.backend.logic.artefacts import Hit
 from products.reaperhog.backend.logic.enrollment import FlagEnrollment, enrollment_evidence
 from products.reaperhog.backend.logic.repo import ReferenceCount
 from products.reaperhog.backend.logic.scouts.base import ScoutContext, flag_patterns
+from products.tasks.backend.facade import api as tasks_facade
 
 
 class ExperimentsScout:
@@ -14,7 +15,7 @@ class ExperimentsScout:
         return scope in (SCOPE_EXPERIMENTS, SCOPE_ALL) or scope not in NAMED_SCOPES
 
     def run(self, context: ScoutContext) -> list[Hit]:
-        experiments = list_concluded_experiments(context.team_id)
+        experiments = [e for e in list_concluded_experiments(context.team_id) if not _cleanup_in_flight(e)]
         constant_by_key = {key: constant for constant, key in context.repo.frontend_flag_keys().items()}
         keys = sorted({experiment.feature_flag_key for experiment in experiments})
         references = context.repo.references_many({key: flag_patterns(key, constant_by_key.get(key)) for key in keys})
@@ -26,6 +27,21 @@ class ExperimentsScout:
                 continue
             hits.append(classify_experiment(experiment, reference, enrollment.get(experiment.feature_flag_key)))
         return hits
+
+
+def _cleanup_in_flight(experiment: ConcludedExperiment) -> bool:
+    """True while the experiments product's own cleanup task still owns this flag.
+
+    That task leaves the flag's references on the default branch until its pull request merges, so
+    harvesting the same flag now would open a second pull request for the same deletion.
+    """
+    task_id = experiment.flag_cleanup_task_id
+    if task_id is None:
+        return False
+    if tasks_facade.get_latest_pr_url_by_task([task_id]):
+        return True
+    run = tasks_facade.get_latest_run_by_task([task_id]).get(str(task_id))
+    return run is not None and not run.is_terminal
 
 
 def classify_experiment(
