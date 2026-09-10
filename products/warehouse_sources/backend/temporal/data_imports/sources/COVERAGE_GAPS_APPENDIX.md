@@ -128,14 +128,14 @@ Note: Airbrake's readable v4 surface is small and coverage is close to complete:
 
 ## Aircall — gaps
 
-Today (6): `calls`, `contacts`, `numbers`, `tags`, `teams`, `users`
+Today (10): `call_evaluations`, `call_sentiments`, `call_topics`, `call_transcriptions`, `calls`, `contacts`, `numbers`, `tags`, `teams`, `users`
 
 Diffed against: <https://developer.aircall.io/api-references/>
 
-- [ ] `call transcription (GET /v1/calls/{call_id}/transcription)` — the transcript text behind every synced call; unlocks all text analysis (high)
-- [ ] `call sentiments (GET /v1/calls/{call_id}/sentiments)` — Conversation Intelligence sentiment scoring per call, a headline metric (high)
-- [ ] `call topics (GET /v1/calls/{call_id}/topics)` — topic breakdown dimension over calls we already sync (high)
-- [ ] `call evaluations (GET /v1/calls/{call_id}/evaluations)` — QA scorecards per call - the main agent-quality metric (high)
+- [x] `call transcription (GET /v1/calls/{call_id}/transcription)` — the transcript text behind every synced call; unlocks all text analysis (high)
+- [x] `call sentiments (GET /v1/calls/{call_id}/sentiments)` — Conversation Intelligence sentiment scoring per call, a headline metric (high)
+- [x] `call topics (GET /v1/calls/{call_id}/topics)` — topic breakdown dimension over calls we already sync (high)
+- [x] `call evaluations (GET /v1/calls/{call_id}/evaluations)` — QA scorecards per call - the main agent-quality metric (high)
 - [ ] `call summary and custom summary result` — generated call summaries joinable to the calls table (medium)
 - [ ] `predicted CSAT (GET /v1/calls/{call_id}/predicted_csat)` — per-call satisfaction prediction, a core support KPI (medium)
 - [ ] `call action items` — extracted follow-ups per call for outcome tracking (medium)
