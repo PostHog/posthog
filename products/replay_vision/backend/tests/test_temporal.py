@@ -507,6 +507,98 @@ class TestCreateObservationActivity:
 
     @parameterized.expand(
         [
+            ("quota", 5, 5),
+            ("consent", None, None),
+        ]
+    )
+    def test_blocked_scan_emits_one_event_per_scanner_and_reason(
+        self, reason: str, expected_credit_limit: int | None, expected_credits_used: int | None
+    ) -> None:
+        # A refused scan writes no observation row, so this event is the only thing that can count it.
+        scanner = _make_scanner()
+        sibling = _make_scanner(team=scanner.team, name="sibling")
+        if reason == "consent":
+            org = scanner.team.organization
+            org.is_ai_data_processing_approved = False
+            org.save()
+
+        # Both gates would refuse, so the consent case reporting no credit figures is what proves
+        # consent is checked first.
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.quota_state",
+                return_value=QuotaSnapshot(
+                    credit_limit=5,
+                    credits_used=5,
+                    period_start=dt.datetime.now(dt.UTC),
+                    period_end=dt.datetime.now(dt.UTC),
+                    projected_monthly_credits=0,
+                ),
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            for session_id in ("sess-a", "sess-b"):
+                assert self._admit(scanner, session_id).was_created is False
+            assert self._admit(sibling, "sess-c").was_created is False
+            # Flip consent so the same scanner is now refused for the other reason, which the dedup
+            # key holds separately.
+            org = scanner.team.organization
+            org.is_ai_data_processing_approved = reason == "consent"
+            org.save()
+            assert self._admit(scanner, "sess-d").was_created is False
+
+        emitted = [
+            (c.kwargs["properties"]["scanner_id"], c.kwargs["properties"]["reason"]) for c in capture.call_args_list
+        ]
+        # Two sessions on one scanner share an event; another scanner, or another reason, reports on
+        # its own.
+        assert emitted == [
+            (str(scanner.id), reason),
+            (str(sibling.id), reason),
+            (str(scanner.id), "quota" if reason == "consent" else "consent"),
+        ]
+        kwargs = capture.call_args_list[0].kwargs
+        assert kwargs["event"] == "replay_vision_scan_blocked"
+        assert kwargs["distinct_id"] == f"replay-vision:{scanner.team_id}"
+        properties = kwargs["properties"]
+        assert properties["reason"] == reason
+        assert properties["scanner_type"] == "monitor"
+        # The enum's value, not its repr: a dashboard filters on the string the event carries.
+        assert properties["triggered_by"] == "schedule"
+        assert properties["credit_limit"] == expected_credit_limit
+        assert properties["credits_used"] == expected_credits_used
+        assert properties["team_id"] == scanner.team_id
+        assert properties["organization_id"] == str(scanner.team.organization_id)
+        assert kwargs["groups"]["project"] == str(scanner.team.uuid)
+
+    def test_blocked_scan_settles_and_stays_quiet_when_the_dedup_store_fails(self) -> None:
+        # The scan is already refused, so a Redis outage must neither fail the activity into a retry
+        # that reaches the same decision, nor emit the per-session flood the dedup gate exists to stop.
+        scanner = _make_scanner()
+        org = scanner.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.redis.get_client",
+                side_effect=RuntimeError("redis unreachable"),
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            result = self._admit(scanner, "sess-redis-down")
+
+        assert result == CreateObservationOutput(
+            observation_id=None, was_created=False, scanner_type=scanner.scanner_type
+        )
+        capture.assert_not_called()
+
+    @parameterized.expand(
+        [
             (None, 0, True),
             (None, 10_000, True),
             (100, 0, True),

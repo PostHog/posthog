@@ -847,7 +847,7 @@ describe('person-update', () => {
 
                 // Exactly the store's lane discipline: fold onto the last
                 // segment, cut a new one when the composition is not
-                // representable, ship segments in order.
+                // representable, write segments in order.
                 const segments: EventOps[] = [opsList[0]]
                 for (const o of opsList.slice(1)) {
                     const folded = foldOps(segments[segments.length - 1], o)
@@ -940,7 +940,7 @@ describe('person-update', () => {
             ['another pair', { $set_once: { k: 'later' }, $unset: ['k'] }],
         ])('%s over a pending pair cuts a segment', (_label, later) => {
             // "Present resolves one way, absent another with a different
-            // value" has no lane representation; the caller must ship the
+            // value" has no lane representation; the caller must write the
             // accumulated ops and fold onward from the incoming event.
             const pair = eventOps({ $set_once: { k: 'v' }, $unset: ['k'] })
             expect(foldOps(pair, eventOps(later))).toBeNull()
@@ -1022,7 +1022,7 @@ describe('person-update', () => {
 
                     if (folded === null) {
                         expect(SEGMENTS.has(`${stateLabel}|${inLabel}`)).toBe(true)
-                        // A cut segment ships each side as its own leader
+                        // A cut segment writes each side as its own leader
                         // call, which is the sequential application above
                         // by construction — nothing further to assert.
                         return

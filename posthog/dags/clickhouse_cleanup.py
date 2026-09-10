@@ -1103,7 +1103,8 @@ def persist_deleted_persons(
     The queue is advisory, never authoritative. Rows sit here until the drain runs, so a person
     can be revived after being queued no matter how carefully this op checks. ClickHouse also
     trails Postgres, so a person revived in Postgres can still read as deleted here. The drain
-    has to re-verify each person against Postgres before deleting it.
+    has to re-verify each person against Postgres before deleting it, and it deletes a queue row
+    once the person is resolved either way.
     """
     if run.dry_run:
         context.log.info("dry run: skipping the write to %s", PG_CLEANUP_QUEUE_TABLE)
@@ -1153,22 +1154,21 @@ def persist_deleted_persons(
                 page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
                 if not page:
                     break
-                # A person can be deleted, drained, re-created and deleted again under the same uuid,
-                # and the drain only looks at rows where cleaned_at is null. Leaving an already-cleaned
-                # row untouched would drop that second deletion on the floor and leak its Postgres rows
-                # for good, so the conflict re-arms the row instead of ignoring it. The WHERE keeps a
-                # retried op from rewriting rows that already hold these values: an unconditional
-                # DO UPDATE writes a new tuple version per row, so a retry over millions of rows would
-                # leave that many dead tuples for the persons writer to vacuum.
+                # A row still pending from an earlier sweep takes this run's deleted_at, and if the drain
+                # had marked it blocked (tombstoned person still owning a live distinct id) the block is
+                # lifted, because a fresh ClickHouse tombstone is new evidence the drain should act on.
+                # The WHERE keeps a retried op from rewriting rows that already hold this run's
+                # deleted_at: an unconditional DO UPDATE writes a new tuple version per row, so a retry
+                # over millions of rows would leave that many dead tuples for the persons writer to
+                # vacuum.
                 execute_values(
                     cursor,
                     f"""
                     INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
                     VALUES %s
                     ON CONFLICT (team_id, person_uuid) DO UPDATE
-                    SET deleted_at = EXCLUDED.deleted_at, cleaned_at = NULL
-                    WHERE {PG_CLEANUP_QUEUE_TABLE}.cleaned_at IS NOT NULL
-                       OR {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                    SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
+                    WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
                     """,
                     [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
                     page_size=1000,
