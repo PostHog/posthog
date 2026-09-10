@@ -9,6 +9,7 @@ when Celery loads this module at startup.
 """
 
 import time
+from datetime import date
 from uuid import UUID
 
 import structlog
@@ -179,6 +180,7 @@ def sweep_visual_review_retention() -> None:
     # open for its whole run.
     # nosemgrep: idor-lookup-without-team — cross-team retention sweep, no user input
     repos = list(Repo.objects.unscoped().using(READER_DB).order_by("created_at"))
+    repos = retention.rotate_for_day(repos, date.today())
     for swept, repo in enumerate(repos):
         if time.monotonic() >= deadline:
             logger.warning(
@@ -187,6 +189,7 @@ def sweep_visual_review_retention() -> None:
                 repos_total=len(repos),
             )
             break
+        started = time.monotonic()
         try:
             result = retention.sweep_repo(repo, deadline=deadline)
         except Exception as e:
@@ -205,4 +208,5 @@ def sweep_visual_review_retention() -> None:
             runs_deleted=result.runs_deleted,
             artifacts_deleted=result.artifacts_deleted,
             objects_leaked=result.objects_leaked,
+            duration_seconds=round(time.monotonic() - started, 1),
         )

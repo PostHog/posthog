@@ -10,8 +10,10 @@ import { projectLogic } from 'scenes/projectLogic'
 import { initKeaTests } from '~/test/init'
 
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { AttachedContextItem } from '../types/contextTypes'
+import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { computeTurnTrailers } from '../utils/turnTrailers'
@@ -498,6 +500,53 @@ describe('runStreamLogic', () => {
     })
 
     describe('assistant message buffering without messageId', () => {
+        it('keeps blank assistant chunks hidden until visible text arrives', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'agent_message_chunk' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: ' \n' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([])
+            expect(logic.values.hasThreadItems).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'First answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({ type: 'assistant_message', text: ' \nFirst answer', complete: false }),
+            ])
+            expect(logic.values.hasThreadItems).toBe(true)
+        })
+
+        it.each(['live', 'replay'] as const)('hides blank finalized assistant messages during %s', async (source) => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'agent_message' }), source)
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: ' \n\t' } }),
+                    source
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([])
+            expect(logic.values.hasThreadItems).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'First answer' } }),
+                    source
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({ type: 'assistant_message', text: 'First answer', complete: true }),
+            ])
+        })
+
         it('keeps two consecutive turns without a messageId in separate thread items', async () => {
             const frames: StoredLogEntry[] = [
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'One' } }),
@@ -1297,7 +1346,7 @@ describe('runStreamLogic', () => {
             )
         })
 
-        it('places replayed setup progress below the human turn it belongs to', async () => {
+        it('renders replayed setup progress below the human turn', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/progress', {
                     sessionId: 's',
@@ -1719,6 +1768,18 @@ describe('runStreamLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
+        it('clears the bootstrap spinner for a terminal run whose history renders no rows', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'failed', state: {} } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasThreadItems).toBe(false)
+            expect(logic.values.bootstrapLoading).toBe(false)
+        })
+
         it('stores bootstrap errors for inline task-run error UI', async () => {
             const error = mapHttpStatusToStreamError(404)
 
@@ -1830,6 +1891,184 @@ describe('runStreamLogic', () => {
     })
 
     describe('streamPhase provisioning during open', () => {
+        it.each(['completed', 'cancelled', 'failed'] as const)(
+            'keeps the thread optimistic when continuing a %s run',
+            async (status) => {
+                const nextRun: TaskRunDetailDTOApi = {
+                    id: 'run-2',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    artifacts: [],
+                    state: { resume_from_run_id: 'run-1' },
+                }
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+                const originalStream = MockStream.latest()
+                await originalStream.emitOpen()
+                await originalStream.emitMessage(notification('_posthog/run_started', { runId: 'run-1' }), '100-0')
+                await originalStream.emitMessage(notification('_posthog/user_message', { content: 'hello' }), '101-0')
+                await originalStream.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Hi there' } }),
+                    '102-0'
+                )
+                if (status === 'completed') {
+                    await originalStream.emitMessage(notification('_posthog/turn_complete', {}), '103-0')
+                }
+                await originalStream.emitMessage({ type: 'task_run_state', status })
+                const previousItems = logic.values.threadItems
+
+                logic.actions.startOptimisticResume('continue')
+                expect(logic.values.threadItems.slice(0, previousItems.length)).toEqual(previousItems)
+                expect(logic.values.threadItems.at(-1)).toMatchObject({ type: 'human_message', text: 'continue' })
+                expect(logic.values.streamPhase).toBe('provisioning')
+
+                logic.actions.attachOptimisticResume('task-1', nextRun)
+                const resumedStream = MockStream.latest()
+                await resumedStream.emitOpen()
+                expect(resumedStream.options.lastEventId).toBeUndefined()
+                expect(resumedStream.options.startLatest).toBe(false)
+                expect(logic.values.bootstrappedRunId).toBe('run-2')
+                expect(logic.values.streamPhase).toBe('provisioning')
+                expect(logic.values.threadItems.slice(0, previousItems.length)).toEqual(previousItems)
+
+                await resumedStream.emitMessage(notification('_posthog/run_started', { runId: 'run-2' }))
+                await resumedStream.emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.streamPhase).toBe('thinking')
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(1)
+                await resumedStream.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Continuing now' } })
+                )
+                await resumedStream.emitMessage(notification('_posthog/turn_complete', {}))
+                await resumedStream.emitMessage({ type: 'task_run_state', status: 'completed' })
+
+                logic.actions.startOptimisticResume('continue')
+                expect(logic.values.streamPhase).toBe('provisioning')
+                logic.actions.attachOptimisticResume('task-1', {
+                    ...nextRun,
+                    id: 'run-3',
+                    state: { resume_from_run_id: 'run-2' },
+                })
+                await MockStream.latest().emitOpen()
+                await MockStream.latest().emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+            }
+        )
+
+        it('rolls back only the pending message when a resume fails', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'hello' }), 'replay')
+            logic.actions.markTurnComplete()
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+            const previousItems = logic.values.threadItems
+            logic.actions.startOptimisticResume('continue')
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/console', { message: 'History finished loading', level: 'info' }),
+                'replay'
+            )
+            const entryCount = logic.values.log.entries.length
+            logic.actions.rollbackOptimisticResume()
+
+            expect(logic.values.log.entries).toHaveLength(entryCount - 1)
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual(previousItems)
+            expect(logic.values.streamPhase).toBe('idle')
+            expect(logic.values.turnComplete).toBe(true)
+            expect(logic.values.awaitingOptimisticAttach).toBe(false)
+        })
+
+        it.each([false, true])(
+            'reconciles incomplete history with a persisted successor message: %s',
+            async (persisted) => {
+                const run = {
+                    id: 'run-2',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    artifacts: [],
+                    state: { resume_from_run_id: 'run-1' },
+                    runtime_adapter: null,
+                    model: null,
+                    reasoning_effort: null,
+                    log_url: null,
+                    created_at: '2026-01-01T00:00:00Z',
+                    updated_at: '2026-01-01T00:00:00Z',
+                    completed_at: null,
+                } satisfies TaskRunDetailDTOApi
+                const history = [
+                    notification('_posthog/run_started', { runId: 'run-1' }),
+                    notification('_posthog/user_message', { content: 'continue' }),
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
+                    ...(persisted
+                        ? [
+                              notification('_posthog/run_started', { runId: 'run-2' }),
+                              notification('_posthog/user_message', { content: 'continue' }),
+                          ]
+                        : []),
+                ]
+                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue(run)
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(history)
+                logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                logic.actions.startOptimisticResume('continue')
+                await expectLogic(logic, () =>
+                    logic.actions.attachOptimisticResume('task-1', run)
+                ).toFinishAllListeners()
+
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+                expect(logic.values.threadItems.some((item) => item.text === 'Earlier answer')).toBe(true)
+                expect(logic.values.streamPhase).toBe(persisted ? 'thinking' : 'provisioning')
+                // The reconciliation must not wipe the successor's seeded status — a null one hides the
+                // composer, and a live run publishes no further state frame until it terminates.
+                expect(logic.values.currentRunStatus).toBe('queued')
+                expect(logic.values.turnComplete).toBe(false)
+                expect(MockStream.latest().options.startLatest).toBe(true)
+                await MockStream.latest().emitOpen()
+                await MockStream.latest().emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+            }
+        )
+
+        it('stops provisioning when the incomplete-history successor is already terminal', async () => {
+            const run = {
+                id: 'run-2',
+                task: 'task-1',
+                stage: null,
+                branch: null,
+                status: TaskRunStatus.FAILED,
+                environment: TaskRunEnvironment.CLOUD,
+                error_message: 'Failed to start task workflow',
+                output: null,
+                artifacts: [],
+                state: { resume_from_run_id: 'run-1' },
+                runtime_adapter: null,
+                model: null,
+                reasoning_effort: null,
+                log_url: null,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+                completed_at: '2026-01-01T00:00:01Z',
+            } satisfies TaskRunDetailDTOApi
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue(run)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                notification('_posthog/user_message', { content: 'continue' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
+            ])
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.startOptimisticResume('continue')
+            await expectLogic(logic, () => logic.actions.attachOptimisticResume('task-1', run)).toFinishAllListeners()
+
+            expect(logic.values.runOpening).toEqual(false)
+            expect(logic.values.streamPhase).toEqual('idle')
+        })
+
         it('is provisioning while the open POST is in flight, before any SSE state exists', () => {
             expect(logic.values.streamPhase).toEqual('idle')
 
@@ -2471,13 +2710,13 @@ describe('runStreamLogic', () => {
                 logic.actions.ingestAcpFrame(
                     notification('_posthog/progress', {
                         sessionId: 's',
-                        step: 'clone',
+                        step: 'wizard',
                         status: 'in_progress',
-                        label: 'Cloning repository',
+                        label: 'Running PostHog setup wizard',
                         group: 'setup:run-1',
                     })
                 )
-            }).toMatchValues({ currentProgress: 'Cloning repository' })
+            }).toMatchValues({ currentProgress: 'Running PostHog setup wizard' })
 
             expect(logic.values.threadItems).toEqual([
                 {
@@ -2486,16 +2725,16 @@ describe('runStreamLogic', () => {
                     progressGroup: 'setup:run-1',
                     progressSteps: [
                         {
-                            key: 'clone',
+                            key: 'wizard',
                             status: 'in_progress',
-                            label: 'Cloning repository',
+                            label: 'Running PostHog setup wizard',
                         },
                     ],
                 },
             ])
         })
 
-        it('coalesces setup progress by group and updates repeated steps in place', async () => {
+        it('coalesces setup progress into one visible activity', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
                     notification('_posthog/progress', {
@@ -2544,6 +2783,32 @@ describe('runStreamLogic', () => {
                         },
                     ],
                 },
+            ])
+
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    step: 'clone',
+                    status: 'failed',
+                    label: 'Repository clone failed',
+                    group: 'setup:run-1',
+                })
+            )
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    step: 'preview',
+                    status: 'in_progress',
+                    label: 'Starting preview',
+                    group: 'setup:run-1',
+                })
+            )
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({
+                    progressSteps: [
+                        { key: 'sandbox', status: 'completed', label: 'Set up sandbox' },
+                        { key: 'clone', status: 'failed', label: 'Repository clone failed' },
+                        { key: 'preview', status: 'in_progress', label: 'Starting preview' },
+                    ],
+                }),
             ])
         })
 

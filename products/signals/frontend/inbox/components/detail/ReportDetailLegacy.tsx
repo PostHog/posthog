@@ -37,9 +37,9 @@ import {
 } from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
-import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
+import { ImplementButton } from './ImplementButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import {
@@ -444,10 +444,7 @@ function InboxDetailFrameLegacy({
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
                         {primaryAction}
-                        {/* The report's main call to action. Same gate and standalone button the redesign pane
-                            uses, so a flag-off reader keeps Create PR. Never shows alongside the "Open in
-                            GitHub" primary action — the gate is false once a PR exists. */}
-                        {canCreateImplementationPr(report) && <CreatePrButton report={report} />}
+                        {canCreateImplementationPr(report) && <ImplementButton report={report} />}
                         {/* Discuss is always available and stays inline as its own dropdown button. */}
                         <DiscussReportButton report={report} reportUrl={reportUrl} />
                         {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
