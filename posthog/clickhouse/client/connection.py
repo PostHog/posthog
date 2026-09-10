@@ -13,6 +13,7 @@ from django.conf import settings
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
+from posthog.clickhouse.client.metered_client import MeteredChPool
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -396,7 +397,7 @@ def default_client(host=settings.CLICKHOUSE_HOST, password=None):
     )
 
 
-class RefreshingChPool(ChPool):
+class RefreshingChPool(MeteredChPool):
     """ChPool that stamps the current credential onto every pulled client.
 
     The pool is keyed on identity rather than the credential, so one pool survives credential
@@ -444,7 +445,7 @@ def _make_ch_pool(
         # kwargs["password"] is only the lazy seed here; RefreshingChPool re-stamps every pulled client.
         return RefreshingChPool(credential_provider=credential_provider, **kwargs)
 
-    return ChPool(**kwargs)
+    return MeteredChPool(**kwargs)
 
 
 make_ch_pool = cache(_make_ch_pool)
