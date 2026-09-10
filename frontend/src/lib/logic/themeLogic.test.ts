@@ -73,7 +73,6 @@ describe('themeLogic', () => {
         document.body.setAttribute('theme', 'light')
         expect(themeLogic.values.isDarkModeOn).toBe(false)
 
-        // The snapshot runner emulates a matching color scheme when it sets this attribute
         document.body.setAttribute('theme', 'dark')
         emitSystemThemeChange(true)
         expect(themeLogic.values.isDarkModeOn).toBe(true)

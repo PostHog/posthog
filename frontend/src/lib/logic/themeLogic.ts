@@ -147,8 +147,6 @@ export const themeLogic = kea<themeLogicType>([
                 sceneConfig: null | import('../../scenes/sceneTypes').SceneConfig,
                 theme: Theme | null
             ) => {
-                // The attribute below is not a selector input, so this branch re-evaluates only when one
-                // of the inputs above moves. The snapshot runner emulates a matching color scheme for that.
                 if (
                     typeof window !== 'undefined' &&
                     window.document &&
