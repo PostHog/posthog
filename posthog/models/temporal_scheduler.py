@@ -73,7 +73,7 @@ class TemporalSchedulerClaim(models.Model):
         ]
         indexes = [
             models.Index(
-                fields=["lease_expires_at"],
+                fields=["scheduler", "region", "lease_expires_at"],
                 condition=models.Q(status__in=["reserved", "confirmed"]),
                 name="tsc_active_lease",
             ),

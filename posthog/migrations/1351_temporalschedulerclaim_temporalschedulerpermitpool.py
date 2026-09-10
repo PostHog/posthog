@@ -57,7 +57,7 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         condition=models.Q(("status__in", ["reserved", "confirmed"])),
-                        fields=["lease_expires_at"],
+                        fields=["scheduler", "region", "lease_expires_at"],
                         name="tsc_active_lease",
                     ),
                     models.Index(

@@ -60,6 +60,8 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
 @pytest.mark.parametrize(
     "method,args",
     [
+        ("observe_payload", (" ", "eu", "discovery", 1)),
+        ("record_admission", ("subscriptions", " ", "reserved", 1)),
         ("observe_payload", ("subscriptions", "eu", "unknown", 1)),
         ("record_admission", ("subscriptions", "eu", "unknown", 1)),
         ("record_claim_transition", ("subscriptions", "eu", "unknown")),

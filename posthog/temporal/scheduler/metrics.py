@@ -46,7 +46,7 @@ class SchedulerMetrics:
 
     @staticmethod
     def _validate_scope(scheduler: str, region: str) -> None:
-        if not scheduler or not region:
+        if not scheduler.strip() or not region.strip():
             raise ValueError("scheduler and region metric labels must not be empty")
 
     def observe_payload(
