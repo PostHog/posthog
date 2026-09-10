@@ -23,7 +23,7 @@ The first release supports Trends time series with no breakdown and an hourly, d
 
 Forecasting uses completed insight buckets only. A forecast alert cannot run more frequently than its insight interval: hourly insights may run hourly or less often, daily insights may run daily or less often, and so on. Real-time and 15-minute calculation intervals are unsupported. This validation prevents normal schedules from repeatedly fitting the same completed input without adding forecast-specific persistence or skip states.
 
-At least 48 hourly observations or 14 daily, weekly, or monthly observations are required. The required history also grows with the requested forecast: the evaluator requires at least four historical observations for every future observation. A 13-week target therefore needs at least 52 weeks of history. Training remains bounded to 1,000 observations and two years of lookback.
+At least 49 hourly observations, 15 daily observations, or 14 weekly or monthly observations are required. The required history also grows with the requested forecast: the evaluator requires at least four historical observations for every future observation. A 13-week target therefore needs at least 52 weeks of history. Training remains bounded to 1,000 observations and two years of lookback.
 
 ## Forecast reach
 
