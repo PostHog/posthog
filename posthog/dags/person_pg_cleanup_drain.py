@@ -8,17 +8,19 @@ The queue is advisory. A person can be revived in Postgres after it was queued, 
 deletes on the queue's word: it hands each batch to personhog's DeleteTombstonedPersons, which
 deletes a person only while it is still tombstoned, under row locks, and reports the rest back.
 Queue rows are removed once personhog has resolved the person either way. Rows personhog could
-not resolve (a tombstoned person that still owns a live distinct id) are stamped blocked_at and
-skipped for a retry interval.
+not resolve are stamped blocked_at and skipped for a retry interval: a tombstoned person that
+still owns a live distinct id, a person with more distinct ids than the replica deletes in one
+transaction, or a person whose delete request kept failing.
 
-One run pod, sequential batches, every statement and RPC bounded, and a pause after each RPC so
-the persons writer never sees a burst.
+One run pod, sequential requests, every statement and RPC bounded, and a pause after each RPC so
+the persons writer never sees a burst. A request that fails is split in half and retried, so one
+slow or broken person costs its own row, not the run.
 """
 
 import time
 import statistics
-from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections import defaultdict, deque
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -46,18 +48,25 @@ PG_APPLICATION_NAME = "person_pg_cleanup_drain"
 # Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
 RPC_MAX_UUIDS = 1000
 
-# personhog-replica splits a request into chunks of REPLICA_CHUNK_SIZE uuids and runs them one
-# after another, each under REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS per statement. The client
-# deadline has to cover every chunk in the request, or the client abandons a delete the server
-# keeps running and then retries it on top. REPLICA_CHUNK_SIZE mirrors the production
-# BULK_CHUNK_SIZE; the server default of 200 would allow a shorter deadline, so 100 is the
-# conservative choice.
+# personhog-router gives every backend call this long (BACKEND_TIMEOUT_MS) and takes the shorter
+# of it and the client deadline. The replica deletes a request in chunks of REPLICA_CHUNK_SIZE
+# uuids (the production BULK_CHUNK_SIZE), one transaction each.
+ROUTER_BACKEND_TIMEOUT_SECONDS = 5.0
 REPLICA_CHUNK_SIZE = 100
-REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS = 30.0
 
 RETRY_BACKOFF_CAP_SECONDS = 60.0
 LOG_EVERY_PAGES = 10
 BLOCKED_SAMPLE_SIZE = 50
+
+# Codes that say the request itself is wrong or unserved; another attempt returns the same answer.
+FATAL_RPC_CODES = frozenset(
+    {
+        grpc.StatusCode.UNIMPLEMENTED,
+        grpc.StatusCode.INVALID_ARGUMENT,
+        grpc.StatusCode.PERMISSION_DENIED,
+        grpc.StatusCode.UNAUTHENTICATED,
+    }
+)
 
 _T = TypeVar("_T")
 
@@ -74,9 +83,10 @@ class DrainConfig(dagster.Config):
     )
     page_size: int = pydantic.Field(default=1000, description="Queue rows per Postgres read, at most 1000.")
     rpc_batch_size: int = pydantic.Field(
-        default=200,
-        description="Person uuids per personhog request, at most 1000. The replica deletes in chunks of 100, so "
-        "200 keeps each request at two chunk transactions on the persons writer.",
+        default=REPLICA_CHUNK_SIZE,
+        description="Person uuids per personhog request, at most 1000. 100 is one replica chunk, which production "
+        "deletes well inside the router's 5 s budget per backend call. A request that fails is split in half and "
+        "retried, down to one person.",
     )
     pause_ms: int = pydantic.Field(default=200, description="Pause after every personhog request.")
     latency_multiplier: float = pydantic.Field(
@@ -85,27 +95,36 @@ class DrainConfig(dagster.Config):
         "writer slows down, the drain slows down with it.",
     )
     rpc_timeout_seconds: float = pydantic.Field(
-        default=120.0,
-        description="Deadline per personhog request. Must exceed 30 s for every chunk of 100 uuids the request "
-        "holds, so the client never gives up on a delete the replica is still running.",
+        default=ROUTER_BACKEND_TIMEOUT_SECONDS,
+        description="Deadline per personhog request. personhog-router caps every backend call at 5 s, so a longer "
+        "deadline only waits on the router's own retries of the same call.",
     )
     max_runtime_seconds: int = pydantic.Field(
         default=4 * 3600,
-        description="Stop taking new pages and chunks after this many seconds, then finish cleanly.",
+        description="Stop taking new pages and requests after this many seconds, then finish cleanly.",
     )
     max_consecutive_failures: int = pydantic.Field(
-        default=5, description="Failed personhog attempts in a row before the run fails."
+        default=5,
+        description="Failed personhog attempts in a row, across requests, before the run fails. One person that "
+        "keeps failing is isolated by splitting and stamped blocked_at, which does not trip this; an outage does.",
+    )
+    max_attempts_per_person: int = pydantic.Field(
+        default=3,
+        description="Attempts for a single-person request before its row is stamped blocked_at and the run moves on.",
     )
     retry_backoff_seconds: float = pydantic.Field(
-        default=2.0, description="Pause after the first failed attempt. Doubles per attempt, capped at 60 s."
+        default=2.0,
+        description="Pause before the retry after a failed attempt. Doubles per consecutive failure, capped at 60 s, "
+        "resets on success.",
     )
     blocked_retry_hours: int = pydantic.Field(
-        default=24, description="Skip rows personhog reported blocked more recently than this."
+        default=24, description="Skip rows stamped blocked_at more recently than this."
     )
     max_blocked: int = pydantic.Field(
         default=1000,
-        description="Fail the run once more rows than this come back blocked. A tombstoned person that still owns "
-        "a live distinct id is an ingestion invariant violation, and that many of them needs a person, not a retry.",
+        description="Fail the run once more rows than this are stamped blocked_at in one run: a tombstoned person "
+        "that still owns a live distinct id, a person over the replica's distinct-id cap, or a request that kept "
+        "failing. That many needs a person, not a retry.",
     )
 
     @pydantic.model_validator(mode="after")
@@ -114,16 +133,14 @@ class DrainConfig(dagster.Config):
             raise ValueError(f"page_size must be between 1 and {RPC_MAX_UUIDS}")
         if not 1 <= self.rpc_batch_size <= RPC_MAX_UUIDS:
             raise ValueError(f"rpc_batch_size must be between 1 and {RPC_MAX_UUIDS}")
-        if self.rpc_timeout_seconds <= minimum_rpc_timeout_seconds(self.rpc_batch_size):
-            raise ValueError(
-                f"rpc_timeout_seconds must exceed {minimum_rpc_timeout_seconds(self.rpc_batch_size):.0f} s for "
-                f"rpc_batch_size={self.rpc_batch_size}: the replica runs one {REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS:.0f} s "
-                f"chunk per {REPLICA_CHUNK_SIZE} uuids, one after another"
-            )
+        if self.rpc_timeout_seconds <= 0:
+            raise ValueError("rpc_timeout_seconds must be positive")
         if self.max_persons < 0 or self.pause_ms < 0 or self.latency_multiplier < 0 or self.blocked_retry_hours < 0:
             raise ValueError("max_persons, pause_ms, latency_multiplier and blocked_retry_hours must not be negative")
-        if self.max_runtime_seconds <= 0 or self.max_consecutive_failures <= 0:
-            raise ValueError("max_runtime_seconds and max_consecutive_failures must be positive")
+        if self.max_runtime_seconds <= 0 or self.max_consecutive_failures <= 0 or self.max_attempts_per_person <= 0:
+            raise ValueError(
+                "max_runtime_seconds, max_consecutive_failures and max_attempts_per_person must be positive"
+            )
         if self.retry_backoff_seconds < 0 or self.max_blocked < 0:
             raise ValueError("retry_backoff_seconds and max_blocked must not be negative")
         return self
@@ -150,6 +167,13 @@ class Chunk:
     deleted_at: datetime
     person_uuids: tuple[str, ...]
 
+    def halves(self) -> tuple["Chunk", "Chunk"]:
+        middle = len(self.person_uuids) // 2
+        return (
+            Chunk(team_id=self.team_id, deleted_at=self.deleted_at, person_uuids=self.person_uuids[:middle]),
+            Chunk(team_id=self.team_id, deleted_at=self.deleted_at, person_uuids=self.person_uuids[middle:]),
+        )
+
 
 @frozen(frozen=False)
 class DrainTotals:
@@ -158,10 +182,13 @@ class DrainTotals:
     chunks: int = 0
     rpc_calls: int = 0
     rpc_errors: int = 0
+    rpc_splits: int = 0
     persons_deleted: int = 0
     persons_skipped_live: int = 0
     persons_not_found: int = 0
     persons_blocked: int = 0
+    persons_oversized: int = 0
+    persons_rpc_failed: int = 0
     blocked_sample: list[str] = field(default_factory=list)
     queue_rows_deleted: int = 0
     rpc_seconds: list[float] = field(default_factory=list)
@@ -170,6 +197,9 @@ class DrainTotals:
     queue_rows_estimate_at_start: int = 0
     stopped_reason: str = "drained"
 
+    def rows_stamped_blocked(self) -> int:
+        return self.persons_blocked + self.persons_oversized + self.persons_rpc_failed
+
     def as_metadata(self) -> dict[str, dagster.MetadataValue]:
         return {
             "rows_read": dagster.MetadataValue.int(self.rows_read),
@@ -177,10 +207,13 @@ class DrainTotals:
             "chunks": dagster.MetadataValue.int(self.chunks),
             "rpc_calls": dagster.MetadataValue.int(self.rpc_calls),
             "rpc_errors": dagster.MetadataValue.int(self.rpc_errors),
+            "rpc_splits": dagster.MetadataValue.int(self.rpc_splits),
             "persons_deleted": dagster.MetadataValue.int(self.persons_deleted),
             "persons_skipped_live": dagster.MetadataValue.int(self.persons_skipped_live),
             "persons_not_found": dagster.MetadataValue.int(self.persons_not_found),
             "persons_blocked": dagster.MetadataValue.int(self.persons_blocked),
+            "persons_oversized": dagster.MetadataValue.int(self.persons_oversized),
+            "persons_rpc_failed": dagster.MetadataValue.int(self.persons_rpc_failed),
             "blocked_sample": dagster.MetadataValue.text(", ".join(self.blocked_sample) or "none"),
             "queue_rows_deleted": dagster.MetadataValue.int(self.queue_rows_deleted),
             "rpc_seconds_total": dagster.MetadataValue.float(round(sum(self.rpc_seconds, 0.0), 3)),
@@ -193,6 +226,14 @@ class DrainTotals:
             "queue_rows_estimate_at_start": dagster.MetadataValue.int(self.queue_rows_estimate_at_start),
             "stopped_reason": dagster.MetadataValue.text(self.stopped_reason),
         }
+
+
+class _AttemptFailed(Exception):
+    """One personhog attempt failed with a code another attempt may clear."""
+
+    def __init__(self, code: grpc.StatusCode | None) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk]:
@@ -211,14 +252,10 @@ def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk
     ]
 
 
-def minimum_rpc_timeout_seconds(rpc_batch_size: int) -> float:
-    chunks = -(-rpc_batch_size // REPLICA_CHUNK_SIZE)
-    return REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS * chunks
-
-
 def is_retryable_pg_error(exc: BaseException) -> bool:
-    # Serialization failure and deadlock: the statement can simply run again.
-    return isinstance(exc, psycopg2.Error) and getattr(exc, "pgcode", None) in {"40001", "40P01"}
+    # Serialization failure, deadlock, lock_timeout and statement_timeout: the statement can
+    # simply run again.
+    return isinstance(exc, psycopg2.Error) and getattr(exc, "pgcode", None) in {"40001", "40P01", "55P03", "57014"}
 
 
 def pause_seconds(pause_ms: int, latency_multiplier: float, last_rpc_seconds: float) -> float:
@@ -228,6 +265,10 @@ def pause_seconds(pause_ms: int, latency_multiplier: float, last_rpc_seconds: fl
 def _status_code(exc: grpc.RpcError) -> grpc.StatusCode | None:
     code = getattr(exc, "code", None)
     return code() if callable(code) else None
+
+
+def _code_name(code: grpc.StatusCode | None) -> str:
+    return code.name if code else "unknown"
 
 
 def _now_monotonic() -> float:
@@ -354,6 +395,7 @@ class _Drain:
         self.client = client
         self.connection = connection
         self.totals = DrainTotals()
+        self.consecutive_failures = 0
         self.deadline = _now_monotonic() + config.max_runtime_seconds
         self.blocked_before = datetime.now(UTC) - timedelta(hours=config.blocked_retry_hours)
 
@@ -374,8 +416,9 @@ class _Drain:
             started = time.perf_counter()
             try:
                 with self.connection.cursor() as cursor:
-                    return fn(cursor)
+                    result = fn(cursor)
             except psycopg2.Error as exc:
+                self.totals.pg_seconds_total += time.perf_counter() - started
                 attempt += 1
                 if not is_retryable_pg_error(exc) or attempt >= self.config.max_consecutive_failures:
                     raise dagster.Failure(
@@ -383,8 +426,9 @@ class _Drain:
                     ) from exc
                 self.context.log.warning("Postgres statement conflicted (%s), retrying", getattr(exc, "pgcode", "?"))
                 _pause(1.0)
-            finally:
-                self.totals.pg_seconds_total += time.perf_counter() - started
+                continue
+            self.totals.pg_seconds_total += time.perf_counter() - started
+            return result
 
     def pages(self) -> Iterator[list[QueueRow]]:
         after: QueueCursor | None = None
@@ -404,64 +448,107 @@ class _Drain:
             last = page[-1]
             after = QueueCursor(team_id=last.team_id, person_uuid=last.person_uuid)
 
-    def send_with_retry(self, chunk: Chunk) -> DeleteTombstonedPersonsResponse:
+    def send(self, chunk: Chunk) -> DeleteTombstonedPersonsResponse:
+        """One personhog attempt. Fatal codes and an outage fail the run; anything else is retryable."""
         assert self.client is not None
         client = self.client
         request = DeleteTombstonedPersonsRequest(team_id=chunk.team_id, person_uuids=list(chunk.person_uuids))
-        attempt = 0
-        while True:
-            started = time.perf_counter()
-            try:
-                response = personhog_call(
-                    "delete_tombstoned_persons",
-                    lambda: client.delete_tombstoned_persons(request, timeout=self.config.rpc_timeout_seconds),
-                    caller_tag=PERSONHOG_CALLER_TAG,
-                )
-            except grpc.RpcError as exc:
-                self.totals.rpc_errors += 1
-                code = _status_code(exc)
-                _emit(
-                    self.metrics,
-                    "person_pg_cleanup_drain_rpc_calls",
-                    {"result": "error", "code": code.name if code else "unknown"},
-                )
-                if code == grpc.StatusCode.UNIMPLEMENTED:
-                    # An older router or replica does not know the RPC. Failing here is the point:
-                    # the legacy DeletePersons would hard-delete revived persons.
-                    raise dagster.Failure(
-                        "personhog does not serve DeleteTombstonedPersons yet; deploy personhog-router and "
-                        "personhog-replica with it before running the drain",
-                        metadata={**self.totals.as_metadata(), **_chunk_metadata(chunk)},
-                    ) from exc
-                attempt += 1
-                if attempt >= self.config.max_consecutive_failures:
-                    raise dagster.Failure(
-                        f"personhog DeleteTombstonedPersons failed {attempt} times in a row ({code})",
-                        metadata={
-                            **self.totals.as_metadata(),
-                            **_chunk_metadata(chunk),
-                            "attempts": dagster.MetadataValue.int(attempt),
-                            "grpc_code": dagster.MetadataValue.text(code.name if code else "unknown"),
-                        },
-                    ) from exc
-                backoff = min(self.config.retry_backoff_seconds * 2 ** (attempt - 1), RETRY_BACKOFF_CAP_SECONDS)
-                self.context.log.warning(
-                    "personhog delete failed (%s); attempt %d of %d, retrying in %.1fs",
-                    code,
-                    attempt,
-                    self.config.max_consecutive_failures,
-                    backoff,
-                )
-                _pause(backoff)
-                continue
-            self.totals.rpc_calls += 1
-            self.totals.rpc_seconds.append(time.perf_counter() - started)
-            return response
+        started = time.perf_counter()
+        try:
+            response = personhog_call(
+                "delete_tombstoned_persons",
+                lambda: client.delete_tombstoned_persons(request, timeout=self.config.rpc_timeout_seconds),
+                caller_tag=PERSONHOG_CALLER_TAG,
+            )
+        except grpc.RpcError as exc:
+            code = _status_code(exc)
+            self.totals.rpc_errors += 1
+            self.consecutive_failures += 1
+            _emit(self.metrics, "person_pg_cleanup_drain_rpc_calls", {"result": "error", "code": _code_name(code)})
+            if code == grpc.StatusCode.UNIMPLEMENTED:
+                # An older router or replica does not know the RPC. Failing here is the point:
+                # the legacy DeletePersons would hard-delete revived persons.
+                raise dagster.Failure(
+                    "personhog does not serve DeleteTombstonedPersons yet; deploy personhog-router and "
+                    "personhog-replica with it before running the drain",
+                    metadata={**self.totals.as_metadata(), **_chunk_metadata(chunk)},
+                ) from exc
+            if code in FATAL_RPC_CODES:
+                raise dagster.Failure(
+                    f"personhog rejected DeleteTombstonedPersons with {_code_name(code)}; retrying cannot change that",
+                    metadata={**self.totals.as_metadata(), **_chunk_metadata(chunk)},
+                ) from exc
+            if self.consecutive_failures >= self.config.max_consecutive_failures:
+                raise dagster.Failure(
+                    f"personhog DeleteTombstonedPersons failed {self.consecutive_failures} times in a row "
+                    f"({_code_name(code)})",
+                    metadata={
+                        **self.totals.as_metadata(),
+                        **_chunk_metadata(chunk),
+                        "attempts": dagster.MetadataValue.int(self.consecutive_failures),
+                        "grpc_code": dagster.MetadataValue.text(_code_name(code)),
+                    },
+                ) from exc
+            raise _AttemptFailed(code) from exc
+        self.consecutive_failures = 0
+        self.totals.rpc_calls += 1
+        self.totals.rpc_seconds.append(time.perf_counter() - started)
+        return response
 
-    def drain_chunk(self, chunk: Chunk) -> None:
-        response = self.send_with_retry(chunk)
-        blocked = set(response.blocked_person_uuids)
-        resolved = [uuid for uuid in chunk.person_uuids if uuid not in blocked]
+    def backoff(self, chunk: Chunk, code: grpc.StatusCode | None) -> None:
+        pause = min(self.config.retry_backoff_seconds * 2 ** (self.consecutive_failures - 1), RETRY_BACKOFF_CAP_SECONDS)
+        self.context.log.warning(
+            "personhog delete of %d persons failed (%s); %d failures in a row, next attempt in %.1fs",
+            len(chunk.person_uuids),
+            _code_name(code),
+            self.consecutive_failures,
+            pause,
+        )
+        _pause(pause)
+
+    def resolve(self, chunk: Chunk) -> None:
+        """Send the chunk, splitting a failed request in half until each person is resolved or given up.
+
+        Halves go to the back of the queue, so a single broken person never produces a long run
+        of failures and the outage detector in send() stays meaningful.
+        """
+        pending: deque[tuple[Chunk, int]] = deque([(chunk, 0)])
+        while pending and not self.out_of_time():
+            current, attempts = pending.popleft()
+            try:
+                response = self.send(current)
+            except _AttemptFailed as failed:
+                self.backoff(current, failed.code)
+                if len(current.person_uuids) > 1:
+                    self.totals.rpc_splits += 1
+                    pending.extend((half, 0) for half in current.halves())
+                elif attempts + 1 < self.config.max_attempts_per_person:
+                    pending.append((current, attempts + 1))
+                else:
+                    self.give_up(current, failed.code)
+                continue
+            self.apply(current, response)
+
+    def give_up(self, chunk: Chunk, code: grpc.StatusCode | None) -> None:
+        [uuid] = chunk.person_uuids
+        self.context.log.warning(
+            "personhog could not delete person %s of team %d after %d attempts (%s); stamping its row blocked_at",
+            uuid,
+            chunk.team_id,
+            self.config.max_attempts_per_person,
+            _code_name(code),
+        )
+        self.totals.chunks += 1
+        self.totals.persons_rpc_failed += 1
+        self.sample("rpc_failed", [uuid])
+        self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, [uuid]))
+        self.check_blocked_budget(chunk)
+
+    def apply(self, chunk: Chunk, response: DeleteTombstonedPersonsResponse) -> None:
+        blocked = sorted(response.blocked_person_uuids)
+        oversized = sorted(response.oversized_person_uuids)
+        unresolved = set(blocked) | set(oversized)
+        resolved = [uuid for uuid in chunk.person_uuids if uuid not in unresolved]
         # Skipped-live rows go too. Postgres sees that person alive, so the queue row is stale;
         # if the person is tombstoned again the sweep queues it again. Left in place, live rows
         # would accumulate and eat every run's budget.
@@ -469,20 +556,31 @@ class _Drain:
         self.totals.persons_skipped_live += response.skipped_live_count
         self.totals.persons_not_found += len(resolved) - response.deleted_count - response.skipped_live_count
         self.totals.persons_blocked += len(blocked)
-        self.totals.blocked_sample.extend(
-            sorted(blocked)[: max(0, BLOCKED_SAMPLE_SIZE - len(self.totals.blocked_sample))]
-        )
+        self.totals.persons_oversized += len(oversized)
+        self.sample("live_distinct_id", blocked)
+        self.sample("oversized", oversized)
         self.totals.chunks += 1
         self.totals.queue_rows_deleted += self.timed_pg(lambda cursor: _delete_queue_rows(cursor, chunk, resolved))
-        if blocked:
-            self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, sorted(blocked)))
-        if self.totals.persons_blocked > self.config.max_blocked:
-            raise dagster.Failure(
-                f"{self.totals.persons_blocked} queued persons are tombstoned but still own a live distinct id, "
-                f"more than max_blocked={self.config.max_blocked}; this needs investigation, not more retries",
-                metadata={**self.totals.as_metadata(), **_chunk_metadata(chunk)},
-            )
+        if unresolved:
+            self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, sorted(unresolved)))
+        self.check_blocked_budget(chunk)
         _pause(pause_seconds(self.config.pause_ms, self.config.latency_multiplier, self.totals.rpc_seconds[-1]))
+
+    def sample(self, reason: str, uuids: Iterable[str]) -> None:
+        room = max(0, BLOCKED_SAMPLE_SIZE - len(self.totals.blocked_sample))
+        self.totals.blocked_sample.extend(f"{reason}:{uuid}" for uuid in list(uuids)[:room])
+
+    def check_blocked_budget(self, chunk: Chunk) -> None:
+        totals = self.totals
+        if totals.rows_stamped_blocked() <= self.config.max_blocked:
+            return
+        raise dagster.Failure(
+            f"{totals.rows_stamped_blocked()} queue rows stamped blocked_at this run "
+            f"({totals.persons_blocked} with a live distinct id, {totals.persons_oversized} over the distinct-id "
+            f"cap, {totals.persons_rpc_failed} with failing requests), more than max_blocked={self.config.max_blocked}; "
+            "this needs investigation, not more retries",
+            metadata={**totals.as_metadata(), **_chunk_metadata(chunk)},
+        )
 
     def emit_counters_since(self, before: DrainTotals) -> None:
         after = self.totals
@@ -491,6 +589,8 @@ class _Drain:
             ("skipped_live", after.persons_skipped_live - before.persons_skipped_live),
             ("not_found", after.persons_not_found - before.persons_not_found),
             ("blocked", after.persons_blocked - before.persons_blocked),
+            ("oversized", after.persons_oversized - before.persons_oversized),
+            ("rpc_failed", after.persons_rpc_failed - before.persons_rpc_failed),
         ):
             _emit(self.metrics, "person_pg_cleanup_drain_persons", {"outcome": outcome}, delta)
         _emit(
@@ -512,44 +612,55 @@ class _Drain:
             persons_skipped_live=self.totals.persons_skipped_live,
             persons_not_found=self.totals.persons_not_found,
             persons_blocked=self.totals.persons_blocked,
+            persons_oversized=self.totals.persons_oversized,
+            persons_rpc_failed=self.totals.persons_rpc_failed,
             queue_rows_deleted=self.totals.queue_rows_deleted,
             rpc_calls=self.totals.rpc_calls,
         )
 
     def run(self) -> DrainTotals:
         self.totals.queue_rows_estimate_at_start = self.timed_pg(_queue_rows_estimate)
-        # Counters flush every LOG_EVERY_PAGES pages and once at the end: one ClickHouse insert per
-        # counter per page would be tens of thousands of tiny inserts on a large queue.
+        # Counters flush every LOG_EVERY_PAGES pages and once on the way out, success or failure:
+        # per-page inserts would be tens of thousands of tiny ClickHouse inserts on a large queue.
         emitted = self.snapshot()
-        for page in self.pages():
-            if self.config.dry_run:
-                continue
-            for chunk in chunks_for_page(page, self.config.rpc_batch_size):
-                if self.out_of_time():
+        try:
+            for page in self.pages():
+                if self.config.dry_run:
+                    continue
+                for chunk in chunks_for_page(page, self.config.rpc_batch_size):
+                    if self.out_of_time():
+                        break
+                    self.resolve(chunk)
+                if self.totals.pages % LOG_EVERY_PAGES == 0:
+                    self.emit_counters_since(emitted)
+                    emitted = self.snapshot()
+                    self.log_progress()
+                if self.totals.stopped_reason == "max_runtime":
+                    # Requests left in this page were never sent, so their rows stay queued.
                     break
-                self.drain_chunk(chunk)
-            if self.totals.pages % LOG_EVERY_PAGES == 0:
-                self.emit_counters_since(emitted)
-                emitted = self.snapshot()
-                self.log_progress()
-            if self.totals.stopped_reason == "max_runtime":
-                # Chunks left in this page were never sent, so their rows stay queued.
-                break
-        self.emit_counters_since(emitted)
+        except Exception:
+            self.totals.stopped_reason = "failed"
+            raise
+        finally:
+            self.emit_counters_since(emitted)
         return self.totals
 
     def log_progress(self) -> None:
         totals = self.totals
         self.context.log.info(
-            "%d pages, %d rows: deleted=%d skipped_live=%d not_found=%d blocked=%d, rpc p50 %.3fs, %d rpc errors",
+            "%d pages, %d rows: deleted=%d skipped_live=%d not_found=%d blocked=%d oversized=%d rpc_failed=%d, "
+            "rpc p50 %.3fs, %d rpc errors, %d splits",
             totals.pages,
             totals.rows_read,
             totals.persons_deleted,
             totals.persons_skipped_live,
             totals.persons_not_found,
             totals.persons_blocked,
+            totals.persons_oversized,
+            totals.persons_rpc_failed,
             statistics.median(totals.rpc_seconds) if totals.rpc_seconds else 0.0,
             totals.rpc_errors,
+            totals.rpc_splits,
         )
 
 
@@ -572,27 +683,37 @@ def drain_person_pg_cleanup_queue(
     # transaction stays open on the persons writer across a personhog call or a pause.
     connection = psycopg2.connect(persons_database_url, connect_timeout=10)
     connection.autocommit = True
+    metrics = MetricsClient(cluster)
+    drain = _Drain(context, config, metrics, client, connection)
     try:
         with connection.cursor() as cursor:
             cursor.execute("SET application_name = %s", (PG_APPLICATION_NAME,))
             cursor.execute("SET statement_timeout = '30s'")
             cursor.execute("SET lock_timeout = '5s'")
-        drain = _Drain(context, config, MetricsClient(cluster), client, connection)
         totals = drain.run()
     finally:
         connection.close()
+        drain.log_progress()
+        _emit(
+            metrics,
+            "person_pg_cleanup_drain_runs",
+            {"stopped_reason": drain.totals.stopped_reason, "dry_run": str(config.dry_run).lower()},
+        )
 
-    drain.log_progress()
-    _emit(
-        MetricsClient(cluster),
-        "person_pg_cleanup_drain_runs",
-        {"stopped_reason": totals.stopped_reason, "dry_run": str(config.dry_run).lower()},
-    )
     context.add_output_metadata({**totals.as_metadata(), "dry_run": dagster.MetadataValue.bool(config.dry_run)})
     return totals
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_INGESTION.value}, executor_def=dagster.in_process_executor)
+@dagster.job(
+    tags={
+        "owner": JobOwners.TEAM_INGESTION.value,
+        # The sweep's run-queue tag, limited to one run at a time in charts
+        # (argocd/dagster/deployment_settings). Sharing it keeps a drain from running alongside a
+        # sweep or another drain: both write the queue and both load the persons writer.
+        "clickhouse_deletion_sweep_concurrency": "v1",
+    },
+    executor_def=dagster.in_process_executor,
+)
 def person_pg_cleanup_drain_job():
     """Hard-delete the Postgres rows of persons the ClickHouse sweep has already removed."""
     drain_person_pg_cleanup_queue()

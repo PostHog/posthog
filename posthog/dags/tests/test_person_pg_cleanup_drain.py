@@ -1,4 +1,5 @@
 import itertools
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ import dagster
 import psycopg2
 
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags import person_pg_cleanup_drain as drain
 from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE
 from posthog.dags.person_pg_cleanup_drain import (
@@ -100,6 +102,22 @@ def seed_blocked(fake: FakePersonHogClient, team_id: int, person_id: int) -> str
     return uuid
 
 
+def seed_oversized(fake: FakePersonHogClient, team_id: int, person_id: int) -> str:
+    # Three distinct ids against a cap of two; seed_tombstoned's two stay under it.
+    uuid = str(uuid4())
+    distinct_ids = [f"{person_id}-a", f"{person_id}-b", f"{person_id}-c"]
+    fake.max_distinct_ids_per_tombstoned_person = 2
+    fake.add_person(
+        team_id=team_id,
+        person_id=person_id,
+        uuid=uuid,
+        distinct_ids=distinct_ids,
+        is_deleted=True,
+        tombstoned_distinct_ids=distinct_ids,
+    )
+    return uuid
+
+
 def present(fake: FakePersonHogClient, team_id: int, uuid: str) -> bool:
     return fake.get_person_by_uuid(GetPersonByUuidRequest(team_id=team_id, uuid=uuid)).HasField("person")
 
@@ -130,6 +148,16 @@ def fail_with(monkeypatch: pytest.MonkeyPatch, fake: FakePersonHogClient, codes:
         return original(request, timeout=timeout)
 
     monkeypatch.setattr(fake, "delete_tombstoned_persons", wrapped)
+
+
+def record_emits(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, str]]]:
+    emitted: list[tuple[str, dict[str, str]]] = []
+
+    def recorder(metrics: MetricsClient, name: str, labels: Mapping[str, str], value: float = 1.0) -> None:
+        emitted.append((name, dict(labels)))
+
+    monkeypatch.setattr(drain, "_emit", recorder)
+    return emitted
 
 
 @pytest.mark.django_db
@@ -172,29 +200,39 @@ def test_removes_rows_for_live_and_unknown_persons_without_deleting_them(cluster
 
 
 @pytest.mark.django_db
-def test_blocked_rows_stay_queued_and_are_skipped_inside_the_retry_window(cluster: ClickhouseCluster, persons_database):
-    # personhog reports a tombstoned person that still owns a live distinct id as blocked. The row
-    # must survive with blocked_at set: deleting it would hide an ingestion invariant violation,
-    # and re-sending it every run would hammer personhog for nothing.
+@pytest.mark.parametrize(
+    "seed,counter,reason",
+    [
+        (seed_blocked, "persons_blocked", "live_distinct_id"),
+        (seed_oversized, "persons_oversized", "oversized"),
+    ],
+)
+def test_unresolved_rows_stay_queued_and_are_skipped_inside_the_retry_window(
+    cluster: ClickhouseCluster, persons_database, seed, counter, reason
+):
+    # personhog reports a tombstoned person it will not delete: one that still owns a live distinct
+    # id, or one with more distinct ids than a transaction may touch. The row must survive with
+    # blocked_at set: deleting it would hide the problem, and re-sending it every run would hammer
+    # personhog for nothing.
     fake = get_active_fake()
-    blocked = seed_blocked(fake, TEAM_A, 1)
+    unresolved = seed(fake, TEAM_A, 1)
     gone = seed_tombstoned(fake, TEAM_A, 2)
-    queue(persons_database, [(TEAM_A, blocked, SWEEP_1), (TEAM_A, gone, SWEEP_1)])
+    queue(persons_database, [(TEAM_A, unresolved, SWEEP_1), (TEAM_A, gone, SWEEP_1)])
 
     first = run_job(cluster)
 
     [(team_id, person_uuid, _, blocked_at)] = queued(persons_database)
-    assert (team_id, person_uuid) == (TEAM_A, blocked)
+    assert (team_id, person_uuid) == (TEAM_A, unresolved)
     assert blocked_at is not None
-    assert present(fake, TEAM_A, blocked)
-    assert totals_of(first).persons_blocked == 1
-    assert totals_of(first).blocked_sample == [blocked]
+    assert present(fake, TEAM_A, unresolved)
+    assert getattr(totals_of(first), counter) == 1
+    assert totals_of(first).blocked_sample == [f"{reason}:{unresolved}"]
 
     second = run_job(cluster)
     assert totals_of(second).rows_read == 0, "a freshly blocked row is skipped inside the retry window"
 
     third = run_job(cluster, blocked_retry_hours=0)
-    assert totals_of(third).persons_blocked == 1, "past the window the row is retried and reported again"
+    assert getattr(totals_of(third), counter) == 1, "past the window the row is retried and reported again"
 
 
 @pytest.mark.django_db
@@ -334,6 +372,7 @@ def test_rpc_failures_are_retried_and_then_fail_the_run(
     gone = seed_tombstoned(fake, TEAM_A, 1)
     queue(persons_database, [(TEAM_A, gone, SWEEP_1)])
     fail_with(monkeypatch, fake, codes)
+    emitted = record_emits(monkeypatch)
 
     result = run_job(cluster, max_consecutive_failures=max_consecutive_failures, raise_on_error=False)
 
@@ -350,25 +389,73 @@ def test_rpc_failures_are_retried_and_then_fail_the_run(
     assert metadata["team_id"].value == TEAM_A
     assert metadata["first_uuid"].value == gone
     assert metadata["attempts"].value == max_consecutive_failures
+    # A failed run still reports what it did, or dashboards see a silent gap instead of a failure.
+    assert ("person_pg_cleanup_drain_runs", {"stopped_reason": "failed", "dry_run": "false"}) in emitted
+    assert ("person_pg_cleanup_drain_rpc_calls", {"result": "error", "code": "UNAVAILABLE"}) in emitted
 
 
 @pytest.mark.django_db
-def test_an_unimplemented_rpc_fails_immediately_without_retrying_or_writing(
+def test_a_failing_request_is_split_until_the_failing_person_is_isolated(
     cluster: ClickhouseCluster, persons_database, monkeypatch
 ):
-    # An older personhog answers UNIMPLEMENTED. Retrying or falling back would be wrong: the legacy
-    # delete RPC has no tombstone check, so the run must stop before it deletes anything.
+    # One person whose delete keeps failing must cost its own row, not the run: the request is
+    # halved until that person is alone, its row is stamped blocked_at, and every other person in
+    # the original request is still deleted.
     fake = get_active_fake()
-    gone = seed_tombstoned(fake, TEAM_A, 1)
-    queue(persons_database, [(TEAM_A, gone, SWEEP_1)])
-    fail_with(monkeypatch, fake, [grpc.StatusCode.UNIMPLEMENTED] * 5)
+    uuids = [seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 5)]
+    bad = uuids[2]
+    queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
+    original = fake.delete_tombstoned_persons
+
+    def failing_for_bad(
+        request: DeleteTombstonedPersonsRequest, timeout: float | None = None
+    ) -> DeleteTombstonedPersonsResponse:
+        if bad in request.person_uuids:
+            raise _RpcError(grpc.StatusCode.DEADLINE_EXCEEDED)
+        return original(request, timeout=timeout)
+
+    monkeypatch.setattr(fake, "delete_tombstoned_persons", failing_for_bad)
+
+    result = run_job(cluster, max_attempts_per_person=2)
+
+    totals = totals_of(result)
+    assert (totals.persons_deleted, totals.persons_rpc_failed, totals.rpc_splits) == (3, 1, 2)
+    assert totals.blocked_sample == [f"rpc_failed:{bad}"]
+    [(team_id, person_uuid, _, blocked_at)] = queued(persons_database)
+    assert (team_id, person_uuid) == (TEAM_A, bad)
+    assert blocked_at is not None
+    assert present(fake, TEAM_A, bad)
+    assert not any(present(fake, TEAM_A, uuid) for uuid in uuids if uuid != bad)
+    # Four fail; the good half of two succeeds, the bad half fails; the good single succeeds, the
+    # bad single fails twice: two successes, four failures, and never a third attempt on the bad one.
+    assert (totals.rpc_calls, totals.rpc_errors) == (2, 4)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "code", [grpc.StatusCode.UNIMPLEMENTED, grpc.StatusCode.INVALID_ARGUMENT, grpc.StatusCode.PERMISSION_DENIED]
+)
+def test_a_fatal_rpc_code_fails_immediately_without_retrying_splitting_or_writing(
+    cluster: ClickhouseCluster, persons_database, monkeypatch, code
+):
+    # An older personhog answers UNIMPLEMENTED, and a wrong or unauthorized request gets the same
+    # answer every time. Retrying or splitting would be noise, and falling back to the legacy
+    # delete RPC would be worse: it has no tombstone check, so the run must stop before it deletes
+    # anything.
+    fake = get_active_fake()
+    uuids = [seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 3)]
+    queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
+    fail_with(monkeypatch, fake, [code] * 5)
 
     result = run_job(cluster, raise_on_error=False)
 
     assert not result.success
     assert len(delete_requests(fake)) == 0, "the wrapper raised before the fake recorded a call"
-    assert queued(persons_database) == [(TEAM_A, gone, SWEEP_1, None)]
-    assert present(fake, TEAM_A, gone)
+    assert queued(persons_database) == sorted((TEAM_A, uuid, SWEEP_1, None) for uuid in uuids)
+    assert all(present(fake, TEAM_A, uuid) for uuid in uuids)
+    failure = result.failure_data_for_node(OP)
+    assert failure is not None and failure.user_failure_data is not None
+    assert failure.user_failure_data.metadata["rpc_errors"].value == 1, "one attempt, no retry and no split"
 
 
 @pytest.mark.django_db
@@ -376,9 +463,10 @@ def test_max_runtime_stops_between_pages_and_reports_it(cluster: ClickhouseClust
     fake = get_active_fake()
     uuids = [seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 4)]
     queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
-    # The deadline is read once at start and then checked before each page and each chunk. The
-    # clock stands still through the first page and jumps past the deadline afterwards.
-    clock = itertools.chain([0.0, 0.0, 0.0], itertools.repeat(10**9))
+    # The deadline is read once at start and then checked before each page, each request of the
+    # page and each attempt inside a request. The clock stands still through the first request
+    # and jumps past the deadline afterwards.
+    clock = itertools.chain([0.0, 0.0, 0.0, 0.0], itertools.repeat(10**9))
     monkeypatch.setattr(drain, "_now_monotonic", lambda: next(clock))
 
     result = run_job(cluster, page_size=1)
@@ -438,6 +526,8 @@ def _pg_error(pgcode: str | None) -> psycopg2.Error:
     [
         (_pg_error("40001"), True),
         (_pg_error("40P01"), True),
+        (_pg_error("55P03"), True),
+        (_pg_error("57014"), True),
         (_pg_error("23505"), False),
         (_pg_error(None), False),
         (RuntimeError("not postgres"), False),
@@ -466,22 +556,15 @@ def test_pauses_after_every_request_by_pause_ms_plus_latency(cluster: Clickhouse
 
 
 @pytest.mark.parametrize(
-    "rpc_batch_size,rpc_timeout_seconds,valid",
+    "overrides,message",
     [
-        (100, 31.0, True),
-        (100, 30.0, False),
-        (200, 60.0, False),
-        (200, 61.0, True),
-        (1000, 300.0, False),
-        (1000, 301.0, True),
+        ({"rpc_timeout_seconds": 0}, "rpc_timeout_seconds must be positive"),
+        ({"rpc_batch_size": drain.RPC_MAX_UUIDS + 1}, "rpc_batch_size must be between"),
+        ({"page_size": 0}, "page_size must be between"),
+        ({"max_attempts_per_person": 0}, "must be positive"),
+        ({"max_blocked": -1}, "must not be negative"),
     ],
 )
-def test_rpc_timeout_must_cover_every_chunk_of_the_request(rpc_batch_size, rpc_timeout_seconds, valid):
-    # A deadline shorter than the replica's sequential chunk work makes the client abandon a delete
-    # the server is still running, then retry on top of it.
-    build = lambda: drain.DrainConfig(rpc_batch_size=rpc_batch_size, rpc_timeout_seconds=rpc_timeout_seconds)
-    if valid:
-        assert build().rpc_timeout_seconds == rpc_timeout_seconds
-    else:
-        with pytest.raises(ValueError, match="rpc_timeout_seconds must exceed"):
-            build()
+def test_config_rejects_out_of_range_values(overrides, message):
+    with pytest.raises(ValueError, match=message):
+        drain.DrainConfig(**overrides)
