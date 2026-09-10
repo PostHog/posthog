@@ -1285,13 +1285,16 @@ def update_all_orgs_billing_quotas(
     previously_quota_limited_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
     previously_quota_limiting_suspended_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
 
-    # All teams that are currently under quota limits or in a suspension grace period
+    # All teams that are currently under quota limits or in a suspension grace period.
+    # `reconcile_limited_team_tokens` removes the snapshot entries this run judges under limit, so the
+    # snapshot must be this run's own start state. The 30-second cache refreshes in the background and
+    # returns the previous value, which for a 15-minute cron is the state at the previous run's start.
     for resource in QuotaResource:
         previously_quota_limited_team_tokens[resource.value] = list_limited_team_attributes(
-            resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, use_cache=False
         )
         previously_quota_limiting_suspended_team_tokens[resource.value] = list_limited_team_attributes(
-            resource, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            resource, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY, use_cache=False
         )
 
     previously_recordings_zset_tokens: set[str] = _get_previous_recordings_zset_tokens()

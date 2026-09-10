@@ -3097,7 +3097,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
 
-        def snapshot(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
+        def snapshot(resource: QuotaResource, cache_key: QuotaLimitingCaches, use_cache: bool = True) -> list[str]:
             if (
                 in_snapshot
                 and resource == QuotaResource.SIGNALS_CREDITS
