@@ -322,6 +322,17 @@ tokens = token_response.json()
 print(tokens)
 ```
 
+## Self-registered client logos
+
+Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client that sends none gets the first letter of its name instead.
+
+- Dynamic client registration (`POST /oauth/register/`, RFC 7591): send `logo_uri` alongside `redirect_uris`. The response echoes it back.
+- Client ID metadata documents: put `logo_uri` in the document.
+
+The URI must be `https` and must pass `is_url_allowed`, the same SSRF guard the rest of the codebase uses. That rejects a loopback, private, metadata or internal-domain host, and it resolves the name, so a public hostname pointing at a private address is rejected too. A URI that fails either check is dropped and left out of the registration response. It never fails the registration, since a client can complete every OAuth flow without a logo.
+
+The host check protects the visitor rather than PostHog. PostHog never fetches a logo: the browser does, and a self-hosted deployment renders these pages to people inside a trusted network. An unchecked logo would make each of those browsers probe its own network from a PostHog page.
+
 ## Signed-out visitors
 
 `/oauth/authorize/` needs a session. A visitor without one is redirected to `/login?next=<the authorize URL>`. The login, signup, and email verification screens keep `next`, so the visitor lands on the consent screen once they have a session, and `/oauth` paths are exempt from the onboarding redirect.
