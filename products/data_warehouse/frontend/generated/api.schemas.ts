@@ -676,6 +676,29 @@ export interface WarehouseStatusResponseApi {
     schema_name: string | null
 }
 
+export interface FixHogQLRequestApi {
+    /** The HogQL query to work on. */
+    query: string
+    /** The error the query returned. When set, the tool fixes that error and changes nothing else. */
+    error?: string
+    /** Id of the data warehouse connection the query runs against, so the tool sees that connection's tables instead of only the ClickHouse catalog. */
+    connection_id?: string
+}
+
+export interface FixHogQLResponseApi {
+    /** The updated HogQL query. */
+    query: string
+    /** Id of the LLM trace, for support and debugging. */
+    trace_id: string
+}
+
+export interface FixHogQLErrorApi {
+    /** Why the query could not be updated. */
+    error: string
+    /** Id of the LLM trace, for support and debugging. */
+    trace_id: string
+}
+
 /**
  * * `String` - String
  * * `Number` - Number
