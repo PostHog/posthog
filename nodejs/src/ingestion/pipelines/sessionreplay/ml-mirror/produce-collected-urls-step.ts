@@ -179,11 +179,11 @@ export function createProduceCollectedUrlsStep<
         // reaches the fetcher under a hash nothing will ever match. Both kinds parse, so only
         // `source` separates them, and checking one entry would let every later one through.
         //
-        // Every entry must use the global URL-ref shape and carry the same transport pseudonym. One
-        // replay message belongs to one team, and a record stamped with another team's pseudonym is
+        // Every entry must use the global URL-ref shape and carry the same team ID. One
+        // replay message belongs to one team, and a record stamped with another team's ID is
         // a tenant-attribution error that nothing downstream can detect.
         const usable: typeof fresh = []
-        let pseudoTeam: string | undefined
+        let teamId: string | undefined
         for (const candidate of fresh) {
             const { entry } = candidate
             const parsed = parseImageRef(entry.ref)
@@ -191,11 +191,11 @@ export function createProduceCollectedUrlsStep<
                 !parsed ||
                 parsed.source !== 'url' ||
                 parsed.pseudoTeam !== undefined ||
-                (pseudoTeam && entry.pseudoTeam !== pseudoTeam)
+                (teamId && entry.teamId !== teamId)
             ) {
                 continue
             }
-            pseudoTeam ??= entry.pseudoTeam
+            teamId ??= entry.teamId
             usable.push(candidate)
         }
         const unusable = fresh.length - usable.length
@@ -205,7 +205,7 @@ export function createProduceCollectedUrlsStep<
             // otherwise write an error line at full ingest rate for as long as it lasted.
             logger.warn('🌐', 'ml_image_fetch_ref_unusable', { count: unusable })
         }
-        if (!pseudoTeam || usable.length === 0) {
+        if (!teamId || usable.length === 0) {
             return ok({ ...input, collectedUrls: undefined })
         }
 

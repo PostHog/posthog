@@ -13,7 +13,7 @@ import { MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/share
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataSink } from './ml-block-metadata-sink'
-import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
+import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, pseudonymize } from './pseudonymize'
 
 const SECRET = 'roundtrip-secret'
 const SESSION_A = '018bcfe5-6800-7000-8000-000000000001'
@@ -125,13 +125,13 @@ describe('ML metadata producer → sink round-trip', () => {
         const pages = await readRows(puts.find((put) => put.Key!.includes('kind=page'))!.Body)
         expect(pages).toHaveLength(1)
         expect(pages[0].event_index).toBe(0)
-        const rows = await readRows(puts.find((put) => put.Key!.startsWith('block-metadata/dt='))!.Body)
+        const rows = await readRows(puts.find((put) => put.Key!.startsWith('block-metadata/v2/dt='))!.Body)
         expect(rows).toHaveLength(2)
 
         const bySession = new Map(rows.map((r) => [r.session_id, r]))
         const a = bySession.get(pseudonymize(SECRET, PSEUDONYM_SESSION, SESSION_A))!
         expect(a).toBeDefined()
-        expect(a.team_id).toBe(pseudonymize(SECRET, PSEUDONYM_TEAM, '1'))
+        expect(a.team_id).toBe('1')
         expect(a.distinct_id).toBe(pseudonymize(SECRET, PSEUDONYM_DISTINCT_ID, 'person-1'))
         // Raw ids never survive the trip (BigInt-safe stringify, since INT64 fields read back as bigint).
         expect(a.session_id).not.toBe(SESSION_A)

@@ -56,7 +56,7 @@ def score_export_prefix() -> str:
 
 
 def score_export_object_key(day: str, chunk_id: int, of_chunks: int) -> str:
-    return f"{score_export_prefix()}/dt={day}/part-{chunk_id:04d}-of-{of_chunks:04d}.parquet"
+    return f"{score_export_prefix()}/v2/dt={day}/part-{chunk_id:04d}-of-{of_chunks:04d}.parquet"
 
 
 def upload_parquet(s3_client: Any, *, bucket: str, key: str, body: bytes) -> None:

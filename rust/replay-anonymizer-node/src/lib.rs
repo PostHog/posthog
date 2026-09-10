@@ -87,7 +87,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
     // Present + non-empty (both of them) enables the image-collection lane, keyed to this
-    // pseudonymous team id and per-team content-HMAC key. A present-but-non-string argument, or one
+    // raw team ID and per-team content-HMAC key. A present-but-non-string argument, or one
     // of the pair without the other, must fail loudly (the caller drops the message) rather than
     // silently disable or mis-key collection; only absent/undefined/null mean "collection off".
     let opt_string_arg = |cx: &mut FunctionContext, index: usize| -> NeonResult<Option<String>> {
@@ -98,15 +98,15 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         }
         .filter(|s| !s.is_empty()))
     };
-    let pseudo_team = opt_string_arg(&mut cx, 2)?;
+    let team_id = opt_string_arg(&mut cx, 2)?;
     let content_key = opt_string_arg(&mut cx, 3)?;
     let url_key = opt_string_arg(&mut cx, 4)?;
-    if pseudo_team.is_none() && content_key.is_some() {
-        return cx.throw_error("contentKey requires pseudoTeam");
+    if team_id.is_none() && content_key.is_some() {
+        return cx.throw_error("contentKey requires teamId");
     }
-    let image_collection = match (pseudo_team.clone(), content_key) {
-        (Some(pseudo_team), Some(content_key)) => Some(ImageCollection {
-            pseudo_team,
+    let image_collection = match (team_id.clone(), content_key) {
+        (Some(team_id), Some(content_key)) => Some(ImageCollection {
+            team_id,
             content_key,
         }),
         _ => None,

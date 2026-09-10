@@ -19,11 +19,16 @@ describe('buildMlMirrorServerConfig', () => {
             KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA
         )
         expect(config.SESSION_RECORDING_ML_METADATA_PREFIX).toBe('block-metadata')
+        expect(config.SESSION_RECORDING_ML_S3_PREFIX).toBe('rrweb_2')
         expect(config.SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS).toBeLessThan(300_000)
     })
 
     it('lets an explicit override win over the mirror default', () => {
-        const config = buildMlMirrorServerConfig({ INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: 'custom-group' })
+        const config = buildMlMirrorServerConfig({
+            INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: 'custom-group',
+            SESSION_RECORDING_V2_S3_PREFIX: 'rrweb',
+        })
         expect(config.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID).toBe('custom-group')
+        expect(config.SESSION_RECORDING_ML_S3_PREFIX).toBe('rrweb_2')
     })
 })
