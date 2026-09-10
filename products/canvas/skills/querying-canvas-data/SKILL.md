@@ -204,27 +204,31 @@ currently restrict this query to its own space. Filtering to the current viewer 
 known numeric user id; the canvas runtime does not inject one. State these limits when the request
 depends on “this space” or “my tasks” instead of silently showing project-wide public tasks.
 
-## The task a canvas is mounted in — ph.taskActivity
+## The viewer's activity feed — ph.activityFeed
 
-A canvas rendered inside a task, such as the Canvas tab of PostHog Desktop's activity panel, reads
-that task's activity with `ph.taskActivity()`. Declare `capabilities.posthog.taskActivity: true`.
+A canvas that draws PostHog Desktop's Activity page reads the viewer's own feed with
+`ph.activityFeed()`. Declare `capabilities.posthog.activityFeed: true`.
 
-The canvas names no task. The host answers for the task whose panel it is mounted in, so a canvas
-can never read a task its viewer did not open. Anywhere else the call fails, so treat it as
+The canvas names no person and no space. The host answers for whoever is looking at the canvas, so
+a canvas can only ever read its own viewer's activity. Other hosts reject the call, so treat it as
 optional and render an explanation when it rejects.
 
 ```tsx
-const { task, rows, truncated } = await ph.taskActivity({ limit: 100 })
-// task: { id, title, status, createdAt, updatedAt }
-// rows: [{ key, kind, at, title, detail, url }] — oldest first, ready to print
+const { rows, unreadCount, truncated } = await ph.activityFeed({ limit: 100 })
+// rows: [{ key, kind, at, title, detail, space, unread, targetId }] — newest first
 ```
 
-`kind` is the server event name for an event row (`run_started`, `commits_pushed`, `pr_merged`,
-`artifact_created`, and so on), else the row kind (`task_created`, `human_message`,
-`user_message`, `run_status`, `run_output_pr`). `url` is set on the rows that point somewhere:
-pull requests, pushed commits, and created canvases. `detail` is a preview, capped at 500
-characters. Poll on a timer to follow a running task; each call returns the newest rows the panel
-has.
+`kind` is `task`, `canvas`, or `report`. `unread` is true only on a task update the viewer has not
+read, and `unreadCount` counts every one of them, including rows the limit dropped. `detail` is a
+preview, capped at 500 characters.
+
+Open a row with `targetId`: `ph.navigate.toTask(row.targetId)` for a task and
+`ph.navigate.toCanvas(row.targetId)` for a canvas. A report carries no target, because the canvas
+cannot open one.
+
+Two limits are worth stating to whoever asks for the canvas. Reports arrive through the same capped
+preview the built page uses, so a feed shows at most a few of them. The feed is a snapshot, so poll
+on a timer to keep it live.
 
 ## Runtime memory — ph.state
 

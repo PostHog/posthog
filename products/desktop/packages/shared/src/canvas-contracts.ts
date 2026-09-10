@@ -27,10 +27,10 @@ export const canvasCapabilitiesSchema = z.object({
         .default([]),
       actions: z.array(z.string().min(1).max(64)).max(32).default([]),
       agentRequests: z.boolean().default(false),
-      // Reading the activity of the task the canvas is mounted beside, through
-      // ph.taskActivity(). Only a host that renders the canvas inside a task
-      // answers it; anywhere else the call fails with no such context.
-      taskActivity: z.boolean().default(false),
+      // Reading the viewer's own activity feed through ph.activityFeed(): the
+      // tasks, canvases and reports they worked on. Only a host that draws the
+      // canvas as the Activity page answers it; anywhere else the call fails.
+      activityFeed: z.boolean().default(false),
     })
     .default({
       insights: [],
@@ -39,7 +39,7 @@ export const canvasCapabilitiesSchema = z.object({
       state: [],
       actions: [],
       agentRequests: false,
-      taskActivity: false,
+      activityFeed: false,
     }),
   network: z
     .object({

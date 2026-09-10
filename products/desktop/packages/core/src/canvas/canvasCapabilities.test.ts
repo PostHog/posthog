@@ -13,7 +13,7 @@ function capabilities(
       state: [],
       actions: [],
       agentRequests: false,
-      taskActivity: false,
+      activityFeed: false,
       ...posthog,
     },
     network: { origins: [] },
@@ -24,15 +24,15 @@ function capabilities(
 describe("assertCanvasCapability", () => {
   it("refuses a task-activity read the build did not declare", () => {
     expect(() =>
-      assertCanvasCapability(capabilities({}), "taskActivity", {}),
+      assertCanvasCapability(capabilities({}), "activityFeed", {}),
     ).toThrow(/not allowed/);
   });
 
   it("admits a task-activity read the build declared", () => {
     expect(() =>
       assertCanvasCapability(
-        capabilities({ taskActivity: true }),
-        "taskActivity",
+        capabilities({ activityFeed: true }),
+        "activityFeed",
         {},
       ),
     ).not.toThrow();

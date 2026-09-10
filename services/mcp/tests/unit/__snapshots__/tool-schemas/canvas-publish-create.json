@@ -122,6 +122,11 @@
                                     "maxItems": 32,
                                     "type": "array"
                                 },
+                                "activityFeed": {
+                                    "default": false,
+                                    "description": "Whether the canvas may read the viewer's own activity feed through ph.activityFeed(): the tasks, canvases and reports they worked on. Other hosts reject the call.",
+                                    "type": "boolean"
+                                },
                                 "agentRequests": {
                                     "default": false,
                                     "type": "boolean"
@@ -154,11 +159,6 @@
                                     },
                                     "maxItems": 2,
                                     "type": "array"
-                                },
-                                "taskActivity": {
-                                    "default": false,
-                                    "description": "Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call.",
-                                    "type": "boolean"
                                 }
                             },
                             "required": ["insights", "inlineQueries", "captureEvents"],

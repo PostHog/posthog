@@ -180,7 +180,7 @@ _PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
 _STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
 _PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
-_PH_TASK_ACTIVITY_RE = re.compile(r"\bph\s*\.\s*taskActivity\s*\(")
+_PH_ACTIVITY_FEED_RE = re.compile(r"\bph\s*\.\s*activityFeed\s*\(")
 _PH_CONNECTORS_CALL_RE = re.compile(
     r"\bph\s*\.\s*connectors\s*\.\s*call\s*\(\s*(?:[\"']([^\"']+)[\"']\s*(?:,\s*[\"']([^\"']+)[\"'])?)?"
 )
@@ -487,7 +487,7 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
     agent_requests = bool(posthog_capabilities.get("agentRequests"))
-    task_activity = bool(posthog_capabilities.get("taskActivity"))
+    activity_feed = bool(posthog_capabilities.get("activityFeed"))
 
     declared_state = set(posthog_capabilities.get("state") or [])
     if not declared_state:
@@ -641,17 +641,17 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                 )
             )
 
-    if not task_activity:
-        task_activity_match = _PH_TASK_ACTIVITY_RE.search(code)
-        if task_activity_match is not None:
+    if not activity_feed:
+        activity_feed_match = _PH_ACTIVITY_FEED_RE.search(code)
+        if activity_feed_match is not None:
             diagnostics.append(
                 diagnostic(
                     "error",
-                    "capability_missing_task_activity",
-                    "ph.taskActivity() requires capabilities.posthog.taskActivity: true — "
-                    "the host rejects undeclared task activity reads at runtime",
+                    "capability_missing_activity_feed",
+                    "ph.activityFeed() requires capabilities.posthog.activityFeed: true — "
+                    "the host rejects undeclared activity feed reads at runtime",
                     path=path,
-                    line=_line_of(code, task_activity_match.start()),
+                    line=_line_of(code, activity_feed_match.start()),
                 )
             )
 

@@ -13,12 +13,6 @@ import {
 // Mutable so a test can render the panel mid-load. Hoisted because a plain `let`
 // is initialized after the hoisted mock factories.
 const loaded = vi.hoisted(() => ({ thread: true }));
-// The panel reads one flag, the Canvas tab's.
-const canvasTab = vi.hoisted(() => ({ enabled: false }));
-
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => canvasTab.enabled,
-}));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
   useThreadConversation: () => ({
@@ -95,7 +89,6 @@ describe("ActivityPanel", () => {
 
   beforeEach(() => {
     loaded.thread = true;
-    canvasTab.enabled = false;
     scrollTo = vi.spyOn(Element.prototype, "scrollTo");
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -117,20 +110,6 @@ describe("ActivityPanel", () => {
     expect(screen.getByText("comments body")).toBeTruthy();
     // The composer belongs to the conversation, not to a list of threads.
     expect(screen.queryByText("composer")).toBeNull();
-  });
-
-  // The tab is the only way into the canvas view, so the gate is what keeps it
-  // from reaching everyone.
-  it.each([
-    { name: "off", enabled: false, expected: null },
-    { name: "on", enabled: true, expected: "Canvas" },
-  ])("shows the Canvas tab with the flag $name", ({ enabled, expected }) => {
-    canvasTab.enabled = enabled;
-    renderPanel();
-
-    expect(
-      screen.queryByRole("tab", { name: "Canvas" })?.textContent ?? null,
-    ).toBe(expected);
   });
 
   // A thread picked on the artifact itself lands in this tab, so the pick has

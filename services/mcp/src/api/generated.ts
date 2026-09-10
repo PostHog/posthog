@@ -16154,8 +16154,8 @@ export namespace Schemas {
          */
       actions?: string[];
       agentRequests?: boolean;
-      /** Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call. */
-      taskActivity?: boolean;
+      /** Whether the canvas may read the viewer's own activity feed through ph.activityFeed(): the tasks, canvases and reports they worked on. Other hosts reject the call. */
+      activityFeed?: boolean;
     }
 
     export interface CanvasNetworkCapabilities {

@@ -63,9 +63,9 @@ export function assertCanvasCapability(
         throw new Error("Agent requests are not allowed by this canvas");
       }
       return;
-    case "taskActivity":
-      if (!capabilities.posthog.taskActivity) {
-        throw new Error("Task activity is not allowed by this canvas");
+    case "activityFeed":
+      if (!capabilities.posthog.activityFeed) {
+        throw new Error("The activity feed is not allowed by this canvas");
       }
       return;
     case "connectorCall": {

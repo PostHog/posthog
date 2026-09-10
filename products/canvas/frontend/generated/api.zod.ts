@@ -167,7 +167,7 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemM
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
-export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault = false
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActivityFeedDefault = false
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -319,11 +319,11 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
-                            taskActivity: zod
+                            activityFeed: zod
                                 .boolean()
-                                .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault)
+                                .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActivityFeedDefault)
                                 .describe(
-                                    'Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call.'
+                                    "Whether the canvas may read the viewer's own activity feed through ph.activityFeed(): the tasks, canvases and reports they worked on. Other hosts reject the call."
                                 ),
                         }),
                         network: zod.object({
@@ -834,7 +834,7 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsIte
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
-export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault = false
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActivityFeedDefault = false
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -988,11 +988,11 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
-                            taskActivity: zod
+                            activityFeed: zod
                                 .boolean()
-                                .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault)
+                                .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActivityFeedDefault)
                                 .describe(
-                                    'Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call.'
+                                    "Whether the canvas may read the viewer's own activity feed through ph.activityFeed(): the tasks, canvases and reports they worked on. Other hosts reject the call."
                                 ),
                         }),
                         network: zod.object({
@@ -1203,7 +1203,7 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsIt
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
-export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault = false
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActivityFeedDefault = false
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -1357,11 +1357,11 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                 .default(
                                     canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault
                                 ),
-                            taskActivity: zod
+                            activityFeed: zod
                                 .boolean()
-                                .default(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault)
+                                .default(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActivityFeedDefault)
                                 .describe(
-                                    'Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call.'
+                                    "Whether the canvas may read the viewer's own activity feed through ph.activityFeed(): the tasks, canvases and reports they worked on. Other hosts reject the call."
                                 ),
                         }),
                         network: zod.object({

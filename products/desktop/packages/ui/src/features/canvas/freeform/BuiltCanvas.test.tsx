@@ -18,7 +18,7 @@ describe("BuiltCanvas", () => {
       state: [],
       actions: [],
       agentRequests: false,
-      taskActivity: false,
+      activityFeed: false,
     },
     network: { origins: [] },
     connectors: [],

@@ -9,13 +9,13 @@ vi.mock("./freeformDataBridge", () => ({
 
 describe("createActivityCanvasDataRequest", () => {
   const queryClient = {} as QueryClient;
-  const readActivity = vi.fn().mockReturnValue({ rows: [] });
+  const readFeed = vi.fn().mockReturnValue({ rows: [] });
 
   function request() {
     return createActivityCanvasDataRequest({
       canvasId: "canvas-1",
       sourceVersionId: "version-1",
-      readActivity,
+      readFeed,
       queryClient,
     });
   }
@@ -24,13 +24,13 @@ describe("createActivityCanvasDataRequest", () => {
     vi.clearAllMocks();
   });
 
-  it("answers taskActivity from the panel's task, ignoring any task the canvas names", async () => {
-    const result = await request()("taskActivity", {
+  it("answers activityFeed from the viewer's own feed, ignoring what the canvas names", async () => {
+    const result = await request()("activityFeed", {
       limit: 5,
-      taskId: "another-task",
+      userId: "someone-else",
     });
 
-    expect(readActivity).toHaveBeenCalledWith(5);
+    expect(readFeed).toHaveBeenCalledWith(5);
     expect(result).toEqual({ rows: [] });
     expect(handleFreeformDataRequest).not.toHaveBeenCalled();
   });
@@ -38,7 +38,7 @@ describe("createActivityCanvasDataRequest", () => {
   it("routes every other method to the canvas-scoped bridge", async () => {
     await request()("stateGet", { key: "draft" });
 
-    expect(readActivity).not.toHaveBeenCalled();
+    expect(readFeed).not.toHaveBeenCalled();
     expect(handleFreeformDataRequest).toHaveBeenCalledWith(
       "stateGet",
       { key: "draft" },
