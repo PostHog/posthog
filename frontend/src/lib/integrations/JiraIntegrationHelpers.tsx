@@ -11,9 +11,15 @@ export type JiraProjectPickerProps = {
     integrationId: number
     value: string
     onChange: (value: string) => void
+    disabled?: boolean
 }
 
-export const JiraProjectPicker = ({ value, onChange, integrationId }: JiraProjectPickerProps): JSX.Element => {
+export const JiraProjectPicker = ({
+    value,
+    onChange,
+    integrationId,
+    disabled,
+}: JiraProjectPickerProps): JSX.Element => {
     const { options, loading } = useJiraProjects(integrationId)
 
     return (
@@ -25,6 +31,7 @@ export const JiraProjectPicker = ({ value, onChange, integrationId }: JiraProjec
             placeholder="Select a project..."
             options={options}
             loading={loading}
+            disabled={disabled}
         />
     )
 }

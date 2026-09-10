@@ -206,6 +206,12 @@ export const ToolConfigSchema = z
                  * returns the full `include` set. Requires `include`; incompatible with `exclude`.
                  */
                 selectable: z.boolean().optional(),
+                /**
+                 * Remove keys whose value is `null` from the response, after `include`/`exclude`.
+                 * Use it on tools that echo a nested serializer schema, where the unset optional
+                 * fields dominate the payload.
+                 */
+                strip_nulls: z.boolean().optional(),
                 /** Wrap user-authored response data in an explicit informational-only tag boundary. */
                 informational_wrapper: z
                     .object({
@@ -282,6 +288,14 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
         message: '`feature_flag_variant` requires `feature_flag` to be set',
         path: ['feature_flag_variant'],
+    })
+    // A list response encodes as a TOON table: one header of shared keys, then one row per
+    // item. Dropping a `null` that only some rows carry breaks that uniformity and forces the
+    // expanded per-key form, so the response grows instead of shrinking.
+    .refine((data) => !(data.response?.strip_nulls && data.list), {
+        message:
+            '`response.strip_nulls` cannot be combined with `list: true` — rows encode as a TOON table, and per-item null removal makes a ragged table larger. Use `response.exclude` to drop the fields instead.',
+        path: ['response', 'strip_nulls'],
     })
     // confirmed_action emits two factories (`-prepare`, `-execute`) via a
     // codegen path that doesn't currently wrap either with `withUiApp`.
