@@ -56,6 +56,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
@@ -1971,6 +1972,9 @@ def _route_assistant_event(
     posthog_user = resolution.user
 
     if event_type == "assistant_thread_started":
+        capture_slack_event(
+            probe, "slack app assistant thread started", slack_user_id=fields.slack_user_id, posthog_user=posthog_user
+        )
         return _handle_assistant_thread_started(SlackIntegration(probe), fields.dm_channel_id, fields.thread_ts)
     if event_type == "assistant_thread_context_changed":
         _store_assistant_channel_context(probe.id, fields.dm_channel_id, fields.thread_ts, fields.viewed_channel_id)
@@ -2114,6 +2118,12 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     """
     deleted = clear_workspace_profile_cache(slack_team_id)
     logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
+    # Each region captures against its own rows, so a dual-owned workspace reports the
+    # uninstall once per region; `was_proxied` lets analysis separate the mirrored copy.
+    for uninstalled in Integration.objects.filter(
+        kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+    ).select_related("team", "team__organization"):
+        capture_slack_event(uninstalled, "slack app uninstalled", was_proxied=was_proxied(request))
     if not was_proxied(request) and cross_region_routing_enabled():
         _proxy_event_to_region(request, other_region_domain(request.get_host()))
     return ROUTE_HANDLED_LOCALLY
@@ -3382,6 +3392,8 @@ def _report_slack_mention_received(
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,
             "slack_user_id": slack_user_id,
+            # "im" marks an assistant DM; channel mentions carry "channel"/"group" or no type at all.
+            "slack_channel_type": event.get("channel_type"),
             "posthog_user_identified": identified_distinct_id is not None,
         }
         if posthog_user is not None and identified_distinct_id is not None:

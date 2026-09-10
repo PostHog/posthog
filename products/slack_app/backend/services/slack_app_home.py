@@ -32,6 +32,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
@@ -1550,6 +1551,13 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
+        capture_slack_event(
+            integration,
+            "slack app home opened",
+            slack_user_id=slack_user_id,
+            account_linked=bool(account_state.linked_email),
+            has_project_access=bool(accessible),
+        )
 
 
 def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpResponse:
@@ -1563,6 +1571,8 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return HttpResponse(status=200)
+
+    capture_slack_event(integration, "slack app home action clicked", slack_user_id=slack_user_id, action=action_id)
 
     # The Home tab keeps no server-side view state — every payload carries the whole
     # view's inputs instead. Read them all back once so any action republishes with the
@@ -1670,6 +1680,15 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 
     _write_row(
         integration,
+        slack_user_id=slack_user_id,
+        runtime_adapter=runtime_adapter,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
+
+    capture_slack_event(
+        integration,
+        "slack app ai preferences saved",
         slack_user_id=slack_user_id,
         runtime_adapter=runtime_adapter,
         model=model,
