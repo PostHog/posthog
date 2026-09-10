@@ -407,7 +407,10 @@ class TestPrinter(BaseTest):
     def test_transform_with_non_constant_arrays_executes_on_clickhouse(self):
         # ClickHouse rejects a `transform` whose match or result array is not constant, even over no rows.
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        sql = self._select("select transform(event, ['a', 'b'], [event, 'y'], 'z') from events", context)
+        sql = self._select(
+            "select transform(event, ['a', 'b'], [event, 'y'], 'z') from events where event = 'no_such_event'",
+            context,
+        )
         self.assertEqual(sync_execute(sql, context.values), [])
 
     def test_try_cast_non_postgres_error(self):
