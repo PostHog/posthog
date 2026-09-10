@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -6,6 +7,8 @@ import { initKeaTests } from '~/test/init'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import type { ApplyOp, SetupPlanResponse, Suggestion } from './setupPlanLogic'
 import { setupPlanLogic } from './setupPlanLogic'
+
+jest.mock('posthog-js')
 
 const suggestion = (overrides: Partial<Suggestion> = {}): Suggestion => ({
     id: 'add_source_mapping:meta_ads:fb-ads',
@@ -43,6 +46,7 @@ describe('setupPlanLogic', () => {
     let applyRequests: any[]
 
     beforeEach(() => {
+        jest.mocked(posthog.capture).mockClear()
         applyRequests = []
         useMocks({
             get: {
@@ -75,6 +79,13 @@ describe('setupPlanLogic', () => {
         await expectLogic(logic, () => logic.actions.applySuggestion(suggestion())).toFinishAllListeners()
 
         expect(applyRequests[0].ops).toEqual([suggestion().apply])
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
+            source: 'setup_tab',
+            operation_types: ['add_custom_source_mapping'],
+            requested_count: 1,
+            applied_count: 0,
+            is_undo: false,
+        })
     })
 
     it('collapses the row optimistically once the op succeeds', async () => {
@@ -122,6 +133,13 @@ describe('setupPlanLogic', () => {
         ).toFinishAllListeners()
 
         expect(applyRequests[0].ops).toEqual(UNDO_OPS)
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
+            source: 'setup_tab',
+            operation_types: ['remove_custom_source_mapping'],
+            requested_count: 1,
+            applied_count: 0,
+            is_undo: true,
+        })
     })
 
     it('batches only the safe suggestions', async () => {
@@ -137,6 +155,13 @@ describe('setupPlanLogic', () => {
 
         await expectLogic(logic, () => logic.actions.applyAllSafe()).toFinishAllListeners()
         expect(applyRequests[0].ops).toEqual([suggestion().apply])
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
+            source: 'apply_all_safe',
+            operation_types: ['add_custom_source_mapping'],
+            requested_count: 1,
+            applied_count: 0,
+            is_undo: false,
+        })
         // `source` is recorded against the change server-side, so a one-item batch still
         // has to report where the click came from rather than being inferred from length.
         expect(applyRequests[0].source).toEqual('apply_all_safe')
@@ -217,6 +242,17 @@ describe('setupPlanLogic', () => {
         await expectLogic(logic, () => logic.actions.confirmReviewedSuggestion(suggestion())).toFinishAllListeners()
 
         expect(logic.values.reviewingSuggestion).not.toBeNull()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change failed', {
+            source: 'setup_tab',
+            operation_types: ['add_custom_source_mapping'],
+            requested_count: 1,
+            is_undo: false,
+        })
+        expect(
+            jest
+                .mocked(posthog.capture)
+                .mock.calls.filter(([event]) => event === 'marketing analytics setup change completed')
+        ).toHaveLength(0)
     })
 
     it('closes the review modal once the apply lands', async () => {
@@ -242,6 +278,28 @@ describe('setupPlanLogic', () => {
 
         expect(logic.values.visibleSuggestions).toHaveLength(0)
         expect(applyRequests).toHaveLength(0)
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup suggestion dismissed', {
+            kind: 'add_source_mapping',
+        })
+    })
+
+    it('tracks reviews without event evidence and does not count closing as another review', async () => {
+        await expectLogic(logic, () => logic.actions.reviewSuggestion(suggestion())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.reviewSuggestion(null)).toFinishAllListeners()
+        expect(
+            jest
+                .mocked(posthog.capture)
+                .mock.calls.filter(([event]) => event === 'marketing analytics setup suggestion reviewed')
+        ).toEqual([
+            [
+                'marketing analytics setup suggestion reviewed',
+                {
+                    kind: 'add_source_mapping',
+                    source: 'deterministic',
+                    integration: 'MetaAds',
+                },
+            ],
+        ])
     })
 
     describe('reviewing what was dismissed', () => {
