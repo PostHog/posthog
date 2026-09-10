@@ -103,6 +103,7 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
     pr_bearing_task_run_filter,
     primary_pull_request,
+    pull_request_matches_id,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -1259,7 +1260,7 @@ class SignalReportViewSet(
         new_links = SignalReportArtefact.objects.filter(team_id=self.team.id, pull_request__isnull=False)
         active_prs = new_links.filter(pull_request__state__in=["unknown", "draft", "open"])
         has_review_pr = Q(id__in=active_prs.values("report_id")) | (
-            ~Q(id__in=new_links.values("report_id")) & (has_review_pr | task_pr)
+            (~Q(id__in=new_links.values("report_id")) & has_review_pr) | task_pr
         )
         is_unclaimed = ~Q(status=SignalReport.Status.RESOLVED) & Q(assignment__actor_kind__isnull=True) & ~has_review_pr
         return queryset.filter(is_unclaimed) if wants_unclaimed else queryset.exclude(is_unclaimed)
@@ -3083,7 +3084,7 @@ class SignalReportViewSet(
         prs = fetch_implementation_prs_for_reports([str(report.id)]).get(str(report.id), [])
         requested_id = self.request.query_params.get("pull_request_id")
         if requested_id:
-            pr = next((pr for pr in prs if pr.id == requested_id), None)
+            pr = next((pr for pr in prs if pull_request_matches_id(pr, requested_id, report.team_id)), None)
             if pr is None:
                 raise NotFound("Pull request is not linked to this report.")
         else:

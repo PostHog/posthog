@@ -1,8 +1,10 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
 import re
+from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, cast
+from uuid import NAMESPACE_URL, uuid5
 
 from django.db.models import Q
 from django.utils import timezone
@@ -20,11 +22,7 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalReportPullRequest,
 )
-from products.signals.backend.task_run_artefacts import (
-    NON_PR_BEARING_TASK_RUN_TYPES,
-    SIGNALS_PRODUCT,
-    TASK_RUN_TYPE_IMPLEMENTATION,
-)
+from products.signals.backend.task_run_artefacts import NON_PR_BEARING_TASK_RUN_TYPES, SIGNALS_PRODUCT
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -55,61 +53,9 @@ class ImplementationPr:
     agent_name: str | None = None
 
 
-def fetch_legacy_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
-    """Return assignment PRs first, falling back to existing task-backed PRs."""
+def fetch_implementation_prs_for_reports(report_ids: list[str]) -> dict[str, list[ImplementationPr]]:
     if not report_ids:
         return {}
-    assignments = list(SignalReportAssignment.all_teams.filter(report_id__in=report_ids).select_related("actor_user"))
-    result = {
-        str(assignment.report_id): ImplementationPr(
-            url=assignment.pr_url,
-            merged=assignment.pr_merged,
-            state=assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN,
-            actor_kind=assignment.actor_kind,
-            attached_by_user=assignment.actor_user,
-            agent_name=assignment.actor_agent,
-        )
-        for assignment in assignments
-        if assignment.pr_url
-    }
-
-    missing_report_ids = [str(report_id) for report_id in report_ids if str(report_id) not in result]
-    if not missing_report_ids:
-        return result
-
-    runs_by_report = SignalReport.associated_task_runs_for_reports(
-        report_ids=missing_report_ids,
-        product=SIGNALS_PRODUCT,
-    )
-    pairs = [
-        (report_id, run.task_id)
-        for report_id, runs in runs_by_report.items()
-        for run in sorted(runs, key=lambda run: run.type != TASK_RUN_TYPE_IMPLEMENTATION)
-        if run.type not in NON_PR_BEARING_TASK_RUN_TYPES
-    ]
-    pairs.extend(
-        (str(assignment.report_id), str(assignment.actor_task_id))
-        for assignment in assignments
-        if not assignment.pr_url and assignment.actor_kind == SignalActorKind.TASK and assignment.actor_task_id
-    )
-    task_ids = [task_id for _, task_id in pairs]
-    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids, pr_bearing_task_run_filter())
-    merged_task_ids = tasks_facade.get_merged_pr_task_ids(task_ids, pr_bearing_task_run_filter())
-    for report_id, task_id in pairs:
-        pr_url = pr_url_by_task.get(task_id)
-        if pr_url and report_id not in result:
-            merged = task_id in merged_task_ids
-            result[report_id] = ImplementationPr(
-                url=pr_url,
-                merged=merged,
-                state=SignalReportAssignment.PrState.MERGED if merged else SignalReportAssignment.PrState.UNKNOWN,
-                task_id=task_id,
-                actor_kind=SignalActorKind.TASK,
-            )
-    return result
-
-
-def fetch_implementation_prs_for_reports(report_ids: list[str]) -> dict[str, list[ImplementationPr]]:
     result: dict[str, list[ImplementationPr]] = {}
     seen: set[tuple[str, str]] = set()
     links = (
@@ -122,19 +68,19 @@ def fetch_implementation_prs_for_reports(report_ids: list[str]) -> dict[str, lis
         .order_by("created_at", "id")
     )
     for link in links:
-        pr = link.pull_request
-        if pr is None or pr.team_id != link.team_id:
+        linked_pr = link.pull_request
+        if linked_pr is None or linked_pr.team_id != link.team_id:
             continue
-        key = (str(link.report_id), str(pr.id))
+        key = (str(link.report_id), str(linked_pr.id))
         if key in seen:
             continue
         seen.add(key)
         result.setdefault(str(link.report_id), []).append(
             ImplementationPr(
-                id=str(pr.id),
-                url=pr.url,
-                state=pr.state,
-                merged=pr.state == "merged",
+                id=str(linked_pr.id),
+                url=linked_pr.url,
+                state=linked_pr.state,
+                merged=linked_pr.state == "merged",
                 task_id=str(link.task_id) if link.task_id else None,
                 actor_kind=link.actor_kind,
                 claim_id=str(link.claim_id) if link.claim_id else None,
@@ -143,27 +89,49 @@ def fetch_implementation_prs_for_reports(report_ids: list[str]) -> dict[str, lis
                 agent_name=link.actor_agent,
             )
         )
-    missing = [str(report_id) for report_id in report_ids if str(report_id) not in result]
-    for report_id, legacy_pr in fetch_legacy_implementation_pr_state_for_reports(missing).items():
-        result[report_id] = [legacy_pr]
-    legacy_task_report_ids = [
-        report_id for report_id in missing if result.get(report_id) and result[report_id][0].task_id
-    ]
-    team_by_report = dict(SignalReport.objects.filter(id__in=legacy_task_report_ids).values_list("id", "team_id"))
+    assignments = list(SignalReportAssignment.all_teams.filter(report_id__in=report_ids).select_related("actor_user"))
+    runs = SignalReport.associated_task_runs_for_reports(report_ids=report_ids, product=SIGNALS_PRODUCT)
+    team_by_report = {
+        str(pk): team for pk, team in SignalReport.objects.filter(id__in=report_ids).values_list("id", "team_id")
+    }
+    tasks_by_report = {
+        report_id: {
+            str(run.task_id)
+            for run in report_runs
+            if run.type not in NON_PR_BEARING_TASK_RUN_TYPES and not run.type.startswith("scout:")
+        }
+        for report_id, report_runs in runs.items()
+    }
+    for assignment in assignments:
+        report_id = str(assignment.report_id)
+        if assignment.team_id != team_by_report.get(report_id):
+            continue
+        if assignment.pr_url:
+            result.setdefault(report_id, []).append(
+                ImplementationPr(
+                    url=assignment.pr_url,
+                    state="merged" if assignment.pr_merged else assignment.pr_state or "unknown",
+                    merged=assignment.pr_merged,
+                    task_id=str(assignment.actor_task_id) if assignment.actor_task_id else None,
+                    actor_kind=assignment.actor_kind,
+                    attached_by_user=assignment.actor_user,
+                    agent_name=assignment.actor_agent,
+                )
+            )
+        if assignment.actor_task_id:
+            tasks_by_report.setdefault(report_id, set()).add(str(assignment.actor_task_id))
     for team_id in set(team_by_report.values()):
-        legacy_tasks = {
-            str(report_id): result[str(report_id)][0].task_id
-            for report_id, report_team_id in team_by_report.items()
-            if report_team_id == team_id and str(report_id) in result and result[str(report_id)][0].task_id
+        team_tasks = {
+            report_id: tasks for report_id, tasks in tasks_by_report.items() if team_by_report.get(report_id) == team_id
         }
         task_prs = tasks_facade.get_pull_requests_for_tasks(
-            team_id, [task_id for task_id in legacy_tasks.values() if task_id], pr_bearing_task_run_filter()
+            team_id, set().union(*team_tasks.values()) if team_tasks else set(), pr_bearing_task_run_filter()
         )
-        for report_id, task_id in legacy_tasks.items():
-            existing_urls = {pr.url for pr in result[report_id]}
-            for url, state in task_prs.get(task_id or "", []):
-                if url not in existing_urls:
-                    result[report_id].append(
+        for report_id, task_ids in team_tasks.items():
+            for task_id in sorted(task_ids):
+                for url, state in task_prs.get(task_id, []):
+                    state = state if state in SignalReportPullRequest.State.values else "unknown"
+                    result.setdefault(report_id, []).append(
                         ImplementationPr(
                             url=url,
                             state=state,
@@ -172,8 +140,32 @@ def fetch_implementation_prs_for_reports(report_ids: list[str]) -> dict[str, lis
                             actor_kind=SignalActorKind.TASK,
                         )
                     )
-                    existing_urls.add(url)
-    return result
+    combined: dict[str, list[ImplementationPr]] = {}
+    for report_id, prs in result.items():
+        identities: set[tuple[str, int]] = set()
+        for pr in prs:
+            parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+            if parsed is None:
+                continue
+            identity = (parsed.repository.lower(), parsed.number)
+            if identity in identities:
+                continue
+            identities.add(identity)
+            if pr.id is None:
+                pr = replace(
+                    pr, id=str(uuid5(NAMESPACE_URL, f"signals:{team_by_report[report_id]}:{identity[0]}:{identity[1]}"))
+                )
+            combined.setdefault(report_id, []).append(pr)
+    return combined
+
+
+def pull_request_matches_id(pr: ImplementationPr, requested_id: str, team_id: int) -> bool:
+    if pr.id == requested_id:
+        return True
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+    return parsed is not None and requested_id == str(
+        uuid5(NAMESPACE_URL, f"signals:{team_id}:{parsed.repository.lower()}:{parsed.number}")
+    )
 
 
 def primary_pull_request(prs: list[ImplementationPr]) -> ImplementationPr:

@@ -58742,7 +58742,7 @@ export namespace Schemas {
 
     export interface SignalReportPullRequest {
       /**
-         * Shared PR record ID. Null for a legacy link awaiting migration.
+         * PR selection ID. Task-output links use a deterministic ID until attached as an artefact.
          * @nullable
          */
       id: string | null;
@@ -58758,7 +58758,7 @@ export namespace Schemas {
       state: SignalReportAssignmentPrStateEnum;
       /** Whether this PR merged. */
       merged: boolean;
-      /** Who first attached this PR to the report, not necessarily its GitHub author. Null until a legacy link is migrated. */
+      /** Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task. */
       readonly attached_by: SignalReportPullRequestAttachedBy | null;
       /**
          * Originating work claim. Null for legacy links without a recorded claim.

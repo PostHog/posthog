@@ -66,7 +66,8 @@ List/detail responses expose `pull_requests`, including `attached_by` (actor kin
 user, agent name, task ID), `claim_id`, and `attached_at`. These describe the first
 attachment to this report, not the GitHub author. Later attachments remain in the
 artefact log. A takeover never rewrites attribution. Imported timestamps identify
-the backfill time; unmigrated links have null attachment metadata.
+the backfill time. Task-output links identify the originating task, with null
+claim and attachment time because no attachment event was recorded.
 
 Existing `implementation_pr_*` fields retain a deterministic representative:
 unfinished PRs first, then merged, then closed, with URL ordering within each group. Existing
@@ -88,8 +89,8 @@ Reviewer assignment is queued after commit for newly linked PRs and reviewer edi
    indexes. Deploy the new readers and writers and drain old workers before using
    multiple PRs; old workers still implement single-PR completion.
 2. Run `uv run manage.py backfill_report_pull_requests --team-id <id>`. It imports
-   assignment PRs and associated implementation task PR arrays, preserving current
-   ownership and recording migration provenance. Research and scout PRs are excluded.
+   only assignment PRs and ownership, recording migration provenance. Historical
+   task-output PRs remain in place and are read directly; they are not backfilled.
    Repeat per team; `--batch-size` and the printed `--after` cursor bound/resume work.
 3. The backfill locks one report at a time and is safe to rerun. It does not call
    GitHub, change report status, or enqueue reviewers. Imported snapshots have no
@@ -98,10 +99,12 @@ Reviewer assignment is queued after commit for newly linked PRs and reviewer edi
    automatic closure.
 4. Validate links and ownership before removing compatibility code. Assignment PR
    columns and task-run output remain available during rollout. New PR writes fill
-   an empty legacy primary, and webhooks keep its state synchronized. Reads fall
-   back to the old resolver when no new links exist.
-5. Remove assignment PR fields and fallback reads in a later deployment after all
-   teams are backfilled and old callers are retired. Keep assignment ownership.
+   an empty legacy primary, and webhooks keep its state synchronized. Reads always combine artefact links, assignment PRs, and all eligible task-output
+   PRs, deduplicated by repository and PR number. Artefact links take precedence.
+5. Remove assignment PR fields and assignment fallback reads in a later deployment after all
+   teams are backfilled and old callers are retired. Keep assignment ownership and
+   task-output reads. Task-only PRs have deterministic selection IDs; a webhook
+   persists only its matching PR link, without importing unrelated task history.
 
 Backfill does not recover missed webhook states. Unknown or stale PRs require a
 subsequent GitHub event or explicit state reconciliation before auto-completion.

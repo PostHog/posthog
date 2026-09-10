@@ -11,7 +11,7 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 
 def backfill_report_pull_requests(*, team_id: int, after: str | None, batch_size: int) -> Iterator[tuple[int, str]]:
     while True:
-        reports = SignalReport.objects.filter(team_id=team_id).order_by("id")
+        reports = SignalReport.objects.filter(team_id=team_id, assignment__isnull=False).order_by("id")
         if after:
             reports = reports.filter(id__gt=after)
         ids = list(reports.values_list("id", flat=True)[:batch_size])
@@ -26,7 +26,7 @@ def backfill_report_pull_requests(*, team_id: int, after: str | None, batch_size
 
 
 class Command(BaseCommand):
-    help = "Import report ownership and task/assignment PR links into the work artefact log. Safe to rerun."
+    help = "Import report ownership and assignment PR links into the work artefact log. Safe to rerun."
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)

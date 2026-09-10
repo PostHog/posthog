@@ -504,7 +504,10 @@ def update_assignments_for_pull_request(
     pr_number: int,
     pr_state: str,
 ) -> int:
-    from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
+    from products.signals.backend.implementation_pr import (
+        fetch_implementation_prs_for_reports,
+        report_ids_for_implementation_pr,
+    )
     from products.signals.backend.pull_requests import import_report_pull_requests
 
     updated = 0
@@ -514,6 +517,26 @@ def update_assignments_for_pull_request(
             reports = SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
             for report in reports:
                 import_report_pull_requests(report, notify_reviewers=True)
+                for pr in fetch_implementation_prs_for_reports([str(report.id)]).get(str(report.id), []):
+                    parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+                    if (
+                        parsed
+                        and parsed.repository.lower() == repository.lower()
+                        and parsed.number == pr_number
+                        and pr.task_id
+                    ):
+                        link_pull_request(
+                            report=report,
+                            details=PullRequestDetails(
+                                url=pr.url,
+                                repository=repository.lower(),
+                                number=pr_number,
+                                state=pr_state,
+                                merged=pr_state == "merged",
+                            ),
+                            actor=ArtefactAttribution.from_task(pr.task_id),
+                            claim_id=pr.claim_id,
+                        )
             updated += update_pull_request_state(
                 team_id=team_id, repository=repository, number=pr_number, state=pr_state
             )

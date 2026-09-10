@@ -214,7 +214,7 @@ def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str) -> bool:
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
     for pr in fetch_implementation_prs_for_reports([str(report_id)]).get(str(report_id), []):
-        if pr.url == pr_url and pr.id is not None:
+        if pr.url == pr_url and pr.attached_at is not None:
             return pr.merged
 
     return SignalReportTask.objects.filter(

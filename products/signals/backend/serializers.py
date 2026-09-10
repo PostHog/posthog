@@ -391,7 +391,8 @@ class SignalReportPullRequestAttachedBySerializer(serializers.Serializer):
 
 class SignalReportPullRequestSerializer(serializers.Serializer):
     id = serializers.UUIDField(
-        allow_null=True, help_text="Shared PR record ID. Null for a legacy link awaiting migration."
+        allow_null=True,
+        help_text="PR selection ID. Task-output links use a deterministic ID until attached as an artefact.",
     )
     url = serializers.URLField(help_text="GitHub pull request URL.")
     state = serializers.ChoiceField(
@@ -399,7 +400,7 @@ class SignalReportPullRequestSerializer(serializers.Serializer):
     )
     merged = serializers.BooleanField(help_text="Whether this PR merged.")
     attached_by = serializers.SerializerMethodField(
-        help_text="Who first attached this PR to the report, not necessarily its GitHub author. Null until a legacy link is migrated."
+        help_text="Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task."
     )
     claim_id = serializers.UUIDField(
         allow_null=True, help_text="Originating work claim. Null for legacy links without a recorded claim."
@@ -411,7 +412,11 @@ class SignalReportPullRequestSerializer(serializers.Serializer):
 
     @extend_schema_field(SignalReportPullRequestAttachedBySerializer(allow_null=True))
     def get_attached_by(self, obj: "ImplementationPr") -> dict[str, object] | None:
-        return SignalReportPullRequestAttachedBySerializer(obj).data if obj.attached_at is not None else None
+        return (
+            SignalReportPullRequestAttachedBySerializer(obj).data
+            if obj.attached_at is not None or obj.actor_kind is not None
+            else None
+        )
 
 
 class SignalReportClaimSerializer(serializers.Serializer):

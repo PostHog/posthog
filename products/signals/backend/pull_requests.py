@@ -85,14 +85,10 @@ def link_pull_request(
 
 
 def apply_report_completion(report: SignalReport) -> None:
+    from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
     from products.signals.backend.report_assignments import _apply_pr_report_state
 
-    states = list(
-        SignalReportPullRequest.objects.for_team(report.team_id)
-        .filter(report_links__team_id=report.team_id, report_links__report_id=report.id)
-        .values_list("state", flat=True)
-        .distinct()
-    )
+    states = [pr.state for pr in fetch_implementation_prs_for_reports([str(report.id)]).get(str(report.id), [])]
     state = completion_state(states)
     if state is not None:
         _apply_pr_report_state(report, state)
@@ -101,46 +97,23 @@ def apply_report_completion(report: SignalReport) -> None:
 def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool = False) -> None:
     from posthog.models.github_integration_base import GitHubIntegrationBase
 
-    from products.signals.backend.implementation_pr import (
-        fetch_legacy_implementation_pr_state_for_reports,
-        pr_bearing_task_run_filter,
-    )
     from products.signals.backend.models import SignalReportAssignment
     from products.signals.backend.report_assignments import PullRequestDetails, assignment_actor, ensure_claim
-    from products.tasks.backend.facade import api as tasks_facade
 
     assignment = SignalReportAssignment.all_teams.filter(team_id=report.team_id, report_id=report.id).first()
     if assignment is not None and assignment.actor_kind:
         ensure_claim(assignment, migrated=True)
         assignment.save(update_fields=["claim"])
     candidates: list[tuple[str, str, ArtefactAttribution, str | None]] = []
-    legacy = fetch_legacy_implementation_pr_state_for_reports([str(report.id)]).get(str(report.id))
-    if legacy is not None:
-        actor = (
-            assignment_actor(assignment)
-            if assignment and assignment.pr_url
-            else (ArtefactAttribution.from_task(legacy.task_id) if legacy.task_id else ArtefactAttribution.system())
-        )
+    if assignment is not None and assignment.pr_url:
         candidates.append(
-            (legacy.url, legacy.state, actor, str(assignment.claim_id) if assignment and assignment.claim_id else None)
-        )
-    runs = SignalReport.associated_task_runs_for_reports(report_ids=[str(report.id)], product="signals").get(
-        str(report.id), []
-    )
-    task_ids = {
-        run.task_id
-        for run in runs
-        if run.type not in {"research", "repo_selection"} and not run.type.startswith("scout:")
-    }
-    task_prs = tasks_facade.get_pull_requests_for_tasks(report.team_id, task_ids, pr_bearing_task_run_filter())
-    for task_id, prs in task_prs.items():
-        for url, state in prs:
-            task_claim_id = (
-                str(assignment.claim_id)
-                if assignment and assignment.claim_id and str(assignment.actor_task_id) == task_id
-                else None
+            (
+                assignment.pr_url,
+                "merged" if assignment.pr_merged else assignment.pr_state or "unknown",
+                assignment_actor(assignment),
+                str(assignment.claim_id) if assignment.claim_id else None,
             )
-            candidates.append((url, state, ArtefactAttribution.from_task(task_id), task_claim_id))
+        )
     for url, state, actor, claim_id in candidates:
         parsed = GitHubIntegrationBase.parse_pull_request_url(url)
         if parsed is None or not 0 < parsed.number <= 2**63 - 1 or len(parsed.repository) > 200:

@@ -71,9 +71,9 @@ class TestBackfillReportPullRequests(BaseTest):
         assert claim_id is not None
         assert assignment.actor_user_id == self.user.id
         assert SignalReportAssignment.all_teams.filter(report=task_report).count() == 0
-        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 2
+        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 1
         assert (
-            SignalReportArtefact.objects.filter(report=task_report, type="pull_request", actor_kind="task").count() == 2
+            SignalReportArtefact.objects.filter(report=task_report, type="pull_request", actor_kind="task").count() == 0
         )
         assert SignalReportArtefact.objects.get(report=released, type="pull_request").actor_kind is None
         imported = SignalReportArtefact.objects.get(report=deleted_principal, type="pull_request")
@@ -94,3 +94,59 @@ class TestBackfillReportPullRequests(BaseTest):
         assert assignment.claim_id == claim_id
         task_report.refresh_from_db()
         assert task_report.status == "ready"
+
+    def test_reads_union_without_importing_task_history_and_webhook_updates_secondary_pr(self) -> None:
+        from django.db import transaction
+
+        from products.signals.backend.implementation_pr import (
+            fetch_implementation_prs_for_reports,
+            report_ids_for_implementation_pr,
+        )
+        from products.signals.backend.pull_requests import apply_report_completion, import_report_pull_requests
+
+        report = SignalReport.objects.create(team=self.team, status="ready", title="Report", summary="Summary")
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            pr_url="https://github.com/example/app/pull/1",
+            repository="example/app",
+            pr_number=1,
+            pr_state="merged",
+            pr_merged=True,
+        )
+        task = Task.objects.create(team=self.team, title="Implementation", description="", origin_product="signals")
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+        run = TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.COMPLETED)
+        TaskRun.objects.filter(id=run.id).update(
+            output={"pr_urls": ["https://github.com/EXAMPLE/app/pull/1", "https://github.com/example/sdk/pull/2"]}
+        )
+        with transaction.atomic():
+            import_report_pull_requests(report)
+            apply_report_completion(report)
+        report.refresh_from_db()
+        assert report.status == "ready"
+        prs = fetch_implementation_prs_for_reports([str(report.id)])[str(report.id)]
+        assert len(prs) == 2
+        assert prs[0].state == "merged"
+        assert prs[1].task_id == str(task.id)
+        assert prs[1].id == fetch_implementation_prs_for_reports([str(report.id)])[str(report.id)][1].id
+        from rest_framework.request import Request
+        from rest_framework.test import APIRequestFactory
+
+        from products.signals.backend.serializers import SignalReportPullRequestSerializer
+        from products.signals.backend.views import SignalReportViewSet
+
+        view = SignalReportViewSet(request=Request(APIRequestFactory().get("/", {"pull_request_id": prs[1].id})))
+        assert view._resolve_report_pr_reference(report) == ("example/sdk", 2)
+        assert SignalReportPullRequestSerializer(prs[1]).data["attached_by"]["task_id"] == str(task.id)
+        assert SignalReportArtefact.objects.filter(report=report, type="pull_request").count() == 1
+        assert report_ids_for_implementation_pr(team_id=self.team.id, repository="example/sdk", pr_number=2) == [
+            str(report.id)
+        ]
+        update_assignments_for_pull_request(
+            team_ids=[self.team.id], repository="example/sdk", pr_number=2, pr_state="closed"
+        )
+        report.refresh_from_db()
+        assert report.status == "resolved"
+        assert view._resolve_report_pr_reference(report) == ("example/sdk", 2)
+        assert len(fetch_implementation_prs_for_reports([str(report.id)])[str(report.id)]) == 2
