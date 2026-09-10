@@ -329,10 +329,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 // A migrated legacy_destination supersedes the plugin config it came from, and only
                 // the hog function runs. The plugin config stays enabled as the rollback, so drop it
                 // here rather than listing a row that does nothing.
+                // The list serializer omits template_id and exposes the template's id instead
                 const supersededTemplateIds = new Set(
                     hogFunctions
-                        .filter((f) => f.type === 'legacy_destination' && f.template_id)
-                        .map((f) => f.template_id)
+                        .filter((f) => f.type === 'legacy_destination')
+                        .map((f) => f.template_id ?? f.template?.id)
+                        .filter(Boolean)
                 )
                 const liveManual = manualFunctions.filter((f) => !supersededTemplateIds.has(f.template_id))
                 const filteredManual = search
