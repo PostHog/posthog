@@ -16,7 +16,6 @@ _DELTA_BLOCK_TYPES = {
     "thinking_delta": "thinking",
 }
 _SSE_FRAME_SEPARATOR = re.compile(r"\r?\n\r?\n")
-_REASONING_DELTA_TYPES = frozenset({"signature_delta", "thinking_delta"})
 
 
 class _SSEPayloadDecoder:
@@ -103,7 +102,7 @@ def _leaks_reasoning_into_text_block(payload: dict[str, Any], active_blocks: dic
         return False
     delta = payload.get("delta")
     delta_type = delta.get("type") if isinstance(delta, dict) else None
-    if delta_type not in _REASONING_DELTA_TYPES:
+    if not isinstance(delta_type, str) or _DELTA_BLOCK_TYPES.get(delta_type) != "thinking":
         return False
     index = payload.get("index")
     return isinstance(index, int) and active_blocks.get(index) == "text"

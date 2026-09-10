@@ -254,7 +254,16 @@ async def test_glm_reasoning_never_reaches_visible_anthropic_sse() -> None:
 
     response = b"".join([chunk async for chunk in stream])
 
-    assert (b"second thought" in response, b"Here is the answer" in response) == (False, True)
+    events = [
+        json.loads(line.removeprefix("data: ")) for line in response.decode().splitlines() if line.startswith("data: ")
+    ]
+    _assert_valid_event_order(events)
+    visible = "".join(
+        event["delta"]["text"]
+        for event in events
+        if event.get("type") == "content_block_delta" and event["delta"]["type"] == "text_delta"
+    )
+    assert visible == "Here is the answer done"
 
 
 @pytest.mark.parametrize(
