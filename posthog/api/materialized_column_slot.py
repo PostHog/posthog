@@ -108,8 +108,8 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         auto_materialized_property_names = get_auto_materialized_property_names()
 
         available_properties = (
-            PropertyDefinition.objects.filter(
-                team_id=self.team_id,
+            PropertyDefinition.objects.for_project(self.team.project_id)
+            .filter(
                 property_type__isnull=False,
                 type=PropertyDefinition.Type.EVENT,
             )

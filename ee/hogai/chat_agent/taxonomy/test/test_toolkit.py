@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from posthog.schema import AssistantToolCall
 
+from posthog.models import Team
+
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
@@ -322,6 +324,21 @@ class TestTaxonomyAgentToolkit(BaseTest):
         self.assertIn("<name>plan_tier</name>", result.result)
         # Sanitization collapses the newline so a description can't break out of its line.
         self.assertIn("<description>Subscription tier of the account</description>", result.result)
+
+    async def test_handle_entity_properties_lists_sibling_environment_definitions(self):
+        sibling = await Team.objects.acreate(organization=self.organization, project=self.team.project)
+        await PropertyDefinition.objects.acreate(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.PERSON,
+            name="sibling_plan",
+            property_type="String",
+        )
+        task = AssistantToolCall(id="1", name="retrieve_entity_properties", args={"entity": "person"})
+
+        result = await self.toolkit._handle_entity_properties_task({"task": task})
+
+        self.assertIn("<name>sibling_plan</name>", result.result)
 
     @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
     async def test_retrieve_multiple_entity_property_values_hides_restricted(self, mock_restricted):
