@@ -26,7 +26,7 @@ The per-signal safety filter (`backend/temporal/safety_filter.py`) rejects too m
 
 ## The change that ships
 
-- `SIGNAL_SAFETY_LLM_MODEL` env var, default = matching model, so a matching-model swap can no longer silently retune the gate; both safety stages resolve their model from it.
+- `SIGNAL_SAFETY_LLM_MODEL` env var, default = `claude-sonnet-5` rather than the matching model, so a matching-model swap can no longer silently retune the gate; both safety stages resolve their model from it.
 - One manipulation-only prompt for every source, replacing the two diverging prompts; source and current date injected in the user prompt.
 - No change to the report judge's prompt (it produces no false positives today); it only moves onto the shared safety model setting.
 

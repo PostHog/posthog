@@ -66,7 +66,7 @@ All three are error strings that literally embed a step-by-step directive to an 
 
 ## The fix
 
-`SIGNAL_SAFETY_LLM_MODEL` env var (default = the matching model) so the gate stops riding `SIGNAL_MATCHING_LLM_MODEL`; the two safety stages resolve their model from it. One manipulation-only prompt for every source, replacing the old external-ticket and scout prompts; the source and current date are injected in the user prompt so the classifier applies the right trust context and reads unfamiliar dates and names as real. Five block categories: instruction override, hidden instructions, encoded payload, secret exfiltration, remote code execution. Categories 4 and 5 are judged on the action regardless of source or stated purpose. The full prompt is `SAFETY_FILTER_PROMPT` in `backend/temporal/safety_filter.py`.
+`SIGNAL_SAFETY_LLM_MODEL` env var (default = `claude-sonnet-5`, not the matching model) so the gate stops riding `SIGNAL_MATCHING_LLM_MODEL`; the two safety stages resolve their model from it. One manipulation-only prompt for every source, replacing the old external-ticket and scout prompts; the source and current date are injected in the user prompt so the classifier applies the right trust context and reads unfamiliar dates and names as real. Five block categories: instruction override, hidden instructions, encoded payload, secret exfiltration, remote code execution. Categories 4 and 5 are judged on the action regardless of source or stated purpose. The full prompt is `SAFETY_FILTER_PROMPT` in `backend/temporal/safety_filter.py`.
 
 ## Method
 

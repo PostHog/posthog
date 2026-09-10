@@ -21,9 +21,10 @@ logger = structlog.get_logger(__name__)
 
 MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5")
 
-# Both safety stages resolve their model from here so a matching-model swap cannot silently retune
-# the security gate. Defaults to the matching model, so unset means no behaviour change.
-SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or MATCHING_MODEL
+# Both safety stages resolve their model from here. The default is a literal rather than
+# MATCHING_MODEL, so a matching-model swap leaves the gate on the model its prompt was measured
+# against, and moving the gate takes a deliberate change to this setting.
+SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or "claude-sonnet-5"
 
 
 @frozen
