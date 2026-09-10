@@ -59,6 +59,18 @@ from common.hogvm.python.debugger import color_bytecode
 logger = structlog.get_logger(__name__)
 
 
+def _utf16_offset_to_utf8(value: str, offset: int) -> int:
+    if offset <= 0:
+        return 0
+    utf16_offset = 0
+    for index, character in enumerate(value):
+        character_width = 2 if ord(character) > 0xFFFF else 1
+        if utf16_offset + character_width > offset:
+            return len(value[:index].encode())
+        utf16_offset += character_width
+    return len(value.encode())
+
+
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
     common = (
         query.language.value == "hogQL"
@@ -83,7 +95,8 @@ def _language_service_call(
 
         def call() -> LanguageServiceResult:
             if isinstance(query, HogQLAutocomplete):
-                return client.autocomplete(team.pk, user.pk, query.query, query.endPosition)
+                position = _utf16_offset_to_utf8(query.query, query.endPosition)
+                return client.autocomplete(team.pk, user.pk, query.query, position)
             return client.validate(team.pk, user.pk, query.query)
 
         result = call()
@@ -356,22 +369,25 @@ def process_query_model(
             if user is not None and (language_result := _language_service_call(team, user, query)) is not None:
                 body = language_result.body
                 kind_map = {"field": "Field", "property": "Property", "table": "Class", "keyword": "Keyword"}
-                return HogQLAutocompleteResponse(
-                    suggestions=[
-                        {
-                            "label": suggestion["label"],
-                            "insertText": suggestion["label"],
-                            "kind": kind_map.get(suggestion["kind"], "Text"),
-                            "detail": suggestion.get("detail"),
-                        }
-                        for suggestion in body["suggestions"]
-                    ],
-                    incomplete_list=bool(body.get("nextCursor")),
-                    timings=[
-                        QueryTiming(k="language_service_http", t=language_result.duration_seconds),
-                        QueryTiming(k="language_service_go", t=body["durationMicros"] / 1_000_000),
-                    ],
-                )
+                try:
+                    return HogQLAutocompleteResponse(
+                        suggestions=[
+                            {
+                                "label": suggestion["label"],
+                                "insertText": suggestion["label"],
+                                "kind": kind_map.get(suggestion["kind"], "Text"),
+                                "detail": suggestion.get("detail"),
+                            }
+                            for suggestion in body["suggestions"]
+                        ],
+                        incomplete_list=bool(body.get("nextCursor")),
+                        timings=[
+                            QueryTiming(k="language_service_http", t=language_result.duration_seconds),
+                            QueryTiming(k="language_service_go", t=body["durationMicros"] / 1_000_000),
+                        ],
+                    )
+                except (KeyError, TypeError, ValueError):
+                    logger.warning("hogql_language_service_invalid_autocomplete_response")
             _, database = resolve_database_for_connection(
                 team,
                 query.connectionId,
@@ -387,23 +403,30 @@ def process_query_model(
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
             if user is not None and (language_result := _language_service_call(team, user, query)) is not None:
                 body = language_result.body
-                errors = [
-                    HogQLNotice(
-                        message=diagnostic["message"],
-                        start=diagnostic["start"],
-                        end=diagnostic["end"],
-                        fix=diagnostic["suggestions"][0]["label"] if diagnostic.get("suggestions") else None,
+                try:
+                    errors: list[HogQLNotice] = []
+                    warnings: list[HogQLNotice] = []
+                    for diagnostic in body["diagnostics"]:
+                        notice = HogQLNotice(
+                            message=diagnostic["message"],
+                            start=diagnostic["start"],
+                            end=diagnostic["end"],
+                            fix=diagnostic["suggestions"][0]["label"] if diagnostic.get("suggestions") else None,
+                        )
+                        if diagnostic["code"] == "unknown_property":
+                            warnings.append(notice)
+                        else:
+                            errors.append(notice)
+                    return HogQLMetadataResponse(
+                        isValid=not errors,
+                        query=query.query,
+                        errors=errors,
+                        warnings=warnings,
+                        notices=[],
+                        table_names=body.get("tableNames", []),
                     )
-                    for diagnostic in body["diagnostics"]
-                ]
-                return HogQLMetadataResponse(
-                    isValid=body["valid"],
-                    query=query.query,
-                    errors=errors,
-                    warnings=[],
-                    notices=[],
-                    table_names=body.get("tableNames", []),
-                )
+                except (KeyError, TypeError, ValueError):
+                    logger.warning("hogql_language_service_invalid_metadata_response")
             metadata_query = HogQLMetadata.model_validate(query)
             return get_hogql_metadata(query=metadata_query, team=team, user=user)
 

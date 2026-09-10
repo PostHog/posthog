@@ -34,8 +34,9 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.language_service import LanguageServiceResult
 
-from posthog.api.services.query import process_query_model
+from posthog.api.services.query import _utf16_offset_to_utf8, process_query_model
 from posthog.exceptions import DatabaseSchemaUnavailable
+from posthog.models import Team, User
 
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -46,6 +47,15 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 
 class TestLanguageServiceRouting(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("SELECT ", 7, 7),
+            ("SELECT '😀' FROM ", 17, 19),
+        ]
+    )
+    def test_converts_monaco_offsets_to_utf8_bytes(self, query: str, utf16_offset: int, expected: int) -> None:
+        assert _utf16_offset_to_utf8(query, utf16_offset) == expected
+
     @patch("posthog.api.services.query._language_service_call")
     def test_hogql_autocomplete_uses_language_service_response(self, mock_language_service_call: MagicMock):
         mock_language_service_call.return_value = LanguageServiceResult(
@@ -59,14 +69,14 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
 
         response = process_query_model(
-            SimpleNamespace(),
+            cast(Team, SimpleNamespace()),
             HogQLAutocomplete(
                 query="SELECT * FROM ",
                 language=HogLanguage.HOG_QL,
                 startPosition=14,
                 endPosition=14,
             ),
-            user=SimpleNamespace(),
+            user=cast(User, SimpleNamespace()),
         )
 
         assert isinstance(response, HogQLAutocompleteResponse)
@@ -84,6 +94,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
                 "valid": False,
                 "diagnostics": [
                     {
+                        "code": "unknown_table",
                         "message": 'Unknown table "evnts"',
                         "start": 14,
                         "end": 19,
@@ -97,9 +108,9 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
 
         response = process_query_model(
-            SimpleNamespace(),
+            cast(Team, SimpleNamespace()),
             HogQLMetadata(query="SELECT * FROM evnts", language=HogLanguage.HOG_QL),
-            user=SimpleNamespace(),
+            user=cast(User, SimpleNamespace()),
         )
 
         assert isinstance(response, HogQLMetadataResponse)
@@ -107,6 +118,36 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert response.errors[0].message == 'Unknown table "evnts"'
         assert response.errors[0].fix == "events"
         assert response.table_names == ["evnts"]
+
+    @patch("posthog.api.services.query._language_service_call")
+    def test_unknown_properties_remain_warnings(self, mock_language_service_call: MagicMock) -> None:
+        mock_language_service_call.return_value = LanguageServiceResult(
+            body={
+                "valid": False,
+                "diagnostics": [
+                    {
+                        "code": "unknown_property",
+                        "message": 'Unknown property "missing"',
+                        "start": 7,
+                        "end": 14,
+                    }
+                ],
+                "tableNames": ["events"],
+            },
+            duration_seconds=0.001,
+            response_size_bytes=128,
+        )
+
+        response = process_query_model(
+            cast(Team, SimpleNamespace()),
+            HogQLMetadata(query="SELECT missing FROM events", language=HogLanguage.HOG_QL),
+            user=cast(User, SimpleNamespace()),
+        )
+
+        assert isinstance(response, HogQLMetadataResponse)
+        assert response.isValid is True
+        assert response.errors == []
+        assert response.warnings[0].message == 'Unknown property "missing"'
 
 
 class TestQueryService(APIBaseTest):
