@@ -242,6 +242,7 @@ export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
 });
 
 export const canvasConnectorCallServiceInput = z.object({
+  approval_token: z.string().max(200).optional(),
   id: z.string().min(1),
   provider: z.string().min(1).max(300),
   tool: z.string().min(1).max(200),
@@ -251,10 +252,12 @@ export const canvasConnectorCallServiceInput = z.object({
 // Mirrors the API's connector call result. `status` is "ok" when `result`
 // holds the tool output; every other status explains itself in `detail`.
 export const canvasConnectorCallResultSchema = z.object({
+  approval_token: z.string().nullable().optional(),
   status: z.enum([
     "ok",
     "not_connected",
     "needs_reauth",
+    "needs_approval",
     "blocked",
     "tool_missing",
     "write_blocked",
