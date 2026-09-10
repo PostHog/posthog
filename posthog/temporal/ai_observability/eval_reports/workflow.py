@@ -297,7 +297,10 @@ async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids
         elif result is False:
             already_started += 1
 
-    if already_started or failed_count:
+    # A report child can outlive the poll interval, and its id carries no timestamp, so the
+    # next poll reaching a still-open run is deduplication rather than a start failure. Only
+    # a real failure warns, so an operator who mutes the overlap doesn't mute that too.
+    if failed_count:
         temporalio.workflow.logger.warning(
             f"{kind}.child_workflow_start_errors",
             extra={
@@ -305,6 +308,11 @@ async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids
                 "failed_count": failed_count,
                 "failure_samples": failure_samples,
             },
+        )
+    elif already_started:
+        temporalio.workflow.logger.info(
+            f"{kind}.child_workflow_already_running",
+            extra={"already_started_count": already_started},
         )
 
 

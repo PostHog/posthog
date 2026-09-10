@@ -71,18 +71,45 @@ async def test_scheduled_coordinator_only_waits_for_child_start_acceptance() -> 
     execute_child_workflow.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("start_errors", "expected_warning_extra", "expected_info_extra"),
+    [
+        pytest.param(
+            {"eval-report-report-b": WorkflowAlreadyStartedError("eval-report-report-b", "eval-report")},
+            None,
+            {"already_started_count": 1},
+            id="overlap_only_stays_informational",
+        ),
+        pytest.param(
+            {
+                "eval-report-report-b": WorkflowAlreadyStartedError("eval-report-report-b", "eval-report"),
+                "eval-report-report-c": RuntimeError("boom"),
+            },
+            {
+                "already_started_count": 1,
+                "failed_count": 1,
+                "failure_samples": [("report-c", "RuntimeError: boom")],
+            },
+            None,
+            id="real_failure_warns_and_keeps_both_counts",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_scheduled_coordinator_starts_every_report_and_counts_start_outcomes() -> None:
+async def test_scheduled_coordinator_reports_child_start_outcomes(
+    start_errors: dict[str, Exception],
+    expected_warning_extra: dict | None,
+    expected_info_extra: dict | None,
+) -> None:
     report_ids = ["report-a", "report-b", "report-c"]
 
     async def fake_execute_activity(*_args, **_kwargs):
         return FetchDueEvalReportsOutput(report_ids=report_ids)
 
     async def fake_start_child_workflow(*_args, **kwargs):
-        if kwargs["id"] == "eval-report-report-b":
-            raise WorkflowAlreadyStartedError(kwargs["id"], "eval-report")
-        if kwargs["id"] == "eval-report-report-c":
-            raise RuntimeError("boom")
+        error = start_errors.get(kwargs["id"])
+        if error is not None:
+            raise error
 
     with (
         patch(
@@ -107,10 +134,16 @@ async def test_scheduled_coordinator_starts_every_report_and_counts_start_outcom
         "eval-report-report-b",
         "eval-report-report-c",
     ]
-    warning = workflow_logger.warning.call_args
-    assert warning.kwargs["extra"]["already_started_count"] == 1
-    assert warning.kwargs["extra"]["failed_count"] == 1
-    assert warning.kwargs["extra"]["failure_samples"] == [("report-c", "RuntimeError: boom")]
+    warnings = [(call.args[0], call.kwargs["extra"]) for call in workflow_logger.warning.call_args_list]
+    infos = [(call.args[0], call.kwargs["extra"]) for call in workflow_logger.info.call_args_list]
+    if expected_warning_extra is None:
+        assert warnings == []
+    else:
+        assert warnings == [("scheduled_eval_report.child_workflow_start_errors", expected_warning_extra)]
+    if expected_info_extra is None:
+        assert infos == []
+    else:
+        assert infos == [("scheduled_eval_report.child_workflow_already_running", expected_info_extra)]
 
 
 @pytest.mark.asyncio
