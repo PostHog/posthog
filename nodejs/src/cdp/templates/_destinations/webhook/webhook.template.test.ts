@@ -68,37 +68,20 @@ describe('webhook template', () => {
         expect(JSON.stringify(params)).not.toContain('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw')
     })
 
-    it('merges the secret headers into the request, overriding a plaintext header of the same name', async () => {
+    it('passes a secret headers reference, not the values, to the fetch queue', async () => {
         const response = await tester.invoke({
             url: 'https://example.com',
-            headers: { 'Content-Type': 'application/json', Authorization: 'plaintext' },
-            secret_headers: { authorization: 'Bearer sk_test_token', 'X-Api-Key': 'key_test_token' },
-        })
-
-        expect(response.error).toBeUndefined()
-        expect((response.invocation.queueParameters as any).headers).toEqual({
-            'Content-Type': 'application/json',
-            authorization: 'Bearer sk_test_token',
-            'X-Api-Key': 'key_test_token',
-        })
-    })
-
-    it('keeps a secret header out of the debug log', async () => {
-        const response = await tester.invoke({
-            url: 'https://example.com',
+            headers: { 'Content-Type': 'application/json' },
             secret_headers: { Authorization: 'Bearer sk_test_token' },
             debug: true,
         })
 
         expect(response.error).toBeUndefined()
-        expect((response.invocation.queueParameters as any).headers).toMatchObject({
-            Authorization: 'Bearer sk_test_token',
-        })
-        // The executor redacts a secret value from a log message, so the header name is what shows
-        // whether the merge ran before the print.
-        const requestLog = response.logs.map((l) => l.message).find((m) => m.startsWith('Request'))
-        expect(requestLog).toBeDefined()
-        expect(requestLog).not.toContain('Authorization')
+        const params = response.invocation.queueParameters as any
+        expect(params.secret_headers_input).toEqual('secret_headers')
+        expect(params.headers).toEqual({ 'Content-Type': 'application/json' })
+        expect(JSON.stringify(params)).not.toContain('Authorization')
+        expect(response.logs.map((l) => l.message).join('\n')).not.toContain('Authorization')
     })
 
     it('should log details of given', async () => {
