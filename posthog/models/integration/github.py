@@ -839,6 +839,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         exist — a missing file is a normal state, not an error. The SHA lets a caller
         pass it straight to ``update_file`` for a conflict-safe write. Counterpart to
         ``update_file``, kept here so URL and token handling stay inside the client.
+        Raises ``GitHubIntegrationError`` instead of returning a partial file.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
@@ -856,7 +857,27 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
         payload = response.json()
-        return {"content": base64.b64decode(payload["content"]).decode("utf-8"), "sha": payload["sha"]}
+        if payload["encoding"] == "none":
+            # The contents API leaves `content` empty for files over 1 MB. The blob endpoint serves files up to
+            # 100 MB, and reading by SHA guarantees the content matches the SHA this method returns.
+            blob_response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/git/blobs/{payload['sha']}",
+                endpoint="/repos/{owner}/{repo}/git/blobs/{file_sha}",
+            )
+            if blob_response.status_code != 200:
+                raise GitHubIntegrationError(
+                    f"Failed to read {file_path} from {repository}: {blob_response.text}",
+                    status_code=blob_response.status_code,
+                )
+            payload = blob_response.json()
+        content = base64.b64decode(payload["content"])
+        # A short read passed to `update_file` overwrites the file with the truncated text.
+        if len(content) != payload["size"]:
+            raise GitHubIntegrationError(
+                f"Read {len(content)} of {payload['size']} bytes of {file_path} from {repository}"
+            )
+        return {"content": content.decode("utf-8"), "sha": payload["sha"]}
 
     def create_pull_request(
         self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None

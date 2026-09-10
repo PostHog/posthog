@@ -1,6 +1,7 @@
 """Tests for the GitHub App integration."""
 
 import time
+import base64
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -600,6 +601,44 @@ class TestGitHubIntegrationModel(BaseTest):
         assert len(result["diff"]) < len(oversized)
         assert result["diff"].startswith("x" * 100)
         assert "truncated" in result["diff"]
+
+    @parameterized.expand([("inline", False), ("over_contents_api_limit", True)])
+    def test_get_file_contents_returns_whole_file(self, _name, over_contents_api_limit):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        text = "version: 1\nsnapshots: {}\n"
+        blob = {
+            "sha": "abc123",
+            "size": len(text),
+            "encoding": "base64",
+            "content": base64.b64encode(text.encode()).decode(),
+        }
+        responses = {"/repos/PostHog/posthog/contents/snapshots.yml": blob}
+        if over_contents_api_limit:
+            responses["/repos/PostHog/posthog/contents/snapshots.yml"] = {**blob, "encoding": "none", "content": ""}
+            responses["/repos/PostHog/posthog/git/blobs/abc123"] = blob
+
+        def request(method, path, **kwargs):
+            return MagicMock(status_code=200, json=MagicMock(return_value=responses[path]))
+
+        with patch.object(github, "api_request", side_effect=request):
+            result = github.get_file_contents("PostHog/posthog", "snapshots.yml")
+        assert result == {"content": text, "sha": "abc123"}
+
+    def test_get_file_contents_raises_on_short_read(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        short = {
+            "sha": "abc123",
+            "size": 2_000_000,
+            "encoding": "base64",
+            "content": base64.b64encode(b"version: 1\n").decode(),
+        }
+        with patch.object(
+            github, "api_request", return_value=MagicMock(status_code=200, json=MagicMock(return_value=short))
+        ):
+            with pytest.raises(GitHubIntegrationError):
+                github.get_file_contents("PostHog/posthog", "snapshots.yml")
 
     @parameterized.expand(
         [
