@@ -12,7 +12,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 
 import structlog
 
@@ -318,7 +318,12 @@ def slack_ticket_create_lock(team_id: int, channel: str, thread_ts: str) -> Gene
     """Serialize ticket creation for a Slack thread.
 
     Yields True if the lock was acquired, False if another worker holds it.
-    Releases the lock on exit when acquired.
+
+    The Postgres guard is a transaction-scoped advisory lock, so the caller must
+    run its existence check and insert inside the yielded block — they share the
+    transaction opened here. A session-scoped lock would not serialize under
+    PgBouncer transaction pooling: the lock statement and the later insert can
+    land on different backend sessions, so two workers could both pass.
     """
     key = _make_cache_key("slack_ticket_create_lock", str(team_id), channel, thread_ts)
     redis_acquired = False
@@ -334,17 +339,15 @@ def slack_ticket_create_lock(team_id: int, channel: str, thread_ts: str) -> Gene
         return
 
     lock_id = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], byteorder="big", signed=True)
-    postgres_acquired = False
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_try_advisory_lock(%s)", [lock_id])
-            result = cursor.fetchone()
-            postgres_acquired = bool(result and result[0])
-        yield postgres_acquired
-    finally:
-        if postgres_acquired:
+        # The xact lock releases automatically when this transaction commits or
+        # rolls back, so it holds for exactly as long as the caller's writes.
+        with transaction.atomic():
             with connection.cursor() as cursor:
-                cursor.execute("SELECT pg_advisory_unlock(%s)", [lock_id])
+                cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [lock_id])
+                result = cursor.fetchone()
+            yield bool(result and result[0])
+    finally:
         if redis_acquired:
             try:
                 cache.delete(key)
