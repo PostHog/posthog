@@ -50,9 +50,9 @@ jobs:
                   clean: false
 
             # Sequential, not a `parallel:` block. Both of these write $GITHUB_PATH,
-            # and concurrent writes crash the Depot runner ("Collection was modified"
-            # or a missing-key error). The runner fails the step even though the tool
-            # installed fine, so the job dies in setup with nothing to debug.
+            # and concurrent writes crash the GitHub Actions runner ("Collection was
+            # modified" or a missing-key error). The runner fails the step even though
+            # the tool installed fine, so the job dies in setup with nothing to debug.
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:

@@ -283,7 +283,7 @@ jobs:
                   sudo apt-get install -y libssl-dev pkg-config
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
-            # `parallel:` block. Concurrent writes crash the Depot runner
+            # `parallel:` block. Concurrent writes crash the GitHub Actions runner
             # ("Collection was modified" or a missing-key error), and the runner
             # fails the step even though the tool installed fine.
             - name: Install protoc
@@ -851,7 +851,7 @@ jobs:
                   sudo apt-get install -y libssl-dev pkg-config
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
-            # `parallel:` block. Concurrent writes crash the Depot runner
+            # `parallel:` block. Concurrent writes crash the GitHub Actions runner
             # ("Collection was modified" or a missing-key error), and the runner
             # fails the step even though the tool installed fine.
             - name: Install protoc

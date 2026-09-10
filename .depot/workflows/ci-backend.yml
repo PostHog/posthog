@@ -870,10 +870,10 @@ jobs:
             # Depot shadow: canonical threads a setup-action app token into both
             # pnpm-install and setup-python; mint stripped here (secret not
             # available on Depot), so setup-python keeps the bot PAT.
-            # Sequential, not a `parallel:` block. Each of these writes $GITHUB_PATH,
-            # and concurrent writes crash the Depot runner ("Collection was modified"
-            # or a missing-key error). The runner fails the step even though the tool
-            # installed fine, so the job dies in setup with nothing to debug.
+            # Sequential to mirror canonical. GitHub's native `parallel:` crashes the
+            # Actions runner when two branches write $GITHUB_PATH at once. Depot CI's
+            # `parallel:` is a separate implementation, but the shadow keeps the same
+            # step order so the timing trial measures the same work.
             - name: Set up pnpm and Node
               uses: ./.depot/actions/setup-pnpm
             - name: Set up Python
@@ -1939,10 +1939,10 @@ jobs:
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
-            # Sequential, not a `parallel:` block. Both of these write $GITHUB_PATH,
-            # and concurrent writes crash the Depot runner ("Collection was modified"
-            # or a missing-key error). The runner fails the step even though the tool
-            # installed fine, so the job dies in setup with nothing to debug.
+            # Sequential to mirror canonical. GitHub's native `parallel:` crashes the
+            # Actions runner when two branches write $GITHUB_PATH at once. Depot CI's
+            # `parallel:` is a separate implementation, but the shadow keeps the same
+            # step order so the timing trial measures the same work.
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:

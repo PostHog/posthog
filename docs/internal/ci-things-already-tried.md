@@ -382,8 +382,13 @@ _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot 
 **Verdict: reverted** · Sep 2026 · added by [#76651](https://github.com/PostHog/posthog/pull/76651)
 
 `pnpm-install`, `setup-python-cached`, and `dtolnay/rust-toolchain` each write `$GITHUB_PATH`.
-Depot documents that a parallel branch may write it, and merges the branches at the end of the block.
-The implementation is not thread-safe. Two branches that write at the same time crash the runner.
+The `parallel:` block here is [GitHub's native step parallelism](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel), shipped in June 2026.
+It runs every step in the group as a background step and merges their environment changes at the implicit wait.
+The implementation in the GitHub Actions runner is not thread-safe. Two branches that write at the same time crash the runner.
+
+The failing jobs ran on Depot GHA runners, but the bug is not Depot's.
+Depot confirmed that its own `parallel:` construct exists only in Depot CI, which parses `.depot/workflows/`, and that jobs under `.github/workflows/` use GitHub's implementation.
+The two share a keyword and nothing else.
 
 The crash gives one of three messages. None of them names a step:
 

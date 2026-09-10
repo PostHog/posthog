@@ -823,9 +823,9 @@ jobs:
                   skip-token-revoke: true
 
             # Sequential, not a `parallel:` block. Each of these writes $GITHUB_PATH,
-            # and concurrent writes crash the Depot runner ("Collection was modified"
-            # or a missing-key error). The runner fails the step even though the tool
-            # installed fine, so the job dies in setup with nothing to debug.
+            # and concurrent writes crash the GitHub Actions runner ("Collection was
+            # modified" or a missing-key error). The runner fails the step even though
+            # the tool installed fine, so the job dies in setup with nothing to debug.
             #
             # turbo launches each backend:test script through pnpm, so pnpm and
             # Node must stay on PATH even though nothing here reads the workspace.
@@ -2893,9 +2893,9 @@ jobs:
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
 
             # Sequential, not a `parallel:` block. Both of these write $GITHUB_PATH,
-            # and concurrent writes crash the Depot runner ("Collection was modified"
-            # or a missing-key error). The runner fails the step even though the tool
-            # installed fine, so the job dies in setup with nothing to debug.
+            # and concurrent writes crash the GitHub Actions runner ("Collection was
+            # modified" or a missing-key error). The runner fails the step even though
+            # the tool installed fine, so the job dies in setup with nothing to debug.
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
