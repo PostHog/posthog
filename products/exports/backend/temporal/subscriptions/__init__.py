@@ -1,11 +1,13 @@
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    advance_subscription_scheduler_cursor_activity,
     complete_subscription_scheduler_claim_activity,
     confirm_subscription_scheduler_claim_activity,
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
     deliver_subscription_v2,
+    fetch_claimed_due_subscriptions_activity,
     fetch_due_subscriptions_activity,
     notify_subscription_delivery_failure,
     recover_subscription_scheduler_claims_activity,
@@ -31,6 +33,8 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     fetch_due_subscriptions_activity,
+    fetch_claimed_due_subscriptions_activity,
+    advance_subscription_scheduler_cursor_activity,
     recover_subscription_scheduler_claims_activity,
     confirm_subscription_scheduler_claim_activity,
     complete_subscription_scheduler_claim_activity,

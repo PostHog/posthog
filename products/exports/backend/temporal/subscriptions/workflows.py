@@ -37,12 +37,14 @@ from products.exports.backend.tasks.failure_handler import (
 )
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    advance_subscription_scheduler_cursor_activity,
     complete_subscription_scheduler_claim_activity,
     confirm_subscription_scheduler_claim_activity,
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
     deliver_subscription_v2,
+    fetch_claimed_due_subscriptions_activity,
     fetch_due_subscriptions_activity,
     notify_subscription_delivery_failure,
     recover_subscription_scheduler_claims_activity,
@@ -60,6 +62,7 @@ from products.exports.backend.temporal.subscriptions.retry_policy import (
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
+    AdvanceSubscriptionSchedulerCursorInputs,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -294,10 +297,7 @@ async def _run_legacy_subscription_children(subscription_infos: list[DueSubscrip
 
 
 async def _start_claimed_subscription_children(subscription_infos: list[DueSubscription], region: str) -> None:
-    failed_ids: list[int] = []
-    accepted = 0
-    already_running = 0
-    for subscription in subscription_infos:
+    async def start_one(subscription: DueSubscription) -> tuple[str, int | None]:
         workflow, tracked, child_id = _build_scheduled_subscription_child(subscription)
         claim_inputs = (
             SubscriptionSchedulerClaimInputs(
@@ -308,8 +308,7 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
             else None
         )
         if claim_inputs is None:
-            failed_ids.append(subscription.subscription_id)
-            continue
+            return "failed", subscription.subscription_id
         try:
             await temporalio.workflow.start_child_workflow(
                 workflow,
@@ -318,9 +317,8 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 execution_timeout=dt.timedelta(hours=2),
             )
-            accepted += 1
+            return "accepted", None
         except WorkflowAlreadyStartedError:
-            already_running += 1
             temporalio.workflow.logger.info(
                 "process_subscription.already_running",
                 extra={"subscription_id": subscription.subscription_id},
@@ -337,8 +335,8 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
                     "subscription_scheduler.claim_release_failed",
                     extra={"subscription_id": subscription.subscription_id},
                 )
+            return "already_running", None
         except Exception as error:
-            failed_ids.append(subscription.subscription_id)
             temporalio.workflow.logger.warning(
                 "process_subscription.child_workflow_start_error",
                 extra={"subscription_id": subscription.subscription_id, "error": str(error)},
@@ -355,6 +353,12 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
                     "subscription_scheduler.claim_release_failed",
                     extra={"subscription_id": subscription.subscription_id},
                 )
+            return "failed", subscription.subscription_id
+
+    results = await asyncio.gather(*(start_one(subscription) for subscription in subscription_infos))
+    accepted = sum(outcome == "accepted" for outcome, _ in results)
+    already_running = sum(outcome == "already_running" for outcome, _ in results)
+    failed_ids = [subscription_id for outcome, subscription_id in results if outcome == "failed" and subscription_id]
 
     _record_subscription_dispatch_outcome(region, "accepted", accepted)
     _record_subscription_dispatch_outcome(region, "already_running", already_running)
@@ -451,21 +455,44 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             region=inputs.region,
             use_durable_claims=durable_dispatch,
         )
-        subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
-            fetch_due_subscriptions_activity,
-            fetch_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(minutes=5),
-                maximum_attempts=3,
-                non_retryable_error_types=[],
-            ),
-        )
-
         if durable_dispatch:
-            await _start_claimed_subscription_children(subscription_infos, inputs.region)
+            page = await temporalio.workflow.execute_activity(
+                fetch_claimed_due_subscriptions_activity,
+                fetch_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=5),
+                    maximum_attempts=3,
+                    non_retryable_error_types=[],
+                ),
+            )
+            await _start_claimed_subscription_children(page.subscriptions, inputs.region)
+            if page.next_discovery_cursor is not None:
+                advanced = await temporalio.workflow.execute_activity(
+                    advance_subscription_scheduler_cursor_activity,
+                    AdvanceSubscriptionSchedulerCursorInputs(
+                        region=inputs.region,
+                        expected_discovery_cursor=page.expected_discovery_cursor,
+                        next_discovery_cursor=page.next_discovery_cursor,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                )
+                if not advanced:
+                    raise ApplicationError("Subscription scheduler cursor changed concurrently", non_retryable=True)
         else:
+            subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
+                fetch_due_subscriptions_activity,
+                fetch_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=5),
+                    maximum_attempts=3,
+                    non_retryable_error_types=[],
+                ),
+            )
             await _run_legacy_subscription_children(subscription_infos)
 
 
