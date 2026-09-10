@@ -1661,6 +1661,7 @@ class ExternalDataSourceType(StrEnum):
     FRESHCHAT = "Freshchat"
     FRESHSERVICE = "Freshservice"
     FULCRUM = "Fulcrum"
+    GAINSIGHT_CS = "GainsightCs"
     GAINSIGHT_PX = "GainsightPx"
     GIT_BOOK = "GitBook"
     GLASSFROG = "Glassfrog"

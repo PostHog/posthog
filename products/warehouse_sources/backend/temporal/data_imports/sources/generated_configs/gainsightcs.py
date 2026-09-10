@@ -5,9 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
-class AppStoreConnectSourceConfig(config.Config):
-    issuer_id: str
-    key_id: str
-    private_key: str
-    vendor_number: str | None = None
-    app_ids: str | None = None
+class GainsightCsSourceConfig(config.Config):
+    domain: str
+    access_key: str
+    custom_objects: str | None = None

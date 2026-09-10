@@ -606,6 +606,9 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
+        # A broken precomputed read silently falls back to the direct scan; assert the intended path ran.
+        assert query_runner._metric_events_precomputed is use_precomputation
+
         assert result.baseline is not None
         assert result.variant_results is not None
         self.assertEqual(len(result.variant_results), 1)
