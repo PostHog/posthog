@@ -43,6 +43,8 @@ def test_research_response_payload_serializes_slotted_citations() -> None:
         ],
         "degradation": None,
     }
+
+
 @pytest.mark.parametrize("disabled_setting", ["PULSE_PROACTIVE_ENABLED", "PULSE_PUBLIC_RESEARCH_ENABLED"])
 def test_runtime_kill_switch_blocks_an_existing_research_token(disabled_setting: str, settings, monkeypatch) -> None:
     settings.PULSE_PROACTIVE_ENABLED = disabled_setting != "PULSE_PROACTIVE_ENABLED"
