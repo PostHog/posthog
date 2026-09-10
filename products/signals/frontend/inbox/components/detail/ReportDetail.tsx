@@ -223,7 +223,7 @@ export function InboxDetailFrame({
         trailingCharts,
         detailTab,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -404,9 +404,13 @@ export function InboxDetailFrame({
                                                 <SignalCard key={signal.signal_id} signal={signal} />
                                             )
                                         )}
-                                        {!evidenceExpanded && signals.length > 2 && (
-                                            <LemonButton type="tertiary" size="small" onClick={expandEvidence}>
-                                                Show more
+                                        {signals.length > 2 && (
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="small"
+                                                onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                            >
+                                                {evidenceExpanded ? 'Show less' : 'Show more'}
                                             </LemonButton>
                                         )}
                                     </div>

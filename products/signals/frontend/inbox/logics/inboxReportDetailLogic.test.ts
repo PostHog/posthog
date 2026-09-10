@@ -57,6 +57,39 @@ describe('inboxReportDetailLogic', () => {
         })
     })
 
+    describe('evidence expansion', () => {
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+            })
+            initKeaTests()
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        // The disclosure control has to put the value back. Without the collapse case a reader who
+        // opens a long evidence list is stuck with it for the rest of the visit to that report.
+        it('expands and collapses again', () => {
+            expect(logic.values.evidenceExpanded).toBe(false)
+
+            logic.actions.expandEvidence()
+            expect(logic.values.evidenceExpanded).toBe(true)
+
+            logic.actions.collapseEvidence()
+            expect(logic.values.evidenceExpanded).toBe(false)
+        })
+    })
+
     describe('feedback note submission', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
         let notePosts: number

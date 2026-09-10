@@ -286,7 +286,7 @@ function InboxDetailFrameLegacy({
         chartPlacements,
         trailingCharts,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { expandEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
     const hasDiff = !!showFilesTab
@@ -391,9 +391,13 @@ function InboxDetailFrameLegacy({
                                     {(evidenceExpanded ? signals : signals.slice(0, 2)).map((signal: SignalNode) => (
                                         <SignalCard key={signal.signal_id} signal={signal} />
                                     ))}
-                                    {!evidenceExpanded && signals.length > 2 && (
-                                        <LemonButton type="tertiary" size="small" onClick={expandEvidence}>
-                                            Show more
+                                    {signals.length > 2 && (
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="small"
+                                            onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                        >
+                                            {evidenceExpanded ? 'Show less' : 'Show more'}
                                         </LemonButton>
                                     )}
                                 </div>
