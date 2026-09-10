@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import ast
 import warnings
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 # Common suffixes/prefixes that contract dataclasses may use instead of mirroring the model name exactly.
@@ -116,7 +117,7 @@ def get_model_names(backend_dir: Path) -> list[str]:
     return names
 
 
-def _decorator_name(node: ast.expr) -> str | None:
+def decorator_name(node: ast.expr) -> str | None:
     """The bare name of a decorator, with any call and any module prefix stripped."""
     target = node.func if isinstance(node, ast.Call) else node
     if isinstance(target, ast.Name):
@@ -136,7 +137,7 @@ def _keyword_is(node: ast.expr, name: str, value: bool) -> bool:
 
 def _is_frozen_dataclass_decorator(node: ast.expr) -> bool:
     """True for @dataclass(frozen=True) and for the house decorator, which is frozen by default."""
-    name = _decorator_name(node)
+    name = decorator_name(node)
     if name == "dataclass":
         return _keyword_is(node, "frozen", True)
     if name == "frozen":
@@ -198,20 +199,32 @@ def module_dunder_all(tree: ast.Module) -> set[str] | None:
     return None
 
 
+def module_level_import_nodes(tree: ast.Module, *, type_checking: bool = False) -> list[ast.Import | ast.ImportFrom]:
+    """Every module-level import statement, in source order.
+
+    An import nested in a function or a class binds no module name, so it is skipped. An import in
+    an `if TYPE_CHECKING:` block binds no runtime object either, but it still names the type a
+    signature promises, so `type_checking=True` includes it."""
+    nodes: list[ast.Import | ast.ImportFrom] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            nodes.append(node)
+        elif type_checking and isinstance(node, ast.If) and _is_type_checking_guard(node):
+            nodes.extend(child for child in node.body if isinstance(child, (ast.Import, ast.ImportFrom)))
+    return nodes
+
+
 def module_level_import_froms(tree: ast.Module) -> list[tuple[int, str | None, list[tuple[str, str | None]]]]:
     """Every module-level `from ... import ...` as (level, module, [(name, asname)]).
 
     asname is None when no alias is given; `import Foo as Foo` yields ("Foo", "Foo") so callers
-    can tell the explicit self-alias re-export idiom apart from a plain import. Skips imports
-    nested in functions/classes (not module bindings) and inside `if TYPE_CHECKING:` blocks
-    (type-only, nothing crosses at runtime)."""
-    results: list[tuple[int, str | None, list[tuple[str, str | None]]]] = []
-    for node in ast.iter_child_nodes(tree):
-        if _is_type_checking_guard(node):
-            continue
-        if isinstance(node, ast.ImportFrom):
-            results.append((node.level, node.module, [(alias.name, alias.asname) for alias in node.names]))
-    return results
+    can tell the explicit self-alias re-export idiom apart from a plain import. Type-only imports
+    are out: nothing crosses at runtime."""
+    return [
+        (node.level, node.module, [(alias.name, alias.asname) for alias in node.names])
+        for node in module_level_import_nodes(tree)
+        if isinstance(node, ast.ImportFrom)
+    ]
 
 
 def lazy_reexport_map(tree: ast.Module) -> dict[str, str]:
@@ -249,20 +262,32 @@ def lazy_reexport_map(tree: ast.Module) -> dict[str, str]:
     return mapping
 
 
+def iter_public_callables(tree: ast.Module) -> Iterator[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """(owning class, node) for every public callable a module defines at its top level or in a
+    class body. The owning class is "" for a plain function, so a caller can spell a method as
+    `Mapper.to_contract`. Nested definitions are not part of any call surface, so they are out."""
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
+            yield "", node
+        elif isinstance(node, ast.ClassDef):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and not child.name.startswith("_"):
+                    yield node.name, child
+
+
 def get_public_function_names(file_path: Path) -> list[str]:
     """Return names of public top-level and class-level functions/methods (not nested)."""
     tree = ast_parse_safe(file_path)
     if not tree:
         return []
-    names: list[str] = []
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
-            names.append(node.name)
-        elif isinstance(node, ast.ClassDef):
-            for child in ast.iter_child_nodes(node):
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and not child.name.startswith("_"):
-                    names.append(child.name)
-    return names
+    return [node.name for _, node in iter_public_callables(tree)]
+
+
+def module_has_prefix(module: str, prefixes: Sequence[str]) -> bool:
+    """True when a dotted module name is one of `prefixes` or sits under one.
+
+    Anchored on the dot, so `django.dbrouter` does not read as `django.db`."""
+    return any(module == p or module.startswith(p + ".") for p in prefixes)
 
 
 def imports_any(file_path: Path, prefixes: list[str]) -> bool:
@@ -272,10 +297,10 @@ def imports_any(file_path: Path, prefixes: list[str]) -> bool:
         return False
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
-            if any(node.module == p or node.module.startswith(p + ".") for p in prefixes):
+            if module_has_prefix(node.module, prefixes):
                 return True
         elif isinstance(node, ast.Import):
-            if any(alias.name == p or alias.name.startswith(p + ".") for alias in node.names for p in prefixes):
+            if any(module_has_prefix(alias.name, prefixes) for alias in node.names):
                 return True
     return False
 
@@ -443,19 +468,3 @@ def _collect_py_files(path: Path) -> list[Path]:
     if path.is_dir():
         return [f for f in path.glob("*.py") if f.name != "__init__.py"]
     return []
-
-
-def module_level_import_nodes(tree: ast.Module) -> list[tuple[ast.Import | ast.ImportFrom, bool]]:
-    """Every module-level import statement as (node, binds_at_runtime).
-
-    An import in an `if TYPE_CHECKING:` block binds no runtime object, so it is returned with
-    binds_at_runtime False. It still names the type that a signature promises, which is why the
-    facade shape check reads it at all.
-    """
-    nodes: list[tuple[ast.Import | ast.ImportFrom, bool]] = []
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            nodes.append((node, True))
-        elif isinstance(node, ast.If) and _is_type_checking_guard(node):
-            nodes.extend((child, False) for child in node.body if isinstance(child, (ast.Import, ast.ImportFrom)))
-    return nodes

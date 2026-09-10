@@ -346,19 +346,20 @@ Capability submodules (`queries.py`, `temporal.py`, `max_tools.py`, `tasks.py`, 
 `hogli product:lint` reads the facade signatures, not only its imports.
 An import linter sees the same edge whether a facade imports a model module to build contracts or to return the model, so the shape is checked on its own.
 The check runs on every product that has a `backend/facade/` folder, in both lint modes.
-It reports four kinds:
+It reports three kinds:
 
-- `returns`: a public facade function or method returns a Django model, a `QuerySet`, a `Prefetch`, or another ORM type. Return a frozen contract from `facade/contracts.py`.
+- `returns`: a public facade function or method returns a Django model, a `QuerySet`, a `Prefetch`, or another ORM type, or it returns a bare `Any`, which promises nothing at all. Return a frozen contract from `facade/contracts.py`.
 - `accepts`: such a type, a DRF object, or an `Any` on a `team`, `request` or `user` parameter enters the facade. Take ids and contracts, so the caller never holds the object.
-- `exports`: the facade hands out an ORM name. Stop re-exporting it, or move it to the wiring location that owns it.
-- `logic`: a capability submodule holds a definition with a body. Move the body to the wiring location and leave the re-export in the facade.
+- `logic`: a capability submodule holds definitions with bodies. Move each body to the wiring location and leave the re-export in the facade.
 
+A model reaches another facade through the owner's `facade/models` shim as often as through its models module, so both spellings count.
+Only registered Django models count: a models module also holds choices, enums and managers, which a contract may carry.
 Classes on the carve-out and watched-models lists above are sanctioned, so they are not reported.
 Core models are not reported either, because product to core is the sanctioned direction.
 `products/model_crossing_uses_baseline.txt` records what the facades do today, as the `facade-*` kinds next to the other couplings the import graph cannot see.
 The first column says what crosses: `<product>.<Class>` for a product model, the source library for everything else (`django`, `rest_framework`, `typing`), and the facade module for a `facade-logic` line.
-The second column is the facade symbol that carries it.
-The file only shrinks: a finding that is not on it fails the lint, and a row whose finding is gone fails too, so regenerate with `bin/hogli product:crossings --all --write-baseline` in the same change.
+The second column is the facade symbol that carries it, or the module itself for a `facade-logic` line, whose count is the number of bodies left in it.
+The file only shrinks: a finding that is not on it fails the lint, and a row whose finding is gone fails the repo-invariant test, so regenerate with `bin/hogli product:crossings --all --write-baseline` in the same change.
 
 ### Example
 

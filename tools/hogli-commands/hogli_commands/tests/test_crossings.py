@@ -745,11 +745,14 @@ class TestGarageDrives:
         assert hint.matches(b'client.post(url, {"query": {"kind": NodeKind.PATHS_QUERY}})')
         assert not hint.matches(b"NodeKind.TRENDS_QUERY")
 
-    def test_driven_wiring_locations_reads_the_products_lines(self, tmp_path: Path) -> None:
+    def test_driven_wiring_locations_reads_the_products_drives_lines(self, tmp_path: Path) -> None:
+        # A facade-logic line is keyed by a location too, so matching the product prefix alone would
+        # report backend/facade/ as a wiring location no test outside the product drives.
         baseline = tmp_path / "baseline.txt"
         baseline.write_text(
             "# header\n"
             "product_analytics:backend/hogql_queries/ posthog.api.test.test_x drives(PathsQuery) 1\n"
+            "product_analytics:backend/facade/models.py products.product_analytics.backend.facade.models facade-logic 1\n"
             "product_analytics.Insight posthog.api.sharing instance-many(all) 1\n"
             "web_analytics:backend/hogql_queries/ posthog.test.test_y drives(WebOverviewQueryRunner) 1\n"
         )

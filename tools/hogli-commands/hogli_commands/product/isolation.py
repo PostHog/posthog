@@ -27,14 +27,17 @@ import functools
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
 
 from .ast_helpers import (
     ast_parse_safe,
+    decorator_name,
     get_imported_module_names,
+    get_model_names,
     has_any_function_defs,
+    iter_public_callables,
     lazy_reexport_map,
     module_dunder_all,
+    module_has_prefix,
     module_level_import_froms,
     module_level_import_nodes,
     tree_has_top_level_functions,
@@ -677,6 +680,19 @@ def _is_test_module(filename: str) -> bool:
     return filename.startswith("test_") or filename.endswith("_test.py")
 
 
+def _iter_facade_modules(backend_dir: Path) -> Iterator[Path]:
+    """Every facade module the facade checks read, in name order.
+
+    Flat by design: facade/ holds no packages, and both callers key a finding on the file name. Test
+    modules that happen to sit here are pytest files, not part of the surface."""
+    facade_dir = backend_dir / "facade"
+    if not facade_dir.is_dir():
+        return
+    for path in sorted(facade_dir.glob("*.py")):
+        if not _is_test_module(path.name):
+            yield path
+
+
 def _iter_facade_class_reexports(backend_dir: Path) -> Iterator[FacadeClassImport]:
     """Every product-internal class a facade module hands out, from a module that is neither facade nor wiring location —
     carve-outs included (callers filter). Three shapes are read:
@@ -689,14 +705,10 @@ def _iter_facade_class_reexports(backend_dir: Path) -> Iterator[FacadeClassImpor
         also suppresses ruff's F401, so it would otherwise be invisible to every lint).
       - a PEP 562 `_LAZY`/`_MODULES` map hands out every class it maps, read regardless of shape.
     """
-    facade_dir = backend_dir / "facade"
-    if not facade_dir.is_dir():
-        return
     parse_cache: dict[Path, ast.Module | None] = {}
-    for module_file in sorted(facade_dir.glob("*.py")):
-        # contracts/enums are the sanctioned homes for data types; test modules that happen to sit
-        # in facade/ are pytest files, not re-export surface. Neither is a wiring re-export.
-        if module_file.name in ("contracts.py", "enums.py") or _is_test_module(module_file.name):
+    for module_file in _iter_facade_modules(backend_dir):
+        # contracts/enums are the sanctioned homes for data types, so neither is a wiring re-export.
+        if module_file.name in ("contracts.py", "enums.py"):
             continue
         tree = ast_parse_safe(module_file)
         if tree is None:
@@ -862,8 +874,9 @@ def unwatched_model_surface(product_dir: Path) -> set[str]:
 #
 # tach and import-linter read import edges only. They see that a facade imports a model module, but
 # not that a facade function returns the model, takes a DRF request, or hides a Django object behind
-# `Any`. The checks below read the signatures themselves, so publicness comes from the shape of the
-# API and not from the location of the file. See products/architecture.md § Facades.
+# `Any`. The rules below read the signatures themselves, so publicness comes from the shape of the
+# API and not from the location of the file. The kinds, and the move that clears each one, are in
+# products/architecture.md § The shape check.
 
 # Capability submodules re-export wiring and hold no logic of their own. A task body or a workflow
 # definition here sits in the one package core imports, so the product cannot change it without
@@ -878,60 +891,83 @@ CAPABILITY_SUBMODULES: frozenset[str] = frozenset(
 # or a DRF object behind an annotation no check can read, which is how a leak survives review.
 _UNTYPED_SUBJECT_PARAMS: frozenset[str] = frozenset({"request", "team", "user"})
 
-_ORM_MODULES: tuple[str, ...] = ("django.db.models",)
-_DRF_MODULES: tuple[str, ...] = ("rest_framework",)
-_HTTP_MODULES: tuple[str, ...] = ("django.http",)
-# Core models are the sanctioned direction: every product may depend on core, so a core model in a
-# facade signature adds no coupling the repo does not already have. They are resolved so the check
-# can tell them apart from a product model, then dropped.
-_CORE_MODEL_MODULES: tuple[str, ...] = ("posthog.models", "ee.models")
-_PRODUCT_MODELS_RE = re.compile(r"^products\.([A-Za-z0-9_]+)\.backend\.models(?:\.|$)")
+# Libraries whose types must stay off a facade signature, and the name a ledger row gives each one.
+# Core models are absent on purpose: every product may depend on core, so a core model in a facade
+# signature adds no coupling the repo does not already have.
+_LIBRARY_SOURCES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("django.db.models", "django.http"), "django"),
+    (("rest_framework",), "rest_framework"),
+    (("typing",), "typing"),
+)
+_LIBRARY_NAMES: frozenset[str] = frozenset(source for _, source in _LIBRARY_SOURCES)
+
+# The model surface as dotted module names, so an import path is tested against the same definition
+# of "where a product's models live" that the input-coverage checks use.
+_MODEL_SURFACE_MODULES: tuple[str, ...] = tuple(
+    sorted({p.removeprefix("backend/").rstrip("/").removesuffix(".py") for p in MODEL_SURFACE_PREFIXES})
+)
+_PRODUCT_BACKEND_RE = re.compile(r"^products\.([A-Za-z0-9_]+)\.backend\.(.+)$")
 
 # Dunder hooks of the PEP 562 lazy re-export map. Their body is the re-export mechanism itself.
 _REEXPORT_DUNDERS: frozenset[str] = frozenset({"__getattr__", "__dir__"})
 
 
 @dataclass(frozen=True)
-class FacadeShapeFinding:
-    """One place a facade breaks the contract-only boundary."""
-
-    product: str
-    facade_module: str  # facade-relative, e.g. "destinations.py"
-    symbol: str  # "create_destination", "create_destination(team)", or "Mapper.to_contract"
-    kind: str  # returns | accepts | exports | logic
-    detail: str  # the type an annotation names, or what a capability submodule defines
-    # Where `detail` is defined, so the ledger row names the type unambiguously: the product for a
-    # product model, else the source library (django, rest_framework, typing). Empty for `logic`,
-    # whose row is keyed by the facade module instead of by a type.
-    qualifier: str = ""
-
-    @property
-    def dotted_symbol(self) -> str:
-        """The symbol without the parameter an `accepts` finding carries: `Mapper.to_contract`."""
-        return self.symbol.partition("(")[0]
-
-    @property
-    def parameter(self) -> str:
-        """The parameter an `accepts` finding names, or '' for the other kinds."""
-        return self.symbol.partition("(")[2].rstrip(")")
-
-
-class _ShapeRow(NamedTuple):
-    """What one shape rule found, before the product and the facade module are attached."""
-
-    symbol: str
-    kind: str
-    detail: str
-    qualifier: str = ""
-
-
-@dataclass(frozen=True)
 class _ForbiddenType:
     """A type a facade module binds a name to, and must not put on the boundary."""
 
-    category: str  # orm | drf | http | product-model | core-model | any
+    source: str  # django | rest_framework | typing | the product that owns the model
     type_name: str  # the name at the source, so an alias still reports the real type
-    owner: str | None = None  # for product-model, the product whose models module defines it
+
+
+# `Any` is the one name typing contributes: it is how a Django or a DRF object crosses a signature
+# without naming itself.
+_ANY = _ForbiddenType("typing", "Any")
+
+
+@dataclass(frozen=True)
+class FacadeShapeFinding:
+    """One place a facade breaks the contract-only boundary.
+
+    A `returns` or an `accepts` finding sits on one symbol and names one type. A `logic` finding
+    stands for a whole capability submodule and lists the bodies it still holds, so the ledger's
+    count column says how much is left to move.
+    """
+
+    product: str
+    facade_module: str  # facade-relative, e.g. "destinations.py"
+    dotted_module: str  # e.g. "products.data_pipelines.backend.facade.destinations"
+    kind: str  # returns | accepts | logic
+    # The type the signature names, with the source that defines it: the owning product for a
+    # product model, else the library. Both empty for `logic`, which is keyed by the module.
+    source: str = ""
+    type_name: str = ""
+    symbol: str = ""  # the function or the method the type sits on, e.g. "Mapper.to_contract"
+    parameter: str = ""  # the parameter an `accepts` finding names
+    bodies: tuple[str, ...] = ()  # the definitions a `logic` finding counts
+
+    @property
+    def count(self) -> int:
+        """A `logic` row counts the bodies its module holds; every other kind is one place."""
+        return len(self.bodies) if self.kind == "logic" else 1
+
+
+class _ModelNames:
+    """The Django model class names of each product, parsed once per sweep.
+
+    A models module also holds enums, choices and managers, so a name imported from one is an ORM
+    object only when it is a registered model. Products resolve as siblings of the product under
+    scan, so the sweep reads the tree it was pointed at.
+    """
+
+    def __init__(self, backend_dir: Path) -> None:
+        self._products_dir = backend_dir.parent.parent
+        self._names: dict[str, frozenset[str]] = {}
+
+    def for_product(self, product: str) -> frozenset[str]:
+        if product not in self._names:
+            self._names[product] = frozenset(get_model_names(self._products_dir / product / "backend"))
+        return self._names[product]
 
 
 @dataclass(frozen=True)
@@ -939,89 +975,83 @@ class _FacadeImportEnv:
     """What one facade module's imports bind, as far as the shape rules care."""
 
     types: dict[str, _ForbiddenType]  # local name -> the forbidden type it binds
-    modules: dict[str, str]  # local module alias -> category, for `models.QuerySet` annotations
-    any_names: frozenset[str]
-    typing_aliases: frozenset[str]
-    runtime_names: frozenset[str]  # names in `types` that bind at runtime, so TYPE_CHECKING is out
-    self_aliased: frozenset[str]  # names imported with the `Foo as Foo` re-export idiom
+    modules: dict[str, str]  # local module alias -> source, for a `models.QuerySet` annotation
+    model_names: _ModelNames
 
 
-def _module_matches(module: str, prefixes: tuple[str, ...]) -> bool:
-    return any(module == p or module.startswith(p + ".") for p in prefixes)
+def _reaches_model_surface(backend_module: str) -> bool:
+    """True when a backend-relative dotted module is part of a product's model surface.
+
+    The owner's facade.models shim counts: it re-exports the same classes, so it cannot be the
+    spelling that gets a model past the check."""
+    return module_has_prefix(backend_module.removeprefix("facade."), _MODEL_SURFACE_MODULES)
 
 
-def _absolute_module_category(module: str) -> tuple[str, str | None] | None:
-    """(category, owning product) for an absolute import whose every name is forbidden."""
-    if _module_matches(module, _ORM_MODULES):
-        return "orm", None
-    if _module_matches(module, _DRF_MODULES):
-        return "drf", None
-    if _module_matches(module, _HTTP_MODULES):
-        return "http", None
-    product_models = _PRODUCT_MODELS_RE.match(module)
-    if product_models:
-        return "product-model", product_models.group(1)
-    if _module_matches(module, _CORE_MODEL_MODULES):
-        return "core-model", None
-    return None
-
-
-def _relative_module_category(level: int, module: str | None, facade_parts: list[str]) -> str | None:
-    """'product-model' when a relative import from a facade module reaches the product's own model
-    surface, else None. `from .models import X` stays None: that is the facade's own re-export
-    submodule, which the export rule reads directly."""
-    module_rel = _resolve_relative(facade_parts, level, module)
-    if module_rel is None:
+def _product_model_owner(module: str) -> str | None:
+    """The product whose model surface an absolute import reaches, else None."""
+    match = _PRODUCT_BACKEND_RE.match(module)
+    if match is None:
         return None
-    return "product-model" if module_rel == "models" or module_rel.startswith("models/") else None
+    product, backend_module = match.groups()
+    return product if _reaches_model_surface(backend_module) else None
 
 
-def _facade_import_env(tree: ast.Module, facade_parts: list[str], product: str) -> _FacadeImportEnv:
+def _import_source(module: str) -> str | None:
+    """Where the names of an absolute import come from, or None when nothing there is off limits:
+    the library for a Django, a DRF or a typing import, else the product whose model surface it
+    reaches."""
+    for prefixes, source in _LIBRARY_SOURCES:
+        if module_has_prefix(module, prefixes):
+            return source
+    return _product_model_owner(module)
+
+
+def _relative_import_source(node: ast.ImportFrom, product: str) -> str | None:
+    """The same, for a relative import inside the facade package: the facade's own product when the
+    import reaches its model surface, else None."""
+    backend_module = _resolve_relative(["facade"], node.level, node.module)
+    if backend_module is None:
+        return None
+    return product if _reaches_model_surface(backend_module.replace("/", ".")) else None
+
+
+def _forbidden(source: str, name: str, model_names: _ModelNames) -> _ForbiddenType | None:
+    """The forbidden type a name from `source` stands for, or None when that name is not one.
+
+    typing contributes `Any` alone. A models module also holds enums, choices and managers, which a
+    contract may carry, so only a registered model counts there."""
+    if source == _ANY.source:
+        return _ANY if name == _ANY.type_name else None
+    if source in _LIBRARY_NAMES:
+        return _ForbiddenType(source, name)
+    return _ForbiddenType(source, name) if name in model_names.for_product(source) else None
+
+
+def _facade_import_env(tree: ast.Module, product: str, model_names: _ModelNames) -> _FacadeImportEnv:
     types: dict[str, _ForbiddenType] = {}
     modules: dict[str, str] = {}
-    any_names: set[str] = set()
-    typing_aliases: set[str] = set()
-    runtime_names: set[str] = set()
-    self_aliased: set[str] = set()
-    for node, at_runtime in module_level_import_nodes(tree):
+    for node in module_level_import_nodes(tree, type_checking=True):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                bound = alias.asname or alias.name.split(".")[0]
-                if alias.name == "typing":
-                    typing_aliases.add(bound)
-                category = _absolute_module_category(alias.name)
-                if category is not None:
-                    modules[bound] = category[0]
+                source = _import_source(alias.name)
+                if source is not None:
+                    modules[alias.asname or alias.name.split(".")[0]] = source
             continue
         module = node.module or ""
-        if node.level == 0 and module == "typing":
-            any_names.update(alias.asname or alias.name for alias in node.names if alias.name == "Any")
-        if node.level == 0 and module == "django.db":
-            # `from django.db import models` binds the ORM namespace, not a type.
-            modules.update({alias.asname or alias.name: "orm" for alias in node.names if alias.name == "models"})
+        source = _relative_import_source(node, product) if node.level > 0 else _import_source(module)
         for alias in node.names:
             bound = alias.asname or alias.name
-            if node.level > 0:
-                category_name = _relative_module_category(node.level, node.module, facade_parts)
-                owner = product if category_name else None
-            else:
-                resolved = _absolute_module_category(module)
-                category_name, owner = resolved if resolved else (None, None)
-            if category_name is None:
+            if source is None:
+                # `from django.db import models` binds the namespace and not a type, so the
+                # annotation spells `models.QuerySet`.
+                submodule_source = _import_source(f"{module}.{alias.name}") if node.level == 0 else None
+                if submodule_source is not None:
+                    modules[bound] = submodule_source
                 continue
-            types[bound] = _ForbiddenType(category_name, alias.name, owner)
-            if at_runtime:
-                runtime_names.add(bound)
-            if alias.asname == alias.name:
-                self_aliased.add(bound)
-    return _FacadeImportEnv(
-        types=types,
-        modules=modules,
-        any_names=frozenset(any_names),
-        typing_aliases=frozenset(typing_aliases),
-        runtime_names=frozenset(runtime_names),
-        self_aliased=frozenset(self_aliased),
-    )
+            forbidden = _forbidden(source, alias.name, model_names)
+            if forbidden is not None:
+                types[bound] = forbidden
+    return _FacadeImportEnv(types=types, modules=modules, model_names=model_names)
 
 
 def _annotation_refs(node: ast.expr | None) -> list[tuple[str, str]]:
@@ -1057,117 +1087,111 @@ def _annotation_refs(node: ast.expr | None) -> list[tuple[str, str]]:
     return []
 
 
-def _forbidden_types_in(
-    env: _FacadeImportEnv, annotation: ast.expr | None, param_name: str | None = None
-) -> list[_ForbiddenType]:
+def _named_type(env: _FacadeImportEnv, root: str, named: str) -> _ForbiddenType | None:
+    """The forbidden type one annotation reference stands for, or None."""
+    bound = env.types.get(root)
+    if bound is not None:
+        return bound
+    source = env.modules.get(root)
+    if source is None or named == root:
+        return None
+    return _forbidden(source, named, env.model_names)
+
+
+def _forbidden_types_in(env: _FacadeImportEnv, annotation: ast.expr | None) -> list[_ForbiddenType]:
     """Every forbidden type one annotation names, first occurrence kept."""
     found: dict[str, _ForbiddenType] = {}
     for root, named in _annotation_refs(annotation):
-        bound = env.types.get(root)
-        if bound is not None:
-            found.setdefault(bound.type_name, bound)
-            continue
-        category = env.modules.get(root)
-        if category is not None and named != root:
-            found.setdefault(named, _ForbiddenType(category, named))
-            continue
-        if param_name in _UNTYPED_SUBJECT_PARAMS and (
-            root in env.any_names or (root in env.typing_aliases and named == "Any")
-        ):
-            found.setdefault("Any", _ForbiddenType("any", "Any"))
+        forbidden = _named_type(env, root, named)
+        if forbidden is not None:
+            found.setdefault(forbidden.type_name, forbidden)
     return list(found.values())
 
 
-def _is_sanctioned_crossing(product: str, type_name: str) -> bool:
+def _annotation_is_any(env: _FacadeImportEnv, annotation: ast.expr | None) -> bool:
+    """True when the whole annotation is `Any`. `dict[str, Any]` is not: the data stays data."""
+    refs = _annotation_refs(annotation)
+    return len(refs) == 1 and _named_type(env, *refs[0]) == _ANY
+
+
+def _is_sanctioned(product: str, forbidden: _ForbiddenType) -> bool:
     """A class the doctrine already lets this product's facade hand out."""
-    return (product, type_name) in CARVE_OUTS or (product, type_name) in MODEL_CROSSINGS
-
-
-def _reportable(product: str, forbidden: _ForbiddenType) -> bool:
-    return forbidden.category != "core-model" and not _is_sanctioned_crossing(product, forbidden.type_name)
-
-
-# The source a category's types come from, for the finding's qualifier. A product model uses the
-# owning product instead, so its row reads `<product>.<Class>` like every other crossing row.
-_CATEGORY_SOURCES: dict[str, str] = {
-    "orm": "django",
-    "http": "django",
-    "drf": "rest_framework",
-    "any": "typing",
-    "core-model": "posthog",
-}
-
-
-def _qualifier(forbidden: _ForbiddenType) -> str:
-    return forbidden.owner or _CATEGORY_SOURCES[forbidden.category]
+    key = (product, forbidden.type_name)
+    return key in CARVE_OUTS or key in MODEL_CROSSINGS
 
 
 def _iter_signature_findings(
-    node: ast.FunctionDef | ast.AsyncFunctionDef, env: _FacadeImportEnv, product: str, prefix: str
-) -> Iterator[_ShapeRow]:
-    """One row per forbidden type in one signature."""
-    symbol = f"{prefix}{node.name}"
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    env: _FacadeImportEnv,
+    product: str,
+    facade_module: str,
+    dotted_module: str,
+    symbol: str,
+) -> Iterator[FacadeShapeFinding]:
+    """One finding per forbidden type in one signature.
+
+    A bare `-> Any` is a finding of its own: it promises nothing, which is the evasion the whole
+    check exists to close. On a parameter, `Any` only counts on the tenant and actor names, because
+    an `Any` payload says nothing about a Django object."""
     for forbidden in _forbidden_types_in(env, node.returns):
-        if _reportable(product, forbidden):
-            yield _ShapeRow(symbol, "returns", forbidden.type_name, _qualifier(forbidden))
+        if _is_sanctioned(product, forbidden):
+            continue
+        if forbidden == _ANY and not _annotation_is_any(env, node.returns):
+            continue
+        yield FacadeShapeFinding(
+            product=product,
+            facade_module=facade_module,
+            dotted_module=dotted_module,
+            kind="returns",
+            source=forbidden.source,
+            type_name=forbidden.type_name,
+            symbol=symbol,
+        )
     args = node.args
     for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]:
         if arg is None or arg.arg in ("self", "cls"):
             continue
-        for forbidden in _forbidden_types_in(env, arg.annotation, arg.arg):
-            if _reportable(product, forbidden):
-                yield _ShapeRow(f"{symbol}({arg.arg})", "accepts", forbidden.type_name, _qualifier(forbidden))
+        for forbidden in _forbidden_types_in(env, arg.annotation):
+            if _is_sanctioned(product, forbidden):
+                continue
+            if forbidden == _ANY and arg.arg not in _UNTYPED_SUBJECT_PARAMS:
+                continue
+            yield FacadeShapeFinding(
+                product=product,
+                facade_module=facade_module,
+                dotted_module=dotted_module,
+                kind="accepts",
+                source=forbidden.source,
+                type_name=forbidden.type_name,
+                symbol=symbol,
+                parameter=arg.arg,
+            )
 
 
-def _iter_module_signature_findings(tree: ast.Module, env: _FacadeImportEnv, product: str) -> Iterator[_ShapeRow]:
+def _iter_module_signature_findings(
+    tree: ast.Module, env: _FacadeImportEnv, product: str, facade_module: str, dotted_module: str
+) -> Iterator[FacadeShapeFinding]:
     """Signature findings for the module's public call surface: its module-level functions and the
-    public methods of the classes it defines. A leading underscore marks a helper the facade keeps
-    to itself, and converting a model to a contract is exactly what such a helper is for."""
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
-            yield from _iter_signature_findings(node, env, product, "")
-        elif isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
-            for child in ast.iter_child_nodes(node):
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and not child.name.startswith("_"):
-                    yield from _iter_signature_findings(child, env, product, f"{node.name}.")
-
-
-def _iter_export_findings(tree: ast.Module, env: _FacadeImportEnv, product: str) -> Iterator[_ShapeRow]:
-    """One row per ORM name the facade module hands out.
-
-    Own-product classes are left to facade_class_imports, which already splits them into leaks,
-    carve-outs, and watched-models crossings. What is left for this rule is an ORM primitive
-    (QuerySet, Prefetch, Model) or another product's model class, neither of which that check sees.
-    """
-    # A module that defines a function or a class is not a re-export shim, so only what it
-    # advertises counts as handed out. Test-fixture modules under facade/ define mixin classes and
-    # import a model to build rows with, which is use and not exposure.
-    is_pure_reexport = not tree_has_top_level_functions(tree) and not any(
-        isinstance(node, ast.ClassDef) for node in ast.iter_child_nodes(tree)
-    )
-    advertised = None if is_pure_reexport else module_dunder_all(tree)
-    for bound in sorted(env.runtime_names):
-        forbidden = env.types[bound]
-        if forbidden.owner == product or not _reportable(product, forbidden):
+    public methods of the public classes it defines. A leading underscore marks a helper the facade
+    keeps to itself, and converting a model to a contract is exactly what such a helper is for."""
+    for owner, node in iter_public_callables(tree):
+        if owner.startswith("_"):
             continue
-        handed_out = is_pure_reexport or (advertised is not None and bound in advertised) or bound in env.self_aliased
-        if handed_out:
-            yield _ShapeRow(bound, "exports", forbidden.type_name, _qualifier(forbidden))
+        symbol = f"{owner}.{node.name}" if owner else node.name
+        yield from _iter_signature_findings(node, env, product, facade_module, dotted_module, symbol)
 
 
-def _wiring_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> str | None:
-    """The wiring decorator a definition carries, if any: a Celery task or a Temporal definition."""
+def _has_wiring_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> bool:
+    """True when a definition carries wiring core registers: a Celery task or a Temporal
+    definition. Temporal is spelled `<module>.defn`, so its receiver is read too: a bare `defn` is
+    some other decorator."""
     for decorator in node.decorator_list:
+        if decorator_name(decorator) == "shared_task":
+            return True
         target = decorator.func if isinstance(decorator, ast.Call) else decorator
-        if isinstance(target, ast.Name) and target.id == "shared_task":
-            return "shared_task"
-        if not isinstance(target, ast.Attribute):
-            continue
-        if target.attr == "shared_task":
-            return "shared_task"
-        if target.attr == "defn" and isinstance(target.value, ast.Name):
-            return f"{target.value.id}.defn"
-    return None
+        if isinstance(target, ast.Attribute) and target.attr == "defn" and isinstance(target.value, ast.Name):
+            return True
+    return False
 
 
 def _is_passthrough_body(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> bool:
@@ -1187,57 +1211,62 @@ def _is_passthrough_body(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Clas
     )
 
 
-def _iter_capability_findings(tree: ast.Module) -> Iterator[_ShapeRow]:
-    """One row per definition a capability submodule holds beyond a re-export."""
+def _capability_finding(
+    tree: ast.Module, product: str, facade_module: str, dotted_module: str
+) -> FacadeShapeFinding | None:
+    """The one `logic` finding for a capability submodule, naming every definition it holds beyond a
+    re-export. One finding per module, so the count says how much is left to move."""
+    bodies: list[str] = []
     for node in ast.iter_child_nodes(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
         if node.name in _REEXPORT_DUNDERS:
             continue
-        decorator = _wiring_decorator(node)
-        if decorator is not None:
-            yield _ShapeRow(node.name, "logic", decorator)
-        elif not _is_passthrough_body(node):
-            yield _ShapeRow(node.name, "logic", "class" if isinstance(node, ast.ClassDef) else "function")
+        if _has_wiring_decorator(node) or not _is_passthrough_body(node):
+            bodies.append(node.name)
+    if not bodies:
+        return None
+    return FacadeShapeFinding(
+        product=product,
+        facade_module=facade_module,
+        dotted_module=dotted_module,
+        kind="logic",
+        bodies=tuple(bodies),
+    )
 
 
-def _iter_facade_shape_modules(backend_dir: Path) -> Iterator[tuple[str, Path]]:
-    """(facade-relative label, path) for every facade module the shape rules read."""
-    facade_dir = backend_dir / "facade"
-    if not facade_dir.is_dir():
-        return
-    for path in sorted(facade_dir.rglob("*.py")):
-        if "__pycache__" in path.parts or _is_test_module(path.name):
-            continue
-        yield path.relative_to(facade_dir).as_posix(), path
+def _facade_module_dotted(product: str, filename: str) -> str:
+    """`products.<product>.backend.facade.<module>` for one facade file. A package __init__ names
+    the package itself, the same rule the crossings scan uses for a repo path."""
+    parts = ["products", product, "backend", "facade"]
+    stem = filename.removesuffix(".py")
+    if stem != "__init__":
+        parts.append(stem)
+    return ".".join(parts)
 
 
 def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFinding]:
-    """Every place this product's facade puts an ORM or a DRF type on the boundary, hands out an ORM
-    name, or holds logic in a capability submodule.
-
-    The remedy differs per kind. A `returns` row becomes a frozen contract from facade/contracts.py.
-    An `accepts` row becomes ids and contracts, so the caller never holds the object. An `exports`
-    row moves to the wiring location or stops being re-exported. A `logic` row moves the body to the
-    wiring location and leaves the re-export behind.
+    """Every place this product's facade puts a Django, a DRF or an ORM type on its boundary, plus
+    every capability submodule that holds a body rather than a re-export.
 
     crossings.py turns each finding into a `facade-*` line of the model-crossing ledger, which is
-    where the ratchet holds it.
+    where the ratchet holds it. products/architecture.md § The shape check carries the kinds and the
+    move that clears each one.
     """
     findings: list[FacadeShapeFinding] = []
-    for label, path in _iter_facade_shape_modules(backend_dir):
+    model_names = _ModelNames(backend_dir)
+    for path in _iter_facade_modules(backend_dir):
         tree = ast_parse_safe(path)
         if tree is None:
             continue
-        env = _facade_import_env(tree, ["facade", *Path(label).parent.parts], name)
-        rows = [
-            *_iter_module_signature_findings(tree, env, name),
-            *_iter_export_findings(tree, env, name),
-        ]
-        if Path(label).stem in CAPABILITY_SUBMODULES:
-            rows += list(_iter_capability_findings(tree))
-        findings.extend(FacadeShapeFinding(name, label, *row) for row in rows)
-    return sorted(findings, key=lambda f: (f.facade_module, f.symbol, f.kind, f.detail))
+        dotted_module = _facade_module_dotted(name, path.name)
+        env = _facade_import_env(tree, name, model_names)
+        findings.extend(_iter_module_signature_findings(tree, env, name, path.name, dotted_module))
+        if path.stem in CAPABILITY_SUBMODULES:
+            logic = _capability_finding(tree, name, path.name, dotted_module)
+            if logic is not None:
+                findings.append(logic)
+    return sorted(findings, key=lambda f: (f.facade_module, f.symbol, f.kind, f.type_name, f.parameter))
 
 
 # ---------------------------------------------------------------------------
@@ -1279,11 +1308,6 @@ class IsolationStatus:
     # product fails to keep in its contract-check inputs; every narrowed product must watch them.
     model_crossings: tuple[FacadeClassImport, ...] = ()
     uncovered_model_surface: tuple[str, ...] = ()
-    # Facade signatures that name a Django or a DRF type, ORM names the facade hands out, and logic
-    # in a capability submodule. Ratcheted as the `facade-*` kinds in
-    # products/model_crossing_uses_baseline.txt, so a row that is already recorded warns and an
-    # unrecorded one fails (see FacadeShapeCheck).
-    facade_shape: tuple[FacadeShapeFinding, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -1361,5 +1385,4 @@ def compute_isolation_status(
         uncovered_carveout_modules=tuple(sorted(uncovered_carveout_modules(product_dir, carveout_modules))),
         model_crossings=reexports.model_crossings,
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
-        facade_shape=tuple(facade_shape_findings(backend_dir, name)),
     )

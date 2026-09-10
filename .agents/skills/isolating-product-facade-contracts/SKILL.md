@@ -271,10 +271,11 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
 - Never return ORM models across product boundaries.
-- `hogli product:lint` reads the facade signatures for ORM and DRF types and for logic in a
-  capability submodule. The `facade-*` lines of `products/model_crossing_uses_baseline.txt` record
-  what the facades do today and only shrink, so a new finding fails the lint. Regenerate with
-  `bin/hogli product:crossings --all --write-baseline`.
+- `hogli product:lint` reads the facade signatures, in the kinds `facade-returns`,
+  `facade-accepts(<parameter>)` and `facade-logic`. The matching lines of
+  `products/model_crossing_uses_baseline.txt` record what the facades do today and only shrink, so a
+  new finding fails the lint. Regenerate with `bin/hogli product:crossings --all --write-baseline`,
+  and see `products/architecture.md` § The shape check.
 - Declare every relation field that crosses a product boundary with
   `related_name="+"` — the reverse-accessor ratchet blocks new unsealed ones.
 - Do not register a signal receiver on another boundary's sender; use the moves

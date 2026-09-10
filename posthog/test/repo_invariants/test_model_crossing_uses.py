@@ -25,10 +25,9 @@ something outside the watched subtree, because the watch would then miss the cod
 
 `facade-*` lines read the facade signatures, which is the one channel that records what the boundary
 promises rather than what a caller does. `facade-returns` and `facade-accepts(<parameter>)` mean a
-public facade function names a Django, a DRF or an ORM type, or hides one behind `Any`;
-`facade-exports` means the facade hands the name out; `facade-logic` means a capability submodule
-holds a body instead of a re-export. An import linter sees the same edge either way, so the shape is
-frozen here.
+public facade callable puts a Django, a DRF or an ORM type on its signature; `facade-logic` means a
+capability submodule holds bodies instead of re-exports. An import linter sees the same edge either
+way, so the shape is frozen here. See `products/architecture.md` § The shape check.
 
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.
@@ -72,8 +71,8 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
         "A 'drives(...)' line is a test outside the product that executes "
         "one of its query runners; move that test into the product. A 'facade-...' line is a facade "
         "that puts a Django, a DRF or an ORM type on its own boundary, or a capability submodule "
-        "that holds a body; return a frozen contract, take an id or a typed core model, and move "
-        "the body to the product's wiring location. Only a doctrine amendment in "
+        "that holds bodies; see products/architecture.md § The shape check for the move that clears "
+        "each kind. Only a doctrine amendment in "
         "products/architecture.md § Wiring couplings can add a line.\n"
         f"A '-' line means a use went away — good, but the file must record that too. Run: {REGENERATE}\n"
         f"{report}"
