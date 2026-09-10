@@ -151,10 +151,13 @@ const payloadFromForm = (
             ...commonPayload,
             oidc_issuer_url: formValues.oidc_issuer_url.trim(),
             oidc_client_id: formValues.oidc_client_id.trim(),
-            ...(formValues.oidc_client_secret_cleared
-                ? { oidc_client_secret: '' }
-                : formValues.oidc_client_secret
-                  ? { oidc_client_secret: formValues.oidc_client_secret }
+            // A typed secret must win over the cleared flag. The flag stays set once the admin opens the
+            // input, so testing it first would send an empty secret and delete the credential instead of
+            // rotating it.
+            ...(formValues.oidc_client_secret
+                ? { oidc_client_secret: formValues.oidc_client_secret }
+                : formValues.oidc_client_secret_cleared
+                  ? { oidc_client_secret: '' }
                   : {}),
         }
     }
