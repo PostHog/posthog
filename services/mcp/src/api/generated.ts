@@ -134,6 +134,50 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
+    export interface AccessControlResourceDefault {
+      /**
+         * The stored default level for this resource type. Null when the PostHog default applies.
+         * @nullable
+         */
+      access_level: string | null;
+      /** The lowest level this resource type allows. */
+      minimum: string;
+      /** The highest level this resource type allows. */
+      maximum: string;
+    }
+
+    /**
+     * The default level per resource type, keyed by resource name.
+     */
+    export type AccessControlDefaultsResponseResourceAccessLevels = {[key: string]: AccessControlResourceDefault};
+
+    export interface AccessControlObjectRuleResource {
+      /** A resource type that supports rules on single objects. */
+      resource: string;
+      /** The levels an object rule on this resource type accepts, lowest first. */
+      available_access_levels: string[];
+      /** The lowest level an object rule on this resource can set. */
+      minimum_access_level: string;
+    }
+
+    /**
+     * The project's defaults: what everyone without a rule of their own gets.
+     */
+    export interface AccessControlDefaultsResponse {
+      /** The project access levels, lowest first. */
+      available_project_levels: string[];
+      /** The resource access levels, lowest first. */
+      available_resource_levels: string[];
+      /** Whether the caller may change access rules in this project. */
+      can_edit: boolean;
+      /** The default project access level for members. */
+      project_access_level: string;
+      /** The default level per resource type, keyed by resource name. */
+      resource_access_levels: AccessControlDefaultsResponseResourceAccessLevels;
+      /** The resource types that accept rules on single objects, with the levels each accepts. */
+      object_rule_resources: AccessControlObjectRuleResource[];
+    }
+
     export interface AccessControlFilterWarning {
       /** Human-readable warning shown to the user */
       message: string;
@@ -154,6 +198,235 @@ export namespace Schemas {
       Editor: 'editor',
       Manager: 'manager',
     } as const;
+
+    /**
+     * * `object` - object
+     * * `parent_object` - parent_object
+     * * `resource` - resource
+     * * `parent_resource` - parent_resource
+     * * `system_default` - system_default
+     * * `org_admin` - org_admin
+     * * `creator` - creator
+     * * `org_membership` - org_membership
+     */
+    export type ResolvedAccessSourceEnum = typeof ResolvedAccessSourceEnum[keyof typeof ResolvedAccessSourceEnum];
+
+
+    export const ResolvedAccessSourceEnum = {
+      Object: 'object',
+      ParentObject: 'parent_object',
+      Resource: 'resource',
+      ParentResource: 'parent_resource',
+      SystemDefault: 'system_default',
+      OrgAdmin: 'org_admin',
+      Creator: 'creator',
+      OrgMembership: 'org_membership',
+    } as const;
+
+    /**
+     * * `member` - member
+     * * `role` - role
+     * * `default` - default
+     */
+    export type ResolvedAccessSourceSubjectEnum = typeof ResolvedAccessSourceSubjectEnum[keyof typeof ResolvedAccessSourceSubjectEnum];
+
+
+    export const ResolvedAccessSourceSubjectEnum = {
+      Member: 'member',
+      Role: 'role',
+      Default: 'default',
+    } as const;
+
+    /**
+     * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
+     */
+    export interface ResolvedAccess {
+      /** The access level that applies. */
+      access_level: string;
+      /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
+       *
+       * * `object` - object
+       * * `parent_object` - parent_object
+       * * `resource` - resource
+       * * `parent_resource` - parent_resource
+       * * `system_default` - system_default
+       * * `org_admin` - org_admin
+       * * `creator` - creator
+       * * `org_membership` - org_membership */
+      source: ResolvedAccessSourceEnum;
+      /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
+       *
+       * * `member` - member
+       * * `role` - role
+       * * `default` - default */
+      source_subject: ResolvedAccessSourceSubjectEnum | null;
+      /** The resource the deciding rule belongs to. */
+      source_resource: string;
+      /**
+         * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
+         * @nullable
+         */
+      source_resource_id: string | null;
+    }
+
+    /**
+     * One subject's access to one scope (the project, or a whole resource type): what is stored,
+     * what is enforced, and where the enforced level comes from.
+     */
+    export interface SubjectAccessEntry {
+      /**
+         * The subject's own stored rule for this scope. Null when the subject has no rule of its own here.
+         * @nullable
+         */
+      access_level: string | null;
+      /**
+         * The level that is enforced for the subject after defaults, roles and bypasses are resolved. Null when nothing resolves for this scope.
+         * @nullable
+         */
+      effective_access_level: string | null;
+      /** The level the subject falls back to without a rule of its own, with the rule that supplies it. Read `source` and `source_subject` to tell a role rule from the project default, or an organization admin's full access. */
+      inherited_access: ResolvedAccess | null;
+      /** The lowest level this scope allows. */
+      minimum: string;
+      /** The highest level this scope allows. */
+      maximum: string;
+    }
+
+    /**
+     * Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`).
+     */
+    export type AccessControlMemberAccessResources = {[key: string]: SubjectAccessEntry};
+
+    export interface AccessControlMemberUser {
+      /** The user's UUID. */
+      uuid: string;
+      /** The user's first name. */
+      first_name: string;
+      /** The user's last name. */
+      last_name: string;
+      /** The user's email. */
+      email: string;
+    }
+
+    /**
+     * * `1` - member
+     * * `8` - administrator
+     * * `15` - owner
+     */
+    export type OrganizationMembershipLevelEnum = typeof OrganizationMembershipLevelEnum[keyof typeof OrganizationMembershipLevelEnum];
+
+
+    export const OrganizationMembershipLevelEnum = {
+      Number1: 1,
+      Number8: 8,
+      Number15: 15,
+    } as const;
+
+    /**
+     * A member's resolved access to the project and to every resource type in it.
+     */
+    export interface AccessControlMemberAccess {
+      /** The organization membership id. Use it as `member_id` on the member rule endpoints. */
+      organization_membership_id: string;
+      /** The member's identity. */
+      user: AccessControlMemberUser;
+      /** The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners have full access to everything.
+       *
+       * * `1` - member
+       * * `8` - administrator
+       * * `15` - owner */
+      organization_level: OrganizationMembershipLevelEnum;
+      /** The roles the member is in. Use them as `role_id` on the role rule endpoints. */
+      role_ids: string[];
+      /** Access to the project itself. */
+      project: SubjectAccessEntry;
+      /** Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`). */
+      resources: AccessControlMemberAccessResources;
+    }
+
+    export interface AccessControlMembersResponse {
+      /** The project access levels, lowest first. */
+      available_project_levels: string[];
+      /** The resource access levels, lowest first. */
+      available_resource_levels: string[];
+      /** Whether the caller may change access rules in this project. */
+      can_edit: boolean;
+      /** One entry per organization member. */
+      results: AccessControlMemberAccess[];
+    }
+
+    /**
+     * A stored rule on one object, as configured for a subject.
+     */
+    export interface AccessControlObjectRule {
+      /** The object's resource type, for example `dashboard`. */
+      resource: string;
+      /** The object's primary key. */
+      resource_id: string;
+      /** The object's display name. Falls back to the id when it has no name. */
+      name: string;
+      /**
+         * The object's short id, for models that link by one (insights, notebooks).
+         * @nullable
+         */
+      short_id: string | null;
+      /** The level the rule grants or restricts to. */
+      access_level: string;
+    }
+
+    export interface AccessControlObjectRulesResponse {
+      /** The subject's object rules, sorted by resource and name. */
+      results: AccessControlObjectRule[];
+    }
+
+    /**
+     * A stored rule on one property definition, as configured for a subject.
+     */
+    export interface AccessControlPropertyRule {
+      /** The property definition id. */
+      property_definition_id: string;
+      /** The property name. */
+      property: string;
+      /** Whether the property is a `person` or an `event` property. */
+      property_type: string;
+      /** The rule's level: `none`, `read` or `read_write`. */
+      access_level: string;
+    }
+
+    export interface AccessControlPropertyRulesResponse {
+      /** The subject's property rules, sorted by property type and name. */
+      results: AccessControlPropertyRule[];
+    }
+
+    /**
+     * Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`).
+     */
+    export type AccessControlRoleAccessResources = {[key: string]: SubjectAccessEntry};
+
+    /**
+     * A role's resolved access to the project and to every resource type in it.
+     */
+    export interface AccessControlRoleAccess {
+      /** The role id. Use it as `role_id` on the role rule endpoints. */
+      role_id: string;
+      /** The role's name. */
+      role_name: string;
+      /** Access to the project itself. */
+      project: SubjectAccessEntry;
+      /** Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`). */
+      resources: AccessControlRoleAccessResources;
+    }
+
+    export interface AccessControlRolesResponse {
+      /** The project access levels, lowest first. */
+      available_project_levels: string[];
+      /** The resource access levels, lowest first. */
+      available_resource_levels: string[];
+      /** Whether the caller may change access rules in this project. */
+      can_edit: boolean;
+      /** One entry per role in the organization. */
+      results: AccessControlRoleAccess[];
+    }
 
     /**
      * * `read_write` - read_write
@@ -597,6 +870,13 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
+    }
+
+    export interface AccountPresenceViewer {
+      /** PostHog user ID of the teammate viewing this account. */
+      readonly user_id: number;
+      /** Display name of the teammate viewing this account. */
+      readonly display_name: string;
     }
 
     /**
@@ -7917,6 +8197,8 @@ export namespace Schemas {
     } as const;
 
     export interface IntegrationFilter {
+      /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+      includeNonIntegrated?: boolean | null;
       /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
       integrationSourceIds?: string[] | null;
     }
@@ -8636,6 +8918,32 @@ export namespace Schemas {
       startAtZero?: boolean | null;
     }
 
+    export type Summary = typeof Summary[keyof typeof Summary];
+
+
+    export const Summary = {
+      Total: 'total',
+      Average: 'average',
+      Latest: 'latest',
+    } as const;
+
+    export interface MetricChartSettings {
+      /** Change pill color when the series went down. Defaults to red. */
+      changeDecreaseColor?: string | null;
+      /** Change pill color when the series went up. Defaults to green. */
+      changeIncreaseColor?: string | null;
+      /** Color the sparkline by whether the series went up or down. */
+      colorByDirection?: boolean | null;
+      /** Sparkline color when the series went down. Defaults to red. */
+      lineDecreaseColor?: string | null;
+      /** Sparkline color when the series went up. Defaults to green. */
+      lineIncreaseColor?: string | null;
+      /** Show the change pill comparing the first point to the latest point. */
+      showChange?: boolean | null;
+      /** Which value the resting headline shows: the latest point, the total, or the average of the returned points. */
+      summary?: Summary | null;
+    }
+
     export type SliceContent = typeof SliceContent[keyof typeof SliceContent];
 
 
@@ -8746,6 +9054,7 @@ export namespace Schemas {
       leftYAxisSettings?: YAxisSettings | null;
       /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
       legendPosition?: LegendPosition | null;
+      metric?: MetricChartSettings | null;
       pie?: PieChartSettings | null;
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
@@ -9962,6 +10271,11 @@ export namespace Schemas {
       readonly last_notified_at: string | null;
       /** @nullable */
       readonly last_checked_at: string | null;
+      /**
+         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * @nullable
+         */
+      schedule_start_time?: string | null;
       /** @nullable */
       readonly next_check_at: string | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
@@ -14184,6 +14498,44 @@ export namespace Schemas {
       state: string | null;
     }
 
+    /**
+     * * `auto` - auto
+     * * `manual` - manual
+     */
+    export type BreakdownColorConfigSourceEnum = typeof BreakdownColorConfigSourceEnum[keyof typeof BreakdownColorConfigSourceEnum];
+
+
+    export const BreakdownColorConfigSourceEnum = {
+      Auto: 'auto',
+      Manual: 'manual',
+    } as const;
+
+    export interface BreakdownColorConfig {
+      /** The breakdown value this color applies to, as it appears in the chart legend. */
+      breakdownValue: string;
+      /**
+         * Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.
+         * @nullable
+         * @pattern ^preset-[1-9][0-9]*$
+         */
+      colorToken: string | null;
+      /**
+         * Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.
+         * @nullable
+         */
+      breakdownType?: string | null;
+      /**
+         * Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.
+         * @nullable
+         */
+      breakdownProperty?: string | null;
+      /** `manual` for a color a person picked, `auto` for one the dashboard assigned.
+       *
+       * * `auto` - auto
+       * * `manual` - manual */
+      source?: BreakdownColorConfigSourceEnum | null;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -15142,6 +15494,15 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface CalendarSyncBackfill {
+      /** Id of the Google account integration to backfill. */
+      integration_id: number;
+      /** First UTC date to include. Must be within the last 365 days. */
+      start_date: string;
+      /** Final UTC date to include. Cannot be after today. */
+      end_date: string;
+    }
+
     /**
      * Sync state of one connected calendar (read-only).
      */
@@ -15507,7 +15868,6 @@ export namespace Schemas {
       readonly description: string;
       readonly channel: string;
       readonly template_id: string;
-      readonly context: string;
       /** @nullable */
       readonly generation_task_id: string | null;
       /** Whether the canvas is pinned to its channel. */
@@ -21462,8 +21822,11 @@ export namespace Schemas {
       readonly filters: DashboardFilters;
       /** @nullable */
       readonly variables: DashboardVariables;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
       /**
          * ID of the color theme used for chart visualizations.
          * @nullable
@@ -54471,20 +54834,6 @@ export namespace Schemas {
     export type OrganizationMetadata = {[key: string]: string};
 
     /**
-     * * `1` - member
-     * * `8` - administrator
-     * * `15` - owner
-     */
-    export type OrganizationMembershipLevelEnum = typeof OrganizationMembershipLevelEnum[keyof typeof OrganizationMembershipLevelEnum];
-
-
-    export const OrganizationMembershipLevelEnum = {
-      Number1: 1,
-      Number8: 8,
-      Number15: 15,
-    } as const;
-
-    /**
      * * `0` - none
      * * `3` - config
      * * `6` - install
@@ -58423,6 +58772,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly dismissal_note: string | null;
+      /**
+         * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+         * @nullable
+         */
+      readonly repo_slug: string | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -61912,6 +62266,11 @@ export namespace Schemas {
       readonly last_notified_at?: string | null;
       /** @nullable */
       readonly last_checked_at?: string | null;
+      /**
+         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * @nullable
+         */
+      schedule_start_time?: string | null;
       /** @nullable */
       readonly next_check_at?: string | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
@@ -62299,8 +62658,6 @@ export namespace Schemas {
          * @maxLength 400
          */
       name?: string;
-      /** Updated author context markdown. */
-      context?: string;
       /** Updated canvas description (for components, the store-search text). */
       description?: string;
       /** Id of the space the canvas belongs to. */
@@ -66296,8 +66653,11 @@ export namespace Schemas {
       pinned?: boolean;
       /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
       filters?: DashboardFiltersOpenApi;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
       /**
          * ID of the color theme used for chart visualizations.
          * @nullable
@@ -67658,6 +68018,25 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedRepoRoutingRule {
+      readonly id?: string;
+      /**
+         * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+         * @maxLength 300
+         */
+      rule_text?: string;
+      /**
+         * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+         * @maxLength 255
+         */
+      repository?: string;
+      readonly priority?: number;
+      /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedReviewBlindSpotsConfigSelect {
       /** Set true to make this the single blind-spots skill that runs on the user's PR reviews. Only true is accepted — the blind-spot check is single-active, so you switch by selecting a different skill, not by deactivating the current one. */
       active?: boolean;
@@ -68130,9 +68509,14 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Editable schedule, enablement, and emit posture for one scout config.
+     * Editable display name, schedule, enablement, and emit posture for one scout config.
      */
     export interface PatchedSignalScoutConfigUpdate {
+      /**
+         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * @maxLength 200
+         */
+      display_name?: string;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -76293,6 +76677,25 @@ export namespace Schemas {
       ready_to_merge_series_granularity: string;
     }
 
+    export interface RepoRoutingRule {
+      readonly id: string;
+      /**
+         * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+         * @maxLength 300
+         */
+      rule_text: string;
+      /**
+         * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+         * @maxLength 255
+         */
+      repository: string;
+      readonly priority: number;
+      /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
 
 
@@ -78104,6 +78507,11 @@ export namespace Schemas {
       readonly skill_name: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description: string;
+      /**
+         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * @maxLength 200
+         */
+      display_name?: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
       /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
@@ -78313,6 +78721,34 @@ export namespace Schemas {
          * @maxLength 64
          */
       suggestion_id?: string;
+    }
+
+    /**
+     * What one scout spent in the window, and what it produced for that spend.
+     */
+    export interface ScoutCost {
+      /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
+      skill_name: string;
+      /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
+      spend_usd: number;
+      /** Runs the scout started in the window. */
+      run_count: number;
+      /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
+      priced_run_count: number;
+      /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
+      reports_touched: number;
+    }
+
+    /**
+     * Model spend and output per scout over a window.
+     */
+    export interface ScoutCosts {
+      /** Window the rows describe, in days. */
+      window_days: number;
+      /** One row per scout that started at least one run on this project in the window. */
+      scouts: ScoutCost[];
+      /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
+      available: boolean;
     }
 
     /**
@@ -79666,7 +80102,7 @@ export namespace Schemas {
          */
       readonly slack_notification_integration_id: number | null;
       /**
-         * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+         * Where the reviewer ping goes, in the same `id|name` shape PostHog uses elsewhere (only the id is required): a channel (`C0123ABC456|#alerts`), or a workspace member (`U0123ABC456|@sam`) who is sent a direct message. Null disables Slack notifications.
          * @maxLength 255
          * @nullable
          */
@@ -79683,6 +80119,33 @@ export namespace Schemas {
       github_assign_on_pull_request?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface SignalUserAutonomyConfigCreate {
+      autostart_priority?: AutonomyPriorityEnum | null;
+      /**
+         * Primary key of a Slack `Integration` row in one of the caller's teams. Pair with `slack_notification_channel` to enable notifications; pass null on either to disable them.
+         * @nullable
+         */
+      slack_notification_integration_id?: number | null;
+      /**
+         * `channel_id|#channel-name` target, the same convention used by Insight Alerts, or a `member_id|@display-name` target (`U0123ABC456|@sam`) to send the ping as a direct message. A member target is checked against the workspace on save.
+         * @maxLength 255
+         * @nullable
+         */
+      slack_notification_channel?: string | null;
+      /** Set true to send the ping as a direct message from the PostHog app. The caller's own member id is resolved in the connected workspace and stored in `slack_notification_channel`, so nothing has to be picked. Rejected when the workspace has no eligible account for the caller, and cannot be combined with `slack_notification_channel`. */
+      slack_notification_direct_message?: boolean;
+      /** P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      slack_notification_min_priority?: AutonomyPriorityEnum | null;
+      /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
+      github_assign_on_pull_request?: boolean;
     }
 
     export interface SlackChannel {
@@ -90347,9 +90810,27 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _LogsImpactGroupKey {
+      /** Attribute map the key lives in, in the group-by endpoint's vocabulary: "log" or "resource".
+       *
+       * * `log` - log
+       * * `resource` - resource
+       * * `column` - column */
+      source: LogsGroupBySourceEnum;
+      /** The attribute key that carries the ID on most matching logs. */
+      key: string;
+    }
+
     export interface _LogsImpactRequest {
       /** The impact query to execute. Takes the same filters as the count query. */
       query: _LogsCountBody;
+    }
+
+    export interface _LogsImpactTopValue {
+      /** The session ID or person distinct ID. */
+      value: string;
+      /** Approximate number of matching logs that carry this value (topK estimate). */
+      count: number;
     }
 
     export interface _LogsImpactResponse {
@@ -90363,6 +90844,14 @@ export namespace Schemas {
       logsWithDistinctId: number;
       /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
       users: number;
+      /** Top session IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+      topSessions: _LogsImpactTopValue[];
+      /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+      topUsers: _LogsImpactTopValue[];
+      /** The dimension that carries the session ID on most matching logs. Group by this dimension to drill into the sessions behind the counts. Null when no matching log carries a session ID. */
+      sessionGroupKey: _LogsImpactGroupKey | null;
+      /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to drill into the users behind the counts. Null when no matching log carries a distinct ID. */
+      personGroupKey: _LogsImpactGroupKey | null;
     }
 
     export interface _LogsPatternsBody {
@@ -92567,6 +93056,48 @@ export namespace Schemas {
       Any: 'any',
     } as const;
 
+    export type OrganizationsProjectsAccessControlMemberObjectsRetrieveParams = {
+    /**
+     * The organization membership id, as `organization_membership_id` in the members endpoint.
+     */
+    member_id: string;
+    };
+
+    export type OrganizationsProjectsAccessControlMemberPropertiesRetrieveParams = {
+    /**
+     * The organization membership id, as `organization_membership_id` in the members endpoint.
+     */
+    member_id: string;
+    };
+
+    export type OrganizationsProjectsAccessControlMembersRetrieveParams = {
+    /**
+     * Narrow the list to one organization membership id.
+     */
+    member_id?: string;
+    };
+
+    export type OrganizationsProjectsAccessControlRoleObjectsRetrieveParams = {
+    /**
+     * The role id, as `role_id` in the roles endpoint.
+     */
+    role_id: string;
+    };
+
+    export type OrganizationsProjectsAccessControlRolePropertiesRetrieveParams = {
+    /**
+     * The role id, as `role_id` in the roles endpoint.
+     */
+    role_id: string;
+    };
+
+    export type OrganizationsProjectsAccessControlRolesRetrieveParams = {
+    /**
+     * Narrow the list to one role.
+     */
+    role_id?: string;
+    };
+
     export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
      * Name of the evaluation context to restore to suggestions.
@@ -93887,6 +94418,10 @@ export namespace Schemas {
      * @minLength 1
      */
     completed?: CommentsListCompleted;
+    /**
+     * Filter by the numeric ID of the user who wrote the comment.
+     */
+    created_by?: number;
     /**
      * The pagination cursor value.
      */
@@ -101259,6 +101794,15 @@ export namespace Schemas {
      * @minLength 1
      */
     text?: string;
+    };
+
+    export type SignalsScoutRunsCostsParams = {
+    /**
+     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
+     * @minimum 7
+     * @maximum 7
+     */
+    window_days?: number;
     };
 
     export type SignalsScoutRunsRecentEmissionsParams = {

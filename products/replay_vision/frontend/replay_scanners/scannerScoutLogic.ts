@@ -19,7 +19,11 @@ import type { ScoutReportAction } from 'products/signals/frontend/inbox/logics/s
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutConfig } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutRunSummary } from 'products/signals/frontend/inbox/types'
-import { prettifyScoutSkillName, runReportActivity } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import {
+    prettifyScoutSkillName,
+    runReportActivity,
+    scoutDisplayName,
+} from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 import type { ScoutRollup } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 import { llmSkillsNamePartialUpdate, llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
@@ -860,6 +864,9 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, { body: form.body })
                     }
                     const configUpdates: Record<string, unknown> = {}
+                    if (form.name.trim() !== scoutDisplayName(config)) {
+                        configUpdates.display_name = form.name.trim()
+                    }
                     if (form.cron !== config.run_cron_schedule) {
                         configUpdates.run_cron_schedule = form.cron
                     }

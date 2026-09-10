@@ -1151,34 +1151,6 @@ class OnboardingSkipThrottle(UserRateThrottle):
     rate = "30/hour"
 
 
-class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
-    # Throttle class that is applied for authenticating the setup wizard
-    # This is more aggressive than other throttles because the wizard makes LLM calls
-    scope = "wizard_authentication"
-    rate = "20/day"
-
-
-class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    def get_rate(self):
-        if settings.DEBUG:
-            return "1000/day"
-        return "20/day"
-
-    # Throttle per wizard hash
-    def get_cache_key(self, request, view):
-        hash = request.headers.get("X-PostHog-Wizard-Hash")
-
-        authorization_header = request.headers.get("Authorization")
-
-        value = (hash or authorization_header or "").strip() or self.get_ident(request)
-
-        sha_hash = hashlib.sha256(value.encode()).hexdigest()
-
-        # this value isn't use controllable and can't generate html/js, so there's no risk of xss
-        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"throttle_wizard_query_{sha_hash}"
-
-
 class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
     """Derives the per-user, per-program mint bucket. `reserve_wizard_mint` counts it.
 
@@ -1193,8 +1165,15 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
 
     def get_rate(self):
         if settings.DEBUG:
-            return "1000/day"
-        return "5/day"
+            return "1000/week"
+        return "5/week"
+
+    def parse_rate(self, rate):
+        """DRF's period map stops at days. A week is spelled out rather than
+        written as 7 days so the rate reads as what it is everywhere it is logged."""
+        if isinstance(rate, str) and rate.endswith("/week"):
+            return int(rate.split("/")[0]), 7 * 24 * 60 * 60
+        return super().parse_rate(rate)
 
     def allow_request(self, request, view):
         """Always admit; the ceiling is the view's atomic reservation.
@@ -1238,9 +1217,9 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
 
 
 def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
-    """Atomically consume one of this user's daily mints for this program, or raise.
+    """Atomically consume one of this user's weekly mints for this program, or raise.
 
-    `limit` replaces the throttle's daily count; None keeps the configured rate.
+    `limit` replaces the throttle's weekly count; None keeps the configured rate.
 
     Called immediately before the mint, after every gate, so a request refused by a
     gate spends nothing, while parallel requests cannot all slip under the ceiling
@@ -1248,8 +1227,8 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
     slot unless the failure proves no token was issued; see refund_wizard_mint.
 
     Returns the counter it charged so the refund targets that exact key. Recomputing
-    the window at refund time would decrement the next day's counter for a request
-    spanning 00:00 UTC, handing out a free slot.
+    the window at refund time would decrement the next window's counter for a request
+    spanning the boundary, handing out a free slot.
 
     Fails open on a cache error: this bounds spend that the per-token cap and the
     wallet also bound, and a Redis blip must not turn a minted token into a 500.
@@ -1277,7 +1256,7 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
         capture_exception(e)
         return None
     if count > (throttle.num_requests if limit is None else limit):
-        raise exceptions.Throttled(detail="This wizard program has used its daily run limit. Try again tomorrow.")
+        raise exceptions.Throttled(detail="This wizard program has used its weekly run limit. Try again next week.")
     return counter
 
 
@@ -1285,7 +1264,7 @@ def refund_wizard_mint(counter: str | None) -> None:
     """Return a reserved mint slot after a failure that issued no token.
 
     Only for failures that prove the gateway holds nothing: refunding one it did
-    mint would let a user exceed the daily ceiling. Swallows cache errors so a
+    mint would let a user exceed the weekly ceiling. Swallows cache errors so a
     refund can never turn the 503 the caller is already answering into a 500.
     """
     if counter is None:

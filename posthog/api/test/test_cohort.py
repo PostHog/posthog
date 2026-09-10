@@ -2627,7 +2627,14 @@ email@example.org,
         response = self.client.get(response.json()["next"])
         self.assertEqual(len(response.json()["results"]), 50, response)
 
-    def test_filter_by_cohort_prop(self):
+    @parameterized.expand(
+        [
+            ("hogql", {"type": "hogql", "key": "properties.$browser = 'Safari'"}),
+            ("type_less_person", {"key": "$browser", "value": "Safari"}),
+            ("person", {"key": "$browser", "value": "Safari", "type": "person"}),
+        ]
+    )
+    def test_filter_by_prop_without_an_operator(self, _name: str, prop: dict):
         for i in range(5):
             _create_person(
                 team=self.team,
@@ -2637,7 +2644,7 @@ email@example.org,
 
         _create_person(
             team=self.team,
-            distinct_ids=[f"target"],
+            distinct_ids=["target"],
             properties={"$os": "Chrome", "$browser": "Safari"},
         )
 
@@ -2647,10 +2654,8 @@ email@example.org,
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        response = self.client.get(
-            f"/api/cohort/{cohort.pk}/persons?properties=%s"
-            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
-        )
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons?properties=%s" % (json.dumps([prop])))
+        self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_filter_by_cohort_prop_from_clickhouse(self):
