@@ -1,4 +1,5 @@
-import type { Series } from '@posthog/quill-charts'
+import { defaultSliceValue } from '@posthog/quill-charts'
+import type { ResolvedSeries, Series } from '@posthog/quill-charts'
 
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -46,4 +47,25 @@ export function buildTrendsPieSeries<R extends IndexedTrendResult>(
             visibility: excluded ? { excluded: true } : undefined,
         }
     })
+}
+
+/** Total of the magnitudes the pie really draws — for the headline aggregate, the donut center,
+ *  and the share-of-total percentages beside the slices. `computePieLayout` skips an excluded
+ *  series and clamps a negative or non-finite magnitude to 0, so a total summed straight off
+ *  `aggregated_value` drifts away from the slices as soon as one series is negative, and the
+ *  shares stop adding up to 100%. */
+export function sumTrendsPieSeries<Meta>(series: Series<Meta>[], hiddenKeys: readonly string[] = []): number {
+    const hidden = new Set(hiddenKeys)
+    let total = 0
+    for (const s of series) {
+        if (s.visibility?.excluded || hidden.has(s.key)) {
+            continue
+        }
+        // `defaultSliceValue` reads `data` only, so the resolved color it asks for is irrelevant here.
+        const value = defaultSliceValue(s as ResolvedSeries<Meta>)
+        if (Number.isFinite(value) && value > 0) {
+            total += value
+        }
+    }
+    return total
 }

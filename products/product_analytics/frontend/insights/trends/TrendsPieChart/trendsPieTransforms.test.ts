@@ -1,6 +1,9 @@
+import { computePieLayout } from '@posthog/quill-charts'
+import type { ResolvedSeries } from '@posthog/quill-charts'
+
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
-import { buildTrendsPieSeries } from './trendsPieTransforms'
+import { buildTrendsPieSeries, sumTrendsPieSeries } from './trendsPieTransforms'
 
 function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
@@ -92,5 +95,61 @@ describe('buildTrendsPieSeries', () => {
         expect(series[0].meta?.action).toBe(action)
         expect(series[0].meta?.breakdown_value).toBe('chrome')
         expect(series[0].meta?.days).toEqual(['2024-01-01'])
+    })
+})
+
+describe('sumTrendsPieSeries', () => {
+    const slice = (key: string, value: number, excluded = false): ResolvedSeries<unknown> => ({
+        key,
+        label: key,
+        data: [value],
+        color: '#000000',
+        visibility: excluded ? { excluded: true } : undefined,
+    })
+
+    it.each([
+        {
+            name: 'sums the slices when every value is positive',
+            series: [slice('a', 1438), slice('b', 325), slice('c', 155)],
+            hiddenKeys: [],
+            expected: 1918,
+        },
+        {
+            name: 'leaves out a negative slice, which the pie clamps to zero',
+            series: [slice('a', 1438), slice('b', -325), slice('c', 155)],
+            hiddenKeys: [],
+            expected: 1593,
+        },
+        {
+            name: 'leaves out a non-finite slice',
+            series: [slice('a', 1438), slice('b', NaN)],
+            hiddenKeys: [],
+            expected: 1438,
+        },
+        {
+            name: 'leaves out a slice hidden through the legend',
+            series: [slice('a', 1438), slice('b', 325)],
+            hiddenKeys: ['b'],
+            expected: 1438,
+        },
+        {
+            name: 'leaves out a slice the caller excluded',
+            series: [slice('a', 1438), slice('b', 325, true)],
+            hiddenKeys: [],
+            expected: 1438,
+        },
+    ])('$name', ({ series, hiddenKeys, expected }) => {
+        const total = sumTrendsPieSeries(series, hiddenKeys)
+
+        expect(total).toEqual(expected)
+        // The headline total and the share-of-total percentages must use the denominator the drawn
+        // slices use, so hold the helper to the total the pie layout computes.
+        const drawn = series.filter((s) => !hiddenKeys.includes(s.key))
+        expect(total).toEqual(
+            computePieLayout({
+                series: drawn,
+                dimensions: { plotLeft: 0, plotTop: 0, plotWidth: 200, plotHeight: 200 },
+            }).total
+        )
     })
 })
