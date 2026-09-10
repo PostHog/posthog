@@ -258,15 +258,15 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
 function invalidatesForecastSimulation(name: FieldName): boolean {
     const field = Array.isArray(name) ? name[0] : name
     // The cadence picks the offered history ranges, so changing it can move the range the preview ran.
-    return (
-        field === 'forecast_config' || field === 'threshold' || field === 'config' || field === 'calculation_interval'
-    )
+    // The threshold is not one of these: the run never receives it, and ForecastPreview draws the goal
+    // lines and the crossing marker from the bounds currently in the form, so a bound needs no refit.
+    return field === 'forecast_config' || field === 'config' || field === 'calculation_interval'
 }
 
 /** The inputs a forecast simulation is computed from. The form stays editable while the request
  * runs, and the response echoes none of them back, so the loader compares this before and after. */
 function forecastSimulationInputs(alert: AlertFormType, dateFrom: string): string {
-    return JSON.stringify([alert.forecast_config, alert.config, alert.threshold, dateFrom])
+    return JSON.stringify([alert.forecast_config, alert.config, dateFrom])
 }
 
 /** A stored forecast config as the editor holds it. A breach config gets the horizon the backend
@@ -591,9 +591,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 setSimulationDateFrom: () => null,
                 setAlertFormValue: (state, { name }) => (invalidatesForecastSimulation(name) ? null : state),
                 setAlertFormValues: (state, { values: changed }) =>
-                    ['forecast_config', 'threshold', 'config', 'calculation_interval'].some((field) => field in changed)
-                        ? null
-                        : state,
+                    Object.keys(changed).some((field) => invalidatesForecastSimulation(field)) ? null : state,
             },
         ],
         alertFormSubmitAttempted: [

@@ -827,6 +827,64 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResult).toBeNull()
         })
 
+        // The run never receives the threshold, and ForecastPreview redraws the goal lines and the
+        // crossing marker from the bounds in the form, so tuning a bound must not force another fit.
+        it('keeps the result when a threshold bound changes', async () => {
+            const mockResponse = {
+                data: [1, 2, 3],
+                dates: ['2026-01-01', '2026-01-02', '2026-01-03'],
+                interval: 'day',
+                forecast_dates: ['2026-01-04'],
+                forecast_yhat: [4],
+                forecast_lower: [3],
+                forecast_upper: [5],
+                target_projection: null,
+            }
+            ;(alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
+            const logic = mountForecastForm()
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            logic.actions.setAlertFormValue('threshold', {
+                configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 42 } },
+            })
+
+            expect(logic.values.forecastSimulationResult).toEqual(mockResponse)
+            expect(alertsSimulateForecastCreate).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps a run that finishes after a threshold bound changed while it was in flight', async () => {
+            const mockResponse = {
+                data: [1, 2, 3],
+                dates: ['2026-01-01', '2026-01-02', '2026-01-03'],
+                interval: 'day',
+                forecast_dates: ['2026-01-04'],
+                forecast_yhat: [4],
+                forecast_lower: [3],
+                forecast_upper: [5],
+                target_projection: null,
+            }
+            let deliverResponse: (value: unknown) => void = () => {}
+            ;(alertsSimulateForecastCreate as jest.Mock).mockReturnValueOnce(
+                new Promise((resolve) => {
+                    deliverResponse = resolve
+                })
+            )
+            const logic = mountForecastForm()
+
+            logic.actions.simulateForecast()
+            logic.actions.setAlertFormValue('threshold', {
+                configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 42 } },
+            })
+            deliverResponse(mockResponse)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.forecastSimulationResult).toEqual(mockResponse)
+        })
+
         it('clearSimulation resets the forecast simulation result', async () => {
             const mockResponse = {
                 data: [1, 2, 3],
