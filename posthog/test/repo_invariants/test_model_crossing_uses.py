@@ -54,8 +54,8 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
     if scanned == recorded:
         return
 
-    added, removed = baseline_drift(recorded, scanned)
-    raise AssertionError(baseline_drift_message(added, removed))
+    drift = baseline_drift(recorded, scanned)
+    raise AssertionError(baseline_drift_message(drift.grown, drift.shrunk))
 
 
 # product_analytics watches backend/hogql_queries/trends/ alone, because trends is the only subtree

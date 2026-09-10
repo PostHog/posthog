@@ -1744,20 +1744,30 @@ def read_baseline(path: Path = BASELINE_PATH) -> list[str]:
     return [line for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
 
 
-def _line_identity_and_count(line: str) -> tuple[str, int]:
-    identity, count = line.rsplit(" ", 1)
-    return identity, int(count)
+def _counts_by_identity(lines: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for line in lines:
+        identity, count = line.rsplit(" ", 1)
+        counts[identity] = int(count)
+    return counts
 
 
-def baseline_drift(recorded: Iterable[str], scanned: Iterable[str]) -> tuple[list[str], list[str]]:
-    """Split the difference between the file and a scan into growth and shrinkage.
+@dataclass(frozen=True)
+class BaselineDrift:
+    """The difference between the file and a scan, split by direction.
 
     A line is (crossing, consumer, kind, count), and only the count is allowed to move down.
-    So growth is a scanned line whose identity the file does not hold, or whose count went up;
-    shrinkage is a recorded line whose identity the scan no longer holds, or whose count went
-    down. Comparing whole lines would call a count drop growth and refuse it."""
-    recorded_counts = dict(_line_identity_and_count(line) for line in recorded)
-    scanned_counts = dict(_line_identity_and_count(line) for line in scanned)
+    So `grown` holds a scanned line whose identity the file does not hold, or whose count went
+    up; `shrunk` holds a recorded line whose identity the scan no longer holds, or whose count
+    went down. Comparing whole lines would call a count drop growth and refuse it."""
+
+    grown: list[str]
+    shrunk: list[str]
+
+
+def baseline_drift(recorded: Iterable[str], scanned: Iterable[str]) -> BaselineDrift:
+    recorded_counts = _counts_by_identity(recorded)
+    scanned_counts = _counts_by_identity(scanned)
     grown = [
         f"{identity} {count}"
         for identity, count in sorted(scanned_counts.items())
@@ -1768,7 +1778,7 @@ def baseline_drift(recorded: Iterable[str], scanned: Iterable[str]) -> tuple[lis
         for identity, count in sorted(recorded_counts.items())
         if count > scanned_counts.get(identity, 0)
     ]
-    return grown, shrunk
+    return BaselineDrift(grown=grown, shrunk=shrunk)
 
 
 def baseline_drift_message(added: Sequence[str], removed: Sequence[str]) -> str:
@@ -1809,8 +1819,8 @@ def write_baseline(uses: Iterable[CrossingUse], path: Path = BASELINE_PATH) -> N
     flag would be pasted from one change into the next."""
     scanned = list(uses)
     if path.exists():
-        grown, _ = baseline_drift(read_baseline(path), scanned_baseline_lines(scanned))
-        if grown:
-            raise BaselineWouldGrow(path, grown)
+        drift = baseline_drift(read_baseline(path), scanned_baseline_lines(scanned))
+        if drift.grown:
+            raise BaselineWouldGrow(path, drift.grown)
     path.write_text(render_baseline(scanned))
     _baseline_lines.cache_clear()
