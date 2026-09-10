@@ -563,6 +563,10 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             scoped = sorted(set(requested)) if requested is not None else None
         else:
             allowed = set(grants.projects) if grants.projects is not None else set()
+            # The credential's own reach is settled before the request narrows it. A filter of no
+            # projects reads downstream as no filter at all, so nothing here may resolve to one.
+            if grants.projects is not None and not allowed:
+                raise PermissionDenied(BILLING_ACCESS_DENIED)
             if visible is not None:
                 allowed = visible if grants.projects is None else allowed & visible
                 if not allowed:

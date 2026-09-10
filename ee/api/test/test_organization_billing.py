@@ -15,7 +15,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BillingReadBurstRateThrottle
 
 from ee.api.test.base import APILicensedTest
-from ee.billing.grants import BillingEntitlement, entitlements_for
+from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, entitlements_for
 
 PERIOD_START = int(datetime(2026, 9, 1, tzinfo=UTC).timestamp())
 PERIOD_END = int(datetime(2026, 10, 1, tzinfo=UTC).timestamp())
@@ -443,6 +443,22 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         with patch("ee.api.organization_billing.visible_team_ids", return_value=[]):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_a_credential_scoped_to_no_project_is_refused_rather_than_widened(self, mock_get):
+        # PostHog never mints an empty project list today, so this guards the shape rather than a
+        # reachable path: an empty filter would read downstream as no filter at all.
+        grants = EffectiveBillingGrants(
+            sub=f"user:{self.user.distinct_id}",
+            scope=["billing:read"],
+            roles=["owner"],
+            entitlements=entitlements_for(BillingEntitlement.FULL_ACCESS),
+            projects=[],
+        )
+        with patch("ee.api.organization_billing.effective_billing_grants", return_value=grants):
+            response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get.assert_not_called()
 
     @patch("ee.billing.billing_manager.requests.get")
     def test_a_whole_organization_caller_may_name_a_project_the_organization_no_longer_has(self, mock_get):
