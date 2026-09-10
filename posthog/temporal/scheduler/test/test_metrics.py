@@ -60,20 +60,16 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
         )
         == 90
     )
-    assert (
-        registry.get_sample_value(
-            "posthog_temporal_scheduler_permits_snapshot_unixtime",
-            {"scheduler": "subscriptions", "region": "eu"},
-        )
-        > 0
+    permits_snapshot = registry.get_sample_value(
+        "posthog_temporal_scheduler_permits_snapshot_unixtime",
+        {"scheduler": "subscriptions", "region": "eu"},
     )
-    assert (
-        registry.get_sample_value(
-            "posthog_temporal_scheduler_backlog_snapshot_unixtime",
-            {"scheduler": "subscriptions", "region": "eu"},
-        )
-        > 0
+    backlog_snapshot = registry.get_sample_value(
+        "posthog_temporal_scheduler_backlog_snapshot_unixtime",
+        {"scheduler": "subscriptions", "region": "eu"},
     )
+    assert permits_snapshot is not None and permits_snapshot > 0
+    assert backlog_snapshot is not None and backlog_snapshot > 0
 
     for method_name in [
         "observe_payload",
