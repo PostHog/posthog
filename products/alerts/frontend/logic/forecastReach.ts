@@ -89,6 +89,8 @@ export interface ForecastEditingInput {
     interval: IntervalType | null | undefined
     dateRange: DateRange | null | undefined
     smoothingIntervals: number | null | undefined
+    isNonTimeSeries: boolean
+    isBreakdown: boolean
 }
 
 /** Why the editor cannot work on a forecast alert against the insight as it now stands, or null
@@ -102,6 +104,8 @@ export function forecastEditingError({
     interval,
     dateRange,
     smoothingIntervals,
+    isNonTimeSeries,
+    isBreakdown,
 }: ForecastEditingInput): string | null {
     if (!forecastAlertsEnabled) {
         return 'Forecast alerts are no longer enabled for this project. This alert will keep running. Disable it to stop it, or switch to another alert mode before editing.'
@@ -109,9 +113,17 @@ export function forecastEditingError({
     if (!smoothingSupportsForecast(smoothingIntervals)) {
         return 'Forecast alerts do not support smoothed trends yet. Turn smoothing off on the insight, or switch this alert to threshold mode.'
     }
-    return (
-        forecastDisplayError(display) ?? forecastIntervalError(interval) ?? forecastDaysOfWeekError(dateRange, interval)
-    )
+    const displayError = forecastDisplayError(display)
+    if (displayError) {
+        return displayError
+    }
+    if (isNonTimeSeries) {
+        return 'Forecast alerts need a time series insight. Change the insight to a line, bar, or area chart, or switch this alert to threshold mode.'
+    }
+    if (isBreakdown) {
+        return "Forecast alerts don't support breakdowns yet. Switch to threshold or anomaly detection, or remove the breakdown."
+    }
+    return forecastIntervalError(interval) ?? forecastDaysOfWeekError(dateRange, interval)
 }
 
 export function targetByDateSupportsForecast(interval: IntervalType | null | undefined): boolean {

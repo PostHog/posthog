@@ -359,6 +359,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                   interval: trendInterval,
                   dateRange: trendDateRange,
                   smoothingIntervals: trendsSource?.trendsFilter?.smoothingIntervals,
+                  isNonTimeSeries: isNonTimeSeriesDisplay,
+                  isBreakdown: isBreakdownValid,
               }) ?? undefined)
             : undefined
 

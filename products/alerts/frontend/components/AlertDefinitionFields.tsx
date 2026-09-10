@@ -21,12 +21,11 @@ import { AlertMode, isFunnelsAlertConfig, isHogQLAlertConfig } from 'products/al
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
-export const breakdownDisabledReason = (alertMode: AlertMode): string => {
+/** Forecast mode is excluded: a breakdown locks that mode out entirely, so its reason comes from
+ * `forecastEditingError` with the rest of the forecast eligibility rules. */
+export const breakdownDisabledReason = (alertMode: Exclude<AlertMode, 'forecast'>): string => {
     if (alertMode === 'detector') {
         return 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-    }
-    if (alertMode === 'forecast') {
-        return "Forecast alerts don't support breakdowns yet. Switch to threshold or anomaly detection, or remove the breakdown."
     }
     return 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'
 }

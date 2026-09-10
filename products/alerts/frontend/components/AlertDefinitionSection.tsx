@@ -178,8 +178,10 @@ export function AlertDefinitionSection({
 
     return (
         <>
-            {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner. */}
-            {trends.isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
+            {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner.
+                A forecast alert reports a breakdown through its own lockout banner below, which also
+                disables the controls, so it does not need a second banner. */}
+            {trends.isBreakdownValid && isTrendsAlertConfig(alertForm.config) && alertMode !== 'forecast' && (
                 <LemonBanner type="warning">{breakdownDisabledReason(alertMode)}</LemonBanner>
             )}
             {alertMode === 'forecast' && forecastDisabledReason ? (

@@ -178,6 +178,8 @@ describe('forecastEditingError', () => {
         interval: 'day',
         dateRange: { date_from: '-30d' },
         smoothingIntervals: 1,
+        isNonTimeSeries: false,
+        isBreakdown: false,
     }
 
     it.each<[string, Partial<ForecastEditingInput>]>([
@@ -196,6 +198,8 @@ describe('forecastEditingError', () => {
         ['a quarterly insight', { interval: 'quarter' }, 'hourly, daily, weekly, and monthly'],
         ['a minute insight', { interval: 'minute' }, 'hourly, daily, weekly, and monthly'],
         ['a daily insight without weekends', { dateRange: WEEKDAYS }, 'excludes days of the week'],
+        ['a total-value insight', { isNonTimeSeries: true }, 'need a time series insight'],
+        ['a breakdown', { isBreakdown: true }, "don't support breakdowns yet"],
     ])('explains %s', (_name, overrides, expected) => {
         expect(forecastEditingError({ ...eligible, ...overrides })).toContain(expected)
     })
