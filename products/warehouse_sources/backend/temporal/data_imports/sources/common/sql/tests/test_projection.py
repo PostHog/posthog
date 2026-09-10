@@ -245,10 +245,20 @@ class TestReconcileEnabledColumns:
     def test_keeps_select_star_selections_untouched(self) -> None:
         assert self._reconcile(None, {"id"}) is None
 
-    def test_reports_dropped_columns_to_the_job_log(self) -> None:
+    @parameterized.expand(
+        [
+            ("some_selected_columns_left", ["id", "ghost"], {"id"}, "were skipped for this sync"),
+            ("no_selected_columns_left", ["ghost"], {"id"}, "ignores the column selection"),
+        ]
+    )
+    def test_reports_dropped_columns_to_the_job_log(
+        self, _name: str, enabled_columns: list[str], available: set[str], expected: str
+    ) -> None:
         logger = MagicMock()
-        self._reconcile(["id", "ghost"], {"id"}, logger=logger)
-        assert "ghost" in logger.warning.call_args.args[0]
+        self._reconcile(enabled_columns, available, logger=logger)
+        message = logger.warning.call_args.args[0]
+        assert "ghost" in message
+        assert expected in message
 
     def test_raises_when_the_incremental_field_left_the_source(self) -> None:
         with pytest.raises(MissingIncrementalFieldError, match="updated_at"):

@@ -257,7 +257,13 @@ def reconcile_enabled_columns(
         raise MissingIncrementalFieldError(missing_incremental_field_message(incremental_field, table))
 
     pruned = prune_enabled_columns(enabled_columns, available_column_names)
-    if pruned.removed:
+    if pruned.removed and not pruned.kept:
+        logger.warning(
+            f"None of the columns selected for {table} still exist in the source table: "
+            f"{', '.join(pruned.removed)}. This sync ignores the column selection. Pick columns "
+            "again in the table's sync settings."
+        )
+    elif pruned.removed:
         logger.warning(
             f"Columns selected for {table} are no longer in the source table and were skipped for "
             f"this sync: {', '.join(pruned.removed)}"
