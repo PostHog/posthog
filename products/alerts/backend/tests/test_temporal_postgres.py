@@ -178,10 +178,9 @@ def test_probe_statement_timeout_rolls_back_and_closes_without_leaking() -> None
         patch.object(connection, "close", close),
         patch.object(connection, "rollback", wraps=connection.rollback) as rollback,
     ):
-        with connection.execute_wrapper(slow_probe):
-            with pytest.raises(OperationalError) as caught:
-                postgres.check_postgres_connection()
-            assert getattr(caught.value.__cause__, "sqlstate", None) == "57014"
+        with connection.execute_wrapper(slow_probe), pytest.raises(OperationalError) as caught:
+            postgres.check_postgres_connection()
+        assert getattr(caught.value.__cause__, "sqlstate", None) == "57014"
         rollback.assert_called_once_with()
         assert connection.connection is None
         assert close_states == [(False, False), (False, False)]

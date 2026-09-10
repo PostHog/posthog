@@ -127,10 +127,10 @@ async def test_each_tick_starts_independent_delivery(
             ]
             assert len(scheduled) == 1
             assert scheduled[0].retry_policy.maximum_attempts == 1
-            failures = [
-                event for event in history.events if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED
-            ]
-            assert len(failures) == int(database_error)
+            failure_count = sum(
+                event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED for event in history.events
+            )
+            assert failure_count == int(database_error)
             assert "sensitive" not in str(history)
             children = [
                 event.child_workflow_execution_started_event_attributes
@@ -376,18 +376,18 @@ async def test_probe_unrelated_activity_failures_do_not_start_delivery(cause: Ex
     with (
         patch.object(workflow, "execute_activity", AsyncMock(side_effect=error)),
         patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
+        pytest.raises(ActivityError) as caught,
     ):
-        with pytest.raises(ActivityError) as caught:
-            await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
-        assert caught.value is error
-        start_delivery.assert_not_awaited()
+        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+    assert caught.value is error
+    start_delivery.assert_not_awaited()
 
 
 async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
     with (
         patch.object(workflow, "execute_activity", AsyncMock(side_effect=asyncio.CancelledError)),
         patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
+        pytest.raises(asyncio.CancelledError),
     ):
-        with pytest.raises(asyncio.CancelledError):
-            await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
-        start_delivery.assert_not_awaited()
+        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+    start_delivery.assert_not_awaited()
