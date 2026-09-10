@@ -224,8 +224,8 @@ export function InboxUsageWidget(): JSX.Element | null {
                 </div>
                 {refundedPrs > 0 && (
                     <span className="text-xs text-tertiary">
-                        Includes {pluralize(refundedPrs, 'refunded PR')}. Refunds come back as credit on your invoice,
-                        so they stay in the count.
+                        Includes {pluralize(refundedPrs, 'refunded PR')}. They stay in this count. Any credit appears on
+                        your invoice.
                     </span>
                 )}
                 {quotaLimited && (
