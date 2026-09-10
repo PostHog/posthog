@@ -9359,7 +9359,7 @@ snapshots:
     scenes-app-surveys--new-multi-question-survey-section--dark:
         hash: v1.k794b7964.f1587352973fbb7df0437cfdbfbaa542471fc17044e083be0e4efad7647bbbfe.RMYkIsFv05--LXj0yuYuDLg5-_bX6Ucy9iUMuY6kaYw
     scenes-app-surveys--new-multi-question-survey-section--light:
-        hash: v1.k794b7964.ad5861ea909368188bb3fec2edfddf542bfb31230e9bdcdbd7f993ea42885d23.Ych93ianW7eWaE-_7KUOaJTKhoW4jS34LwLcqIP0ncA
+        hash: v1.k794b7964.9b4665f81e2ebdf70bb0c5c02a36ad72134f6a9121855308fdc932b09fe48c5a.b59cp9OICPzk2rzlSpynu5JicFG8ZFa3UecAbt_pmis
     scenes-app-surveys--new-survey--dark:
         hash: v1.k794b7964.743d7e70837c5888369cfee589f3f0eec882ecdf6432afed3f4f9f7d232c01df.QPoGwmId8jidosxDszIf3KWG547h_uoj60OZ4OYYl4g
     scenes-app-surveys--new-survey--light:
@@ -9375,7 +9375,7 @@ snapshots:
     scenes-app-surveys--new-survey-with-html-question-description--dark:
         hash: v1.k794b7964.0a9a5c9f055991d3d19ca02f133bac354223a764592c7da6e051933d07b6e7fb.mFqOSdNOcD4d1UYg9nZqXp94CVuuxWd733Hl9iEsgqU
     scenes-app-surveys--new-survey-with-html-question-description--light:
-        hash: v1.k794b7964.b74e0f2ebaac866fe89e4f263882124381d73c752f60d6c47deb66313238de90.By3dMrp1mkPzQeybSWmGytMVvrKcXikGhGqrOsIAxKw
+        hash: v1.k794b7964.8cd9d072eca1010c174b173834a240d6149e31374f7f33b65a7285a34107519c.32Ka0Qe4urXyGV1IA-gPWi-TuYGRgfzg3jczVdRlH88
     scenes-app-surveys--new-survey-with-text-question-description-that-does-not-render-html--dark:
         hash: v1.k794b7964.9cbe2779dc764884068e52cca5b2e51be9591e5c632a6344db75104c9ffbdb5b.zLU9nqfqK9nIStEuVCix_A_nuVyrsaiypdQmRJmpwy0
     scenes-app-surveys--new-survey-with-text-question-description-that-does-not-render-html--light:
