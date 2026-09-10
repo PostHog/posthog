@@ -150,6 +150,23 @@ describe('loginTelemetryLogic', () => {
         expect(captureCount('login failed')).toBe(0)
     })
 
+    // Hearing another logic's actions must not hold that logic mounted. A held logic keeps its state
+    // between visits, so a failed second factor would show its old error on the next attempt.
+    it('mounts no other logic', () => {
+        logic.unmount()
+        login.unmount()
+        logic = loginTelemetryLogic()
+        logic.mount()
+
+        expect(loginLogic.findMounted()).toBeNull()
+        expect(login2FALogic.findMounted()).toBeNull()
+        expect(passwordResetLogic.findMounted()).toBeNull()
+
+        // afterEach unmounts both logics, so restore the one the test took down
+        login = loginLogic()
+        login.mount()
+    })
+
     // precheck_failed must distinguish "the precheck ran and failed" from "no current precheck
     // exists" — a pending or stale-email result would otherwise be misattributed to this attempt.
     it.each([
