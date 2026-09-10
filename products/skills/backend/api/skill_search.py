@@ -27,8 +27,8 @@ class SkillSearchTimeout(Exception):
 def search_skills(team: Team, user_access_control: UserAccessControl, query: str) -> list[dict[str, Any]]:
     """Every readable skill matching the query, best match first, with excerpts.
 
-    Raises SkillSearchTimeout when the query outruns its database timeout — the search spans bodies
-    and bundled file contents, so a broad query on a large team can.
+    Raises SkillSearchTimeout when the query outruns its database timeout. The search spans skill
+    bodies and bundled file contents, so a broad query on a large team can reach it.
     """
     try:
         with execute_with_timeout(SKILL_SEARCH_TIMEOUT_MS):

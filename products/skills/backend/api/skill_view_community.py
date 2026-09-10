@@ -29,7 +29,8 @@ from .skill_view_access import SkillAccessMixin
 logger = structlog.get_logger(__name__)
 
 
-# Opens a pull request against the community repo. Owner-gated, and heavily throttled.
+# Reachable only through CommunityPublishOwnerPermission and the publish throttles, which live in
+# skill_permissions and skill_throttles.
 class SkillCommunityPublishMixin(SkillAccessMixin):
     @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
     @action(

@@ -52,7 +52,6 @@ def _safe_file_path(file_path: str) -> str | None:
     return file_path
 
 
-# The `name/<slug>/files` endpoints.
 class SkillFileActionsMixin(SkillAccessMixin):
     @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer],

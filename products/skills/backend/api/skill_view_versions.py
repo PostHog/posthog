@@ -53,7 +53,6 @@ def _is_uuid(value: str) -> bool:
         return False
 
 
-# The `name/<slug>` endpoints: fetch, publish, and resolve version history.
 class SkillVersionActionsMixin(SkillAccessMixin):
     @extend_schema(
         parameters=[LLMSkillBodyFetchQuerySerializer],
@@ -270,7 +269,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
             offset=offset,
             before_version=before_version,
         )
-        # nosemgrep: api-response-must-match-schema — these are exactly LLMSkillResolveResponseSerializer's fields
+        # nosemgrep: api-response-must-match-schema (these keys are exactly LLMSkillResolveResponseSerializer's fields)
         return Response(
             {
                 "skill": self._serialize_skill(skill),

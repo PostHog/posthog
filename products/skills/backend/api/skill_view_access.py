@@ -47,11 +47,9 @@ else:
     _SkillViewBase = object
 
 
-# Guards and serialization every skill endpoint shares.
-#
-# Keep the endpoint mixins free of class docstrings: drf-spectacular reads the viewset's docstring
-# through its MRO, so one here becomes the published description of every skill endpoint at once.
-# The module docstring carries the description instead.
+# Keep this class and every endpoint mixin free of a class docstring. drf-spectacular resolves the
+# viewset's docstring through its MRO, so a docstring here becomes the published OpenAPI description
+# of every skill endpoint at once. The module docstring carries the description instead.
 class SkillAccessMixin(_SkillViewBase):
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(

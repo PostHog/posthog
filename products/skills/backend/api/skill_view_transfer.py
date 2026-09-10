@@ -69,7 +69,6 @@ ZIP_ACTIONS = ("bundle", "export")
 FORMAT_QUERY_PARAM_EXCLUDED = OpenApiParameter(name="format", location=OpenApiParameter.QUERY, exclude=True)
 
 
-# The zip endpoints. Errors stay JSON; only a success body is a zip.
 class SkillTransferActionsMixin(SkillAccessMixin):
     @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer, FORMAT_QUERY_PARAM_EXCLUDED],
@@ -219,7 +218,7 @@ class SkillTransferActionsMixin(SkillAccessMixin):
                 ],
             )
         except LLMSkillDuplicateNameConflictError:
-            # nosemgrep: api-response-must-match-schema — DRF's error envelope, not a data payload
+            # nosemgrep: api-response-must-match-schema (DRF's error envelope, not a data payload)
             return Response(
                 {"attr": "name", "detail": f"A skill named '{skill_export.name}' already exists."},
                 status=status.HTTP_400_BAD_REQUEST,

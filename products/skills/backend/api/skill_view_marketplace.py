@@ -26,7 +26,6 @@ from .skill_serializers import LLMSkillMarketplaceCommandSerializer, LLMSkillMar
 from .skill_view_access import SkillAccessMixin
 
 
-# Report or mint the caller's marketplace credential.
 class SkillMarketplaceActionsMixin(SkillAccessMixin):
     def _marketplace_command_payload(self, key, token: str | None, status_str: str) -> dict[str, Any]:
         """Shape the marketplace-command response from a credential (or absence of one)."""

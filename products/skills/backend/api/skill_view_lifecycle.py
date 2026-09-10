@@ -28,7 +28,6 @@ from .skill_services import (
 from .skill_view_access import SkillAccessMixin
 
 
-# Endpoints that act on a skill as a whole rather than on one version of it.
 class SkillLifecycleActionsMixin(SkillAccessMixin):
     @extend_schema(request=None, responses={204: None})
     @action(
@@ -101,7 +100,7 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
         except LLMSkillNotFoundError:
             return skill_not_found_response(skill_name)
         except LLMSkillDuplicateNameConflictError:
-            # nosemgrep: api-response-must-match-schema — DRF's error envelope, not a data payload
+            # nosemgrep: api-response-must-match-schema (DRF's error envelope, not a data payload)
             return Response(
                 {"attr": "new_name", "detail": "A skill with this name already exists."},
                 status=status.HTTP_400_BAD_REQUEST,

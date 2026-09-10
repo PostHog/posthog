@@ -1,8 +1,8 @@
 """The skills API: the catalog endpoints, and the viewset that composes the rest.
 
-Each group of endpoints lives in its own module as a mixin — versions, lifecycle, files, transfer,
-marketplace, community — and this module wires them together with the DRF plumbing that has to sit
-on the concrete viewset (renderers, throttles, scopes, serializer context).
+Each group of endpoints lives in its own module as a mixin: versions, lifecycle, files, transfer,
+marketplace, and community. This module wires them together with the DRF plumbing that has to sit on
+the concrete viewset, which is the renderers, throttles, scopes and serializer context.
 """
 
 from collections.abc import Sequence
