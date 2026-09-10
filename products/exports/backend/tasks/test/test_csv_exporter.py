@@ -469,6 +469,22 @@ class TestCSVExporter(APIBaseTest):
             assert b"abc" in exported_asset.content
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
+    def test_404_on_the_first_page_raises(self, _mock_logger: MagicMock) -> None:
+        # A stored path that no longer resolves 404s before any row is fetched. Breaking
+        # there would publish an empty file as a successful export.
+        with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+
+            not_found_error = HTTPError("404 Client Error")  # type: ignore[call-arg]
+            not_found_error.response = Mock()
+            not_found_error.response.status_code = 404
+            not_found_error.response.text = "Not found."
+            patched_make_api_call.side_effect = not_found_error
+
+            with pytest.raises(HTTPError):
+                csv_exporter.export_tabular(exported_asset)
+
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_non_404_http_error_still_raises(self, _mock_logger: MagicMock) -> None:
         with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
             exported_asset = self._create_asset()

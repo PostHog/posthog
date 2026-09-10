@@ -966,6 +966,10 @@ class TestProperty(BaseTest):
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
 
+    def test_cohort_filter_missing_cohort(self):
+        with self.assertRaisesMessage(QueryError, "Cohort 2137 not found"):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
+
     def test_person_scope(self):
         self.assertEqual(
             self._property_to_expr(
