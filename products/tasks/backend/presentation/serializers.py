@@ -609,8 +609,13 @@ class TaskSerializer(DataclassSerializer):
 
 
 TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
+TASK_DESCRIPTION_PREVIEW_HELP_TEXT = (
+    f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
+    "surface can show a prompt snippet without the full body. Open the task for the complete text."
+)
 
 
+@extend_schema_serializer(component_name="TaskBasic")
 class TaskBasicSerializer(TaskSerializer):
     """Basic list response for a task, returned when the list is asked for ``basic=true``.
 
@@ -623,17 +628,22 @@ class TaskBasicSerializer(TaskSerializer):
     """
 
     description_preview = serializers.SerializerMethodField(
-        help_text=(
-            f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
-            "surface can show a prompt snippet without the full body. Open the task for the complete text."
-        ),
+        help_text=TASK_DESCRIPTION_PREVIEW_HELP_TEXT,
     )
 
     class Meta(TaskSerializer.Meta):
         fields = [field for field in TaskSerializer.Meta.fields if field != "description"] + ["description_preview"]
 
+    @extend_schema_field(serializers.CharField(help_text=TASK_DESCRIPTION_PREVIEW_HELP_TEXT))
     def get_description_preview(self, obj: TaskDetailDTO) -> str:
         return (obj.description or "")[:TASK_DESCRIPTION_PREVIEW_LENGTH]
+
+
+TaskListItemSerializer = PolymorphicProxySerializer(
+    component_name="TaskListItem",
+    serializers=[TaskSerializer, TaskBasicSerializer],
+    resource_type_field_name=None,
+)
 
 
 class TaskWriteSerializer(serializers.Serializer):

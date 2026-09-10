@@ -133,6 +133,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskCommentsResponseSerializer,
     TaskCreateSerializer,
     TaskHandoffRequestSerializer,
+    TaskListItemSerializer,
     TaskListQuerySerializer,
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
@@ -461,7 +462,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         query_serializer=TaskListQuerySerializer,
         responses={
-            200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
+            200: OpenApiResponse(response=TaskListItemSerializer, description="List of tasks"),
         },
         summary="List tasks",
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.",

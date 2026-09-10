@@ -44,7 +44,7 @@ import type {
     PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
-    PaginatedTaskDetailDTOListApi,
+    PaginatedTaskListItemListApi,
     PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
@@ -1267,8 +1267,8 @@ export const tasksList = async (
     projectId: string,
     params?: TasksListParams,
     options?: RequestInit
-): Promise<PaginatedTaskDetailDTOListApi> => {
-    return apiMutator<PaginatedTaskDetailDTOListApi>(getTasksListUrl(projectId, params), {
+): Promise<PaginatedTaskListItemListApi> => {
+    return apiMutator<PaginatedTaskListItemListApi>(getTasksListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
