@@ -30,7 +30,6 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
-    from posthog.models.user import User
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
@@ -541,6 +540,52 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.json()["attr"] == "name"
         check.refresh_from_db()
         assert check.name == ""
+
+    @parameterized.expand([("transient_contention", 1, True), ("sustained_contention", 5, False)])
+    def test_an_edit_retries_a_definition_that_keeps_moving_only_so_often(
+        self, _name: str, moves: int, saved: bool
+    ) -> None:
+        check = self._create_check(column_name="total")
+        build_candidate = checks_logic._candidate_definition
+        remaining = moves
+
+        def move_the_definition(
+            team: "Team", current: DataQualityCheck, requested: dict[str, object]
+        ) -> checks_logic._CandidateDefinition:
+            nonlocal remaining
+            if remaining:
+                remaining -= 1
+                DataQualityCheck.objects.for_team(team.id).filter(id=current.id).update(fingerprint=uuid4().hex)
+            return build_candidate(team, current, requested)
+
+        with patch.object(checks_logic, "_candidate_definition", side_effect=move_the_definition) as candidate:
+            response = self.client.patch(f"{self.url}/{check.id}/", {"description": "why this matters"})
+
+        check.refresh_from_db()
+        if saved:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert check.description == "why this matters"
+            return
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "concurrent_edit"
+        assert response.json()["attr"] is None
+        assert response.json()["detail"]
+        assert candidate.call_count == checks_logic._MAX_EDIT_ATTEMPTS
+        assert check.description == ""
+
+    def test_an_edit_the_compiler_could_never_run_is_a_config_field_error(self) -> None:
+        check = self._create_check()
+
+        response = self.client.patch(
+            f"{self.url}/{check.id}/",
+            {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT ("}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "config"
+        check.refresh_from_db()
+        assert check.check_type == CheckType.NOT_NULL
+        assert check.column_name == "customer_id"
 
     def test_a_definition_freed_by_deletion_becomes_a_new_check(self) -> None:
         # The old check keeps its own id and history; reusing the definition must not resurrect it.
@@ -1144,7 +1189,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         definition_changed = False
 
         def replace_definition_before_lock(
-            team: "Team", current: DataQualityCheck, requested: dict[str, object], editor: "User | None"
+            team: "Team", current: DataQualityCheck, requested: dict[str, object]
         ) -> checks_logic._CandidateDefinition:
             nonlocal definition_changed
             if not definition_changed:
@@ -1152,7 +1197,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
                     config=concurrent_config, fingerprint=concurrent_fingerprint
                 )
                 definition_changed = True
-            return build_candidate(team, current, requested, editor)
+            return build_candidate(team, current, requested)
 
         with patch.object(checks_logic, "_candidate_definition", side_effect=replace_definition_before_lock):
             response = self.client.patch(

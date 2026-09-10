@@ -27,13 +27,19 @@ from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
 from ..facade.enums import CheckType, SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .compiler import related_subject_ref
-from .errors import CheckConfigError, DuplicateDefinitionError, NameConflictError, SubjectUnresolvableError
+from .errors import (
+    CheckConfigError,
+    ConcurrentEditError,
+    DuplicateDefinitionError,
+    NameConflictError,
+    SubjectUnresolvableError,
+)
 from .exceptions import CheckNameConflict
 from .health import CheckStatusRow, roll_up_health
 from .registry import get_spec
 from .schedules import get_or_create_schedule
 from .serialization import compute_fingerprint
-from .spec import CheckConfig, QueryCheckTypeSpec
+from .spec import CheckConfig
 from .subjects import resolve_subject, subject_column_type
 
 _UPSERTABLE_FIELDS = (
@@ -53,6 +59,8 @@ _UPSERTABLE_FIELDS = (
 _ASSERTION_FIELDS = ("check_type", "column_name", "config")
 
 _EDITABLE_FIELDS = (*_UPSERTABLE_FIELDS, *_ASSERTION_FIELDS)
+
+_MAX_EDIT_ATTEMPTS = 3
 
 
 def edits_the_assertion(fields: Iterable[str]) -> bool:
@@ -79,8 +87,6 @@ def validate_check(
     check_type: str,
     column_name: str,
     config: dict[str, Any],
-    *,
-    user: User | None = None,
 ) -> CheckConfig:
     """Reject a check the compiler could never run, at authoring time rather than at run time.
 
@@ -100,7 +106,6 @@ def validate_check(
             raise CheckConfigError("A metric check requires custom_sql and an empty column_name.")
         if subject.metric_definition is None:
             raise CheckConfigError("Metric checks require a live HogQL definition.")
-        assert isinstance(spec, QueryCheckTypeSpec)
         spec.build(subject, column_name, parsed)
     else:
         spec.validate_for_subject(parsed, subject)
@@ -126,7 +131,7 @@ def upsert_check(
     **optional: Any,
 ) -> tuple[DataQualityCheck, bool]:
     """Create the check, or refine the one already carrying this fingerprint. Returns (check, created)."""
-    parsed = validate_check(team, subject_type, subject_uuid, check_type, column_name, config, user=user)
+    parsed = validate_check(team, subject_type, subject_uuid, check_type, column_name, config)
     subject = resolve_subject(team.id, subject_type, subject_uuid)
 
     # Stored in the same canonical form the fingerprint hashes, so a created check and one edited
@@ -232,19 +237,15 @@ def edit_check(
     same conflict the precheck raises.
     """
     requested = {key: value for key, value in fields.items() if key in _EDITABLE_FIELDS}
-    while True:
+    for _ in range(_MAX_EDIT_ATTEMPTS):
         current = DataQualityCheck.objects.for_team(team.id).get(id=check.id)
+        candidate = _candidate_definition(team, current, requested)
         if authorize is not None:
             authorize(current)
-        candidate = _candidate_definition(team, current, requested, editor)
         try:
             with transaction.atomic():
                 locked = DataQualityCheck.objects.for_team(team.id).select_for_update().get(id=check.id)
-                if (locked.subject_type, locked.subject_uuid, locked.fingerprint) != (
-                    current.subject_type,
-                    current.subject_uuid,
-                    current.fingerprint,
-                ):
+                if _stored_definition(locked) != _stored_definition(current):
                     continue
                 return _commit_edit(team, locked, editor, requested, candidate)
         except IntegrityError:
@@ -256,6 +257,11 @@ def edit_check(
             if _name_taken(team.id, requested.get("name") or "", exclude_id=check.id):
                 raise NameConflictError()
             raise
+    raise ConcurrentEditError()
+
+
+def _stored_definition(check: DataQualityCheck) -> tuple[str, UUID | None, str]:
+    return check.subject_type, check.subject_uuid, check.fingerprint
 
 
 def _commit_edit(
@@ -288,9 +294,7 @@ def _commit_edit(
     return check
 
 
-def _candidate_definition(
-    team: Team, check: DataQualityCheck, requested: dict[str, Any], editor: User | None
-) -> _CandidateDefinition:
+def _candidate_definition(team: Team, check: DataQualityCheck, requested: dict[str, Any]) -> _CandidateDefinition:
     if not edits_the_assertion(requested):
         # A presentation-only edit asserts nothing new, so the stored definition is kept as it is
         # rather than revalidated. A subject can stop supporting its check after the check exists (a
@@ -311,7 +315,6 @@ def _candidate_definition(
         check_type,
         column_name,
         requested.get("config", check.config) or {},
-        user=editor,
     )
     config = parsed.model_dump(mode="json")
     return _CandidateDefinition(

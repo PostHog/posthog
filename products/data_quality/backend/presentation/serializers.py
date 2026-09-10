@@ -9,6 +9,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
+from rest_framework.settings import api_settings
 
 from posthog.api.shared import UserBasicSerializer
 
@@ -157,27 +158,18 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
         return str(obj.subject_uuid) if obj.subject_uuid else None
 
     def validate(self, attrs: dict) -> dict:
-        # An edit that touches only presentation fields (enabled, name, description, owner, ...) is
-        # not judged against the stored assertion. A subject can stop supporting its check after the
-        # check exists, and holding the edit to the assertion would leave the owner unable to turn
-        # the check off.
-        if self.instance is not None and not api.edits_the_assertion(attrs):
+        if self.instance is not None:
             return attrs
 
-        def resolved(field: str) -> str:
-            return attrs.get(field) or getattr(self.instance, field, None) or ""
-
         # The subject comes from the URL: the viewset resolves the parent and passes it in context.
-        subject_type = self.context.get("subject_type") or getattr(self.instance, "subject_type", "")
-        subject_uuid = self.context.get("subject_uuid") or (self.instance.subject_uuid if self.instance else None)
         try:
             api.validate_check(
                 self.context["get_team"](),
-                str(subject_type),
-                str(subject_uuid),
-                resolved("check_type"),
-                resolved("column_name"),
-                attrs.get("config", getattr(self.instance, "config", None) or {}),
+                str(self.context.get("subject_type") or ""),
+                str(self.context.get("subject_uuid") or ""),
+                attrs.get("check_type") or "",
+                attrs.get("column_name") or "",
+                attrs.get("config") or {},
             )
         except (api.CheckConfigError, api.SubjectUnresolvableError, api.UnknownCheckTypeError) as err:
             raise serializers.ValidationError({"config": str(err)})
@@ -193,11 +185,14 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
                 authorize=self.context.get("authorize_check_edit"),
                 **validated_data,
             )
+        except (api.CheckConfigError, api.SubjectUnresolvableError, api.UnknownCheckTypeError) as err:
+            raise serializers.ValidationError({"config": str(err)})
         except api.CheckEditConflict as conflict:
             # Rendered beside the offending fields rather than as a status code, so the editor can
             # keep the draft open and point at what to change.
+            fields = conflict.fields or (api_settings.NON_FIELD_ERRORS_KEY,)
             raise serializers.ValidationError(
-                {field: ErrorDetail(str(conflict), code=conflict.code) for field in conflict.fields}
+                {field: ErrorDetail(str(conflict), code=conflict.code) for field in fields}
             )
 
 
