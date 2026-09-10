@@ -377,7 +377,10 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             groups=groups(self.team.organization, self.team),
         )
 
-        return Response({"chunk_ids_to_upload": chunk_ids_to_upload}, status=status.HTTP_200_OK)
+        response = ErrorTrackingSymbolSetBulkCheckUploadResponseSerializer(
+            instance={"chunk_ids_to_upload": chunk_ids_to_upload}
+        )
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=ErrorTrackingSymbolSetBulkStartUploadSerializer,
