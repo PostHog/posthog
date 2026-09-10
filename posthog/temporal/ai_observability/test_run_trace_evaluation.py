@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
@@ -292,7 +292,7 @@ class TestFetchTraceForEvaluation:
         trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "q", "$ai_output": "a"})])
 
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=1),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
@@ -331,7 +331,7 @@ class TestFetchTraceForEvaluation:
         # bounded runner can return a trace row with no transcript to grade. A live run keeps
         # whatever it did with that row before, so only the backfilled run skips.
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
@@ -386,7 +386,7 @@ class TestRunHogEvalOverRecentTraces:
         rewritten_condition = where_clause.exprs[-1]
         assert rewritten_condition.left.chain == ["input"]
 
-    @freeze_time(FROZEN_NOW)
+    @time_machine.travel(FROZEN_NOW, tick=False)
     def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
         team = MagicMock(spec=Team)
         trigger_timestamp = FROZEN_NOW - timedelta(hours=2)
@@ -660,7 +660,7 @@ class TestEmitTraceEvaluationEventActivity:
         }
 
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token),
             patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture,
         ):
@@ -741,7 +741,6 @@ class TestEmitTraceEvaluationEventActivity:
                     await emit_trace_evaluation_event_activity(inputs)
 
 
-@freeze_time(FROZEN_NOW)
 class TestEmitSessionEvaluationEvent:
     @pytest.mark.parametrize(
         "target,ai_session_id,expected_target_type,expected_target_id",
@@ -777,7 +776,7 @@ class TestEmitSessionEvaluationEvent:
                     distinct_id="user-1",
                     session_id="ph-session-1",
                     result={"verdict": True, "reasoning": "", "result_type": "boolean"},
-                    start_time=datetime.now(UTC),
+                    start_time=FROZEN_NOW,
                     target=target,
                     ai_session_id=ai_session_id,
                 )
@@ -814,7 +813,7 @@ class TestEmitSessionEvaluationEvent:
                     distinct_id="user-1",
                     session_id=None,
                     result={"verdict": True, "reasoning": "", "result_type": "boolean"},
-                    start_time=datetime.now(UTC),
+                    start_time=FROZEN_NOW,
                     target="session",
                     ai_session_id="session-abc",
                 )
