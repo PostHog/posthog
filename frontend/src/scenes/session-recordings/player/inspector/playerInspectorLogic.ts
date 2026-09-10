@@ -1911,25 +1911,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         | InspectorListItemExperimentVariant
                         | InspectorListItemMetricEvent
 
-                    // Apply event-specific filters
-                    if (item.type === 'events') {
-                        // Skip if matching events filter is active and item doesn't match
-                        if (allowMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary') {
-                            continue
-                        }
+                    // Skip if matching events filter is active and item doesn't match
+                    if (
+                        item.type === 'events' &&
+                        allowMatchingEventsFilter &&
+                        showOnlyMatching &&
+                        item.highlightColor !== 'primary'
+                    ) {
+                        continue
+                    }
 
-                        // Apply mini-filters for events
-                        const eventKey = `events-${item.data.event}` as keyof typeof miniFiltersByKey
-                        const eventFilter = miniFiltersByKey[eventKey] || miniFiltersByKey['events-custom']
-                        if (eventFilter && !eventFilter.enabled) {
-                            continue
-                        }
-                    } else if (item.type === 'comment') {
-                        // Apply mini-filters for comments
-                        const commentFilter = miniFiltersByKey['comment']
-                        if (commentFilter && !commentFilter.enabled) {
-                            continue
-                        }
+                    // Apply mini-filters, which classify events and comments but not the markers
+                    const itemFilter = itemToMiniFilter(item, miniFiltersByKey)
+                    if (itemFilter && !itemFilter.enabled) {
+                        continue
                     }
 
                     eventAndCommentItems.push(typedItem)
