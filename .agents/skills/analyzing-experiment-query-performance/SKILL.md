@@ -13,7 +13,7 @@ description: >
 
 # Analyzing experiment query performance
 
-The `/experiments/staff` scene (staff-only UI, "Experiments staff tools") is backed by three GET endpoints
+The `/experiments/staff` scene (staff-only UI, "Experiments staff tools") is backed by a set of GET endpoints
 that are also callable directly with a personal API key.
 They return the exact data the UI renders, sourced from ClickHouse `query_log_archive`
 (experiment queries only, `lc_product = 'experiments'`), `system.parts`,
@@ -131,6 +131,24 @@ Aggregate precompute health for the window. One param: `hours` (1–168, default
 
 Duration/bytes percentiles cover **successful** reads only (failed reads have truncated durations).
 
+### GET `/api/debug_ch_queries/precompute_timeseries/`
+
+Bucketed history behind the Trends tab. One param: `hours` (1–504, default 168).
+Returns zero-filled arrays aligned to `buckets` (hourly up to 48h, daily beyond):
+read counts (`total`, `precomputed`, `fallback`),
+latency of the precomputed exposures path
+(`precomputed_p50_duration_ms`, `precomputed_p90_duration_ms`; successful reads only),
+and `fully_precomputed_avg_read_bytes` — average `read_bytes` of reads where **both** the
+exposures and metric-events sides came from the cache.
+The bytes series is restricted to fully precomputed reads because `read_bytes` covers the
+whole metric query: a direct events scan on the metric-events side swamps the cache read
+by orders of magnitude.
+The latency and bytes series should stay flat as the preaggregation tables grow —
+a sustained rise in the bytes series means cache reads are scanning more than their own
+jobs' rows, which breaks the core assumption that read cost tracks experiment size, not
+cache size.
+Also `builds.failed_by_code` and `builds.failed_read_bytes`.
+
 ### GET `/api/debug_ch_queries/cache_health/`
 
 No params.
@@ -141,6 +159,8 @@ Both tables are partitioned by `toYYYYMMDD(expires_at)` with TTL-driven part dro
 so each partition id is the **day that data expires** —
 the partition list doubles as a TTL/growth timeline
 (a bulge N days out means a large recent build; a missing near-term partition means little recent activity).
+Frozen-band chunks get a per-chunk expiry jitter (`PRECOMPUTE_TTL_JITTER_SECONDS`, 14 days),
+so a big build shows up as data spread over up to 14 expiry partitions, not as one large partition.
 
 ### Not available via PAT
 

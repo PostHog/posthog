@@ -6,7 +6,6 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("messaging", "0001_migrate_messaging_models"),
         ("posthog", "1063_remove_surveyresponsearchive_survey_and_more"),
     ]
 

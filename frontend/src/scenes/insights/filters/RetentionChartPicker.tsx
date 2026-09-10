@@ -47,25 +47,36 @@ const OPTIONS: LemonSelectOptions<ChartDisplayType> = [
     },
 ]
 
-export function RetentionChartPicker(): JSX.Element {
+export function RetentionChartPicker({
+    fullWidth = false,
+    disabledReason,
+    onSelect,
+}: {
+    fullWidth?: boolean
+    disabledReason?: string
+    onSelect?: (display: ChartDisplayType) => void
+}): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const selectChart = (value: ChartDisplayType): void => {
+        updateInsightFilter({ display: value })
+    }
 
     return (
         <LemonSelect
             key="2"
             value={retentionFilter?.display || ChartDisplayType.ActionsLineGraph}
-            onChange={(value) => {
-                updateInsightFilter({ display: value })
-            }}
+            onChange={onSelect ? undefined : selectChart}
+            onSelect={onSelect}
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             options={OPTIONS}
             size="small"
-            disabledReason={editingDisabledReason}
+            fullWidth={fullWidth}
+            disabledReason={editingDisabledReason ?? disabledReason}
         />
     )
 }

@@ -15,6 +15,7 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, ValueMatcher } from '~/types'
 
 import type { BatchWritingPersonsStore } from './batch-writing-person-store'
+import { MergeMappingDebounce } from './merge-mapping-debounce'
 import { PersonOutputs } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { buildPersonMergeEventMessage } from './person-merge-event'
@@ -78,6 +79,12 @@ export const personMergeEventProducedCounter = new Counter({
     help: 'Number of person_merge_events messages acked by the broker (gate-on merges only).',
 })
 
+export const mergeNoopMappingEmissionCounter = new Counter({
+    name: 'person_merge_noop_mapping_emission_total',
+    help: 'Distinct ids considered for mapping re-emission on already-satisfied merges.',
+    labelNames: ['action'],
+})
+
 /** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
 class MergeFoldLimitError extends Error {}
 
@@ -122,6 +129,11 @@ export interface PostgresMergePolicy {
     /** Teams on the new-world merge behavior: lifecycle-mark claims plus tombstone deletes. */
     isTombstoneTeam: ValueMatcher<number>
     mergeEvents: MergeEventsConfig
+    /**
+     * When set, already-satisfied merges re-emit the committed mappings (debounced),
+     * healing ClickHouse rows lost between a prior merge's commit and its produce.
+     */
+    noopMappingDebounce?: MergeMappingDebounce
 }
 
 /**
@@ -173,10 +185,27 @@ export class PostgresPersonMerge {
         if (this.request.sources.length === 0) {
             throw new Error('mergePersons requires at least one source')
         }
-        if (this.request.sources.length > 1) {
-            return await this.executeFold()
+        const result =
+            this.request.sources.length > 1
+                ? await this.executeFold()
+                : await this.mergeSingleWithCachePurge(this.request.sources[0])
+        this.touchWrittenMappings(result)
+        return result
+    }
+
+    /** Marks written mappings in the debounce so a following duplicate no-op does not re-emit them. */
+    private touchWrittenMappings(result: MergePersonsResult): void {
+        const debounce = this.policy.noopMappingDebounce
+        if (!debounce) {
+            return
         }
-        return await this.mergeSingleWithCachePurge(this.request.sources[0])
+        const written = result.results
+            .filter((source) => source.outcome === 'attached' || source.outcome === 'merged')
+            .map((source) => source.sourceDistinctId)
+        if (written.length === 0) {
+            return
+        }
+        debounce.touch(this.teamId, [this.targetDistinctId, ...written])
     }
 
     /**
@@ -202,6 +231,35 @@ export class PostgresPersonMerge {
         return this.store.inTransaction(description, (tx) =>
             body(new BatchBoundPersonsStoreTransaction(tx, this.batchId))
         )
+    }
+
+    /**
+     * A crash between a prior merge's commit and its produce loses the mapping message
+     * for good, because the replayed event lands in a satisfied branch and would
+     * otherwise produce nothing. Re-emit the committed mappings, debounced.
+     */
+    private async reemitSatisfiedMappings(distinctIds: string[]): Promise<{ kafkaAck: Promise<void> }> {
+        const debounce = this.policy.noopMappingDebounce
+        if (!debounce) {
+            return { kafkaAck: Promise.resolve() }
+        }
+        const toEmit = debounce.unseen(this.teamId, distinctIds)
+        mergeNoopMappingEmissionCounter.labels({ action: 'debounced' }).inc(distinctIds.length - toEmit.length)
+        if (toEmit.length === 0) {
+            return { kafkaAck: Promise.resolve() }
+        }
+        const mappings = await this.store.fetchPersonDistinctIdMappings(this.teamId, toEmit)
+        mergeNoopMappingEmissionCounter.labels({ action: 'emitted' }).inc(mappings.length)
+        if (mappings.length === 0) {
+            debounce.touch(this.teamId, toEmit)
+            return { kafkaAck: Promise.resolve() }
+        }
+        // Mark only on delivery: a failed read or produce replays the event, and the
+        // replay must find the ids unmarked to heal them.
+        const kafkaAck = this.produceMessages(mappings.map((mapping) => mapping.message)).then(() =>
+            debounce.touch(this.teamId, toEmit)
+        )
+        return { kafkaAck }
     }
 
     private async produceMessages(messages: PersonMessage[]): Promise<void> {
@@ -282,7 +340,7 @@ export class PostgresPersonMerge {
 
             this.discardOverrideCounts()
             const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
-            const result = await this.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+            const [result, kafkaMessages] = await this.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // New-world merges claim the person's lifecycle mark, which keeps a concurrent
                 // tombstone from landing between this check and the distinct id insert (an
                 // orphaned mapping); old-world merges rely on the delete's FK violation instead.
@@ -308,23 +366,28 @@ export class PostgresPersonMerge {
                 const distinctIdVersion = 1
                 this.recordOverrideCount('oneExists')
 
-                const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
-                await this.produceMessages(kafkaMessages)
+                const messages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 if (this.tombstoneEnabled()) {
                     await tx.releaseLifecycleMarks(lifecycleOpId, teamId, this.targetDistinctId)
                 }
-                return existingPerson
+                return [existingPerson, messages] as const
             })
             this.flushOverrideCounts()
+            // Produce only after the transaction commits: a produce awaited inside the
+            // transaction holds row locks and lifecycle marks across the Kafka roundtrip.
+            const kafkaAck = this.produceMessages(kafkaMessages)
             return {
                 survivor: result,
                 results: [{ sourceDistinctId: otherPersonDistinctId, outcome: 'attached' }],
+                kafkaAck,
             }
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
             if (otherPerson.id == mergeIntoPerson.id) {
-                // Nothing to do, they are the same Person
+                // Same person already; re-emit in case a crashed prior merge never
+                // produced the pair's mapping.
+                const { kafkaAck } = await this.reemitSatisfiedMappings([otherPersonDistinctId, mergeIntoDistinctId])
                 return {
                     survivor: mergeIntoPerson,
                     results: [
@@ -334,6 +397,7 @@ export class PostgresPersonMerge {
                             sourcePersonUuid: otherPerson.uuid,
                         },
                     ],
+                    kafkaAck,
                 }
             }
 
@@ -350,7 +414,7 @@ export class PostgresPersonMerge {
             const distinctId2 = otherPersonDistinctId
 
             this.discardOverrideCounts()
-            const [person, needsPersonUpdate] = await this.inTransaction(
+            const [person, needsPersonUpdate, kafkaMessages] = await this.inTransaction(
                 'mergeDistinctIds-NeitherExist',
                 async (tx) => {
                     // See comment above about `distinctIdVersion`: the first Distinct ID derives the
@@ -359,7 +423,7 @@ export class PostgresPersonMerge {
                     const distinctId2Version = 1
                     this.recordOverrideCount('neitherExist')
 
-                    const [created, wasCreated] = await this.createService.createPerson(
+                    const [created, wasCreated, messages] = await this.createService.createPerson(
                         this.timestamp,
                         this.request.eventOps.set,
                         this.request.eventOps.setOnce,
@@ -373,14 +437,16 @@ export class PostgresPersonMerge {
                     )
                     // If person was not created (creation conflict) and is not identified,
                     // we need to update it later
-                    return [created, !wasCreated && !created.is_identified] as const
+                    return [created, !wasCreated && !created.is_identified, messages] as const
                 }
             )
             this.flushOverrideCounts()
+            const kafkaAck = this.produceMessages(kafkaMessages)
             return {
                 survivor: person,
                 results: [{ sourceDistinctId: otherPersonDistinctId, outcome: 'attached' }],
                 survivorNeedsUpdate: needsPersonUpdate,
+                kafkaAck,
             }
         }
     }
@@ -500,6 +566,7 @@ export class PostgresPersonMerge {
         const mergedSourceOutcomes: MergePersonsSourceResult[] = []
         const seenSourceIds = new Set<string>([target.id])
         const missingSources: MergePersonsSource[] = []
+        const noopSourceDistinctIds: string[] = []
         for (const pair of sourcesToFold) {
             if (isDistinctIdUnmergeable(pair.distinctId)) {
                 outcomes.push({ sourceDistinctId: pair.distinctId, outcome: 'skipped_illegal' })
@@ -511,6 +578,7 @@ export class PostgresPersonMerge {
                 continue
             }
             if (seenSourceIds.has(source.id)) {
+                noopSourceDistinctIds.push(pair.distinctId)
                 outcomes.push({
                     sourceDistinctId: pair.distinctId,
                     outcome: 'noop_same_person',
@@ -536,7 +604,9 @@ export class PostgresPersonMerge {
         }
 
         if (mergeSources.length === 0 && missingSources.length === 0) {
-            return { survivor: target, results: outcomes, kafkaAck: bootstrapAck }
+            const { kafkaAck: reemitAck } = await this.reemitSatisfiedMappings(noopSourceDistinctIds)
+            const kafkaAck = bootstrapAck ? joinAcks(bootstrapAck, reemitAck) : reemitAck
+            return { survivor: target, results: outcomes, kafkaAck }
         }
 
         // Sequential property precedence: each source merges its properties
@@ -643,7 +713,8 @@ export class PostgresPersonMerge {
         // The bootstrap's produce, when there was one, joins the fold's own
         // ack so the caller observes every message this merge produced.
         const foldAck = this.produceMessages(kafkaMessages)
-        const kafkaAck = bootstrapAck ? joinAcks(bootstrapAck, foldAck) : foldAck
+        const { kafkaAck: reemitAck } = await this.reemitSatisfiedMappings(noopSourceDistinctIds)
+        const kafkaAck = bootstrapAck ? joinAcks(bootstrapAck, foldAck, reemitAck) : joinAcks(foldAck, reemitAck)
         for (const source of mergeSources) {
             // Same fire-and-forget contract as executeTransaction.
             void this.producePersonMergeEvent(source, mergedPerson).catch(() => {})
@@ -1094,7 +1165,10 @@ export class PostgresPersonMerge {
                     )
 
                     if (!refreshedPerson) {
-                        return mergeSuccess(currentTargetPerson, Promise.resolve(), true)
+                        // A concurrent merge absorbed the source; re-emit in case its
+                        // produce was lost to a crash.
+                        const { kafkaAck } = await this.reemitSatisfiedMappings([sourceDistinctId, targetDistinctId])
+                        return mergeSuccess(currentTargetPerson, kafkaAck, true)
                     }
 
                     currentSourcePerson = refreshedPerson
@@ -1108,7 +1182,9 @@ export class PostgresPersonMerge {
                     )
 
                     if (!refreshedPerson) {
-                        return mergeSuccess(currentTargetPerson, Promise.resolve(), true)
+                        // Same as the source case above.
+                        const { kafkaAck } = await this.reemitSatisfiedMappings([sourceDistinctId, targetDistinctId])
+                        return mergeSuccess(currentTargetPerson, kafkaAck, true)
                     }
 
                     currentTargetPerson = refreshedPerson

@@ -3642,6 +3642,10 @@
                     },
                     "type": "object"
                 },
+                "filter_test_accounts": {
+                    "description": "Whether marketing analytics drops traffic matching the project's test-account filters. Off by default.",
+                    "type": "boolean"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "properties": {

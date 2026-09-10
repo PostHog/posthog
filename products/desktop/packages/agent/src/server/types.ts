@@ -59,6 +59,7 @@ export interface AgentServerConfig {
   piRpcHostPath?: string;
   runtimeAdapter?: Adapter;
   model?: string;
+  claudeModelAccess?: "posthog-gateway" | "own-subscription";
   reasoningEffort?: EffortLevel | "off" | "minimal";
   /**
    * Codex-only OpenAI service tier for the run's turns. "flex" is the cheaper,

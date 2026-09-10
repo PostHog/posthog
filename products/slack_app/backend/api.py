@@ -87,6 +87,7 @@ from products.slack_app.backend.services.slack_messages import (
     FORK_THREAD_ACTION_ID,
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
+    SlackThreadMessage,
     post_slack_thread_reply,
 )
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
@@ -1022,7 +1023,7 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     return extract_explicit_repo(cleaned, all_repos) or extract_linked_repo(cleaned, all_repos)
 
 
-def _extract_explicit_repo_from_thread(thread_messages: list[dict[str, str]], all_repos: list[str]) -> str | None:
+def _extract_explicit_repo_from_thread(thread_messages: list[SlackThreadMessage], all_repos: list[str]) -> str | None:
     """Repo named by the thread around a mention, newest message first.
 
     People paste the link into the thread and mention the bot in a later reply that carries no
@@ -1031,7 +1032,7 @@ def _extract_explicit_repo_from_thread(thread_messages: list[dict[str, str]], al
     the one most recently posted.
     """
     return extract_repo_from_scopes(
-        [_strip_bot_mentions(message.get("text", "")) for message in reversed(thread_messages)], all_repos
+        [_strip_bot_mentions(message.text) for message in reversed(thread_messages)], all_repos
     )
 
 

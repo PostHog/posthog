@@ -32,7 +32,10 @@ export interface SignalReviewerUserInfo {
 }
 
 export interface EnrichedReviewer {
-    github_login: string
+    /** Null for a reviewer with no linked GitHub account — they are identified by `user` instead. */
+    github_login: string | null
+    /** Null on entries written before reviewers carried one; `user` still resolves from the login. */
+    user_uuid?: string | null
     github_name: string | null
     relevant_commits: RelevantCommit[]
     user: SignalReviewerUserInfo | null
@@ -371,6 +374,7 @@ export interface SignalUserAutonomyConfig {
     slack_notification_integration_id?: number | null
     slack_notification_channel?: string | null
     slack_notification_min_priority?: SignalReportPriority | null
+    github_assign_on_pull_request?: boolean
     created_at?: string
     updated_at?: string
 }

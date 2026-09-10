@@ -7,6 +7,7 @@ import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "../posthog-exec-permission";
 import { AgentServer } from "./agent-server";
 import { launcherToProcessMs } from "./boot-phases";
+import { CredentialRelayError } from "./credential-relay";
 import { PiAgentServer } from "./pi-agent-server";
 import {
   claudeCodeConfigSchema,
@@ -143,6 +144,7 @@ program
     "interactive",
   )
   .option("--repositoryPath <path>", "Path to the repository")
+  .option("--claudeSubscription", "Use a relayed Claude subscription token")
   .option(
     "--repoReadyFile <path>",
     "Sentinel file; session creation blocks until it exists (set while cloning concurrently)",
@@ -188,6 +190,13 @@ program
     }
 
     const env = envResult.data;
+    if (
+      options.claudeSubscription &&
+      (env.POSTHOG_AGENT_RUNTIME === "pi" ||
+        env.POSTHOG_CODE_RUNTIME_ADAPTER === "codex")
+    ) {
+      program.error("--claudeSubscription requires the Claude runtime");
+    }
     delete process.env.POSTHOG_AGENT_LAUNCH_STARTED_AT_MS;
 
     // The telemetry token is only ever consumed here (into the server config);
@@ -287,6 +296,9 @@ program
       ),
       runtimeAdapter: env.POSTHOG_CODE_RUNTIME_ADAPTER,
       model: env.POSTHOG_CODE_MODEL,
+      claudeModelAccess: options.claudeSubscription
+        ? "own-subscription"
+        : "posthog-gateway",
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,
       serviceTier: env.POSTHOG_CODE_SERVICE_TIER,
       contextWindow: env.POSTHOG_CODE_CONTEXT_WINDOW,
@@ -325,7 +337,13 @@ program
     process.on("uncaughtException", handleFatalError);
     process.on("unhandledRejection", handleFatalError);
 
-    await server.start();
+    try {
+      await server.start();
+    } catch (error) {
+      if (error instanceof CredentialRelayError && error.code === "cancelled")
+        return;
+      await handleFatalError(error);
+    }
   });
 
 program.parse();

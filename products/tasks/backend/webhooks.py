@@ -571,6 +571,22 @@ def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, fai
 # Nulled on external PRs so their schema matches task-originated PR events.
 _TASK_ATTRIBUTION_KEYS = ("task_id", "run_id", "origin_product", "signal_report_id", "environment", "mode", "title")
 
+# What a PR says, rather than how big it is. Only task-authored PRs carry these values -- an
+# external PR's own words are customer business context, so it gets the keys as nulls for
+# schema parity, the same way _TASK_ATTRIBUTION_KEYS works.
+_PR_CONTENT_KEYS = (
+    "pr_title",
+    "pr_body",
+    "pr_body_truncated",
+    "pr_labels",
+    "pr_requested_reviewers",
+    "pr_is_draft",
+)
+
+# A PR body is the biggest string on the delivery, and an agent-authored one can run long.
+# Cap it so one verbose body cannot push the event past the capture size limit.
+_PR_BODY_MAX_CHARS = 10_000
+
 
 def _account_type(payload: dict) -> str | None:
     """Whether the webhook's repo is owned by a GitHub org or a personal account.
@@ -603,6 +619,24 @@ def _pr_payload_properties(payload: dict) -> dict:
         "pr_commits": pull_request.get("commits"),
         "account_type": _account_type(payload),
         "repo_owner_type": ((payload.get("repository") or {}).get("owner") or {}).get("type"),
+    }
+
+
+def _pr_content_properties(payload: dict) -> dict:
+    """What a task-authored PR says: its title, body, labels, requested reviewers, draft state."""
+    pull_request = payload.get("pull_request") or {}
+    body = pull_request.get("body") or ""
+    return {
+        "pr_title": pull_request.get("title"),
+        "pr_body": body[:_PR_BODY_MAX_CHARS],
+        "pr_body_truncated": len(body) > _PR_BODY_MAX_CHARS,
+        "pr_labels": [label.get("name") for label in (pull_request.get("labels") or []) if label.get("name")],
+        "pr_requested_reviewers": [
+            reviewer.get("login")
+            for reviewer in (pull_request.get("requested_reviewers") or [])
+            if reviewer.get("login")
+        ],
+        "pr_is_draft": pull_request.get("draft"),
     }
 
 
@@ -769,7 +803,7 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
             pr_properties["pr_reviewed_by_distinct_id"] = reviewer_distinct_id
         captured = task_run.capture_event(
             "pr_reviewed",
-            {**pr_properties, "pr_source": "task"},
+            {**pr_properties, **_pr_content_properties(payload), "pr_source": "task"},
             event_uuid=event_uuid,
             distinct_id_override=reviewer_distinct_id,
         )
@@ -792,8 +826,9 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
         "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
         "pr_source": "external",
         "team_id": team.id,
-        # title omitted to avoid leaking customer business context.
+        # title and PR content omitted to avoid leaking customer business context.
         **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
+        **dict.fromkeys(_PR_CONTENT_KEYS, None),
     }
 
     try:
@@ -821,7 +856,7 @@ def _capture_pr_event(
             pr_properties = {**pr_properties, **merged_by_properties}
         captured = task_run.capture_event(
             analytics_event,
-            {**pr_properties, "pr_source": "task"},
+            {**pr_properties, **_pr_content_properties(payload), "pr_source": "task"},
             event_uuid=event_uuid,
             distinct_id_override=merger_distinct_id,
         )
@@ -846,8 +881,9 @@ def _capture_pr_event(
         "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
         "pr_source": "external",
         "team_id": team.id,
-        # title omitted to avoid leaking customer business context.
+        # title and PR content omitted to avoid leaking customer business context.
         **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
+        **dict.fromkeys(_PR_CONTENT_KEYS, None),
     }
 
     try:
