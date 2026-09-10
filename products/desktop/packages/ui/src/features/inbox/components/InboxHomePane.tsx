@@ -81,7 +81,7 @@ export function InboxHomePane(): ReactElement {
                   size="default"
                   render={<Link to={INBOX_TRIAGE_ROUTE} />}
                 >
-                  Triage reports
+                  Triage mode
                   <Kbd>T</Kbd>
                 </Button>
               )}

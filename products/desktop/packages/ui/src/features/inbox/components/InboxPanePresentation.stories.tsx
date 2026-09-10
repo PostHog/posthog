@@ -1,10 +1,51 @@
+import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
+import {
+  ANONYMOUS_AUTH_STATE,
+  useAuthStore,
+} from "@posthog/ui/features/auth/store";
+import { authKeys } from "@posthog/ui/features/auth/useCurrentUser";
 import { InboxFilterMenu } from "@posthog/ui/features/inbox/components/InboxFilterMenu";
 import { InboxPanePresentation } from "@posthog/ui/features/inbox/components/InboxPanePresentation";
 import { InboxPaneRow } from "@posthog/ui/features/inbox/components/InboxPaneRow";
 import { inboxStoryReport } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
+import { useInboxReportReadStore } from "@posthog/ui/features/inbox/stores/inboxReportReadStore";
 import { CHANNELS_SIDEBAR_MIN_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useQueryClient } from "@tanstack/react-query";
+import { type ReactNode, useEffect } from "react";
+
+function WithReadState({
+  children,
+}: {
+  children: ReactNode;
+}): React.JSX.Element {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const previousAuth = useAuthStore.getState().authState;
+    queryClient.setQueryData(authKeys.currentUser("us:1"), {
+      uuid: "storybook-reader",
+    });
+    useAuthStore.setState({
+      authState: {
+        ...ANONYMOUS_AUTH_STATE,
+        status: "authenticated",
+        cloudRegion: "us",
+        currentProjectId: 1,
+      },
+    });
+    useInboxReportReadStore.setState({
+      readByKey: {
+        [JSON.stringify(["us:1", "storybook-reader", "needs-1"])]: true,
+      },
+      hasHydrated: true,
+    });
+    return () => {
+      useAuthStore.setState({ authState: previousAuth });
+    };
+  }, [queryClient]);
+  return <>{children}</>;
+}
 
 const reports = [
   inboxStoryReport({
@@ -58,7 +99,9 @@ const meta: Meta<typeof InboxPanePresentation> = {
         className="h-[760px] border-border border-r bg-chrome"
         style={{ width: CHANNELS_SIDEBAR_MIN_WIDTH }}
       >
-        <Story />
+        <WithReadState>
+          <Story />
+        </WithReadState>
       </div>
     ),
   ],
@@ -66,13 +109,18 @@ const meta: Meta<typeof InboxPanePresentation> = {
     reports,
     query: "",
     isLoading: false,
-    isRefreshing: false,
-    onRefresh: () => {},
     isFetchingNextPage: false,
     hasNextPage: false,
     hasActiveFilters: false,
     oldestFirst: false,
-    filterControl: <InboxFilterMenu active={false} onClearFilters={() => {}} />,
+    filterControl: (
+      <>
+        <Button variant="outline" size="sm">
+          Triage mode
+        </Button>
+        <InboxFilterMenu active={false} onClearFilters={() => {}} />
+      </>
+    ),
     renderReport: paneRow,
     onQueryChange: () => {},
     onClearFilters: () => {},
@@ -85,8 +133,6 @@ export default meta;
 type Story = StoryObj<typeof InboxPanePresentation>;
 
 export const ReportList: Story = {};
-
-export const Refreshing: Story = { args: { isRefreshing: true } };
 
 export const NothingToReview: Story = {
   args: { reports: [] },

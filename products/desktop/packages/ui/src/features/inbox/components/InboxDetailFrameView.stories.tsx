@@ -12,6 +12,7 @@ import {
   UsersThreeIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { deriveReportVerdict } from "@posthog/core/inbox/reportVerdict";
 import { Button } from "@posthog/quill";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { InboxDetailFrameView } from "@posthog/ui/features/inbox/components/InboxDetailFrameView";
@@ -19,6 +20,7 @@ import {
   inboxStoryReport,
   inboxStorySignal,
 } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
+import { ReportVerdictCallout } from "@posthog/ui/features/inbox/components/ReportVerdictCallout";
 import { SignalsList } from "@posthog/ui/features/inbox/components/SignalsList";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
@@ -155,6 +157,31 @@ export default meta;
 type Story = StoryObj<typeof InboxDetailFrameView>;
 
 export const EvidenceFirst: Story = {};
+
+export const LikelyAlreadyFixed: Story = {
+  args: {
+    report: inboxStoryReport({ already_addressed: true }),
+    belowSummary: (
+      <ReportVerdictCallout
+        verdict={deriveReportVerdict(
+          inboxStoryReport({ already_addressed: true }),
+          { hasExistingPr: false },
+        )}
+      >
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button variant="outline">
+            <ChatCircleIcon />
+            Ask about it
+          </Button>
+          <Button variant="outline">
+            <EyeSlashIcon />
+            Dismiss…
+          </Button>
+        </div>
+      </ReportVerdictCallout>
+    ),
+  },
+};
 
 export const WaitingForInput: Story = {
   args: {

@@ -70,14 +70,20 @@ export function FilterSubMenuTrigger({
   value,
   active,
   disabled,
+  openOnHover,
 }: {
   label: string;
   value: string;
   active: boolean;
   disabled?: boolean;
+  openOnHover?: boolean;
 }): ReactElement {
   return (
-    <DropdownMenuSubTrigger className="pr-1" disabled={disabled}>
+    <DropdownMenuSubTrigger
+      className="pr-1"
+      disabled={disabled}
+      openOnHover={openOnHover}
+    >
       <span>{label}</span>
       <span
         title={value}
@@ -149,9 +155,11 @@ export function FilterRadioSubMenu<Value extends string>({
           label={label}
           value={selected}
           active={value !== defaultValue}
+          openOnHover={false}
         />
         <DropdownMenuSubContent className="w-64 [&>div]:overflow-hidden [&>div]:p-0">
           <Combobox<FilterOption<Value>>
+            inline
             autoHighlight
             items={options}
             limit={20}
@@ -188,6 +196,7 @@ export function FilterRadioSubMenu<Value extends string>({
                   <ComboboxItem
                     key={option.value}
                     value={option}
+                    className="!ps-7.5"
                     onClick={(event) => event.stopPropagation()}
                   >
                     {option.icon}

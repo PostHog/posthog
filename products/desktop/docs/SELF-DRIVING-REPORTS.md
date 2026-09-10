@@ -17,7 +17,11 @@ Eligible pull requests show Refund in the header. The existing feature flag, bil
 The report ends with feedback after its evidence, reviewers, and other supporting sections.
 The recommendation keeps its boxed layout and its Ask about it and Dismiss controls.
 
-Use Refresh reports beside the Self-driving label to reload the current list without resetting its filters or closing the open report.
+Informational recommendations, including Likely already fixed, use a blue callout. Decisions use an amber callout.
+Unread reports show a small blue dot in the list. Open a report to mark it as read without dismissing or resolving it.
+Select the dot or use the right-click menu to mark a report as read or unread. Read reports stay in the list.
+Read state is saved on this device for the current user and project. It does not sync across devices or recover earlier report visits.
+Select Triage mode to review reports in sequence.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
 To filter reports for a user, open Filter reports, then Scope.

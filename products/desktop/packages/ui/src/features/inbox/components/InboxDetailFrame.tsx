@@ -6,8 +6,9 @@ import {
   SignalsListSkeleton,
 } from "@posthog/ui/features/inbox/components/SignalsList";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
 import { useInboxReportSignals } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import type { ComponentType, ReactNode } from "react";
+import { type ComponentType, type ReactNode, useEffect } from "react";
 
 interface InboxDetailFrameProps {
   report: SignalReport;
@@ -52,6 +53,12 @@ export function InboxDetailFrame({
   showMetadata = true,
   children,
 }: InboxDetailFrameProps): React.JSX.Element {
+  const { enabled: readStateEnabled, setRead } = useInboxReportReadState(
+    report.id,
+  );
+  useEffect(() => {
+    if (readStateEnabled) setRead(true);
+  }, [readStateEnabled, setRead]);
   const { data: signalsResp } = useInboxReportSignals(report.id);
   const signals = signalsResp?.signals ?? [];
   const signalsLoaded = signalsResp !== undefined;

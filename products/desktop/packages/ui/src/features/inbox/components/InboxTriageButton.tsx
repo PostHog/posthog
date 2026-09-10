@@ -34,7 +34,7 @@ export function InboxTriageButton({
             data-attr="inbox-triage-reports"
             render={<Link to={INBOX_TRIAGE_ROUTE} />}
           >
-            Triage reports
+            Triage mode
           </Button>
         }
       />

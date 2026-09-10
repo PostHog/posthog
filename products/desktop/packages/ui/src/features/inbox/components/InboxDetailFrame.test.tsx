@@ -1,7 +1,16 @@
 import { FileTextIcon } from "@phosphor-icons/react";
 import type { SignalReport } from "@posthog/shared/types";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import {
+  ANONYMOUS_AUTH_STATE,
+  useAuthStore,
+} from "@posthog/ui/features/auth/store";
+import { useInboxReportReadStore } from "@posthog/ui/features/inbox/stores/inboxReportReadStore";
+import { act, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { uuid: "reader-1" } }),
+}));
 
 vi.mock("@posthog/ui/features/inbox/components/ReportBreadcrumbs", () => ({
   ReportBreadcrumbs: () => null,
@@ -40,6 +49,49 @@ const report: SignalReport = {
 };
 
 describe("InboxDetailFrame", () => {
+  beforeEach(() => {
+    useAuthStore.setState({
+      authState: {
+        ...ANONYMOUS_AUTH_STATE,
+        status: "authenticated",
+        cloudRegion: "us",
+        currentProjectId: 1,
+      },
+    });
+    useInboxReportReadStore.setState({ readByKey: {}, hasHydrated: true });
+  });
+
+  it.each([
+    report,
+    {
+      ...report,
+      implementation_pr_url: "https://github.com/example/project/pull/1",
+    },
+    { ...report, status: "resolved" as const },
+  ])(
+    "marks an opened report read but preserves an explicit unread choice until it reopens %#",
+    (openedReport) => {
+      const key = JSON.stringify(["us:1", "reader-1", openedReport.id]);
+      const frame = (
+        <InboxDetailFrame
+          report={openedReport}
+          fallbackTitle="Report"
+          summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+          evidenceSection={null}
+          showMetadata={false}
+        />
+      );
+      const { rerender, unmount } = render(frame);
+      expect(useInboxReportReadStore.getState().readByKey[key]).toBe(true);
+      act(() => useInboxReportReadStore.getState().setRead(key, false));
+      rerender(frame);
+      expect(useInboxReportReadStore.getState().readByKey[key]).toBe(false);
+      unmount();
+      render(frame);
+      expect(useInboxReportReadStore.getState().readByKey[key]).toBe(true);
+    },
+  );
+
   it("keeps report context quiet and feedback after the supporting sections", () => {
     render(
       <InboxDetailFrame

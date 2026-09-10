@@ -1,4 +1,4 @@
-import { ArrowClockwiseIcon, EnvelopeSimpleIcon } from "@phosphor-icons/react";
+import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { groupReportsByAge } from "@posthog/core/inbox/reportAgeGroups";
 import {
   Autocomplete,
@@ -23,8 +23,6 @@ export interface InboxPanePresentationProps {
   query: string;
   onQueryChange: (query: string) => void;
   isLoading: boolean;
-  isRefreshing: boolean;
-  onRefresh: () => void;
   isFetchingNextPage: boolean;
   hasNextPage: boolean;
   hasActiveFilters: boolean;
@@ -47,8 +45,6 @@ export function InboxPanePresentation({
   query,
   onQueryChange,
   isLoading,
-  isRefreshing,
-  onRefresh,
   isFetchingNextPage,
   hasNextPage,
   hasActiveFilters,
@@ -89,22 +85,7 @@ export function InboxPanePresentation({
           placeholder="Search reports…"
           searchLabel="Search reports"
           onClear={() => onQueryChange("")}
-          actions={
-            <>
-              <Button
-                variant="default"
-                size="icon-sm"
-                aria-label="Refresh reports"
-                title="Refresh reports"
-                loading={isRefreshing}
-                disabled={isRefreshing}
-                onClick={onRefresh}
-              >
-                <ArrowClockwiseIcon />
-              </Button>
-              {filterControl}
-            </>
-          }
+          actions={filterControl}
         />
         <AutocompleteList className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto">
           {isLoading && reports.length === 0 ? (

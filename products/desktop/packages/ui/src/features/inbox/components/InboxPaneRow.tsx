@@ -3,12 +3,13 @@ import {
   humanizeReportTitle,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
-import { AutocompleteItem, cn } from "@posthog/quill";
+import { AutocompleteItem, Button, cn } from "@posthog/quill";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
+import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
 import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
 import type { ReactElement } from "react";
 
@@ -22,6 +23,7 @@ export function InboxPaneRow({
   isSelected: boolean;
   optionValue: string;
 }): ReactElement {
+  const { isUnread, enabled, setRead } = useInboxReportReadState(report.id);
   const { pointerHandlers } = useInboxReportDetailPrefetch({
     to: "/reports/$reportId",
     params: { reportId: report.id },
@@ -37,39 +39,69 @@ export function InboxPaneRow({
 
   return (
     <InboxReportContextMenu report={report}>
-      <AutocompleteItem
-        value={optionValue}
-        nativeButton
-        aria-label={
-          report.priority
-            ? `${title}, priority ${report.priority}`
-            : `${title}, priority unknown`
-        }
-        className={cn(
-          "h-auto w-full items-start py-1.5 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-start [&>span]:gap-2",
-          isSelected && "bg-fill-selected",
-        )}
-        onClick={() => navigateToInboxReportDetail(report.id)}
-        {...pointerHandlers}
-      >
-        <span className="mt-0.5 shrink-0">
-          <PriorityMonogram priority={report.priority} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium text-[13px]">
-            {title}
-          </span>
-          {headline && (
-            <span className="line-clamp-2 whitespace-normal text-[12px] text-muted-foreground leading-snug">
-              {headline}
-            </span>
+      <div className="group/report-row relative">
+        <AutocompleteItem
+          value={optionValue}
+          nativeButton
+          aria-label={
+            report.priority
+              ? `${title}, priority ${report.priority}`
+              : `${title}, priority unknown`
+          }
+          className={cn(
+            "h-auto w-full items-start py-1.5 pr-8 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-start [&>span]:gap-2",
+            isSelected && "bg-fill-selected",
           )}
-          <span className="mt-1 block truncate text-muted-foreground/70 text-xxs">
-            {formatRelativeAge(report.created_at)}
-            {pr ? ` · ${pr.repoSlug}` : ""}
+          onClick={() => navigateToInboxReportDetail(report.id)}
+          {...pointerHandlers}
+        >
+          <span className="mt-0.5 shrink-0">
+            <PriorityMonogram priority={report.priority} />
           </span>
-        </span>
-      </AutocompleteItem>
+          <span className="min-w-0 flex-1">
+            <span
+              className={cn(
+                "block truncate text-[13px]",
+                isUnread ? "font-semibold" : "font-medium",
+              )}
+            >
+              {title}
+            </span>
+            {headline && (
+              <span className="line-clamp-2 whitespace-normal text-[12px] text-muted-foreground leading-snug">
+                {headline}
+              </span>
+            )}
+            <span className="mt-1 block truncate text-muted-foreground/70 text-xxs">
+              {formatRelativeAge(report.created_at)}
+              {pr ? ` · ${pr.repoSlug}` : ""}
+            </span>
+          </span>
+        </AutocompleteItem>
+        {enabled && (
+          <Button
+            variant="default"
+            size="icon-sm"
+            className={cn(
+              "absolute top-1 right-0.5",
+              !isUnread &&
+                "opacity-0 focus-visible:opacity-100 group-focus-within/report-row:opacity-100 group-hover/report-row:opacity-100",
+            )}
+            aria-label={
+              isUnread ? "Mark report as read" : "Mark report as unread"
+            }
+            title={isUnread ? "Unread. Mark as read" : "Mark as unread"}
+            onClick={() => setRead(isUnread)}
+          >
+            <span
+              className={cn(
+                "size-2 rounded-full",
+                isUnread ? "bg-(--blue-9)" : "border border-(--gray-9)",
+              )}
+            />
+          </Button>
+        )}
+      </div>
     </InboxReportContextMenu>
   );
 }

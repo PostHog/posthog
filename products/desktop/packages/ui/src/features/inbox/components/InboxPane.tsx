@@ -48,8 +48,6 @@ export function InboxPane({ className }: { className?: string }): ReactElement {
       query={query}
       onQueryChange={setQuery}
       isLoading={inbox.isLoading}
-      isRefreshing={inbox.isFetching}
-      onRefresh={inbox.retry}
       isFetchingNextPage={inbox.isFetchingNextPage}
       hasNextPage={inbox.hasNextPage}
       hasActiveFilters={hasActiveFilters}
