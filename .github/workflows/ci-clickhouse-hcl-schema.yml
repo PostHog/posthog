@@ -58,7 +58,7 @@ jobs:
 
     # Cross-repo compose gate: posthog-cloud-infra composes vendored base layers
     # from this repo (roles/shared, roles/data/shared, growing per role). This
-    # job asks cloud-infra to compose against the PR head and fails if a patch
+    # job asks cloud-infra to compose against the PR merge ref and fails if a patch
     # no longer resolves there. It cannot catch golden movement — a legitimate
     # shared-layer change shifts cloud goldens at the next base-ref bump, and
     # that bump PR owns the regen.
