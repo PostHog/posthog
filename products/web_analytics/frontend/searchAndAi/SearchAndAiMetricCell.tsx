@@ -11,6 +11,7 @@ import { pluralize } from 'lib/utils/strings'
 import {
     changeVsPrevious,
     formatShare,
+    PagePerformanceMetric,
     pagePerformanceLogic,
     parseMetricCell,
 } from 'scenes/web-analytics/pagePerformanceLogic'
@@ -32,7 +33,8 @@ const METRIC_INDEX: Record<SearchAndAiMetric, number> = {
     avg_time: 6,
 }
 
-const BREAKDOWN_METRICS = new Set<SearchAndAiMetric>(['google_search', 'llm_referrals', 'agent_crawls'])
+const isBreakdownMetric = (metric: SearchAndAiMetric): metric is PagePerformanceMetric =>
+    metric === 'google_search' || metric === 'llm_referrals' || metric === 'agent_crawls'
 
 export function SearchAndAiMetricCell({ metric, record }: { metric: SearchAndAiMetric; record: unknown }): JSX.Element {
     const { comparePeriods, siteVisitors, conversionGoal, dataState } = useValues(pagePerformanceLogic)
@@ -108,7 +110,7 @@ export function SearchAndAiMetricCell({ metric, record }: { metric: SearchAndAiM
 
     return (
         <Tooltip title={title}>
-            {BREAKDOWN_METRICS.has(metric) ? (
+            {isBreakdownMetric(metric) ? (
                 <LemonButton
                     type="tertiary"
                     size="small"
