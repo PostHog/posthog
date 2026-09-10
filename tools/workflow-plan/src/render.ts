@@ -18,7 +18,14 @@ const MARKS: Record<Outcome, string> = {
 }
 
 const EMPTY_MATRIX_SUFFIX = '0'
-const EMPTY_MATRIX_NOTE = `A trailing ${EMPTY_MATRIX_SUFFIX} marks a job whose matrix expands to zero cells.`
+
+const LEGEND: ReadonlyArray<readonly [mark: string, meaning: string]> = [
+    [MARKS.success, 'runs'],
+    [MARKS.failure, 'runs and fails'],
+    [MARKS.cancelled, 'cancelled before it starts'],
+    [MARKS.skipped, 'skipped'],
+    [`${EMPTY_MATRIX_SUFFIX} suffix`, 'matrix expands to zero cells'],
+]
 
 function renderGrid(cornerLabel: string, rowLabels: string[], columns: Column[]): string[] {
     const labelWidth = Math.max(cornerLabel.length, ...rowLabels.map((label) => label.length))
@@ -39,6 +46,21 @@ function renderGrid(cornerLabel: string, rowLabels: string[], columns: Column[])
     ]
 }
 
+function renderLegend(columns: Column[]): string {
+    const shown = new Set<string>()
+    for (const cell of columns.flatMap(({ cells }) => cells)) {
+        if (cell.endsWith(EMPTY_MATRIX_SUFFIX)) {
+            shown.add(`${EMPTY_MATRIX_SUFFIX} suffix`)
+            shown.add(cell.slice(0, -EMPTY_MATRIX_SUFFIX.length))
+        } else {
+            shown.add(cell)
+        }
+    }
+    return LEGEND.filter(([mark]) => shown.has(mark))
+        .map(([mark, meaning]) => `${mark} = ${meaning}`)
+        .join(', ')
+}
+
 export function renderPlanTable(scenarioPlans: ScenarioPlan[]): string {
     const first = scenarioPlans[0]
     if (!first) {
@@ -55,13 +77,7 @@ export function renderPlanTable(scenarioPlans: ScenarioPlan[]): string {
             return job.matrixCells === 0 ? `${MARKS[job.result]}${EMPTY_MATRIX_SUFFIX}` : MARKS[job.result]
         }),
     }))
-    const lines = renderGrid('job', jobIds, columns)
-    const hasEmptyMatrix = scenarioPlans.some(({ plan }) =>
-        Object.values(plan.jobs).some((job) => job.matrixCells === 0)
-    )
-    if (hasEmptyMatrix) {
-        lines.push('', EMPTY_MATRIX_NOTE)
-    }
+    const lines = [...renderGrid('job', jobIds, columns), '', renderLegend(columns)]
     const errors = scenarioPlans.flatMap(({ scenario, plan }) =>
         plan.errors.map(
             (error) =>
@@ -83,7 +99,9 @@ export function renderSteps(scenarioPlans: ScenarioPlan[], jobId: string): strin
     const labels = job.steps.map((step) => step.id ?? step.name ?? step.uses ?? `#${step.index}`)
     const columns = scenarioPlans.map(({ scenario, plan }) => ({
         name: scenario.name,
-        cells: job.steps.map((_, stepIndex) => (plan.jobs[jobId]?.steps[stepIndex]?.runs ? 'RUN' : '.')),
+        cells: job.steps.map((_, stepIndex) =>
+            plan.jobs[jobId]?.steps[stepIndex]?.runs ? MARKS.success : MARKS.skipped
+        ),
     }))
-    return renderGrid('step', labels, columns).join('\n')
+    return [...renderGrid('step', labels, columns), '', renderLegend(columns)].join('\n')
 }
