@@ -90,6 +90,7 @@ function RunSurfaceRoot({
     const replayOnly = interaction !== 'live'
     // A pending surface (no run id) must supply `streamKey` to key on; `runId` is the key otherwise.
     const logicKey = streamKey ?? runId ?? ''
+    const { hasThreadItems } = useValues(runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }))
 
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
@@ -113,7 +114,10 @@ function RunSurfaceRoot({
                 </LemonBanner>
             )
         }
-        return <RunLogSkeleton />
+        // A created task's metadata fetch must not replace its already visible optimistic thread.
+        if (!hasThreadItems) {
+            return <RunLogSkeleton />
+        }
     }
 
     if (task && isPiTaskRuntime(task.runtime)) {
@@ -189,7 +193,7 @@ function RunSurfaceThread({
     rowClassName,
 }: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId } = useRunSurfaceContext()
-    const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
+    const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
     const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
@@ -216,7 +220,7 @@ function RunSurfaceThread({
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
-    const showSkeleton = bootstrapLoading && threadItems.length === 0
+    const showSkeleton = bootstrapLoading && !hasThreadItems
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }

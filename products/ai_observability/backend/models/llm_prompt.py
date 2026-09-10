@@ -56,13 +56,8 @@ class LLMPrompt(UUIDModel):
     # Optional "what changed" note set when the version is published; immutable like the rest of the row
     version_description = models.CharField(max_length=400, null=True, blank=True)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -102,13 +97,9 @@ class LLMPromptLabel(ModelActivityMixin, UUIDModel):
 
     # db_constraint=False: posthog_team / posthog_user are hot tables — adding a real FK
     # constraint locks the parent table during migration.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     created_at = models.DateTimeField(default=timezone.now)

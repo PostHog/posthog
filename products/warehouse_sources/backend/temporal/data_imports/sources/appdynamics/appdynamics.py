@@ -20,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     APPLICATIONS_PATH,
     MAX_APPLICATIONS,
     MAX_FANOUT_REQUESTS,
+    MAX_WINDOW_SPLITS,
+    METRIC_TREE_MAX_DEPTH,
+    METRIC_TREE_MAX_REQUESTS_PER_APPLICATION,
+    MIN_WINDOW_SPLIT_MS,
     AppdynamicsEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -418,8 +422,9 @@ class AppdynamicsClient:
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def get_json(self, path: str, params: dict[str, Any]) -> Any:
-        # `output=JSON` is required on Controller REST endpoints — the default is XML.
+    def get_json(self, path: str, params: dict[str, Any], output_json: bool = True) -> Any:
+        # `output=JSON` is required on Controller REST endpoints — the default is XML. The
+        # alerting API serves JSON and defines no such parameter, so it opts out.
         # The base URL is user-supplied; refuse redirects so a safe-looking host can't
         # bounce us to an internal one (SSRF guard).
         # `stream=True` keeps the body off the wire until we read it in bounded chunks below,
@@ -429,7 +434,7 @@ class AppdynamicsClient:
             self._session,
             lambda: self._session.get(
                 f"{self._base_url}{path}",
-                params={**params, "output": "JSON"},
+                params={**params, "output": "JSON"} if output_json else params,
                 headers=self._headers(),
                 auth=self._basic_auth(),
                 timeout=REQUEST_TIMEOUT,
@@ -557,6 +562,131 @@ def _metric_rows(application_id: int, metric: dict[str, Any]) -> list[dict[str, 
     ]
 
 
+def _window_params(start_ms: int, end_ms: int) -> dict[str, Any]:
+    return {"time-range-type": "BETWEEN_TIMES", "start-time": start_ms, "end-time": end_ms}
+
+
+class SplitAllowance:
+    """Extra requests window bisection may spend, shared by every window in one sync.
+
+    Splitting happens per window, but the fan-out limit is per sync. Without a shared
+    allowance a controller that returns a full response for every window would multiply an
+    already-accepted sync by the per-window split cap, which is how the limit gets bypassed.
+    """
+
+    def __init__(self, allowance: int) -> None:
+        self.remaining = max(allowance, 0)
+
+    def take(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
+def _get_window_rows(
+    client: AppdynamicsClient,
+    config: AppdynamicsEndpointConfig,
+    path: str,
+    base_params: dict[str, Any],
+    application_id: int,
+    window_start: int,
+    window_end: int,
+    split_allowance: SplitAllowance,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield one time window's rows, bisecting the window when the response comes back capped.
+
+    `events` and `request-snapshots` return at most `result_cap` rows for a window and expose
+    no cursor to page past that, so a full response means rows were dropped. Halving the window
+    and refetching is the only way to reach them. Endpoints without a cap fetch once.
+    """
+    pending = [(window_start, window_end)]
+    splits = 0
+
+    while pending:
+        start, end = pending.pop()
+        rows = client.get_json(path, {**base_params, **_window_params(start, end)}) or []
+
+        if config.result_cap is not None and len(rows) >= config.result_cap:
+            # `take` spends from the sync-wide allowance, so ask for it last.
+            if end - start > MIN_WINDOW_SPLIT_MS and splits < MAX_WINDOW_SPLITS and split_allowance.take():
+                midpoint = start + (end - start) // 2
+                # Pushed newest-first so the older half pops first and rows stay in time order.
+                pending.extend([(midpoint, end), (start, midpoint)])
+                splits += 1
+                continue
+            logger.warning(
+                f"AppDynamics: '{config.name}' hit the {config.result_cap}-row response cap for "
+                f"application_id={application_id} between {start} and {end} and cannot be split further; "
+                "some rows in that window were not synced."
+            )
+
+        if rows:
+            yield [{**row, "application_id": application_id} for row in rows]
+
+
+def _escape_metric_path_segment(name: str) -> str:
+    """Escape a metric name so it survives being joined into a `metric-path` value.
+
+    The Controller reads `|` as the path separator and `\\` as its escape character, so a name
+    containing either has to be escaped before the path can be sent back in a request.
+    """
+    return name.replace("\\", "\\\\").replace("|", "\\|")
+
+
+def _get_metric_tree_rows(
+    client: AppdynamicsClient,
+    config: AppdynamicsEndpointConfig,
+    application_id: int,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk one application's metric hierarchy, yielding a row per folder or metric found.
+
+    `/metrics` lists only the immediate children of a path, so each folder costs a request.
+    The hierarchy is unbounded, so the walk stops at `METRIC_TREE_MAX_DEPTH` and at the
+    per-application request budget.
+    """
+    path = config.path.format(application_id=application_id)
+    pending: list[tuple[str, int]] = [("", 0)]
+    requests_made = 0
+
+    while pending:
+        if requests_made >= METRIC_TREE_MAX_REQUESTS_PER_APPLICATION:
+            logger.warning(
+                f"AppDynamics: stopped walking the metric hierarchy for application_id={application_id} at the "
+                f"{METRIC_TREE_MAX_REQUESTS_PER_APPLICATION}-request budget; deeper metric paths were not listed."
+            )
+            return
+
+        parent_path, depth = pending.pop(0)
+        items = client.get_json(path, {"metric-path": parent_path} if parent_path else {}) or []
+        requests_made += 1
+
+        rows: list[dict[str, Any]] = []
+        for item in items:
+            name = item.get("name")
+            if not name:
+                continue
+            segment = _escape_metric_path_segment(name)
+            item_path = f"{parent_path}|{segment}" if parent_path else segment
+            rows.append(
+                {
+                    "application_id": application_id,
+                    "path": item_path,
+                    "parent_path": parent_path or None,
+                    "name": name,
+                    "type": item.get("type"),
+                    "depth": depth + 1,
+                }
+            )
+            if item.get("type") == "folder" and depth + 1 < METRIC_TREE_MAX_DEPTH:
+                pending.append((item_path, depth + 1))
+
+        if rows:
+            yield rows
+
+
 def _window_start_ms(
     config: AppdynamicsEndpointConfig,
     end_ms: int,
@@ -578,17 +708,20 @@ def _get_windowed_application_rows(
     start_ms: int,
     end_ms: int,
     metric_paths: list[str],
+    event_types: list[str],
     resumable_source_manager: ResumableSourceManager[AppdynamicsResumeConfig],
+    split_allowance: SplitAllowance,
+    logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     path = config.path.format(application_id=application_id)
 
+    base_params: dict[str, Any] = dict(config.extra_params)
+    if config.is_events:
+        base_params["event-types"] = ",".join(event_types)
+
     for window_start, window_end in _iter_windows(start_ms, end_ms, config.window_chunk_days):
-        window_params = {
-            "time-range-type": "BETWEEN_TIMES",
-            "start-time": window_start,
-            "end-time": window_end,
-        }
         if config.is_metric_data:
+            window_params = _window_params(window_start, window_end)
             for metric_path in metric_paths:
                 metrics = client.get_json(path, {**window_params, "metric-path": metric_path, "rollup": "false"})
                 for metric in metrics or []:
@@ -596,9 +729,17 @@ def _get_windowed_application_rows(
                     if rows:
                         yield rows
         else:
-            rows = client.get_json(path, window_params)
-            if rows:
-                yield [{**row, "application_id": application_id} for row in rows]
+            yield from _get_window_rows(
+                client,
+                config,
+                path,
+                base_params,
+                application_id,
+                window_start,
+                window_end,
+                split_allowance,
+                logger,
+            )
 
         # Save AFTER yielding the window so a crash re-yields it (merge dedupes on the
         # primary key) rather than skipping it.
@@ -614,6 +755,7 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AppdynamicsResumeConfig],
     metric_paths: list[str],
+    event_types: list[str],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -659,14 +801,28 @@ def get_rows(
     num_windows = (
         sum(1 for _ in _iter_windows(start_ms, end_ms, config.window_chunk_days)) if config.time_windowed else 1
     )
-    paths_factor = len(metric_paths) if config.is_metric_data else 1
-    estimated_requests = len(application_ids) * paths_factor * num_windows
+    requests_per_application = num_windows
+    dimensions = [f"{len(application_ids)} applications"]
+    if config.is_metric_data:
+        requests_per_application *= len(metric_paths)
+        dimensions.append(f"{len(metric_paths)} metric paths")
+    if config.is_metric_tree:
+        requests_per_application *= METRIC_TREE_MAX_REQUESTS_PER_APPLICATION
+        dimensions.append(f"up to {METRIC_TREE_MAX_REQUESTS_PER_APPLICATION} metric hierarchy requests")
+    if config.time_windowed:
+        dimensions.append(f"{num_windows} time windows")
+
+    estimated_requests = len(application_ids) * requests_per_application
     if estimated_requests > MAX_FANOUT_REQUESTS:
         raise AppdynamicsError(
             f"This AppDynamics sync would issue about {estimated_requests} requests "
-            f"({len(application_ids)} applications × {paths_factor} metric paths × {num_windows} time windows), "
-            f"above the {MAX_FANOUT_REQUESTS} limit for one sync. Reduce the metric paths or narrow the applications."
+            f"({' × '.join(dimensions)}), above the {MAX_FANOUT_REQUESTS} limit for one sync. "
+            "Reduce the metric paths or narrow the applications."
         )
+
+    # Bisecting a capped window costs requests the estimate above cannot predict, so those
+    # draw from the same per-sync limit. Once the headroom is gone the windows stay whole.
+    split_allowance = SplitAllowance(MAX_FANOUT_REQUESTS - estimated_requests)
 
     for index, application_id in enumerate(remaining):
         if config.time_windowed:
@@ -680,10 +836,19 @@ def get_rows(
                 application_start,
                 end_ms,
                 metric_paths,
+                event_types,
                 resumable_source_manager,
+                split_allowance,
+                logger,
             )
+        elif config.is_metric_tree:
+            yield from _get_metric_tree_rows(client, config, application_id, logger)
         else:
-            rows = client.get_json(config.path.format(application_id=application_id), {})
+            rows = client.get_json(
+                config.path.format(application_id=application_id),
+                {},
+                output_json=config.sends_output_json_param,
+            )
             if rows:
                 yield [{**row, "application_id": application_id} for row in rows]
 
@@ -703,6 +868,7 @@ def appdynamics_source(
     resumable_source_manager: ResumableSourceManager[AppdynamicsResumeConfig],
     team_id: int,
     metric_paths: list[str],
+    event_types: list[str],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -718,6 +884,7 @@ def appdynamics_source(
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             metric_paths=metric_paths,
+            event_types=event_types,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),

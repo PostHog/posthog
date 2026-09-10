@@ -1965,24 +1965,6 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
-    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
@@ -3190,24 +3172,6 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
-    }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
     }
@@ -4035,6 +3999,25 @@ database "posthog" {
       topic_list  = "clickhouse_person_override"
       group_name  = "clickhouse-person-overrides"
       format      = "JSONEachRow"
+    }
+  }
+
+  table "kafka_person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_person_property_mutation_log"
+      format               = "JSONEachRow"
+      skip_broken_messages = 100
     }
   }
 
@@ -7781,6 +7764,53 @@ SQL
     }
   }
 
+  table "person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_property_mutation_log_data"
+    }
+  }
+
+  table "person_property_mutation_log_data" {
+    order_by     = ["team_id", "event_uuid"]
+    partition_by = "toDate(ingested_at)"
+    ttl          = "ingested_at + toIntervalDay(30)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.person_property_mutation_log_data"
+      replica_name   = "{replica}-{shard}"
+      version_column = "ingested_at"
+    }
+  }
+
   table "person_static_cohort" {
     order_by = ["team_id", "cohort_id", "person_id", "id"]
     settings = {
@@ -11432,24 +11462,6 @@ SQL
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
@@ -16806,24 +16818,6 @@ SQL
     column "person_id" {
       type = "UUID"
     }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
-    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
@@ -19911,12 +19905,6 @@ SELECT
   distinct_id,
   created_at,
   person_id,
-  person_properties,
-  group0_properties,
-  group1_properties,
-  group2_properties,
-  group3_properties,
-  group4_properties,
   if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
   _timestamp,
   _offset,
@@ -19947,24 +19935,6 @@ SQL
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type = "Nullable(DateTime64(6, 'UTC'))"
@@ -22387,6 +22357,50 @@ SQL
     }
     column "version" {
       type = "Int32"
+    }
+  }
+
+  materialized_view "person_property_mutation_log_mv" {
+    to_table = "posthog.person_property_mutation_log"
+    query    = <<SQL
+SELECT
+  team_id,
+  uuid AS event_uuid,
+  concat(
+    '{',
+    arrayStringConcat(
+      arrayMap(
+        property -> concat(toJSONString(property.1), ':', property.2),
+        arrayFilter(
+          property -> property.1 IN ('$set', '$set_once', '$unset'),
+          JSONExtractKeysAndValuesRaw(source.properties)
+        )
+      ),
+      ','
+    ),
+    '}'
+  ) AS properties,
+  toDateTime(_timestamp, 'UTC') AS ingested_at
+FROM kafka_person_property_mutation_log AS source
+WHERE
+  JSONHas(source.properties, '$set')
+OR
+  JSONHas(source.properties, '$set_once')
+OR
+  JSONHas(source.properties, '$unset')
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
     }
   }
 

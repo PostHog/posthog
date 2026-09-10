@@ -339,11 +339,15 @@ impl Engine {
                 if claim_attempt.is_some() {
                     // A stolen lease double-counts alongside the stealer;
                     // exact attribution would cost a query per completion.
+                    // Call-driven completions raced ahead of the sweeper;
+                    // a growing sweeper share means ops are being abandoned.
+                    let driver_kind = if wait_for_lease { "call" } else { "sweeper" };
                     common_metrics::inc(
                         OPS_COMPLETED_TOTAL,
                         &[
                             ("op_type".to_string(), row.op_type.clone()),
                             ("final_step".to_string(), row.step.clone()),
+                            ("driver".to_string(), driver_kind.to_string()),
                         ],
                         1,
                     );

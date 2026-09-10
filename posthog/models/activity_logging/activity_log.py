@@ -335,6 +335,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
+    "AlertConfiguration": {
+        "schedule_start_time": "schedule start time",
+    },
     "HogFunction": {
         "execution_order": "priority",
     },
@@ -372,6 +375,8 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
         "autostart_base_branches": "base branch overrides",
+        "issue_tracking_integration": "issue tracker",
+        "issue_tracking_config": "issue tracker target",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -854,6 +859,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "directory",
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
+        "backfills",
     ],
     "SignalScoutConfig": [
         # Run bookkeeping, not user intent — keep it out of change detection even when it

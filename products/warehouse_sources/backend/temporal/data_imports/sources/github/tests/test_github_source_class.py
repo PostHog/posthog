@@ -712,6 +712,7 @@ class TestGithubSource:
         inputs.schema_metadata = None
         inputs.s3_folder_name = "issues"
         inputs.should_use_incremental_field = False
+        inputs.last_synced_at = datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC)
 
         self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
 
@@ -719,6 +720,7 @@ class TestGithubSource:
         assert kwargs["repository"] == "legacy/repo"
         assert kwargs["endpoint"] == "issues"
         assert kwargs["response_name"] == "issues"
+        assert kwargs["reconcile_since"] == inputs.last_synced_at
 
     @pytest.mark.parametrize(
         "pin,expected",

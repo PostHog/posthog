@@ -1816,24 +1816,6 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
-    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
@@ -2961,6 +2943,26 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.person_overrides"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
+    }
+  }
+
+  table "person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_property_mutation_log_data"
     }
   }
 
@@ -5509,24 +5511,6 @@ database "posthog" {
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"

@@ -1559,10 +1559,9 @@ class ProjectViewSet(
         return project
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.
-    @property
-    def team(self):
-        project = self.get_object()
-        return project.teams.get(id=project.id)
+    @cached_property
+    def team(self) -> Team:
+        return self.get_object().passthrough_team
 
     def perform_destroy(self, project: Project):
         from ee.billing.billing_manager import BillingManager
