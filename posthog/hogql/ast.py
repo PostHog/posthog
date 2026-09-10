@@ -424,7 +424,7 @@ class SelectSetQueryType(Type):
         return self.types[0].resolve_constant_type(context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectViewType(BaseTableType):
     view_name: str
     alias: str
