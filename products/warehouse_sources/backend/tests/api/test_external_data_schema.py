@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
@@ -487,9 +488,46 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["supports_webhooks"] is True
 
-    def test_incremental_fields_returns_400_when_schema_name_absent(self):
+    @parameterized.expand(
+        [
+            (
+                "empty_discovery",
+                RedshiftSource,
+                [],
+                "Could not discover schema C999. The connection may be missing SELECT or schema access privileges, "
+                "or discovery may not support this relation type. Check that the relation exists, restore read "
+                "privileges, or expose it as a supported table or view, then try again.",
+            ),
+            (
+                "nonempty_discovery",
+                RedshiftSource,
+                [SourceSchema(name="$channels", supports_incremental=False, supports_append=False)],
+                "Schema with name C999 not found",
+            ),
+            (
+                "nonempty_api_discovery",
+                StripeSource,
+                [SourceSchema(name="$channels", supports_incremental=False, supports_append=False)],
+                "Schema with name C999 not found",
+            ),
+        ]
+    )
+    def test_incremental_fields_returns_400_when_schema_name_absent(
+        self, _name, source_class, discovered_schemas, expected_message
+    ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+            team=self.team,
+            source_type=source_class().source_type,
+            job_inputs={
+                "host": "localhost",
+                "port": 5439,
+                "database": "dev",
+                "user": "test",
+                "password": "test",
+                "schema": "public",
+            }
+            if source_class is RedshiftSource
+            else {"stripe_secret_key": "test_key"},
         )
         schema = ExternalDataSchema.objects.create(
             name="C999",
@@ -500,19 +538,16 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.WEBHOOK,
         )
 
-        other_schemas = [
-            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
-        ]
-
         with (
-            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
-            mock.patch.object(StripeSource, "get_schemas", return_value=other_schemas),
+            mock.patch.object(source_class, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(source_class, "get_schemas", return_value=discovered_schemas),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": expected_message}
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
@@ -3184,6 +3219,31 @@ class TestTriggerFailureDoesNotPaintRunning(APIBaseTest):
 
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
+
+    @parameterized.expand([("reload",), ("resync",)])
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    def test_missing_schedule_is_created_so_the_sync_starts(self, endpoint, mock_trigger, mock_create_schedule):
+        # A schema with no schedule behind it can't be triggered, and retrying never fixes it. The
+        # source-level reload already recovers by creating the schedule; one table must too.
+        from temporalio.service import RPCError
+
+        schema = self._create_schema()
+        mock_trigger.side_effect = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/",
+        )
+
+        assert response.status_code == 200
+        mock_create_schedule.assert_called_once_with(schema, create=True, should_sync=True)
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.RUNNING
 
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):

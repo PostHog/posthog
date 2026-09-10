@@ -1024,7 +1024,10 @@ class CanvasConnectorSerializer(serializers.Serializer):
         choices=ConnectorKind.choices,
         help_text="'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation.",
     )
-    connected = serializers.BooleanField(help_text="True when the caller has a usable connection to this provider.")
+    connected = serializers.BooleanField(
+        allow_null=True,
+        help_text="True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.",
+    )
     connect_path = serializers.CharField(help_text="In-app path where the caller connects this provider.")
     tools = CanvasConnectorToolSerializer(many=True, help_text="Tools the caller's connection exposes, sorted by name.")
 
@@ -1038,6 +1041,12 @@ class CanvasConnectorsResponseSerializer(serializers.Serializer):
 class CanvasConnectorCallSerializer(serializers.Serializer):
     """Payload for calling one connector tool as the viewer."""
 
+    approval_token = serializers.CharField(
+        required=False,
+        default=None,
+        max_length=200,
+        help_text="Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.",
+    )
     provider = serializers.CharField(max_length=300, help_text="Declared provider id, e.g. 'github'.")
     tool = serializers.CharField(max_length=200, help_text="Declared tool name, e.g. 'list_pull_requests'.")
     arguments = serializers.DictField(
@@ -1050,11 +1059,17 @@ class CanvasConnectorCallSerializer(serializers.Serializer):
 class CanvasConnectorCallResultSerializer(serializers.Serializer):
     """Result of one connector call. `status` is 'ok' when `result` holds the tool's output."""
 
+    approval_token = serializers.CharField(
+        allow_null=True,
+        help_text="Host-only, single-use approval token bound to this viewer, connection, canvas version, tool, and arguments. Never forward it to the canvas iframe.",
+    )
+
     status = serializers.ChoiceField(
         choices=ConnectorCallStatus.choices,
         help_text=(
             "'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider "
             "at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. "
+            "'needs_approval' requires the viewer to approve this call in the host. "
             "'upstream_error' is a failure at the provider."
         ),
     )

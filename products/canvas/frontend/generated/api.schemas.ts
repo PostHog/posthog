@@ -458,6 +458,11 @@ export type CanvasConnectorCallApiArguments = { [key: string]: unknown }
  */
 export interface CanvasConnectorCallApi {
     /**
+     * Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.
+     * @maxLength 200
+     */
+    approval_token?: string
+    /**
      * Declared provider id, e.g. 'github'.
      * @maxLength 300
      */
@@ -481,6 +486,7 @@ export type CanvasConnectorCallResultApiResult = { [key: string]: unknown } | nu
  * * `ok` - Ok
  * * `not_connected` - Not Connected
  * * `needs_reauth` - Needs Reauth
+ * * `needs_approval` - Needs Approval
  * * `blocked` - Blocked
  * * `tool_missing` - Tool Missing
  * * `write_blocked` - Write Blocked
@@ -492,6 +498,7 @@ export const ConnectorCallStatusEnumApi = {
     Ok: 'ok',
     NotConnected: 'not_connected',
     NeedsReauth: 'needs_reauth',
+    NeedsApproval: 'needs_approval',
     Blocked: 'blocked',
     ToolMissing: 'tool_missing',
     WriteBlocked: 'write_blocked',
@@ -502,11 +509,17 @@ export const ConnectorCallStatusEnumApi = {
  * Result of one connector call. `status` is 'ok' when `result` holds the tool's output.
  */
 export interface CanvasConnectorCallResultApi {
-    /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'upstream_error' is a failure at the provider.
+    /**
+     * Host-only, single-use approval token bound to this viewer, connection, canvas version, tool, and arguments. Never forward it to the canvas iframe.
+     * @nullable
+     */
+    approval_token: string | null
+    /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'needs_approval' requires the viewer to approve this call in the host. 'upstream_error' is a failure at the provider.
      *
      * * `ok` - Ok
      * * `not_connected` - Not Connected
      * * `needs_reauth` - Needs Reauth
+     * * `needs_approval` - Needs Approval
      * * `blocked` - Blocked
      * * `tool_missing` - Tool Missing
      * * `write_blocked` - Write Blocked
@@ -1546,8 +1559,11 @@ export interface CanvasConnectorApi {
      * * `native` - Native
      * * `mcp` - Mcp */
     kind: ConnectorKindEnumApi
-    /** True when the caller has a usable connection to this provider. */
-    connected: boolean
+    /**
+     * True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.
+     * @nullable
+     */
+    connected: boolean | null
     /** In-app path where the caller connects this provider. */
     connect_path: string
     /** Tools the caller's connection exposes, sorted by name. */

@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 import structlog
@@ -252,7 +252,7 @@ class TestEtsyTransport:
         assert len(rows) == MAX_OFFSET + PAGE_SIZE
         assert max(call[1]["offset"] for call in session.get_calls) == MAX_OFFSET
 
-    @freeze_time("2005-01-15")
+    @time_machine.travel("2005-01-15", tick=False)
     def test_windowed_endpoint_sends_a_created_window_over_all_history(self) -> None:
         session = _FakeSession([_page(_rows(2), 2)])
         rows, _ = _collect(session, "receipts")
@@ -263,7 +263,7 @@ class TestEtsyTransport:
         assert params["limit"] == PAGE_SIZE
         assert len(rows) == 2
 
-    @freeze_time("2005-07-01")
+    @time_machine.travel("2005-07-01", tick=False)
     def test_windows_advance_until_the_range_is_covered(self) -> None:
         session = _FakeSession([_page([], 0) for _ in range(3)])
         _collect(session, "receipts")
@@ -276,7 +276,7 @@ class TestEtsyTransport:
         assert windows[2][0] == windows[1][1] + 1
         assert windows[-1][1] == int(time.time())
 
-    @freeze_time("2005-01-15")
+    @time_machine.travel("2005-01-15", tick=False)
     def test_oversized_window_is_halved_instead_of_hitting_the_offset_ceiling(self) -> None:
         # First probe reports more rows than the offset ceiling can reach, so the slice splits.
         session = _FakeSession(
@@ -291,7 +291,7 @@ class TestEtsyTransport:
         # The oversized probe page is discarded, so only the halves' rows land.
         assert len(rows) == 2
 
-    @freeze_time("2005-01-01 00:30:00")
+    @time_machine.travel("2005-01-01 00:30:00", tick=False)
     def test_window_that_cannot_be_split_further_stops_at_the_offset_ceiling(self) -> None:
         # A one-hour slice is the floor, so an over-full one reads what it can and moves on.
         pages = [_page(_rows(PAGE_SIZE), 50_000) for _ in range(MAX_OFFSET // PAGE_SIZE + 1)]
@@ -302,7 +302,7 @@ class TestEtsyTransport:
         assert window["max_created"] - window["min_created"] < MIN_WINDOW_SECONDS
         assert len(rows) == MAX_OFFSET + PAGE_SIZE
 
-    @freeze_time("2005-01-15")
+    @time_machine.travel("2005-01-15", tick=False)
     def test_resume_finishes_the_saved_window_then_continues_after_it(self) -> None:
         saved_end = ETSY_HISTORY_START + 1000
         manager = _FakeManager(
@@ -319,7 +319,7 @@ class TestEtsyTransport:
         )
         assert second["min_created"] == saved_end + 1
 
-    @freeze_time("2005-01-15")
+    @time_machine.travel("2005-01-15", tick=False)
     def test_state_is_saved_after_each_batch_and_cleared_when_the_walk_finishes(self) -> None:
         session = _FakeSession([_page(_rows(PAGE_SIZE), 150), _page(_rows(50, start=100), 150)])
         _, manager = _collect(session, "receipts")
@@ -328,7 +328,7 @@ class TestEtsyTransport:
         assert manager.saved[0].window_start == ETSY_HISTORY_START
         assert manager.cleared == 1
 
-    @freeze_time("2005-01-15")
+    @time_machine.travel("2005-01-15", tick=False)
     def test_transactions_are_expanded_out_of_the_receipts_payload(self) -> None:
         session = _FakeSession(
             [
@@ -346,7 +346,7 @@ class TestEtsyTransport:
         assert rows == [{"transaction_id": 10}, {"transaction_id": 11}]
         assert session.get_calls[0][0].endswith("/shops/1/receipts")
 
-    @freeze_time("2005-01-15")
+    @time_machine.travel("2005-01-15", tick=False)
     def test_offset_advances_by_parent_rows_not_expanded_children(self) -> None:
         # Offset addresses receipts, so a page of 100 receipts advances by 100 even when it
         # expands into far more transactions.
@@ -369,7 +369,7 @@ class TestEtsyTransport:
             (None, "min_created"),
         ]
     )
-    @freeze_time("2006-01-15")
+    @time_machine.travel("2006-01-15", tick=False)
     def test_incremental_field_selects_the_matching_etsy_filter(
         self, incremental_field: Optional[str], expected_param: str
     ) -> None:
@@ -387,7 +387,7 @@ class TestEtsyTransport:
         assert expected_param in params
         assert params[expected_param] == cursor
 
-    @freeze_time("2005-01-15")
+    @time_machine.travel("2005-01-15", tick=False)
     def test_full_refresh_ignores_a_stale_cursor(self) -> None:
         session = _FakeSession([_page([], 0)])
         _collect(session, "receipts", should_use_incremental_field=False, db_incremental_field_last_value=999_999_999)
@@ -473,7 +473,7 @@ class TestEtsySourceResponse:
         # run completes — which is what "desc" buys us.
         assert response.sort_mode == "desc"
 
-    @freeze_time("2005-01-15")
+    @time_machine.travel("2005-01-15", tick=False)
     def test_items_is_lazy_and_streams_rows(self) -> None:
         session = _FakeSession([_page(_rows(3), 3)])
         response = etsy_source(
