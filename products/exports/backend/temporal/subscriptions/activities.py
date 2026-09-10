@@ -97,6 +97,7 @@ class _DueSubscriptionsPage:
     subscriptions: list[DueSubscription]
     due_items_lower_bound: int
     oldest_due_at: dt.datetime | None
+    discovery_cursor: str
 
 
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
@@ -237,8 +238,9 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 region=inputs.region,
             )
             state = TemporalSchedulerState.objects.select_for_update().get(pk=state.pk)
+            discovery_cursor = state.discovery_cursor
             try:
-                team_cursor = int(state.discovery_cursor or 0)
+                team_cursor = int(discovery_cursor or 0)
             except ValueError:
                 team_cursor = 0
 
@@ -262,7 +264,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
 
             if not selected_team_ids:
-                return _DueSubscriptionsPage([], 0, oldest_due_at)
+                return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor)
 
             # Each selected tenant contributes an equally bounded number of candidates. The
             # LATERAL limit is applied before the global fair ordering, so even a pathological
@@ -322,14 +324,11 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 )
                 bounded_candidate_ids = [row[0] for row in cursor.fetchall()]
 
-            state.discovery_cursor = str(selected_team_ids[-1])
-            state.save(update_fields=["discovery_cursor", "updated_at"])
-
             deferred_candidates = len(bounded_candidate_ids) > inputs.max_subscriptions_per_run
             candidate_ids = bounded_candidate_ids[: inputs.max_subscriptions_per_run]
 
         if not candidate_ids:
-            return _DueSubscriptionsPage([], 0, oldest_due_at)
+            return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor)
 
         subscriptions_by_id = {
             sub["id"]: sub
@@ -371,7 +370,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             for sub in subscriptions
         ]
         due_items_lower_bound = len(subscriptions) + int(deferred_teams or deferred_candidates)
-        return _DueSubscriptionsPage(results, due_items_lower_bound, oldest_due_at)
+        return _DueSubscriptionsPage(results, due_items_lower_bound, oldest_due_at, discovery_cursor)
 
     page = await get_subscriptions()
     selection = await select_items_within_temporal_payload(
@@ -379,6 +378,20 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
         build_payload=lambda items: list(items),
         max_items=inputs.max_subscriptions_per_run,
     )
+    if selection.items:
+
+        @database_sync_to_async(thread_sensitive=False)
+        def advance_discovery_cursor() -> None:
+            TemporalSchedulerState.objects.filter(
+                scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
+                region=inputs.region,
+                discovery_cursor=page.discovery_cursor,
+            ).update(
+                discovery_cursor=str(selection.items[-1].team_id),
+                updated_at=tz.now(),
+            )
+
+        await advance_discovery_cursor()
     limited_by = (
         "item_limit"
         if selection.limited_by == "none" and page.due_items_lower_bound > len(selection.items)

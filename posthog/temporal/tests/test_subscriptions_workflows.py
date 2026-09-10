@@ -33,6 +33,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportError
+from posthog.temporal.scheduler.payload import PayloadSelection
 from posthog.test.insight_queries import default_pageview_query
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -70,6 +71,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
     DeliveryStatus,
+    DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
@@ -3115,6 +3117,50 @@ async def test_fetch_due_subscriptions_rotates_tenant_page_across_runs(team, use
 
     assert [item.team_id for item in first_page] == sorted(subscription_team.id for subscription_team in teams)[:2]
     assert [item.team_id for item in second_page] == sorted(subscription_team.id for subscription_team in teams)[2:]
+
+
+async def test_fetch_due_subscriptions_cursor_advances_only_through_payload_selected_rows(team, user):
+    teams = [
+        team,
+        *[
+            await sync_to_async(Team.objects.create)(organization=team.organization, name=f"Payload team {index}")
+            for index in range(2)
+        ],
+    ]
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    for index, subscription_team in enumerate(teams):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=subscription_team,
+            short_id=f"payload-{index}",
+            name=f"Payload insight {index}",
+        )
+        subscription = await sync_to_async(create_subscription)(
+            team=subscription_team,
+            insight=insight,
+            created_by=user,
+        )
+        await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(next_delivery_date=due_at)
+
+    async def select_first(items: Sequence[DueSubscription], **_kwargs: Any) -> PayloadSelection[DueSubscription]:
+        return PayloadSelection(items=tuple(items[:1]), encoded_size_bytes=1, limited_by="byte_limit")
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.activities.select_items_within_temporal_payload",
+        side_effect=select_first,
+    ):
+        first_page = await ActivityEnvironment().run(
+            fetch_due_subscriptions_activity,
+            FetchDueSubscriptionsActivityInputs(buffer_minutes=15, max_subscriptions_per_run=3),
+        )
+
+    second_page = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15, max_subscriptions_per_run=3),
+    )
+
+    sorted_team_ids = sorted(subscription_team.id for subscription_team in teams)
+    assert [item.team_id for item in first_page] == sorted_team_ids[:1]
+    assert second_page[0].team_id == sorted_team_ids[1]
 
 
 async def test_fetch_due_subscriptions_rejects_limit_above_hard_maximum() -> None:
