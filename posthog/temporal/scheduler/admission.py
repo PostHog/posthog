@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
@@ -331,21 +332,37 @@ def confirm_scheduler_claim(
 ) -> bool:
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
-    updated = (
+    lease_expires_at = transition_time + lease_duration
+    confirmed = (
         TemporalSchedulerClaim.objects.filter(
             id=claim_id,
             claim_token=claim_token,
             status=TemporalSchedulerClaim.Status.RESERVED,
         ).update(
             status=TemporalSchedulerClaim.Status.CONFIRMED,
-            lease_expires_at=transition_time + lease_duration,
+            lease_expires_at=lease_expires_at,
             updated_at=transition_time,
         )
         == 1
     )
-    if updated:
+    if confirmed:
         record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "confirmed"))
-    return updated
+        return True
+
+    # Temporal runs an activity at least once, so a retry that lands after the first commit must
+    # still report ownership instead of a lost claim. `Greatest` keeps the extension monotonic,
+    # because the owner can have renewed the lease past this call's horizon already.
+    return (
+        TemporalSchedulerClaim.objects.filter(
+            id=claim_id,
+            claim_token=claim_token,
+            status=TemporalSchedulerClaim.Status.CONFIRMED,
+        ).update(
+            lease_expires_at=Greatest("lease_expires_at", Value(lease_expires_at)),
+            updated_at=transition_time,
+        )
+        == 1
+    )
 
 
 def renew_scheduler_claim(

@@ -263,10 +263,18 @@ class TestSchedulerClaimLifecycle(TestCase):
                 now=self.now,
             )
         )
-        self.assertFalse(
+        self.assertTrue(
             confirm_scheduler_claim(
                 self.reservation.claim_id,
                 self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+        self.assertFalse(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                wrong_token,
                 lease_duration=timedelta(minutes=10),
                 now=self.now,
             )
@@ -284,6 +292,35 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(claim.status, TemporalSchedulerClaim.Status.CONFIRMED)
         self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=15))
         self.assertEqual(self._global_in_flight(), 1)
+
+    def test_repeated_confirmation_extends_the_lease_without_shortening_it(self) -> None:
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+        self.assertTrue(
+            renew_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=60),
+                now=self.now,
+            )
+        )
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+
+        claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
+        self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=60))
 
     def test_metric_lookup_failure_does_not_turn_successful_transition_into_failure(self) -> None:
         with patch(
