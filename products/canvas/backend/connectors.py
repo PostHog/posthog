@@ -19,8 +19,10 @@ needs a user gesture and a confirm step in the host.
 import json
 import base64
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
+from django.core.validators import RegexValidator
 from django.db import models
 
 import structlog
@@ -131,10 +133,50 @@ class GitHubRepositorySerializer(serializers.Serializer):
         return value
 
 
-class GitHubListPullRequestsPayloadSerializer(GitHubRepositorySerializer):
+class GitHubPagePayloadSerializer(GitHubRepositorySerializer):
+    page = serializers.IntegerField(min_value=1, default=1, help_text="Page number, starting at 1.")
+    per_page = serializers.IntegerField(
+        min_value=1, max_value=100, default=100, help_text="Results per page, up to 100."
+    )
+    sort = serializers.ChoiceField(
+        choices=["created", "updated"], default="created", help_text="Field used to sort results."
+    )
+    direction = serializers.ChoiceField(choices=["asc", "desc"], default="desc", help_text="Sort direction.")
+
+
+class GitHubListPullRequestsPayloadSerializer(GitHubPagePayloadSerializer):
     state = serializers.ChoiceField(
         choices=["open", "closed", "all"], default="open", help_text="Which pull requests to list."
     )
+
+
+class GitHubSearchPullRequestsPayloadSerializer(GitHubListPullRequestsPayloadSerializer):
+    author = serializers.RegexField(
+        r"^[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?$",
+        max_length=100,
+        required=False,
+        help_text="GitHub author login, or 'me' for the connected user's GitHub identity.",
+    )
+    query = serializers.CharField(
+        max_length=256,
+        required=False,
+        help_text="Literal text to search in PR titles and bodies, not search qualifiers.",
+    )
+    draft = serializers.BooleanField(required=False, help_text="Filter to draft or non-draft pull requests.")
+    per_page = serializers.IntegerField(
+        min_value=1, max_value=100, default=25, help_text="Results per page, up to 100."
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if (attrs["page"] - 1) * attrs["per_page"] >= 1000:
+            raise serializers.ValidationError(
+                {"page": "GitHub search exposes only the first 1000 matches. Narrow the filters."}
+            )
+        return attrs
+
+
+class GitHubPullRequestPayloadSerializer(GitHubRepositorySerializer):
+    pr_number = serializers.IntegerField(min_value=1, help_text="Pull request number within the repository.")
 
 
 class GitHubSearchIssuesPayloadSerializer(GitHubRepositorySerializer):
@@ -174,7 +216,13 @@ def _github_list_pull_requests(integration: UserIntegration, payload: dict[str, 
         "GET",
         f"/repos/{_github_repo_path(client, payload['repository'])}/pulls",
         endpoint="/repos/{owner}/{repo}/pulls",
-        params={"state": payload["state"], "per_page": 100},
+        params={
+            "state": payload["state"],
+            "page": payload["page"],
+            "per_page": payload["per_page"],
+            "sort": payload["sort"],
+            "direction": payload["direction"],
+        },
     )
     if response.status_code != 200:
         raise ConnectorToolError(f"GitHub returned HTTP {response.status_code} for the pull request list.")
@@ -196,8 +244,98 @@ def _github_list_pull_requests(integration: UserIntegration, payload: dict[str, 
                 "updated_at": pr["updated_at"],
             }
             for pr in body
-        ]
+        ],
+        "page": payload["page"],
+        "per_page": payload["per_page"],
+        "has_next_page": "next" in response.links,
+        "next_page": payload["page"] + 1 if "next" in response.links else None,
     }
+
+
+def _github_search_pull_requests(integration: UserIntegration, payload: dict[str, Any]) -> dict[str, Any]:
+    client = _github_client(integration)
+    query = [f"repo:{_github_repo_path(client, payload['repository'])}", "is:pr"]
+    if payload["state"] != "all":
+        query.append(f"is:{payload['state']}")
+    author = payload.get("author")
+    if author == "me":
+        author = client.github_login
+        if not author:
+            raise ConnectorToolError(
+                "The connection has no GitHub user identity. Reconnect GitHub or specify an author."
+            )
+    if author:
+        query.append(f"author:{author}")
+    if "draft" in payload:
+        query.append(f"draft:{str(payload['draft']).lower()}")
+    if payload.get("query"):
+        quoted = payload["query"].replace('"', " ")
+        query.append(f'"{quoted}"')
+    response = client.api_request(
+        "GET",
+        "/search/issues",
+        endpoint="/search/issues",
+        params={
+            "q": " ".join(query),
+            "page": payload["page"],
+            "per_page": payload["per_page"],
+            "sort": payload["sort"],
+            "order": payload["direction"],
+        },
+    )
+    if response.status_code != 200:
+        raise ConnectorToolError(f"GitHub returned HTTP {response.status_code} for the pull request search.")
+    body = response.json()
+    if (
+        not isinstance(body, dict)
+        or not isinstance(body.get("items"), list)
+        or not isinstance(body.get("total_count"), int)
+    ):
+        raise ConnectorToolError("GitHub returned an invalid pull request search.")
+    has_next_page = payload["page"] * payload["per_page"] < min(body["total_count"], 1000)
+    return {
+        "pull_requests": [
+            {
+                "number": pr["number"],
+                "title": pr["title"],
+                "url": pr["html_url"],
+                "state": pr["state"],
+                "draft": bool(pr.get("draft")),
+                "author": (pr.get("user") or {}).get("login"),
+                "created_at": pr["created_at"],
+                "updated_at": pr["updated_at"],
+            }
+            for pr in body["items"]
+        ],
+        "page": payload["page"],
+        "per_page": payload["per_page"],
+        "has_next_page": has_next_page,
+        "next_page": payload["page"] + 1 if has_next_page else None,
+        "total_count": body["total_count"],
+        "incomplete_results": body.get("incomplete_results", True),
+        "search_limit_reached": body["total_count"] > 1000,
+    }
+
+
+def _github_read_result(result: dict[str, Any]) -> dict[str, Any]:
+    if result.get("success") is not True:
+        raise ConnectorToolError(result.get("error") or "GitHub could not read the pull request status.")
+    return {key: value for key, value in result.items() if key != "success"}
+
+
+def _github_get_pull_request_snapshot(integration: UserIntegration, payload: dict[str, Any]) -> dict[str, Any]:
+    client = _github_client(integration)
+    repository = _github_repo_path(client, payload["repository"])
+    return _github_read_result(
+        client.get_pull_request_snapshot(f"https://github.com/{repository}/pull/{payload['pr_number']}")
+    )
+
+
+def _github_get_pull_request_checks(integration: UserIntegration, payload: dict[str, Any]) -> dict[str, Any]:
+    client = _github_client(integration)
+    return _github_read_result(
+        client.get_pull_request_checks(_github_repo_path(client, payload["repository"]), payload["pr_number"])
+    )
 
 
 def _github_search_issues(integration: UserIntegration, payload: dict[str, Any]) -> dict[str, Any]:
@@ -270,9 +408,50 @@ NATIVE_CONNECTORS: dict[str, NativeConnector] = {
                         payload_serializer=GitHubListPullRequestsPayloadSerializer,
                         execute=_github_list_pull_requests,
                         usage=(
-                            "Arguments `{repository, state?}` → result `{pull_requests: [{number, title, url, state, "
-                            "draft, author, head_branch, base_branch, created_at, updated_at}]}`. `state` is open "
-                            "(default), closed, or all. Returns at most 100 pull requests, newest first."
+                            "Arguments `{repository, state?, page?, per_page?, sort?, direction?}` → result "
+                            "`{pull_requests: [{number, title, url, state, draft, author, head_branch, base_branch, "
+                            "created_at, updated_at}], page, per_page, has_next_page, next_page}`. "
+                            "Defaults to open, page 1, 100 results, created descending. "
+                            "Use search_pull_requests for author filtering; do not filter one repository page locally."
+                        ),
+                    ),
+                    NativeConnectorTool(
+                        name="search_pull_requests",
+                        summary="Search a repository's pull requests with author filters and pagination.",
+                        payload_serializer=GitHubSearchPullRequestsPayloadSerializer,
+                        execute=_github_search_pull_requests,
+                        usage=(
+                            "Arguments `{repository, author?, state?, draft?, query?, page?, per_page?, sort?, direction?}` "
+                            "→ result `{pull_requests: [{number, title, url, state, draft, author, created_at, updated_at}], "
+                            "page, per_page, has_next_page, next_page, total_count, incomplete_results, search_limit_reached}`. "
+                            "Use author: 'me' for the connected user's identity. Defaults to open, page 1, 25 results, "
+                            "created descending. Follow next_page with unchanged filters and per_page. "
+                            "GitHub search exposes at most 1000 matches; narrow filters when search_limit_reached. "
+                            "incomplete_results means GitHub returned a partial search, not response-size truncation."
+                        ),
+                    ),
+                    NativeConnectorTool(
+                        name="get_pull_request_snapshot",
+                        summary="Read a pull request's CI, review decision, and head commit.",
+                        payload_serializer=GitHubPullRequestPayloadSerializer,
+                        execute=_github_get_pull_request_snapshot,
+                        usage=(
+                            "Arguments `{repository, pr_number}` → result `{number, title, url, state, ci_status, "
+                            "review_decision, mergeable, head_sha, head_branch, requested_reviewer_logins, "
+                            "author_login, unresolved_threads, updated_at}`. Snapshot state can be draft or merged; "
+                            "list/search retain open/closed state and a separate draft boolean. "
+                            "A null review_decision is unknown, not approved. Keep the PR visible if this read fails."
+                        ),
+                    ),
+                    NativeConnectorTool(
+                        name="get_pull_request_checks",
+                        summary="Read check runs and external commit statuses for a pull request.",
+                        payload_serializer=GitHubPullRequestPayloadSerializer,
+                        execute=_github_get_pull_request_checks,
+                        usage=(
+                            "Arguments `{repository, pr_number}` → result `{checks: [...]}`. "
+                            "Combines all pages of check runs and external commit statuses for the current head. "
+                            "An empty checks list means no checks; upstream_error means status is unavailable."
                         ),
                     ),
                     NativeConnectorTool(
@@ -441,30 +620,69 @@ class ConnectorListing:
     provider: str
     label: str
     kind: ConnectorKind
-    connected: bool
+    connected: bool | None
     connect_path: str
     tools: list[ConnectorToolListing]
 
 
 def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-    for name, field in tool.payload_serializer().fields.items():
-        entry: dict[str, Any] = {"type": _json_type(field), "description": str(field.help_text or "")}
-        if isinstance(field, serializers.ChoiceField):
-            entry["enum"] = list(field.choices)
-        properties[name] = entry
-        if field.required:
-            required.append(name)
-    return {"type": "object", "properties": properties, "required": required}
+    return _native_field_schema(tool.payload_serializer())
 
 
-def _json_type(field: serializers.Field) -> str:
-    if isinstance(field, serializers.IntegerField):
-        return "integer"
-    if isinstance(field, serializers.BooleanField):
-        return "boolean"
-    return "string"
+def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
+    schema: dict[str, Any]
+    if isinstance(field, serializers.Serializer):
+        schema = {
+            "type": "object",
+            "properties": {name: _native_field_schema(child) for name, child in field.fields.items()},
+            "required": [name for name, child in field.fields.items() if child.required],
+        }
+    elif isinstance(field, (serializers.ListField, serializers.ListSerializer)):
+        assert field.child is not None
+        schema = {"type": "array", "items": _native_field_schema(field.child)}
+    elif isinstance(field, serializers.DictField):
+        schema = {"type": "object", "additionalProperties": _native_field_schema(field.child)}
+    elif isinstance(field, serializers.BooleanField):
+        schema = {"type": "boolean"}
+    elif isinstance(field, serializers.IntegerField):
+        schema = {"type": "integer"}
+    elif isinstance(field, serializers.FloatField):
+        schema = {"type": "number"}
+    elif isinstance(field, serializers.JSONField) or type(field) is serializers.Field:
+        schema = {}
+    else:
+        schema = {"type": "string"}
+    if isinstance(field, serializers.ChoiceField):
+        schema["enum"] = list(field.choices)
+        if all(isinstance(choice, bool) for choice in field.choices):
+            schema["type"] = "boolean"
+        elif all(isinstance(choice, int) for choice in field.choices):
+            schema["type"] = "integer"
+    for attribute, keyword in (
+        ("min_value", "minimum"),
+        ("max_value", "maximum"),
+        ("min_length", "minItems" if schema.get("type") == "array" else "minLength"),
+        ("max_length", "maxItems" if schema.get("type") == "array" else "maxLength"),
+    ):
+        value = getattr(field, attribute, None)
+        if value is not None:
+            schema[keyword] = value
+    if isinstance(field, serializers.CharField) and not field.allow_blank:
+        schema["minLength"] = max(schema.get("minLength", 0), 1)
+    for validator in field.validators:
+        if isinstance(validator, RegexValidator):
+            regex = validator.regex
+            schema["pattern"] = regex if isinstance(regex, str) else regex.pattern
+    if field.allow_null:
+        if "type" in schema:
+            schema["type"] = [schema["type"], "null"]
+        if "enum" in schema:
+            schema["enum"].append(None)
+    if field.default is not serializers.empty and not callable(field.default):
+        schema["default"] = field.default
+    if field.help_text:
+        schema["description"] = str(field.help_text)
+    return schema
 
 
 def _mcp_tool_listing(tool: McpConnectorTool) -> ConnectorToolListing:
@@ -477,17 +695,13 @@ def _mcp_tool_listing(tool: McpConnectorTool) -> ConnectorToolListing:
     )
 
 
-def connector_listings(team_id: int, user_id: int, mcp_hosts: list[str] | None = None) -> list[ConnectorListing]:
-    """Every native provider, plus each requested MCP host (default: every host the
-    viewer has connected), with the viewer's connection state."""
-    if mcp_hosts is None:
-        mcp_hosts = mcp_store_facade.member_server_hosts(team_id, user_id)
-    listings = [
+def native_connector_listings() -> list[ConnectorListing]:
+    return [
         ConnectorListing(
             provider=connector.provider,
             label=connector.label,
             kind=ConnectorKind.NATIVE,
-            connected=_viewer_integration(user_id, connector) is not None,
+            connected=None,
             connect_path=_PERSONAL_INTEGRATIONS_PATH,
             tools=[
                 ConnectorToolListing(
@@ -501,6 +715,16 @@ def connector_listings(team_id: int, user_id: int, mcp_hosts: list[str] | None =
             ],
         )
         for connector in sorted(NATIVE_CONNECTORS.values(), key=lambda connector: connector.provider)
+    ]
+
+
+def connector_listings(team_id: int, user_id: int, mcp_hosts: list[str] | None = None) -> list[ConnectorListing]:
+    """Native and MCP tools with the viewer's connection state."""
+    if mcp_hosts is None:
+        mcp_hosts = mcp_store_facade.member_server_hosts(team_id, user_id)
+    listings = [
+        replace(listing, connected=_viewer_integration(user_id, NATIVE_CONNECTORS[listing.provider]) is not None)
+        for listing in native_connector_listings()
     ]
     for host in sorted({host.lower() for host in mcp_hosts}):
         tools = mcp_store_facade.member_server_tools(team_id, user_id, host)

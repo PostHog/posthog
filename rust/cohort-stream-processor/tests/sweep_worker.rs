@@ -1821,7 +1821,7 @@ fn explicit_range_with_an_unparseable_bound_skips_the_leaf_entirely() {
         "garbage",
     )]);
     assert!(
-        explicit.behavioral_conditions.is_empty(),
+        explicit.behavioral.conditions.is_empty(),
         "an unparseable bound leaves the leaf with no behavioral condition",
     );
     let alice = person(1);
