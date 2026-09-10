@@ -111,18 +111,26 @@ export function ScoutRunBoxes({
                 const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`
                 const boxTooltip = run.task_url ? `${tooltip} · open task run` : tooltip
                 const label = <span className="sr-only">Run {boxTooltip}</span>
+                const column = (
+                    <>
+                        {expensive ? <span className={MARKER_CLASS} /> : null}
+                        <span className={boxClass}>{label}</span>
+                    </>
+                )
+                // The whole column links, not only the box, because the tooltip spans the column
+                // and offers to open the task run. A marker left outside the link would not
+                // navigate there: the roster card holds no handler above the box, and the roster
+                // table's row handler pushes the scout page for every click that is not inside an
+                // `a` or `button`.
                 return (
                     <Tooltip key={run.run_id} title={boxTooltip}>
-                        <span className={COLUMN_CLASS}>
-                            {expensive ? <span className={MARKER_CLASS} /> : null}
-                            {run.task_url ? (
-                                <Link to={run.task_url} className={boxClass}>
-                                    {label}
-                                </Link>
-                            ) : (
-                                <span className={boxClass}>{label}</span>
-                            )}
-                        </span>
+                        {run.task_url ? (
+                            <Link to={run.task_url} className={COLUMN_CLASS}>
+                                {column}
+                            </Link>
+                        ) : (
+                            <span className={COLUMN_CLASS}>{column}</span>
+                        )}
                     </Tooltip>
                 )
             })}

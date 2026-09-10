@@ -70,6 +70,24 @@ describe('ScoutRunBoxes', () => {
         expect(labels.filter((label) => label.includes('top 10% of runs by cost'))).toHaveLength(2)
     })
 
+    it('puts the marker inside the task link, so the whole column opens the task run', () => {
+        // The tooltip covers the column and offers to open the task run, and the column reserves
+        // height above the box for the marker. With the link around the box alone, a click on the
+        // marker does nothing on a roster card, and the roster table's row handler sends the
+        // reader to the scout page instead.
+        const { container } = render(
+            <ScoutRunBoxes
+                runs={[makeRun({ run_id: 'run-over', task_url: '/project/2/tasks/run-over' })]}
+                costs={new Map([['run-over', 3.19]])}
+                costThreshold={0.49}
+            />
+        )
+
+        const link = container.querySelector('a')
+        expect(link).toHaveAttribute('href', '/project/2/tasks/run-over')
+        expect(link?.querySelector('.bg-brand-yellow')).not.toBeNull()
+    })
+
     it('marks nothing while the fleet has too few priced runs to rank', () => {
         const { container } = render(
             <ScoutRunBoxes runs={[makeRun()]} costs={new Map([['run-1', 3.19]])} costThreshold={null} />
