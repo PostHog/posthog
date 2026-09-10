@@ -290,15 +290,28 @@ def _collapse_overlapping(candidates: list[TopicCandidate]) -> list[TopicCandida
     return kept
 
 
-def upsert_pattern(candidate: TopicCandidate, *, team: Team, now: datetime) -> tuple[TicketPattern | None, bool]:
+def upsert_pattern(
+    candidate: TopicCandidate, *, team: Team, now: datetime, settings: PatternSettings
+) -> tuple[TicketPattern | None, bool]:
     """Returns (pattern, was_opened). Callers fire notifications on was_opened, never on the tick.
 
     None means the candidate was suppressed by a recent dismissal.
     """
     with transaction.atomic():
+        quiet_since = now - timedelta(minutes=settings.window_minutes * AUTO_RESOLVE_QUIET_WINDOWS)
         existing = (
             TicketPattern.objects.for_team(team.id)
-            .filter(fingerprint=candidate.fingerprint, status=TicketPatternStatus.OPEN)
+            .filter(fingerprint=candidate.fingerprint)
+            .filter(
+                Q(status=TicketPatternStatus.OPEN)
+                # A confirmed pattern is the incident a human already acknowledged, so a topic that
+                # is still firing updates it rather than opening a second row and alerting again.
+                # It stops standing in the way once the topic has been quiet for as long as an
+                # auto-resolve needs, which leaves a later flare free to open its own pattern. The
+                # status is never rewritten, so the confirmation itself survives.
+                | Q(status=TicketPatternStatus.CONFIRMED, last_seen_at__gte=quiet_since)
+            )
+            .order_by("-last_seen_at")
             .select_for_update()
             .first()
         )
@@ -342,7 +355,7 @@ def upsert_pattern(candidate: TopicCandidate, *, team: Team, now: datetime) -> t
             )
         except IntegrityError:
             # A racing tick opened it first; treat this tick as the update it would have been.
-            return upsert_pattern(candidate, team=team, now=now)
+            return upsert_pattern(candidate, team=team, now=now, settings=settings)
         _sync_evidence(pattern, candidate.ticket_ids, team=team)
         return pattern, True
 
@@ -406,7 +419,7 @@ def _run_detection(team: Team, *, now: datetime) -> DetectionOutcome:
     updated: list[UUID] = []
     suppressed: list[str] = []
     for candidate in candidates:
-        pattern, was_opened = upsert_pattern(candidate, team=team, now=now)
+        pattern, was_opened = upsert_pattern(candidate, team=team, now=now, settings=settings)
         if pattern is None:
             suppressed.append(candidate.topic)
         elif was_opened:

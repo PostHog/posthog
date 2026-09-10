@@ -163,9 +163,16 @@ class TestRunDetection(BaseTest):
         assert pattern.requester_count == 6
         assert TicketPatternEvidence.objects.for_team(self.team.id).filter(pattern=pattern).count() == 6
 
-    def test_second_tick_updates_the_open_pattern(self):
+    @parameterized.expand(
+        [
+            ("still_open", TicketPatternStatus.OPEN),
+            ("confirmed_by_a_human", TicketPatternStatus.CONFIRMED),
+        ]
+    )
+    def test_second_tick_updates_the_active_pattern(self, _name, status):
         self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
         first = run_detection(self.team, now=self.now)
+        TicketPattern.objects.for_team(self.team.id).update(status=status)
         self._burst("Cannot login to the dashboard", requesters=5, tickets=3)
 
         second = run_detection(self.team, now=self.now + timedelta(minutes=15))
@@ -174,8 +181,27 @@ class TestRunDetection(BaseTest):
         assert second.opened == ()
         assert second.updated == first.opened
         pattern = TicketPattern.objects.for_team(self.team.id).get()
+        assert pattern.status == status
         assert pattern.ticket_count == 8
         assert pattern.peak_ticket_count == 8
+
+    def test_a_confirmed_pattern_stops_blocking_once_its_topic_goes_quiet(self):
+        self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
+        first = run_detection(self.team, now=self.now)
+        TicketPattern.objects.for_team(self.team.id).update(status=TicketPatternStatus.CONFIRMED)
+
+        later = self.now + timedelta(hours=4)
+        for i in range(5):
+            self._ticket(
+                "Cannot login to the dashboard",
+                f"later{i}@company{i}.example",
+                created_at=later - timedelta(minutes=5),
+            )
+        second = run_detection(self.team, now=later)
+
+        assert len(second.opened) == 1
+        assert second.opened != first.opened
+        assert TicketPattern.objects.for_team(self.team.id).count() == 2
 
     def test_dismissal_suppresses_until_volume_doubles(self):
         self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
