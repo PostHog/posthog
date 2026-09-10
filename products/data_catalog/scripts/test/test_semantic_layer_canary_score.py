@@ -429,3 +429,21 @@ class TestCanaryApiClient:
 
         assert seen_offsets == ["0", "2"]
         assert raw_log.splitlines() == ['{"page": 0}', '{"page": 1}', '{"page": 2}']
+
+    def test_retries_a_page_that_times_out_on_read(self) -> None:
+        attempts = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise httpx.ReadTimeout("slow page", request=request)
+            return httpx.Response(200, json=[{"page": 0}], headers={"X-Has-More": "false"})
+
+        with CanaryApiClient(
+            host="https://us.posthog.test", project_id=2, api_key="key", transport=httpx.MockTransport(handler)
+        ) as client:
+            raw_log = client.read_full_log("task-1", "run-1")
+
+        assert attempts == 2
+        assert raw_log == '{"page": 0}'

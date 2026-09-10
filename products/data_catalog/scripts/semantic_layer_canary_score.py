@@ -59,6 +59,7 @@ MAX_SESSION_LOG_PAGES = 200
 TASK_LIST_PAGE_SIZE = 50
 TASK_RUN_PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 120.0
+MAX_READ_TIMEOUT_RETRIES = 2
 EVALUATION_METRIC_NAME = "semantic_layer_canary_routing"
 EXPERIMENT_NAME = "semantic-layer-canary"
 BATCH_ID_PREFIX = "tasks"
@@ -210,6 +211,18 @@ class CanaryApiClient:
     def __exit__(self, *_exc: object) -> None:
         self._client.close()
 
+    def _get(self, url: str, params: dict[str, str | int] | None = None) -> httpx.Response:
+        for attempt in range(MAX_READ_TIMEOUT_RETRIES + 1):
+            try:
+                response = self._client.get(url, params=params)
+            except httpx.ReadTimeout:
+                if attempt == MAX_READ_TIMEOUT_RETRIES:
+                    raise
+                continue
+            response.raise_for_status()
+            return response
+        raise AssertionError("unreachable")
+
     def read_log_entries(self, task_id: str, run_id: str) -> list[dict]:
         cached = self._log_entries.get((task_id, run_id))
         if cached is not None:
@@ -217,11 +230,10 @@ class CanaryApiClient:
         entries: list[dict] = []
         offset = 0
         for _page in range(MAX_SESSION_LOG_PAGES):
-            response = self._client.get(
+            response = self._get(
                 f"/api/projects/{self.project_id}/tasks/{task_id}/runs/{run_id}/session_logs/",
                 params={"limit": SESSION_LOG_PAGE_SIZE, "offset": offset},
             )
-            response.raise_for_status()
             page = response.json()
             if not isinstance(page, list):
                 raise ValueError(f"unexpected session_logs payload for run {run_id}")
@@ -238,20 +250,18 @@ class CanaryApiClient:
         return "\n".join(json.dumps(entry) for entry in self.read_log_entries(task_id, run_id))
 
     def load_dataset_snapshot(self, dataset_name: str, revision: int) -> DatasetSnapshot:
-        response = self._client.get(
+        response = self._get(
             DATASETS_PATH.format(project_id=self.project_id), params=dataset_search_params(dataset_name)
         )
-        response.raise_for_status()
         dataset = select_dataset(response.json(), dataset_name)
         cases: list[CanaryCase] = []
         seen_case_ids: set[str] = set()
         offset = 0
         while True:
-            items_response = self._client.get(
+            items_response = self._get(
                 DATASET_ITEMS_PATH.format(project_id=self.project_id),
                 params=dataset_items_params(dataset.id, revision, offset),
             )
-            items_response.raise_for_status()
             page = parse_dataset_item_page(items_response.json(), seen_case_ids)
             cases.extend(page.cases)
             if page.next_page is None:
@@ -268,8 +278,7 @@ class CanaryApiClient:
             "limit": TASK_LIST_PAGE_SIZE,
         }
         while url:
-            response = self._client.get(url, params=params)
-            response.raise_for_status()
+            response = self._get(url, params=params)
             page = _TaskPage.model_validate(response.json())
             matches.extend(
                 task for task in page.results if task.description == question and window.contains(task.created_at)
@@ -279,10 +288,9 @@ class CanaryApiClient:
         return matches
 
     def list_runs(self, task_id: str) -> list[_TaskRun]:
-        response = self._client.get(
+        response = self._get(
             f"/api/projects/{self.project_id}/tasks/{task_id}/runs/", params={"limit": TASK_RUN_PAGE_SIZE}
         )
-        response.raise_for_status()
         return _TaskRunPage.model_validate(response.json()).results
 
     def task_url(self, task_id: str, run_id: str) -> str:
