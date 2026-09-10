@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 import pytest
 import time_machine
@@ -65,6 +66,7 @@ class TestIsUtcDatetimeBlockedAndNextUnblocked:
 class TestNextCheckAtAfterScheduleRestrictionChange:
     def _hourly_alert(self, **kwargs: Any) -> MagicMock:
         alert = MagicMock(spec=AlertConfiguration)
+        alert.id = UUID(int=0)
         alert.team = MagicMock()
         alert.team.timezone = "UTC"
         alert.calculation_interval = "hourly"
@@ -103,6 +105,7 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
     def test_does_not_keep_stale_snap_when_earlier_runs_are_allowed(self) -> None:
         with time_machine.travel("2026-04-06T16:44:00Z", tick=False):
             alert = self._hourly_alert(
+                id=UUID(int=44),
                 team=MagicMock(timezone="America/Toronto"),
                 schedule_restriction={"blocked_windows": [{"start": "14:00", "end": "16:00"}]},
                 next_check_at=datetime(2026, 4, 6, 20, 0, 0, tzinfo=UTC),
