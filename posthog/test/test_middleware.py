@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
 from unittest.mock import MagicMock, patch
 
@@ -601,7 +601,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
 
     def test_after_idle_timeout_api_requests_401(self):
         now = datetime(2024, 1, 1, 12, 0, 0)
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
@@ -611,7 +611,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
 
         # Move forward by 19
         now = now + timedelta(seconds=19)
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
@@ -620,13 +620,13 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         # Past idle timeout
         now = now + timedelta(seconds=21)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 
     def test_after_total_timeout_api_requests_401(self):
         now = datetime(2024, 1, 1, 12, 0, 0)
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
@@ -637,7 +637,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         for _ in range(4):
             # Move forward by 19 seconds 4 times for a total of 76 seconds
             now = now + timedelta(seconds=19)
-            with freeze_time(now):
+            with time_machine.travel(now, tick=False):
                 res = self.client.get("/api/users/@me")
                 assert res.status_code == 200
                 assert res.json()["email"] == "other-user@posthog.com"
@@ -647,7 +647,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
                 )
 
         now = now + timedelta(seconds=19)
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
@@ -657,17 +657,17 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         # Now even less than the idle time will take us past the total timeout
         now = now + timedelta(seconds=10)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 
     def test_after_timeout_non_admin_page_redirects_to_admin(self):
         """When session times out on a non-admin page, redirect to /admin/."""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
-        with freeze_time(now + timedelta(seconds=35)):
+        with time_machine.travel(now + timedelta(seconds=35), tick=False):
             res = self.client.get("/dashboards")
             assert res.status_code == 302
             assert res.headers["Location"] == "/admin/"
@@ -682,10 +682,10 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         third_user = User.objects.create_and_join(self.organization, email="third-user@posthog.com", password="123456")
 
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
-        with freeze_time(now + timedelta(seconds=35)):
+        with time_machine.travel(now + timedelta(seconds=35), tick=False):
             # Navigate to a different user's admin page
             res = self.client.get(f"/admin/posthog/user/{third_user.id}/change/")
             assert res.status_code == 302
@@ -700,7 +700,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     def test_explicit_logout_redirects_to_impersonated_user_admin(self):
         """When explicitly logging out via /logout, redirect to impersonated user's admin page."""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
             # Explicit logout via the main logout endpoint
@@ -727,7 +727,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     def test_loginas_logout_redirect(self, _name, query_suffix, expected_location):
         """The loginas logout endpoint redirects to a safe `next` when given, otherwise to the admin change page."""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
             res = self.client.get(f"/admin/logout/{query_suffix}")
@@ -743,10 +743,10 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         """Even when the session has expired server-side, `next` survives the middleware
         bounce so staff still land back in the PostHog app."""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
-        with freeze_time(now + timedelta(seconds=35)):
+        with time_machine.travel(now + timedelta(seconds=35), tick=False):
             # First hit: the auto-logout middleware restores the original login and
             # bounces back to the same path, preserving ?next=/.
             res = self.client.get("/admin/logout/?next=/")
@@ -1632,7 +1632,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Ensure any remaining patches are stopped
         self.time_patcher.stop()
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_session_continues_when_not_expired(self, mock_time):
         # Initial request sets session creation time
@@ -1648,7 +1648,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_session_expires_after_total_time(self, mock_time):
         # Initial request sets session creation time
@@ -1669,7 +1669,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
             "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
         )
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_org_specific_session_timeout_from_cache(self, mock_time):
         # Set org-specific timeout in cache
@@ -1693,7 +1693,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
             "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
         )
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_session_timeout_after_switching_org_with_cache(self, mock_time):
         # Create another org with different timeout

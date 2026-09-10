@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from dateutil import parser
@@ -291,7 +291,7 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
     )
 
     with (
-        freeze_time("2025-01-01T12:00:00.000Z"),
+        time_machine.travel("2025-01-01T12:00:00.000Z", tick=False),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
         ) as mock_delete_all,
@@ -1288,7 +1288,7 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
     )
 
     with (
-        freeze_time("2025-01-01T12:00:00.000Z"),
+        time_machine.travel("2025-01-01T12:00:00.000Z", tick=False),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
         ) as mock_delete_all,

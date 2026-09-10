@@ -34,7 +34,13 @@ Scoped credentials need both `canvas:write` and `user:read`. A canvas-only crede
 
 The endpoint checks channel access, the feature flag, and the current version's declared provider and tool. It limits requests per viewer and canvas. The activity log records the provider, tool, and outcome, but not arguments or results.
 
-Responses contain `status`, `result`, `detail`, `truncated`, and `connect_path`. Status values are `ok`, `not_connected`, `needs_reauth`, `blocked`, `tool_missing`, `write_blocked`, and `upstream_error`. Invalid arguments return HTTP 400. Access and capability failures return HTTP 403.
+Responses contain `status`, `result`, `detail`, `truncated`, `connect_path`, and the host-only `approval_token`. Status values are `ok`, `not_connected`, `needs_reauth`, `needs_approval`, `blocked`, `tool_missing`, `write_blocked`, and `upstream_error`. Invalid arguments return HTTP 400. Access and capability failures return HTTP 403.
+
+For `needs_approval`, the server issues a random, single-use `approval_token`. It expires after 15 minutes and is bound to the team, viewer, connection, server URL, canvas version, tool, and exact arguments. The host shows the Quill permission dialog, then submits this token only after the viewer approves. The server consumes it before running the call. A missing, expired, changed, or reused token cannot approve a call. The old `approved` boolean is not accepted as approval.
+
+One-time approval does not change saved MCP permissions or override locked organization rules, team blocks, revoked connections, removed tools, or read-only restrictions. An organization rule that locks a tool to Ask returns `blocked`; it cannot be cleared by a per-call approval.
+
+The token verifies the call binding and prevents reuse. It does not prove human presence: an authenticated API caller can complete the protocol directly. The trusted host owns the permission UI. It never forwards approval tokens to the iframe, and `ph.connectors.call` cannot submit them.
 
 Results are limited to 256 KiB. Large results become a bounded `preview` with `truncated: true`. Provider parsing failures return `upstream_error`, not an unhandled exception.
 
@@ -89,7 +95,7 @@ Connector reads use the host cache, which defaults to 60 seconds. A repeated cal
 
 ## Host safety
 
-The canvas host asks the viewer before it sends connector calls. Consent is limited to the canvas version, provider, and tool. The prompt explains that the canvas can receive private data and share it through its declared capabilities. A denied call stays blocked until the viewer retries from a user action.
+The canvas host asks the viewer in a Quill permission dialog before it sends connector calls. Consent is limited to the canvas version, provider, and tool. The prompt explains that the canvas can receive private data and share it through its declared capabilities. A denied call stays blocked until the viewer retries from a user action. MCP tools that require approval use the same dialog, with an **Allow once** action. Pending dialogs close without approval when the canvas version or authentication context changes. Waiting for the viewer does not use the I/O timeout. Each connector network request has its own 30-second deadline, including the request after approval. On timeout, the host aborts the transport and reports an error; an approved upstream call may still finish. A separate limit allows up to eight pending connector requests per canvas, so permission dialogs cannot consume the eight ordinary data-request slots.
 
 Connector results and consent use authentication-scoped caches. Account, organization, and project changes clear these caches. Results are also separated by canvas version. Never write connector results into shared canvas state.
 
