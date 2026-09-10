@@ -6630,9 +6630,19 @@ class QueryScanSummary(BaseModel):
         extra="forbid",
     )
     duration_ms: int = Field(..., description="ClickHouse time for the last fresh run.")
-    events_in_range: int | None = None
-    mode: QueryScanMode = Field(..., description="Flag mode for this team: what clients may show")
-    range: QueryScanRange | None = None
+    events_in_range: int | None = Field(
+        default=None,
+        description=("Events in `range` for this team, counted by the analysis and compared with `rows_read`."),
+    )
+    mode: QueryScanMode = Field(
+        ...,
+        description=(
+            "What clients may show for this response. The server evaluated the flag"
+            " once for this query; clients and the assistant read this field and never"
+            " evaluate the flag themselves."
+        ),
+    )
+    range: QueryScanRange | None = Field(default=None, description="The date range `events_in_range` was counted over.")
     rows_read: int = Field(
         ...,
         description=("Rows ClickHouse read for the last fresh run of this query, all tables included."),

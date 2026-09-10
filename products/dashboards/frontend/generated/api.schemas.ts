@@ -1968,9 +1968,11 @@ export const QueryScanStatusApi = {
 export interface QueryScanSummaryApi {
     /** ClickHouse time for the last fresh run. */
     duration_ms: number
+    /** Events in `range` for this team, counted by the analysis and compared with `rows_read`. */
     events_in_range?: number | null
-    /** Flag mode for this team: what clients may show */
+    /** What clients may show for this response. The server evaluated the flag once for this query; clients and the assistant read this field and never evaluate the flag themselves. */
     mode: QueryScanModeApi
+    /** The date range `events_in_range` was counted over. */
     range?: QueryScanRangeApi | null
     /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
     rows_read: number

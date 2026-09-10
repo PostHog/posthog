@@ -49344,6 +49344,7 @@
             ]
         },
         "QueryScanMode": {
+            "description": "Variant of the `query-scan-warnings` feature flag for the team. `log_only`: the backend measures and analyzes but clients render nothing, so the thresholds can be calibrated on production traffic before anyone sees a finding. `show`: clients may render findings.",
             "enum": ["log_only", "show"],
             "type": "string"
         },
@@ -49372,14 +49373,16 @@
                     "description": "ClickHouse time for the last fresh run."
                 },
                 "events_in_range": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Events in `range` for this team, counted by the analysis and compared with `rows_read`."
                 },
                 "mode": {
                     "$ref": "#/definitions/QueryScanMode",
-                    "description": "Flag mode for this team: what clients may show"
+                    "description": "What clients may show for this response. The server evaluated the flag once for this query; clients and the assistant read this field and never evaluate the flag themselves."
                 },
                 "range": {
-                    "$ref": "#/definitions/QueryScanRange"
+                    "$ref": "#/definitions/QueryScanRange",
+                    "description": "The date range `events_in_range` was counted over."
                 },
                 "rows_read": {
                     "$ref": "#/definitions/integer",

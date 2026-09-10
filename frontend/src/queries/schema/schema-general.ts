@@ -583,6 +583,11 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+/**
+ * Variant of the `query-scan-warnings` feature flag for the team.
+ * `log_only`: the backend measures and analyzes but clients render nothing, so the thresholds can be
+ * calibrated on production traffic before anyone sees a finding. `show`: clients may render findings.
+ */
 export type QueryScanMode = 'log_only' | 'show'
 
 export type QueryScanStatus = 'pending' | 'done'
@@ -593,7 +598,10 @@ export interface QueryScanRange {
 }
 
 export interface QueryScanSummary {
-    /** Flag mode for this team: what clients may show */
+    /**
+     * What clients may show for this response. The server evaluated the flag once for this query;
+     * clients and the assistant read this field and never evaluate the flag themselves.
+     */
     mode: QueryScanMode
     /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
     rows_read: integer
@@ -601,7 +609,9 @@ export interface QueryScanSummary {
     duration_ms: integer
     /** Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`. */
     status?: QueryScanStatus
+    /** Events in `range` for this team, counted by the analysis and compared with `rows_read`. */
     events_in_range?: integer
+    /** The date range `events_in_range` was counted over. */
     range?: QueryScanRange
 }
 
