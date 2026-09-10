@@ -14,12 +14,7 @@ import {
     mcpAnalyticsSessionsToolCalls,
 } from '../generated/api'
 import type { MCPSessionApi, MCPSessionIntentApi, MCPToolCallApi } from '../generated/api.schemas'
-import {
-    isSharedFilterActive,
-    type MCPSharedQueryFilters,
-    mcpAnalyticsFiltersLogic,
-    sharedFilterParams,
-} from '../mcpAnalyticsFiltersLogic'
+import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic, sharedFilterParams } from '../mcpAnalyticsFiltersLogic'
 
 export interface MCPSessionsFilters {
     search: string
@@ -70,17 +65,19 @@ export function orderByParam(sorting: MCPSessionSorting | null): MCPSessionOrder
     return sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
 }
 
-// A session's loaded tool calls, tagged with which session they belong to and whether more pages
-// exist. Carrying the session id in the value lets the panel tell "the selected session is still
-// loading" from "these are a previous session's calls" with a plain comparison — no separate
-// tracking reducer, and no reliance on the shared loader flag that a concurrent load-more can flip.
+// A session's loaded tool calls, tagged with which session and which shared filters they were
+// fetched under, plus whether more pages exist. Carrying both tags in the value lets the panel tell
+// "this session is still loading" from "these are a previous session's, or a previous filter's,
+// calls" with a plain comparison — no separate tracking reducer, and no reliance on the shared
+// loader flag that a concurrent load-more can flip.
 export interface SessionToolCalls {
     sessionId: string | null
+    filters: MCPSharedQueryFilters | null
     calls: MCPToolCallApi[]
     hasNext: boolean
 }
 
-const EMPTY_TOOL_CALLS: SessionToolCalls = { sessionId: null, calls: [], hasNext: false }
+const EMPTY_TOOL_CALLS: SessionToolCalls = { sessionId: null, filters: null, calls: [], hasNext: false }
 
 // Fetch one page of a session's tool calls, unwrapped into { calls, hasNext }. session_id comes from
 // untrusted event properties, so encode it — path/query delimiters must not redirect the request to
@@ -380,39 +377,38 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return EMPTY_TOOL_CALLS
                     }
+                    const filters = values.sharedQueryFilters
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
                         values.selectedSession?.session_start,
                         0,
-                        values.sharedQueryFilters
+                        filters
                     )
                     breakpoint()
-                    return { sessionId, ...page }
+                    return { sessionId, filters, ...page }
                 },
                 // Load more: append the next page at offset = current length.
                 loadMoreToolCalls: async () => {
-                    const { sessionId, calls } = values.toolCalls
+                    const { sessionId, filters, calls } = values.toolCalls
                     if (!values.currentProjectId || !sessionId) {
                         return values.toolCalls
                     }
-                    const sharedFilters = values.sharedQueryFilters
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
                         values.selectedSession?.session_start,
                         calls.length,
-                        sharedFilters
+                        filters ?? values.sharedQueryFilters
                     )
-                    // If the user switched sessions while this page was loading, drop it — appending
-                    // one session's calls onto another's list would show the wrong data. The backend
-                    // orders by (timestamp, event_id), so pages don't overlap and need no dedupe.
-                    // Same for a shared-filter change: this page was fetched under the old filters,
-                    // and both it and the snapshot it appends to describe a set the user left.
-                    if (sessionId !== values.selectedSessionId || sharedFilters !== values.sharedQueryFilters) {
+                    // If the user switched sessions or changed the shared filters while this page
+                    // was loading, drop it: appending one set's calls onto another's would show the
+                    // wrong data. The backend orders by (timestamp, event_id), so pages that do
+                    // belong together don't overlap and need no dedupe.
+                    if (sessionId !== values.selectedSessionId || filters !== values.sharedQueryFilters) {
                         return values.toolCalls
                     }
-                    return { sessionId, calls: [...calls, ...page.calls], hasNext: page.hasNext }
+                    return { sessionId, filters, calls: [...calls, ...page.calls], hasNext: page.hasNext }
                 },
             },
         ],
@@ -423,19 +419,15 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return null
                     }
-                    // The summary is persisted per (team, session_id) and describes the whole
-                    // session, so it must not be generated from a filtered slice of it. Under a
-                    // shared filter session_start is the first *matching* call, which would cut the
-                    // scan short and store a summary of part of the session for good; drop the
-                    // bound then and let the server fall back to its own lookback.
-                    const narrowed = isSharedFilterActive(values.sharedQueryFilters)
                     // session_id comes from untrusted event properties — encode it so path/query
                     // delimiters can't redirect this POST to another same-origin endpoint. Bound the
-                    // intent scan by the session's start so older sessions resolve, mirroring loadToolCalls.
+                    // intent scan by the session's start so older sessions resolve, mirroring
+                    // loadToolCalls. The shared filters never move session_start, so this bound
+                    // still covers the whole session, which is what the persisted summary describes.
                     return await mcpAnalyticsSessionsGenerateIntent(
                         String(values.currentProjectId),
                         encodeURIComponent(sessionId),
-                        { date_from: (!narrowed && values.selectedSession?.session_start) || undefined }
+                        { date_from: values.selectedSession?.session_start || undefined }
                     )
                 },
             },
@@ -531,13 +523,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // the new session's header. A plain comparison — no shared loader flag a concurrent load
         // more could flip.
         selectedSessionToolCalls: [
-            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading],
+            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading, s.sharedQueryFilters],
             (
                 toolCalls: SessionToolCalls,
                 selectedSessionId: string | null,
-                toolCallsLoading: boolean
+                toolCallsLoading: boolean,
+                sharedQueryFilters: MCPSharedQueryFilters
             ): { calls: MCPToolCallApi[]; hasNext: boolean; loading: boolean; loadingMore: boolean } => {
-                const isCurrent = toolCalls.sessionId === selectedSessionId
+                const isCurrent = toolCalls.sessionId === selectedSessionId && toolCalls.filters === sharedQueryFilters
                 return {
                     calls: isCurrent ? toolCalls.calls : [],
                     hasNext: isCurrent && toolCalls.hasNext,
@@ -549,15 +542,15 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, cache }) => {
+    listeners(({ actions, values }) => {
         // The shared property / test-account filters change the result set the same way this tab's
-        // own filters do, and they also narrow an already-open session's calls, so the detail panel
-        // has to reload too. It cannot reload here: the filters move the session's aggregated
-        // session_start, which bounds the detail scan, so loadToolCalls has to wait for the
-        // refreshed row. loadSessionsSuccess does it once that arrives.
+        // own filters do, and they also narrow an already-open session's calls, so reload both.
+        // Reloading only the list leaves the detail panel showing calls the list no longer counts.
         const reloadForSharedFilters = (): void => {
-            cache.reloadSelectedToolCalls = true
             actions.loadSessions()
+            if (values.selectedSessionId) {
+                actions.loadToolCalls(values.selectedSessionId)
+            }
         }
         return {
             // A new filter or sort changes the result set — reload from the first page.
@@ -585,8 +578,6 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             // Only fires on a reset load (not on loadMore), so appending more pages doesn't
             // steal the user's selection. Auto-selects the first row when the set changes.
             loadSessionsSuccess: ({ sessions }) => {
-                const reloadSelected = cache.reloadSelectedToolCalls === true
-                cache.reloadSelectedToolCalls = false
                 if (sessions.length === 0) {
                     if (values.selectedSessionId) {
                         actions.selectSession(null)
@@ -597,10 +588,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     ? sessions.some((s) => s.session_id === values.selectedSessionId)
                     : false
                 if (!stillVisible) {
-                    // selectSession loads the new session's calls, so this covers both cases.
                     actions.selectSession(sessions[0].session_id)
-                } else if (reloadSelected && values.selectedSessionId) {
-                    actions.loadToolCalls(values.selectedSessionId)
                 }
             },
         }

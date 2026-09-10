@@ -165,6 +165,30 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert listed(None, False) == {"kept", "dropped"}
         assert listed(properties, filter_test_accounts) == expected
 
+    def test_shared_filters_narrow_the_calls_but_not_the_session_bounds(self) -> None:
+        # session_start bounds the detail scan and the persisted intent summary, both of which
+        # describe the whole session. If a filter moved it to the first *matching* call, the
+        # detail view would lose the earlier calls and a generated summary would be stored
+        # permanently from a fragment of the session.
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        started_at = now - timedelta(minutes=30)
+        self._seed_session(session_id, ["docs_search"], session_start=started_at, session_end=started_at)
+        self._seed_session(
+            session_id,
+            ["query_run", "query_run"],
+            session_start=now - timedelta(minutes=10),
+            session_end=now - timedelta(minutes=9),
+        )
+
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0, properties=_tool_name_filter("query_run"))
+        session = next(s for s in page.results if s.session_id == session_id)
+
+        assert session.tool_calls == 2
+        assert session.tools_used == ["query_run"]
+        # Still the docs_search call at -30m, which the filter excluded, not the -10m query_run.
+        assert session.session_start < now - timedelta(minutes=20)
+
     def test_lists_sessions_in_newest_first_order(self) -> None:
         session_a = str(uuid7())
         session_b = str(uuid7())
