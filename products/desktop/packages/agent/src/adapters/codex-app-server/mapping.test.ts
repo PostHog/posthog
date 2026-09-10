@@ -288,6 +288,7 @@ describe("mapAppServerNotification", () => {
         sessionUpdate: "tool_call_update",
         toolCallId: "spawn-1",
         status: "completed",
+        _meta: { posthog: { toolName: "spawn_agent" } },
       },
     });
   });
@@ -731,8 +732,51 @@ describe("mcpToolCall result rendering", () => {
         content: [
           { type: "content", content: { type: "text", text: "42 rows" } },
         ],
+        _meta: {
+          posthog: {
+            toolName: "mcp__posthog__query",
+            mcp: { server: "posthog", tool: "query" },
+          },
+        },
+        rawOutput: { content: [{ type: "text", text: "42 rows" }] },
       },
     });
+  });
+
+  it("strips null optional fields from the raw MCP result", () => {
+    const result = mapAppServerNotification(
+      "s-1",
+      APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED,
+      {
+        item: {
+          type: "mcpToolCall",
+          id: "m3",
+          server: "posthog",
+          tool: "exec",
+          status: "completed",
+          arguments: { command: "call query-trends" },
+          result: {
+            content: [{ type: "text", text: "Date|Pageviews" }],
+            structuredContent: null,
+            _meta: {
+              ui: { resourceUri: "ui://posthog/query-results.html" },
+              "com.posthog.mcp/app_data": { query: {}, results: [] },
+            },
+          },
+        },
+      },
+    );
+    const rawOutput = result?.update as {
+      rawOutput?: Record<string, unknown>;
+    };
+    expect(rawOutput.rawOutput).toEqual({
+      content: [{ type: "text", text: "Date|Pageviews" }],
+      _meta: {
+        ui: { resourceUri: "ui://posthog/query-results.html" },
+        "com.posthog.mcp/app_data": { query: {}, results: [] },
+      },
+    });
+    expect("structuredContent" in (rawOutput.rawOutput ?? {})).toBe(false);
   });
 
   it("renders a failed mcpToolCall's error message", () => {

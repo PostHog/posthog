@@ -3,12 +3,12 @@ import { Fragment } from 'react'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -52,6 +52,11 @@ const getRuntimeLabel = (runtime: string): string => {
             return runtime
     }
 }
+
+// Shared handler for fields the feed deliberately never describes. EXCLUDED_FLAG_FIELDS is
+// derived by identity from this function, so excluded fields stay distinguishable from
+// describable fields whose handler returned null for one particular change.
+const excludedFieldHandler = (): null => null
 
 const featureFlagActionsMapping: Record<
     keyof FeatureFlagType,
@@ -377,39 +382,43 @@ const featureFlagActionsMapping: Record<
         return { description: changes }
     },
     // fields that are excluded on the backend
-    id: () => null,
-    created_at: () => null,
-    created_by: () => null,
-    updated_at: () => null,
-    experiment_set: () => null,
-    experiment_set_metadata: () => null,
-    features: () => null,
-    usage_dashboard: () => null,
-    can_edit: () => null,
-    has_enriched_analytics: () => null,
-    surveys: () => null,
-    user_access_level: () => null,
-    is_remote_configuration: () => null,
-    has_encrypted_payloads: () => null,
-    status: () => null,
-    version: () => null,
-    last_modified_by: () => null,
-    last_called_at: () => null,
-    is_used_in_replay_settings: () => null,
-    _create_in_folder: () => null,
+    id: excludedFieldHandler,
+    created_at: excludedFieldHandler,
+    created_by: excludedFieldHandler,
+    updated_at: excludedFieldHandler,
+    experiment_set: excludedFieldHandler,
+    experiment_set_metadata: excludedFieldHandler,
+    features: excludedFieldHandler,
+    usage_dashboard: excludedFieldHandler,
+    can_edit: excludedFieldHandler,
+    has_enriched_analytics: excludedFieldHandler,
+    surveys: excludedFieldHandler,
+    user_access_level: excludedFieldHandler,
+    is_remote_configuration: excludedFieldHandler,
+    has_encrypted_payloads: excludedFieldHandler,
+    status: excludedFieldHandler,
+    version: excludedFieldHandler,
+    last_modified_by: excludedFieldHandler,
+    last_called_at: excludedFieldHandler,
+    is_used_in_replay_settings: excludedFieldHandler,
+    _create_in_folder: excludedFieldHandler,
 }
 
+const EXCLUDED_FLAG_FIELDS = new Set(
+    Object.keys(featureFlagActionsMapping).filter(
+        (field) => featureFlagActionsMapping[field as keyof FeatureFlagType] === excludedFieldHandler
+    )
+)
+
 const getActorName = (logItem: ActivityLogItem): JSX.Element => {
-    const userName = userNameForLogItem(logItem)
     if (logItem.detail.trigger?.job_type === 'scheduled_change') {
         return (
             <>
-                <strong className="ph-no-capture">{userName}</strong>{' '}
-                <span className="text-muted">(via scheduled change)</span>
+                <ActivityLogUserName logItem={logItem} /> <span className="text-muted">(via scheduled change)</span>
             </>
         )
     }
-    return <strong className="ph-no-capture">{userName}</strong>
+    return <ActivityLogUserName logItem={logItem} />
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -524,6 +533,18 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             return {
                 description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
             }
+        }
+
+        const updateChanges = logItem.detail.changes || []
+        if (
+            updateChanges.length > 0 &&
+            updateChanges.every((change) => change.field && EXCLUDED_FLAG_FIELDS.has(change.field))
+        ) {
+            // Every change is to an excluded field, which happens when a save only bumps the
+            // optimistic-concurrency `version`. The fallback would render a contentless
+            // "updated <flag>" row, so drop the entry instead. A describable change whose
+            // handler produced no text still falls through to the generic fallback.
+            return { description: null }
         }
     }
 

@@ -158,6 +158,7 @@ class PostgresAdapter:
         with request.timings.measure("postgres_source_validation"):
             with request.timings.measure("postgres_source_helpers_import"):
                 from products.warehouse_sources.backend.facade.source_management import (
+                    HostNotAllowedError,
                     _get_sslmode,
                     source_requires_ssl,
                 )
@@ -179,7 +180,13 @@ class PostgresAdapter:
             with request.timings.measure("postgres_execute"):
                 with ExitStack() as tunnel_stack:
                     with request.timings.measure("postgres_tunnel_open", emit_span=True):
-                        host, port = tunnel_stack.enter_context(postgres_source.with_ssh_tunnel(source_config))
+                        try:
+                            host, port = tunnel_stack.enter_context(postgres_source.with_ssh_tunnel(source_config))
+                        except HostNotAllowedError as error:
+                            # `validate_source_config` already ran the host check, but a short-TTL
+                            # record can pass there and resolve private on this second lookup. Surface
+                            # it as a user query error, matching the validation-time rejection.
+                            raise ExposedHogQLError(str(error)) from error
                     connection_kwargs: PostgresConnectionKwargs = {
                         "host": host,
                         "port": port,

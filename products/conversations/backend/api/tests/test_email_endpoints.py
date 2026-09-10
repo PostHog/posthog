@@ -960,10 +960,15 @@ class TestEmailMultiConfig(BaseTest):
         # Domain NOT deleted from Mailgun since billing@ still uses it
         mock_delete.assert_not_called()
 
+    @patch("products.conversations.backend.api.email_settings.logger.info")
     @patch("products.conversations.backend.api.email_settings.mailgun_get_domain", return_value=None)
     @patch(
         "products.conversations.backend.api.email_settings.mailgun_add_domain",
-        side_effect=MailgunDomainConflict("Domain example.com is already registered by another Mailgun account"),
+        side_effect=MailgunDomainConflict(
+            "Domain example.com already exists",
+            provider_message="domain example.com already exists",
+            status_code=400,
+        ),
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch(
@@ -976,6 +981,7 @@ class TestEmailMultiConfig(BaseTest):
         mock_mailgun_delete: MagicMock,
         _mock_mailgun_add: MagicMock,
         _mock_get_domain: MagicMock,
+        mock_logger_info: MagicMock,
     ):
         response = self.client.post(
             "/api/conversations/v1/email/connect",
@@ -983,9 +989,22 @@ class TestEmailMultiConfig(BaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 409
+        assert response.json()["error"] == (
+            "example.com is already registered with another Mailgun account. If that registration is no longer "
+            "needed, remove it and try again. If you cannot find it, contact Mailgun support."
+        )
         assert EmailChannel.objects.filter(team=self.team).count() == 0
         mock_mailgun_delete.assert_not_called()
+        mock_logger_info.assert_called_once_with(
+            "email_connect_mailgun_domain_conflict",
+            team_id=self.team.id,
+            domain="example.com",
+            error="Domain example.com already exists",
+            mailgun_status=400,
+            mailgun_message="domain example.com already exists",
+            conflict_reason="registered_to_another_account",
+        )
 
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
@@ -995,8 +1014,8 @@ class TestEmailMultiConfig(BaseTest):
         [
             ("already_unverified", "unverified", "unverified", 200),
             ("stale_active_reverifies_unverified", "active", "unverified", 200),
-            ("still_active_after_reverify", "active", "active", 400),
-            ("disabled", "disabled", "disabled", 400),
+            ("still_active_after_reverify", "active", "active", 409),
+            ("disabled", "disabled", "disabled", 409),
         ]
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_verify_domain")
@@ -1036,7 +1055,7 @@ class TestEmailMultiConfig(BaseTest):
             assert config.dns_records == fresh_records
             mock_delete.assert_called_once_with("example.com")
         else:
-            assert "cannot be registered" in response.json()["error"]
+            assert "already registered with Mailgun" in response.json()["error"]
             assert not EmailChannel.objects.filter(team=self.team).exists()
             mock_delete.assert_not_called()
 
@@ -1064,8 +1083,8 @@ class TestEmailMultiConfig(BaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == 400
-        assert "cannot be registered" in response.json()["error"]
+        assert response.status_code == 502
+        assert "could not check the existing Mailgun registration" in response.json()["error"]
         assert EmailChannel.objects.filter(team=self.team).count() == 0
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
@@ -1841,14 +1860,14 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         return comment, outbox
 
     def _run_reply(self, ticket: Ticket, content: str = "Reply from agent") -> tuple[Comment, EmailOutboxMessage]:
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         comment, outbox = self._create_outbox(ticket, content=content)
         send_email_reply(str(outbox.id))
         outbox.refresh_from_db()
         return comment, outbox
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_uses_ticket_config(self, mock_send_mime: MagicMock):
         config1 = self._create_config("support@example.com", "aaa111")
         self._create_config("billing@example.com", "bbb222")
@@ -1889,9 +1908,9 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             ("no_customer_email", "no customer email"),
         ]
     )
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_undeliverable_reply_fails_visibly(self, name: str, expected_error: str, mock_send_mime: MagicMock):
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         config = self._create_config("support@example.com", "aaa111")
         if name == "email_disabled":
@@ -1935,7 +1954,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             ("domain_not_registered", MailgunDomainNotRegistered("gone from mailgun"), True),
         ]
     )
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_terminal_errors_mark_failed(
         self, _name: str, error: Exception, flips_domain_verified: bool, mock_send_mime: MagicMock
     ):
@@ -1953,7 +1972,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         config.refresh_from_db()
         assert config.domain_verified is (not flips_domain_verified)
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_delivers_to_team_member_ticket(self, mock_send_mime: MagicMock):
         """An in-app agent reply on a ticket opened by a team member (e.g. dogfooding
         the support inbox) must still be delivered to them."""
@@ -1968,11 +1987,11 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert mock_send_mime.call_args[1]["recipients"] == [self.user.email]
         assert outbox.status == EmailOutboxMessage.Status.SENT
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_skips_comment_from_inbound_email(self, mock_send_mime: MagicMock):
         """Last-mile echo guard: an outbox row pointing at a comment that itself arrived
         via inbound email must never be sent, even if a regression enqueues one."""
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
@@ -2000,7 +2019,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert outbox.status == EmailOutboxMessage.Status.FAILED_PERMANENT
         assert outbox.last_error == "comment originated from inbound email"
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_transient_error_schedules_retry(self, mock_send_mime: MagicMock):
         """Transient errors must NOT be dropped or raised — the row stays pending with a
         backed-off next_attempt_at so the sweeper re-drives it. This is what survives a
@@ -2019,7 +2038,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert outbox.next_attempt_at > before
         assert outbox.locked_until is None
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_reuses_message_id_across_attempts(self, mock_send_mime: MagicMock):
         """A retried send must reuse the same Message-ID so threading/dedup stay stable."""
         config = self._create_config("support@example.com", "aaa111")
@@ -2031,7 +2050,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         original_message_id = outbox.message_id
 
         # Make it due again and let the next attempt succeed.
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         EmailOutboxMessage.objects.filter(id=outbox.id).update(next_attempt_at=timezone.now(), locked_until=None)
         mock_send_mime.side_effect = None
@@ -2046,9 +2065,9 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert original_message_id.encode() in first_mime
         assert original_message_id.encode() in second_mime
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_idempotent_when_already_sent(self, mock_send_mime: MagicMock):
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
@@ -2059,7 +2078,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         mock_send_mime.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_marks_failed_when_no_config(self, mock_send_mime: MagicMock):
         ticket = self._create_ticket(None)
 
@@ -2096,11 +2115,11 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             ("expired_row_is_given_up", "expired", False, EmailOutboxMessage.Status.FAILED_PERMANENT),
         ]
     )
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_flush_pending_email_replies(
         self, _name: str, scenario: str, expect_send: bool, expected_status: str, mock_send_mime: MagicMock
     ):
-        from products.conversations.backend.tasks import EMAIL_OUTBOX_MAX_AGE, flush_pending_email_replies
+        from products.conversations.backend.tasks.email import EMAIL_OUTBOX_MAX_AGE, flush_pending_email_replies
 
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
