@@ -75,7 +75,10 @@ export function extractVisualizationArtifact(message: ToolCallMessage): Visualiz
         return null
     }
 
-    const query = output.query
+    // Must be a record, not just truthy: the widget hands this straight to `<Query>`, which JSON-parses
+    // a string query and replaces the whole card with a parse error when that fails. A tool output whose
+    // query survived the wire as text is unrenderable here — fall back to the generic card.
+    const query = asRecord(output.query)
     if (!query) {
         return null
     }

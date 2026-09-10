@@ -79,6 +79,17 @@ describe('mcp tool adapter extractors', () => {
             { content: [null, { type: 'image', data: 'unused', mimeType: 'image/png' }] },
             { content: [{ type: 'text', text: 'No insight found' }] },
             { structuredContent: savedInsight, isError: true },
+            // The MCP server writes `query` into its TOON response as raw pretty-printed JSON. TOON is
+            // line based, so the decoder reads the value as the literal string `{` and drops the keys
+            // after it. That string used to reach `<Query>`, which JSON-parsed it and failed.
+            {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'short_id: abc12345\nname: Signups\nquery: {\n  "kind": "TrendsQuery"\n}\ndeleted: false',
+                    },
+                ],
+            },
         ])('returns null for missing, malformed, or failed insight output: %j', (rawOutput) => {
             expect(extractVisualizationArtifact(toolMessage(rawOutput))).toBeNull()
         })
