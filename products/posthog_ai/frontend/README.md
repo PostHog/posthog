@@ -68,7 +68,7 @@ once when `'read-only'`. This is what all three inbox embeds drop in.
 ### Live embed with composer (tasks-style; caller owns the composer + draft/queue)
 
 Compose the `RunSurface` compound (`api/runSurface`, eager) and pass your composer UI as the
-`RunSurface.Composer` children — the slot owns prompt-vs-composer precedence and the null-bootstrap gate; you
+`RunSurface.Composer` children — the slot owns prompt-vs-composer precedence and the bootstrap gate (optimistic startup keeps the composer visible); you
 own the composer. See `scenes/TaskTracker/components/TaskRunChat.tsx` for the full wiring.
 
 ```tsx
@@ -140,6 +140,13 @@ stream.actions.startOptimisticRun(message) // empty → "spinning up" + the type
 
 // …after api create/run resolve, set runId on the same surface to attach + stream it.
 ```
+
+For an interactive optimistic start, mount `runInteractionLogic` with empty `taskId`/`runId` and explicit
+`streamKey`/`interactionKey` values. Hold its mount through creation, then supply the real IDs with the same
+keys. The composer preserves its draft, settings, and editable "Up next" queue through attachment.
+Startup submissions stay local until the agent starts and its first turn completes; manual Steer is available
+once the agent has started. Configuration changes apply to the next message, not the initial prompt.
+Release the held mount when the creation is abandoned or fails. Later successor runs use their own interaction key.
 
 The attach is **idempotent and seed-preserving** via `runStreamLogic`'s `bootstrappedRunId` /
 `awaitingOptimisticAttach` state — so the run can be adopted by a _different_ surface that mounts later, not

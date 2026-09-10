@@ -31,6 +31,9 @@ The system provisions the sandbox, clones a GitHub repo, starts an agent server,
 
 The run thread shows startup state in a progress accordion, with completed steps available in its history.
 Before progress arrives, it shows "Setting up sandbox", including when resuming a finished run.
+The full task composer remains available during startup.
+Follow-up messages collect in "Up next" and send after the first response finishes.
+Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
 ```text
