@@ -902,7 +902,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
         # As a nested field there is no stored row to compare against; the parent serializer
         # re-runs this serializer bound to the row in validate_workflows_config.
-        if self.parent is not None:
+        if self.parent:
             return value
         # Support raises a project past the ceiling in Django admin; clients that echo the whole
         # config must be able to send that value back unchanged. Read the row fresh: the
