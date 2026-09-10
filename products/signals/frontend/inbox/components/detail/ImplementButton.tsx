@@ -21,22 +21,22 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
 }
 
 export function ImplementButton({ report }: { report: SignalReport }): JSX.Element {
-    const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { isCreatingPr, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { implementationSlotClaim } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
-        aiConsentDisabledReason ??
+        createPrDisabledReason ??
         (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined)
 
     const submit = (note: string): void => {
         if (isCreatingPr || implementationSlotClaim) {
             return
         }
-        if (aiConsentDisabledReason) {
-            lemonToast.error(aiConsentDisabledReason)
+        if (createPrDisabledReason) {
+            lemonToast.error(createPrDisabledReason)
             return
         }
         const trimmed = note.trim()

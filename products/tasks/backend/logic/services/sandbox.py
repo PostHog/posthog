@@ -799,6 +799,9 @@ def wait_for_health_check(
     return False
 
 
+HEALTH_CURL_MAX_TIME_SECONDS = 2
+
+
 def build_health_check_command(
     port: int, max_attempts: int = 60, poll_interval: float = 0.5, pid_file: str | None = None
 ) -> str:
@@ -807,10 +810,14 @@ def build_health_check_command(
         if pid_file is not None
         else ""
     )
+    # The attempt count assumes an instant poll. A poll that waits on curl or python startup
+    # would otherwise outrun the exec timeout, and the caller never sees the loop's result.
+    budget_seconds = health_check_budget_seconds(max_attempts, poll_interval)
     return (
-        f"for i in $(seq 1 {max_attempts}); do "
+        "SECONDS=0; i=0; while :; do "
+        "  i=$((i + 1)); "
         f"{process_check}"
-        f"  body=$(curl -s --max-time 2 http://localhost:{port}/health); "
+        f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
         '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
@@ -820,14 +827,18 @@ def build_health_check_command(
         'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
         f'\' "$body" && echo "ok:$i" && exit 0; '
         "  fi; "
+        f'  if [ "$i" -ge {max_attempts} ] || [ "$SECONDS" -ge {budget_seconds} ]; then exit 1; fi; '
         f"  sleep {poll_interval}; "
-        f"done; "
-        f"exit 1"
+        "done"
     )
 
 
+def health_check_budget_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
+    return int(max_attempts * poll_interval)
+
+
 def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
-    return max(30, int(max_attempts * poll_interval) + 5)
+    return max(30, health_check_budget_seconds(max_attempts, poll_interval) + HEALTH_CURL_MAX_TIME_SECONDS + 5)
 
 
 SandboxClass = type[SandboxBase]

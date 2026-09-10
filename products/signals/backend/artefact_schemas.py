@@ -183,9 +183,25 @@ class RelevantCommit(BaseModel):
 
 
 class SuggestedReviewerEntry(BaseModel):
-    """One reviewer in a `suggested_reviewers` artefact's content list."""
+    """One reviewer in a `suggested_reviewers` artefact's content list.
 
-    github_login: str = Field(description="GitHub login identifying the reviewer (stored lowercased).")
+    A reviewer is a PostHog user; a GitHub login is an attribute some of them have. An entry carries
+    `user_uuid`, `github_login`, or both, and readers match on either — so a teammate who never
+    connected GitHub still routes a report. Entries written before `user_uuid` existed carry a login
+    alone, and read-time enrichment resolves those the way it always did.
+    """
+
+    github_login: str | None = Field(
+        default=None,
+        description=(
+            "GitHub login identifying the reviewer (stored lowercased). Null when the reviewer has "
+            "no linked GitHub account."
+        ),
+    )
+    user_uuid: str | None = Field(
+        default=None,
+        description="UUID of the PostHog user this entry routes to. Null on entries written before reviewers carried one.",
+    )
     github_name: str | None = Field(default=None, description="Optional human-readable display name.")
     relevant_commits: list[RelevantCommit] = Field(
         default_factory=list,
@@ -217,12 +233,32 @@ class SuggestedReviewerEntry(BaseModel):
 
     @field_validator("github_login")
     @classmethod
-    def github_login_must_not_be_empty(cls, v: str) -> str:
+    def github_login_must_not_be_empty(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         # Strip on the way in: read-time enrichment and autostart look logins up with
         # `login.lower()` and no strip, so a padded login would persist but never match.
         return v.strip()
+
+    @field_validator("user_uuid")
+    @classmethod
+    def user_uuid_must_be_a_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        # Canonicalize rather than keep the caller's spelling: readers match this value with a jsonb
+        # containment filter, where a differently-formatted UUID for the same user never hits.
+        try:
+            return str(UUID(v.strip()))
+        except (ValueError, AttributeError):
+            raise ValueError("must be a UUID")
+
+    @model_validator(mode="after")
+    def must_identify_a_reviewer(self) -> SuggestedReviewerEntry:
+        if not self.github_login and not self.user_uuid:
+            raise ValueError("must carry a github_login, a user_uuid, or both")
+        return self
 
 
 class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
