@@ -1,5 +1,8 @@
 # Signals implementation PR lifecycle
 
+The report detail **Implement** button stays in place on hover so its border
+remains visible. This uses a local hover-depth override, not a shared button change.
+
 Report PR lookups use `fetch_implementation_pr_state_for_reports` in
 `products/signals/backend/implementation_pr.py`. A non-empty assignment PR takes
 precedence. Otherwise, lookup falls back to associated task-run artefacts and
