@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArchive, IconCode, IconCopy, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCode, IconCopy, IconDownload, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -63,6 +64,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
+    ExporterFormat,
     ProgressStatus,
     SidePanelTab,
     Survey,
@@ -707,7 +709,30 @@ function SurveyResponsesContent(): JSX.Element {
 
     return (
         <div className="px-4 pb-4 space-y-6">
-            <SurveyResultsFiltersBar />
+            <SurveyResultsFiltersBar
+                actions={
+                    <ExportButton
+                        id="survey-responses-export"
+                        type="secondary"
+                        size="small"
+                        icon={<IconDownload />}
+                        buttonCopy="Export responses"
+                        disabledReason={!dataTableQuery ? 'No responses to export yet.' : undefined}
+                        items={
+                            dataTableQuery
+                                ? [ExporterFormat.CSV, ExporterFormat.XLSX].map((format) => ({
+                                      title: format === ExporterFormat.CSV ? 'Export as CSV' : 'Export as Excel',
+                                      export_format: format,
+                                      export_context: {
+                                          source: dataTableQuery,
+                                          filename: `survey-${survey.name}-responses`,
+                                      },
+                                  }))
+                                : []
+                        }
+                    />
+                }
+            />
             <SurveyResultsRefreshStatus visible={isRefreshingResults} />
             {isInitialSurveyLoad ? (
                 <LemonSkeleton />
