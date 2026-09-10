@@ -98,18 +98,60 @@ concurrency:
 The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
 By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally when a step reads `needs.<dep>.result`, because the convention is not universally followed.
 A job that inspects results without gating anything opts out with `# hogli-lint: not-a-required-gate — <reason>` above the job key.
-Gates and the workers they inspect need **opposite** conditions:
+Gates and the workers they inspect share the **same** condition:
 
-| Job     | Condition          | Why                                                                           |
-| ------- | ------------------ | ----------------------------------------------------------------------------- |
-| Gate    | `if: always()`     | It must run and emit an explicit verdict, even when everything upstream died. |
-| Workers | `if: !cancelled()` | So a superseded run actually stops instead of holding the concurrency slot.   |
+| Job     | Condition                 | Why                                                                                                           |
+| ------- | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Gate    | `if: ${{ !cancelled() }}` | It emits an explicit verdict on every completed run, and a superseded run records `cancelled`, not `failure`. |
+| Workers | `if: !cancelled()`        | So a superseded run actually stops instead of holding the concurrency slot.                                   |
 
-The gate condition must be exactly `always()`, with optional `${{ }}` wrapping.
-Adding another predicate can skip the required check, so `always() && <condition>` is rejected.
+The gate condition must contain `!cancelled()`, with optional `${{ }}` wrapping.
+`always()` is rejected: it is identical to `!cancelled()` on any run that is not cancelled, but on a superseded run it runs the gate after the cancel and reports `failure`, which inflates every CI failure-rate metric with runs a developer merely pushed over.
 
-`!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
-Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
+**Extra predicates may only be OR-ed on, never AND-ed.**
+This is a correctness rule, not a style one.
+A conjunction gives the gate a second way to be false, and a job skipped by its own condition records `skipped`, which branch protection reads as a pass.
+Both conclusions occur in the same cancelled run: in [run 33496887370](https://github.com/PostHog/posthog/actions/runs/33496887370) `Calculate running time` recorded `cancelled` while `Backend coverage report` recorded `skipped`, because an AND-ed predicate of its own was already false.
+A disjunction cannot be false while `!cancelled()` is true, so cancellation stays the gate's one false predicate and the conclusion stays `cancelled`.
+
+Cancellation still fails closed.
+A gate on `!cancelled()` that never starts records conclusion `cancelled`, never `skipped`.
+Measured on a superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529762)): the gate recorded `cancelled` with zero steps, while the `always()` control ran after the cancel and recorded `failure`.
+GitHub's [status checks reference](https://docs.github.com/en/pull-requests/reference/status-checks) lists `success`/`neutral`/`skipped` as passing and never places `cancelled` among them, and a commit whose only checks are cancelled rolls up to `FAILURE` ([evidence](https://github.com/PostHog/posthog/actions/runs/33513732017)).
+That is inference rather than a documented guarantee, which is the reason for the next rule.
+
+**A workflow that cancels its own run must OR that signal onto its gate.**
+`ci-backend` cancels itself when repo checks or OpenAPI types fail deterministically, to stop paying for runners on a failure a retry cannot fix.
+Under a bare `!cancelled()` those real failures would report `cancelled` too, which both hides them from the failure-rate metric and rests merge safety on the inference above.
+OR-ing the deterministic-failure output back on keeps the honest verdict, because the disjunct is true, so the gate dispatches despite the cancel:
+
+```yaml
+if: >
+  !cancelled()
+  || needs.repo-checks.outputs.deterministic_failure == 'true'
+  || needs.check-openapi-types.outputs.deterministic_failure == 'true'
+```
+
+Measured on a self-cancelled run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529687)): the bare `!cancelled()` gate recorded `cancelled`, the OR-ed gate ran and recorded `failure`.
+Only superseded runs then report `cancelled`, and every real failure keeps a `failure` conclusion.
+
+**A failure-rate metric keyed on a gate job must exclude `cancelled`.**
+Only `success` and a decisive failure are a verdict, so a denominator that counts `cancelled` measures push behavior, not test health.
+Find those rows through the _run's_ conclusion, not the gate job's.
+The gate job's own conclusion changed on 2026-09-04: a superseded gate recorded `failure` before that date and records `cancelled` after it.
+A metric that drops the superseded rows from the numerator and the denominator stays comparable across that date.
+One that filters on the gate job's conclusion alone does not.
+The run's conclusion lives in the warehouse table `github_workflow_runs`.
+The `posthog-ci-running-time` event cannot supply it: the action fills that event's `conclusion` property from the job named in its `status-job` input, and every caller passes a gate job name.
+It writes the same value to the `workflow_run` group, so both of those fields carry a gate conclusion under a run-shaped name.
+A metric keyed on jobs joins `github_workflow_jobs` to that table on `run_id`, then scopes the job side to a single `run_attempt`.
+The runs snapshot keeps one row per run id, at its newest attempt, so an unscoped read stamps that conclusion onto every earlier attempt's gate and counts the gate once per attempt.
+Do not enforce that scope by joining `run_attempt` equality: it blanks or drops every earlier attempt, which is the population that actually ran after a partial re-run (`products/engineering_analytics/backend/logic/views/job_costs.py` records that decision).
+Reuse the canonical predicates instead of writing a new denominator: `CONCLUSIVE_RUN_CONDITION` in `products/engineering_analytics/backend/logic/queries/_workflow_filters.py`, and `computeHealthSummary` in `products/engineering_analytics/frontend/lib/runHealth.ts`.
+That run-level key identifies superseded runs only where the workflow never cancels its own run.
+Where it does (the rule above), a deterministic failure records run conclusion `cancelled` too, so the canonical predicates drop that honest `failure` together with the superseded rows.
+Measured on Backend CI [run 34204389260](https://github.com/PostHog/posthog/actions/runs/34204389260): the run recorded `cancelled` while the `Django Tests Pass` gate recorded `failure`.
+Keep those rows in the numerator and the denominator, and find them through the cancel jobs: each one dispatches only on its deterministic-failure signal, so a `success` from any of them marks that population on both sides of 2026-09-04.
 
 Four rules for the gate body:
 
@@ -126,8 +168,20 @@ Four rules for the gate body:
    Comparisons in another step, comments, logs, or branches that do not exit nonzero prove nothing and are rejected.
    A result whose guard `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the checks moved inline.
 
-`WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
+`WF007` enforces 1, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
+
+### What GitHub does with each conclusion
+
+Rule 3 works because a `skipped` check run satisfies a required context, in the Trunk queue as well as on GitHub. `Build Docker image` rides on that: it concludes `skipped` on most PRs and they merge anyway.
+
+Three cases behave in ways the name does not suggest:
+
+- A required context that **no check run reports** stays pending and blocks. A trigger-level `paths:` filter that silences the whole workflow produces exactly this.
+- A **job-level** `continue-on-error: true` posts a `failure` check run even though dependents read `success` and the run goes green. Use step-level `continue-on-error` plus an explicit verdict step instead.
+- A **matrix that expands to zero cells** fails its dependents on GitHub Actions and posts no check run at all. Guard any `fromJSON` matrix with an `if:` that skips the job when the list is empty.
+
+Required contexts are pinned to one app: every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app, so a check run from any other app never satisfies one however exactly the name matches. [`/depot-ci`](../depot-ci/references/posthog-check-run-semantics.md) has the measurements, the rulesets query, and how Depot CI differs.
 
 ## Checkout / clone — sparse first, then shallow
 
@@ -262,7 +316,7 @@ The default is 6 hours — a hung job burns paid minutes silently.
 
 ## Caching
 
-Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, save gated to master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
+Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, restore only; `pnpm-store-cache.yml` writes it on master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 
@@ -324,16 +378,20 @@ Those suites skip `push` and take their master coverage — and their Trunk flak
 
 Crons are offset so the runs do not all fire at once, and the offsets live here rather than in the workflows:
 
-| Workflow          | Minute |
-| ----------------- | ------ |
-| `ci-frontend.yml` | 7      |
-| `ci-nodejs.yml`   | 13     |
-| `ci-backend.yml`  | 23     |
-| `ci-dagster.yml`  | 33     |
-| `ci-python.yml`   | 43     |
-| `ci-mcp.yml`      | 53     |
+| Workflow                            | Minute |
+| ----------------------------------- | ------ |
+| `ci-frontend.yml`                   | 7      |
+| `ci-nodejs.yml`                     | 13     |
+| `ci-backend.yml`                    | 23     |
+| `ci-dagster.yml`                    | 33     |
+| `ci-python.yml`                     | 43     |
+| `ci-mcp.yml`                        | 53     |
+| `ci-backend-update-test-timing.yml` | 17     |
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
+
+`ci-backend-update-test-timing.yml` sits in the table too.
+It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
 
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.

@@ -346,21 +346,21 @@ export class PostHogAPIClient {
   }
 
   /**
-   * File one task-analysis finding. The server owns the findings list, validates the
+   * Record one task-analysis activity. The server owns the activities list, validates the
    * shape and enforces the per-run cap, so this is the only way to add one.
    */
-  async reportAnalysisInsight(
+  async reportAnalysisActivity(
     taskId: string,
     runId: string,
-    insight: Record<string, unknown>,
+    activity: Record<string, unknown>,
     signal?: AbortSignal,
-  ): Promise<{ insight_index: number }> {
+  ): Promise<{ activity_index: number }> {
     const teamId = this.getTeamId();
-    return this.apiRequest<{ insight_index: number }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-insight/`,
+    return this.apiRequest<{ activity_index: number }>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-activity/`,
       {
         method: "POST",
-        body: JSON.stringify(insight),
+        body: JSON.stringify(activity),
         signal,
       },
     );
@@ -479,6 +479,7 @@ export class PostHogAPIClient {
     text: string,
     textParts?: string[],
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     const teamId = this.getTeamId();
     // Send `text_parts` alongside the joined `text` so backends that understand
@@ -486,7 +487,12 @@ export class PostHogAPIClient {
     // backends still get the flat `text` field they already handle.
     // `message_id` correlates the relay with the user message that initiated
     // the turn; it is omitted when no message id is known (e.g. boot prompt).
-    const body: { text: string; text_parts?: string[]; message_id?: string } = {
+    const body: {
+      text: string;
+      text_parts?: string[];
+      message_id?: string;
+      trace_id?: string;
+    } = {
       text,
     };
     if (textParts && textParts.length > 0) {
@@ -494,6 +500,9 @@ export class PostHogAPIClient {
     }
     if (messageId) {
       body.message_id = messageId;
+    }
+    if (traceId) {
+      body.trace_id = traceId;
     }
     await this.apiRequest<{ status: string }>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/relay_message/`,

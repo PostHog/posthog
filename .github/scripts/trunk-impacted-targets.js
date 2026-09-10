@@ -550,9 +550,6 @@ const TRIPWIRE_RULES = [
     ['manage.py', PYTHON],
     ['pytest_boot_gc.py', PYTHON],
     ['dagster_cloud.yaml', PYTHON],
-    // Serves the Django app in the production image, so the module paths it
-    // names are the ones a Python change can rename out from under it.
-    ['unit.json.tpl', PYTHON],
 
     // The pnpm workspace's lockfile and manifests. A resolution change here can
     // red the python lanes, which install the root package and drive pytest
@@ -688,7 +685,6 @@ const TRIPWIRE_RULES = [
     ['bin/posthog-node', APP_IMAGE],
     ['bin/temporal-django-worker', APP_IMAGE],
     ['bin/granian_metrics.py', APP_IMAGE],
-    ['bin/unit_metrics.py', APP_IMAGE],
     ['bin/start-backend', APP_IMAGE],
     ['bin/start-frontend', APP_IMAGE],
     // The schema and taxonomy codegen pipeline, which turns

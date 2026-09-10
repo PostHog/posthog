@@ -129,6 +129,7 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
     redis_stream = TaskRunRedisStream(
         get_task_run_stream_key(claims.run_id),
         presence_gated=claims.presence_gated,
+        thin_tail=claims.thin_tail,
         origin_product=claims.origin_product,
     )
 

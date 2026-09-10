@@ -3,7 +3,6 @@ import featureFlagKeys from "./feature-flag-keys.json" with { type: "json" };
 export const BILLING_FLAG = featureFlagKeys.BILLING_FLAG;
 export const CLOUD_COMPUTE_BILLING_FLAG =
   featureFlagKeys.CLOUD_COMPUTE_BILLING_FLAG;
-export const SPEND_ANALYSIS_FLAG = featureFlagKeys.SPEND_ANALYSIS_FLAG;
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   featureFlagKeys.EXPERIMENT_SUGGESTIONS_FLAG;
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
@@ -45,6 +44,8 @@ export const CODEX_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CODEX_OWN_SUBSCRIPTION_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_FLAG;
+export const CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG =
+  featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG;
 // Gates importing and relaying local MCP servers into cloud task runs.
 export const LOCAL_MCP_IMPORT_FLAG = featureFlagKeys.LOCAL_MCP_IMPORT_FLAG;
 /**

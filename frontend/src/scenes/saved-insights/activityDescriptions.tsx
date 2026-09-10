@@ -23,7 +23,6 @@ import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { HogQLQuery, InsightQueryNode, QuerySchema } from '~/queries/schema/schema-general'
 import {
     isDataTableNodeWithHogQLQuery,
@@ -83,11 +82,10 @@ const insightActionsMapping: Record<
     filters: function onChangedFilter(change) {
         const filtersAfter = change?.after as Partial<FilterType>
 
-        return areObjectValuesEmpty(filtersAfter)
-            ? null
-            : summarizeQueryChanges(
-                  filtersToQueryNode(filtersAfter, { source: 'saved_insights_activity_descriptions' })
-              )
+        // Only an insight written before queries logs this field, so these entries are years old and
+        // no new one can be written. Summarizing the definition would mean converting legacy filters,
+        // which no other read path still does, and the headline reads the same either way.
+        return areObjectValuesEmpty(filtersAfter) ? null : { description: ['changed query definition'] }
     },
     query: function onChangedQuery(change) {
         if (change?.action === 'deleted') {

@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -8,7 +8,9 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.models import OAuthAccessToken, OAuthApplication
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import (
     API_SCOPE_OBJECTS,
@@ -155,6 +157,7 @@ SCOUT_REPORT_SCOPES: list[str] = [
 ]
 
 LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
+CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -191,30 +194,55 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #
 # These scopes are object-level rather than tool-level, so each one carries update and delete of
 # every matching object the token can reach, not only the objects the scout created. The reach
-# is not the same for all four, and any surface that offers a grant has to say so plainly:
+# is not the same for all of them, and any surface that offers a grant has to say so plainly:
 #
-#   dashboard:write   Every dashboard in the scout's project. Delete is a recoverable
-#                     soft-delete.
-#   insight:write     Every saved insight in the scout's project. Delete is a recoverable
-#                     soft-delete.
-#   annotation:write  Every annotation in the scout's project, AND every organization-scoped
-#                     annotation in the organization, including ones a sibling project owns
-#                     (see `_filter_queryset_by_parents_lookups` in the annotations viewset).
-#                     An update can also move an organization annotation to the scout's team.
-#   alert:write       Every insight alert in the scout's project. Delete is PERMANENT: the
-#                     viewset has no soft-delete, so it removes the alert and its check
-#                     history for good.
+#   dashboard:write        Every dashboard in the scout's project. Delete is a recoverable
+#                          soft-delete.
+#   insight:write          Every saved insight in the scout's project. Delete is a recoverable
+#                          soft-delete.
+#   annotation:write       Every annotation in the scout's project, AND every organization-scoped
+#                          annotation in the organization, including ones a sibling project owns
+#                          (see `_filter_queryset_by_parents_lookups` in the annotations viewset).
+#                          An update can also move an organization annotation to the scout's team.
+#   alert:write            Every insight alert in the scout's project. Delete is PERMANENT: the
+#                          viewset has no soft-delete, so it removes the alert and its check
+#                          history for good. It also attaches and removes the alert's Slack
+#                          destinations, bounded to workspaces the project already connected, so a
+#                          scout still reaches no URL of its own choosing.
+#   llm_skill:write        Every shared skill on the scout's project: body, description, and
+#                          bundled files. Custom scouts are skills in that same store, so this
+#                          reaches a sibling scout's prompt and the scout's own. Archive marks
+#                          every version deleted and they stay readable. It also gates the
+#                          review-hog perspective, validator, and blind-spot config endpoints,
+#                          which are scoped `llm_skill` because they carry skill bodies. It
+#                          reaches no scout config on its own: the scout create and note
+#                          endpoints require `signal_scout:write` as well.
+#   warehouse_view:write   Every saved query (view) in the scout's project, plus the joins,
+#                          managed viewsets, column annotations, and data quality checks that
+#                          hang off them. Delete is a recoverable soft-delete that refuses a
+#                          view other views depend on. Run and materialize cost warehouse
+#                          compute, bounded by the existing run and materialization throttles.
+#   warehouse_table:write  Every warehouse table in the scout's project, its schema refresh, its
+#                          column annotations, and its data quality checks. Delete is a
+#                          recoverable soft-delete that refuses a table a source owns. Deleting
+#                          a data quality check is the one PERMANENT delete in this set, and a
+#                          check is cheap to recreate.
 #
-# The last two exceed the "recoverable, project-scoped" bar the other two meet. They stay in
-# the v1 set that #94263 puts to the team, because narrowing the set is that decision to make,
-# not a default to assume. Whoever confirms the set has to accept those two reaches, or drop
-# the scopes.
+# `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
+# scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
+# that decision to make, not a default to assume. Whoever confirms the set has to accept those two
+# reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
+# holding it can rewrite the skill body it runs from. That is accepted while the grant is a
+# deliberate per-scout choice a person makes, and the surfaces that offer it say so.
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
         "insight:write",
         "annotation:write",
         "alert:write",
+        "llm_skill:write",
+        "warehouse_view:write",
+        "warehouse_table:write",
     }
 )
 
@@ -261,7 +289,10 @@ class ScoutScopePosture(TypedDict):
     extra_write_scopes: list[str]
 
 
-PosthogMcpScopes = McpScopePreset | list[str] | ScoutScopePosture
+# `ScoutScopePosture` must come before `list[str]`: Temporal's payload converter tries union
+# members in order and `list[str]` accepts a dict, so a posture placed after it decodes as its
+# keys and the run's token holds the scopes `preset` and `extra_write_scopes` instead.
+PosthogMcpScopes = McpScopePreset | ScoutScopePosture | list[str]
 
 MCP_SCOPE_PRESETS = (
     "read_only",
@@ -283,19 +314,35 @@ RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
 
 def scout_scope_posture(
     preset: ScoutScopePreset,
-    extra_write_scopes: Iterable[str] = (),
+    extra_write_scopes: object = (),
 ) -> ScoutScopePosture:
     """Build the scope posture one scout run is dispatched with.
 
-    Callers pass whatever the scout's stored grant holds. Anything outside
-    `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected, because a person is
-    told their input was invalid where they entered it, not at dispatch. A scope removed from
-    the allowlist after it was granted therefore stops reaching new runs with no data migration.
+    Callers pass whatever the scout's stored grant holds, in whatever shape the JSON column holds
+    it. Anything outside `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected,
+    because a person is told their input was invalid where they entered it, not at dispatch. A
+    scope removed from the allowlist after it was granted therefore stops reaching new runs with no
+    data migration. The value is handed to `_grantable_write_scopes` unshaped: `list()` on a stray
+    JSON object would yield its keys, and `{"dashboard:write": false}` would become a grant.
     """
     return {
         "preset": preset,
-        "extra_write_scopes": _grantable_write_scopes(list(extra_write_scopes)),
+        "extra_write_scopes": _grantable_write_scopes(extra_write_scopes),
     }
+
+
+def scout_mcp_scopes(posture: ScoutScopePosture) -> PosthogMcpScopes:
+    """The value to dispatch a scout run with: the plain preset unless the posture adds a grant.
+
+    The preset string and a posture with no extras resolve to the same token, so the string loses
+    nothing. It is also the shape every worker version reads the same way. The dict is newer, and
+    a worker that predates it decodes the dict as `list[str]` and mints a token from its keys, so
+    the run loses every scout tool. Sending the dict only when a grant needs it keeps a worker
+    that lags one deploy behind from taking the whole fleet down with it.
+    """
+    if not posture["extra_write_scopes"]:
+        return posture["preset"]
+    return posture
 
 
 def _grantable_write_scopes(raw: object) -> list[str]:
@@ -306,7 +353,7 @@ def _grantable_write_scopes(raw: object) -> list[str]:
     built, because an unhashable entry makes `set(raw)` raise and aborts the run that a
     malformed grant is supposed to degrade safely.
     """
-    if not isinstance(raw, list):
+    if not isinstance(raw, list | tuple):
         return []
     return sorted({scope for scope in raw if isinstance(scope, str)} & SCOUT_GRANTABLE_WRITE_SCOPES)
 
@@ -378,6 +425,8 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *internal]
     else:
         resolved = [*scopes, *internal]
+    if include_internal_scopes and "organization:write" in resolved:
+        resolved.append(CONTEXT_LAYER_INTERNAL_SCOPE)
     return list(dict.fromkeys(resolved))
 
 
@@ -542,16 +591,51 @@ def get_wizard_app() -> OAuthApplication:
     )
 
 
-def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
+def _organization_id_for_team(team_id: int) -> str:
+    """The organization the run is pinned to. Not the user's current one, which is
+    writable through `PATCH /api/users/@me/` and so cannot carry a ban."""
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    return str(organization_id) if organization_id else ""
+
+
+class WizardIdentityBlockedError(Exception):
+    """The abuse blocklist refuses this identity a wizard credential. Distinct from
+    the mint's RuntimeError cases because it is permanent, and a caller that retries
+    a transient token failure must not retry this one."""
+
+
+def create_wizard_oauth_access_token_for_user(user, team_id: int, *, scopes: list[str] | None = None) -> str:
     """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
 
     Deliberately separate from the sandbox/agent token (`create_oauth_access_token_for_user`) so the
-    wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
+    wizard's scopes stay independent of the agent's. Defaults to the wizard app's
+    configured scope ceiling; `scopes` narrows within it, for a credential whose
+    purpose needs less than the whole ceiling.
+
+    Gated here rather than only at the HTTP kickoff, which a workflow retry or
+    resume reaches with no request in front of it.
     """
+    if wizard_identity_blocked(
+        distinct_id=str(user.distinct_id),
+        email=user.email,
+        surface="wizard_mint",
+        user_uuid=str(user.uuid),
+        organization_ids=[_organization_id_for_team(team_id)],
+        team_ids=[team_id],
+    ):
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
     app = get_wizard_app()
 
     ceiling = resolve_ceiling(app.ceiling_scopes)
     if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    if scopes is None:
+        return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    if not scopes:
+        raise RuntimeError("Refusing to mint a wizard token with no scopes.")
+    outside = sorted(set(scopes) - set(ceiling))
+    if outside:
+        raise RuntimeError(f"Wizard app cannot grant {', '.join(outside)}.")
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(set(scopes)))

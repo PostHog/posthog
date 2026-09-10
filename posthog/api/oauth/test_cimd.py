@@ -1118,6 +1118,9 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("invalid", response.json().get("error", "").lower())
+        # A CIMD client_id is a URL we resolve, not a registration we hold, so the description
+        # must point at the metadata document instead of suggesting the other cloud region.
+        self.assertIn("client metadata document", response.json()["error_description"])
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_mismatched_redirect_uri_rejected(self, mock_get, _url_mock):

@@ -1,6 +1,11 @@
 import type { Adapter } from "./adapter";
+import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { modelHarnessMeta, restrictedModelMeta } from "./models";
+import {
+  customModelMeta,
+  modelHarnessMeta,
+  restrictedModelMeta,
+} from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
 
 export interface GatewayModel {
@@ -114,8 +119,11 @@ const KNOWN_ACRONYMS = new Set(["gpt", "glm"]);
 export function getCloudTaskGatewayUrl(posthogHost: string): string {
   const url = new URL(posthogHost);
   let gatewayBaseUrl: string;
+  const custom = getCustomCloud();
 
-  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+  if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
+    gatewayBaseUrl = custom.gatewayUrl;
+  } else if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
     gatewayBaseUrl = `${url.protocol}//localhost:3308`;
   } else if (url.hostname === "host.docker.internal") {
     gatewayBaseUrl = `${url.protocol}//host.docker.internal:3308`;
@@ -440,7 +448,10 @@ export function buildProviderModelGroups(
       value: currentValue,
       name: currentValue,
       description: "Custom model",
-      _meta: modelHarnessMeta(adapter),
+      _meta: {
+        ...modelHarnessMeta(adapter),
+        ...customModelMeta(),
+      },
     });
   }
 
@@ -492,6 +503,7 @@ export function buildCloudTaskConfigOptions(
       value: resolvedModelId,
       name: resolvedModelId,
       description: "Custom model",
+      _meta: customModelMeta(),
     });
   }
 

@@ -8,6 +8,7 @@ UDFS=(
     json_drop_keys
     json_clean_posthog_event_properties
     json_clean_posthog_person_properties
+    json_clean_posthog_temporary_properties
     json_strip_empty_strings_and_nulls
 )
 
@@ -28,6 +29,9 @@ query_for() {
             ;;
         json_clean_posthog_person_properties)
             echo "SELECT JSONCleanPostHogPersonProperties(x) FROM $input FORMAT TabSeparated"
+            ;;
+        json_clean_posthog_temporary_properties)
+            echo "SELECT JSONCleanPostHogTemporaryProperties(x) FROM $input FORMAT TabSeparated"
             ;;
         json_strip_empty_strings_and_nulls)
             echo "SELECT JSONStripEmptyStringsAndNulls(x) FROM $input FORMAT TabSeparated"
@@ -67,3 +71,20 @@ for udf in "${UDFS[@]}"; do
         echo "Passed $udf/$test_name."
     done
 done
+
+query=$(cat <<'SQL'
+WITH concat('{"x":', repeat('[', 24), '[0]', repeat(',null]', 24), '}') AS raw
+SELECT
+    JSONExtractString(toJSONString(CAST(JSONCleanPostHogEventProperties(raw) AS JSON(max_dynamic_paths=0))), '$unparseable_properties') = raw,
+    JSONExtractString(toJSONString(CAST(JSONCleanPostHogPersonProperties(raw) AS JSON(max_dynamic_paths=0))), '$unparseable_properties') = raw,
+    toJSONString(CAST(JSONCleanPostHogTemporaryProperties(raw) AS JSON(max_dynamic_paths=0))) = '{}'
+SETTINGS max_threads = 1, max_memory_usage = 268435456
+FORMAT TabSeparated
+SQL
+)
+output=$(docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client --query "$query")
+if [[ "$output" != $'1\t1\t1' ]]; then
+    echo "Expected array quarantine to preserve the input and produce castable JSON, got: $output" >&2
+    exit 1
+fi
+echo "Passed nested-array quarantine JSON casts."

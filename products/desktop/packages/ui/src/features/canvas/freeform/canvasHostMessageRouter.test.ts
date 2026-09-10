@@ -2,6 +2,24 @@ import { describe, expect, it, vi } from "vitest";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 
 describe("createCanvasHostMessageRouter", () => {
+  it.each([false, true])(
+    "requires activation for connector navigation (%s)",
+    async (active) => {
+      const onNavigate = vi.fn();
+      const route = createCanvasHostMessageRouter({
+        post: vi.fn(),
+        callbacks: () => ({ onDataRequest: vi.fn(), onNavigate }),
+        hasUserActivation: () => active,
+        openExternal: vi.fn(),
+      });
+      await route({
+        channel: "posthog-canvas",
+        type: "navigate",
+        nav: { target: "connect", provider: "github" },
+      });
+      expect(onNavigate).toHaveBeenCalledTimes(active ? 1 : 0);
+    },
+  );
   it.each([
     [false, false],
     [true, true],

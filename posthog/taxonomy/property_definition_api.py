@@ -12,9 +12,9 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.documentation import extend_schema
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -26,6 +26,7 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
@@ -580,45 +581,6 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             return super().update(property_definition, validated_data)
 
 
-class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
-    """
-    The standard LimitOffsetPagination was expensive because there are very many PropertyDefinition models
-    And we query them using a RawQuerySet that meant for each page of results we loaded all models twice
-    Once to count them and a second time because we would slice them in memory
-
-    This paginator expects the caller to have counted and paged the queryset
-    """
-
-    def set_count(self, count: int) -> None:
-        self.count = count
-
-    def get_count(self, queryset) -> int:
-        """
-        Determine an object count, supporting either querysets or regular lists.
-        """
-        if self.count is None:
-            raise Exception("count must be manually set before paginating")
-
-        return self.count
-
-    def paginate_queryset(self, queryset, request, view=None) -> Optional[list[Any]]:
-        """
-        Assumes the queryset has already had pagination applied
-        """
-        self.count = self.get_count(queryset)
-        self.limit = self.get_limit(request)
-        if self.limit is None:
-            return None
-
-        self.offset = self.get_offset(request)
-        self.request = request
-
-        if self.count == 0 or self.offset > self.count:
-            return []
-
-        return list(queryset)
-
-
 @extend_schema(extensions={"x-product": "core"})
 class PropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
@@ -635,7 +597,7 @@ class PropertyDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
-    pagination_class = NotCountingLimitOffsetPaginator
+    pagination_class = PrecountedLimitOffsetPagination
     queryset = PropertyDefinition.objects.all()
 
     @staticmethod
@@ -697,7 +659,7 @@ class PropertyDefinitionViewSet(
 
             span.set_attribute("ee_available", EE_AVAILABLE)
 
-            assert isinstance(self.paginator, NotCountingLimitOffsetPaginator)
+            assert isinstance(self.paginator, PrecountedLimitOffsetPagination)
             limit = self.paginator.get_limit(self.request)
             offset = self.paginator.get_offset(self.request)
 
@@ -717,8 +679,11 @@ class PropertyDefinitionViewSet(
             span.set_attribute("limit", limit or 0)
             span.set_attribute("offset", offset or 0)
 
+            plan = search_plan("posthog_propertydefinition", self.project_id, read_db_alias()) if search else None
             search_extra = add_name_alias_to_search_query(search, prop_type)
-            search_query, search_kwargs = term_search_filter_sql(self.search_fields, search, search_extra)
+            search_query, search_kwargs = term_search_filter_sql(
+                self.search_fields, search, search_extra, avoid_trigram_index=plan == "project_scan"
+            )
 
             query_context = (
                 QueryContext(
@@ -865,7 +830,7 @@ class PropertyDefinitionViewSet(
         # Inject virtual event/person/group properties to the end of the results
         if event_type in ["event", "person", "group"]:
             paginator = self.paginator
-            assert isinstance(paginator, NotCountingLimitOffsetPaginator)
+            assert isinstance(paginator, PrecountedLimitOffsetPagination)
 
             query = PropertyDefinitionQuerySerializer(data=request.query_params)
             query.is_valid(raise_exception=True)

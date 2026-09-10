@@ -10,6 +10,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
     WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
@@ -73,6 +74,15 @@ def is_task_run_stream_presence_gated(origin_product: str) -> bool:
 def run_stream_presence_gated(state: dict | None) -> bool:
     """Pinned onto TaskRun.state at creation so writers and readers agree for the run's life; absent means ungated."""
     return bool((state or {}).get("stream_presence_gated", False))
+
+
+def is_task_run_stream_thin_tail(origin_product: str) -> bool:
+    return origin_product in settings.TASK_RUN_STREAM_THIN_TAIL_ORIGINS
+
+
+def run_stream_thin_tail(state: dict | None) -> bool:
+    """Pinned onto TaskRun.state at creation so writers and readers agree for the run's life; absent means full tail."""
+    return bool((state or {}).get("stream_thin_tail", False))
 
 
 def is_dev_stack_image_bake_enabled() -> bool:
@@ -182,3 +192,25 @@ def agent_otel_telemetry_enabled_for_state(state: dict | None) -> bool:
     if settings.DEBUG:
         return True
     return (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY) is True
+
+
+def is_mcp_exec_skills_enabled(organization_id: str, distinct_id: str) -> bool:
+    """Whether this run's user gets product skills through the MCP `learn` command.
+
+    Evaluated server-side so organization rules and person rules (an email domain, a cohort)
+    both resolve, the same way the MCP server evaluates the flag for the same user.
+    """
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                MCP_EXEC_SKILLS_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("mcp_exec_skills_flag_check_failed")
+        return False

@@ -4,7 +4,7 @@ import { IconGraph, IconLifecycle, IconPieChart, IconScatter, IconTrends } from 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconHeatmap, IconTableChart, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
@@ -49,7 +49,7 @@ export function getTableDisplayOptions(
     numericalColumns: Column[],
     autoVisualizationType: ChartDisplayType,
     disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined,
-    showBoxPlot = false
+    metricInsightEnabled = false
 ): LemonSelectOptions<ChartDisplayType> {
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
     const canDisplayScatterPlot = numericalColumns.length > 1
@@ -91,6 +91,17 @@ export function getTableDisplayOptions(
                         ? 'Requires at least two columns, including one numeric column'
                         : undefined,
                 },
+                ...(metricInsightEnabled
+                    ? [
+                          {
+                              value: ChartDisplayType.Metric,
+                              icon: <IconTrendingUp />,
+                              label: 'Metric',
+                              disabledReason:
+                                  numericalColumns.length === 0 ? 'Requires at least one numeric column' : undefined,
+                          },
+                      ]
+                    : []),
                 {
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconGraph />,
@@ -122,17 +133,12 @@ export function getTableDisplayOptions(
                         ? 'Requires at least two numeric columns, one for each axis'
                         : undefined,
                 },
-                ...(showBoxPlot
-                    ? [
-                          {
-                              value: ChartDisplayType.BoxPlot,
-                              icon: <IconGraph />,
-                              label: 'Box plot',
-                              disabledReason:
-                                  numericalColumns.length < 6 ? 'Requires six numeric summary columns' : undefined,
-                          },
-                      ]
-                    : []),
+                {
+                    value: ChartDisplayType.BoxPlot,
+                    icon: <IconGraph />,
+                    label: 'Box plot',
+                    disabledReason: numericalColumns.length < 6 ? 'Requires six numeric summary columns' : undefined,
+                },
                 {
                     value: ChartDisplayType.TwoDimensionalHeatmap,
                     icon: <IconHeatmap />,
@@ -189,7 +195,7 @@ export const TableDisplay = ({
                 numericalColumns,
                 autoVisualizationType,
                 disabledReasonFor,
-                !!featureFlags[FEATURE_FLAGS.SQL_BOX_PLOT_INSIGHT]
+                !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
             )}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             size="small"

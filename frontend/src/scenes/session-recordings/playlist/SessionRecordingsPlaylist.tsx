@@ -23,13 +23,15 @@ import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } fr
 
 const HedgehogDirector = pngHoggie(directorPng)
 
-export function SessionRecordingsPlaylist({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
+type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
     isSynthetic?: boolean
     description?: string
-}): JSX.Element {
+    /** Replaces the shared replay troubleshooting panel when the list comes back empty. */
+    listEmptyState?: JSX.Element
+}
+
+export function SessionRecordingsPlaylist({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -56,13 +58,7 @@ export function SessionRecordingsPlaylist({
     )
 }
 
-function HorizontalLayout({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
-    showContent?: boolean
-    isSynthetic?: boolean
-    description?: string
-}): JSX.Element {
+function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
@@ -107,13 +103,7 @@ function HorizontalLayout({
     )
 }
 
-function VerticalLayout({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
-    showContent?: boolean
-    isSynthetic?: boolean
-    description?: string
-}): JSX.Element {
+function VerticalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)

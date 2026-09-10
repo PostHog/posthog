@@ -991,9 +991,9 @@ class DebugCHQueries(viewsets.ViewSet):
         """Bucketed history of the precompute overview's headline numbers, for the trend charts.
 
         Returns arrays aligned to `buckets` (zero-filled, so charts get a continuous axis):
-        read counts by path outcome, failed-build counts by exit code, and bytes wasted on
-        failed builds. Hourly buckets up to 48h, daily beyond; window capped at 21 days
-        (query_log_archive retention).
+        read counts by path outcome, latency and bytes per precomputed read, failed-build
+        counts by exit code, and bytes wasted on failed builds. Hourly buckets up to 48h,
+        daily beyond; window capped at 21 days (query_log_archive retention).
         """
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can view the precompute timeseries.")
@@ -1013,16 +1013,31 @@ class DebugCHQueries(viewsets.ViewSet):
             "not_query": "%request:_api_debug_ch_queries_%",
         }
 
+        # Latency and bytes stats cover successful precomputed reads only, matching the
+        # overview endpoint (failed reads have truncated durations). ifNotFinite guards the
+        # empty buckets, where quantileIf/avgIf return nan and nan is not valid JSON.
         # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
         reads_sql = f"""
             SELECT
                 formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
                 count() AS reads,
                 countIf(exposures_path = 'precomputed') AS precomputed_reads,
-                countIf(exposures_path != 'precomputed' AND skip_reason = '') AS fallback_reads
+                countIf(exposures_path != 'precomputed' AND skip_reason = '') AS fallback_reads,
+                ifNotFinite(
+                    quantileIf(0.5)(query_duration_ms, exposures_path = 'precomputed' AND exception_code = 0), 0
+                ) AS precomputed_p50_duration_ms,
+                ifNotFinite(
+                    quantileIf(0.9)(query_duration_ms, exposures_path = 'precomputed' AND exception_code = 0), 0
+                ) AS precomputed_p90_duration_ms,
+                ifNotFinite(
+                    avgIf(read_bytes, exposures_path = 'precomputed' AND exception_code = 0), 0
+                ) AS precomputed_avg_read_bytes
             FROM (
                 SELECT
                     event_time,
+                    query_duration_ms,
+                    read_bytes,
+                    exception_code,
                     coalesce(
                         nullIf(toString(log_comment.experiment_exposures_path), ''),
                         ifNull(toString(log_comment.experiment_execution_path), '')
@@ -1068,15 +1083,29 @@ class DebugCHQueries(viewsets.ViewSet):
         reads = [0] * n
         precomputed_reads = [0] * n
         fallback_reads = [0] * n
+        precomputed_p50_duration_ms = [0] * n
+        precomputed_p90_duration_ms = [0] * n
+        precomputed_avg_read_bytes = [0] * n
         failed_build_read_bytes = [0] * n
         failed_builds_by_code: dict[str, list[int]] = {}
-        for bucket, bucket_reads, bucket_precomputed, bucket_fallback in reads_response:
+        for (
+            bucket,
+            bucket_reads,
+            bucket_precomputed,
+            bucket_fallback,
+            bucket_p50,
+            bucket_p90,
+            bucket_bytes,
+        ) in reads_response:
             i = index_by_bucket.get(bucket)
             if i is None:
                 continue
             reads[i] = bucket_reads
             precomputed_reads[i] = bucket_precomputed
             fallback_reads[i] = bucket_fallback
+            precomputed_p50_duration_ms[i] = round(bucket_p50)
+            precomputed_p90_duration_ms[i] = round(bucket_p90)
+            precomputed_avg_read_bytes[i] = round(bucket_bytes)
         for bucket, exception_code, bucket_builds, bucket_read_bytes in builds_response:
             i = index_by_bucket.get(bucket)
             if i is None or exception_code == 0:
@@ -1094,6 +1123,9 @@ class DebugCHQueries(viewsets.ViewSet):
                     "total": reads,
                     "precomputed": precomputed_reads,
                     "fallback": fallback_reads,
+                    "precomputed_p50_duration_ms": precomputed_p50_duration_ms,
+                    "precomputed_p90_duration_ms": precomputed_p90_duration_ms,
+                    "precomputed_avg_read_bytes": precomputed_avg_read_bytes,
                 },
                 "builds": {
                     "failed_by_code": failed_builds_by_code,

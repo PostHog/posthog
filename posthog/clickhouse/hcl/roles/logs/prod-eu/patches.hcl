@@ -14,10 +14,10 @@ database "posthog" {
   }
   patch_table "kafka_trace_spans_avro" {
     engine "kafka" {
-      broker_list          = "warpstream_traces"
-      topic_list           = "kafka_topic_list = 'clickhouse_traces'"
-      group_name           = "kafka_group_name = 'clickhouse-traces-avro'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_traces"
+      topic_list           = "clickhouse_traces"
+      group_name           = "clickhouse-traces-avro"
+      format               = "Avro"
       num_consumers        = 2
       skip_broken_messages = 100
       poll_timeout_ms      = 3000

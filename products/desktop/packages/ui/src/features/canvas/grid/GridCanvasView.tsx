@@ -3,7 +3,7 @@ import type {
   GridPlacement,
   LayoutOperation,
 } from "@posthog/core/canvas/gridLayoutSchemas";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useCallback, useMemo, useState } from "react";
 import { GridChatPanel, type GridChatTarget } from "./GridChatPanel";
@@ -201,11 +202,7 @@ export function GridCanvasView({
   );
 
   if (isLoading || !layout || !placements || !dashboard) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
   return (
     <div className="flex h-full">

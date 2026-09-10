@@ -5648,6 +5648,40 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand([("survey dismissed",), ("survey abandoned",)])
+    def test_partially_completed_closures_count_as_responses(self, event_name: str) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Partial responses",
+            questions=[{"type": "open", "question": "What could we improve?"}],
+            start_date=datetime(2024, 6, 1, tzinfo=UTC),
+        )
+        create_person(team=self.team, distinct_ids=["respondent"])
+        for index, partially_completed in enumerate([True, False]):
+            _create_event(
+                team=self.team,
+                event=event_name,
+                distinct_id="respondent",
+                timestamp=f"2024-06-10 10:0{index}:00",
+                properties={
+                    "$survey_id": str(survey.id),
+                    "$survey_submission_id": f"submission-{index}",
+                    "$survey_partially_completed": partially_completed,
+                    **({"$survey_response": "More examples"} if partially_completed else {}),
+                },
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["stats"]["survey sent"]["total_count"], 1)
+        self.assertEqual(
+            response.json()["stats"]["survey dismissed"]["total_count"], int(event_name == "survey dismissed")
+        )
+        counts = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(counts.status_code, status.HTTP_200_OK)
+        self.assertEqual(counts.json(), {str(survey.id): 1})
+
     def test_survey_stats_nonexistent_survey(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/12345/stats/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -7176,9 +7210,8 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["distinct_id"], "new")
 
-    def test_merges_answers_split_across_submission_events(self):
-        """A submission split across events — rating on one, free text on another, neither
-        repeating the other's answer — should surface as one row carrying both answers."""
+    @parameterized.expand([("survey sent",), ("survey dismissed",), ("survey abandoned",)])
+    def test_merges_answers_split_across_submission_events(self, last_event: str):
         create_person(team=self.team, distinct_ids=["split"])
         submission_id = str(uuid.uuid4())
         # Event 1 (not completed): rating only.
@@ -7194,17 +7227,18 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
                 "$survey_completed": "false",
             },
         )
-        # Event 2 (completed): free text only — the rating is NOT repeated here.
+        # Event 2: free text only — the rating is NOT repeated here.
         _create_event(
             team=self.team,
-            event="survey sent",
+            event=last_event,
             distinct_id="split",
             timestamp="2024-06-10 09:05:30",
             properties={
                 "$survey_id": str(self.survey.id),
                 "$survey_submission_id": submission_id,
                 f"$survey_response_{self.question_id_text}": "Because reasons",
-                "$survey_completed": "true",
+                "$survey_completed": last_event == "survey sent",
+                "$survey_partially_completed": last_event != "survey sent",
             },
         )
         flush_persons_and_events()
@@ -7732,9 +7766,8 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(per_q[choice_qid]["distribution"], {"yes": 2, "<other>": 1})
         self.assertEqual(per_q[choice_qid]["response_count"], 3)
 
-    def test_per_question_stats_merges_answers_across_submission_events(self):
-        """Answers split across a submission's events should all count toward per-question stats,
-        even when the completed event only carries one of them."""
+    @parameterized.expand([("survey sent",), ("survey dismissed",), ("survey abandoned",)])
+    def test_per_question_stats_merges_answers_across_submission_events(self, last_event: str):
         create_person(team=self.team, distinct_ids=["split-user"])
         submission_id = str(uuid.uuid4())
         # Event 1 (not completed): rating + choice only.
@@ -7754,14 +7787,15 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         # Event 2 (completed): open text only — rating/choice are NOT repeated here.
         _create_event(
             team=self.team,
-            event="survey sent",
+            event=last_event,
             distinct_id="split-user",
             timestamp="2024-06-10 09:01:00",
             properties={
                 "$survey_id": str(self.survey.id),
                 "$survey_submission_id": submission_id,
                 f"$survey_response_{self.open_qid}": "Nice",
-                "$survey_completed": "true",
+                "$survey_completed": last_event == "survey sent",
+                "$survey_partially_completed": last_event != "survey sent",
             },
         )
         flush_persons_and_events()
