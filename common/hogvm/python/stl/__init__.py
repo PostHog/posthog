@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
-from ..utils import HogVMException, _require_string, get_nested_value, like
+from ..utils import HogVMException, _compile_regex, _require_string, get_nested_value, like, regex_extract
 from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
@@ -273,7 +273,6 @@ def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional
 def tryDecodeURLComponent(
     args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float
 ) -> Optional[str]:
-    import re
     import urllib.parse
 
     s = args[0]
@@ -947,37 +946,15 @@ def multiSearchAnyCaseInsensitive(args: list[Any], team, stdout, timeout):
 
 
 def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    """
-    Extract substring matching a regex pattern.
-    Matches ClickHouse extract(haystack, pattern) behavior:
-    - Returns first capture group if pattern has groups
-    - Returns whole match if no capture groups
-    - Returns empty string if no match
-    """
-    if args[0] is None or args[1] is None:
-        return ""
-    haystack = str(args[0])
-    pattern = str(args[1])
-    try:
-        match = re.search(pattern, haystack)
-        if not match:
-            return ""
-        if match.lastindex and match.lastindex >= 1:
-            return match.group(1) or ""
-        return match.group(0) or ""
-    except re.error:
-        return ""
+    return regex_extract(args[0], args[1])
 
 
 def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    if args[1] is None or args[0] is None:
+    if args[0] is None or args[1] is None:
         return False
     input_string = _require_string(args[0], "input", "match")
     pattern = _require_string(args[1], "pattern", "match")
-    try:
-        return re.search(pattern, input_string) is not None
-    except re.error as e:
-        raise HogVMException(f"Invalid regex pattern: {e}") from e
+    return _compile_regex(pattern).search(input_string) is not None
 
 
 STL: dict[str, STLFunction] = {

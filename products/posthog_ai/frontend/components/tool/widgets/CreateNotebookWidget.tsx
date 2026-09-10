@@ -7,8 +7,8 @@ import { urls } from 'scenes/urls'
 import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
+import { parseToolOutputRecord } from '../parseToolOutput'
 import type { ToolRendererProps } from '../toolRegistry'
-import { parseToolOutputRecord } from './extractors'
 
 /** The notebook fields the widget renders, pulled from the REST payload. */
 export interface NotebookExtraction {

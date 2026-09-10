@@ -464,6 +464,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     "template_id": f"Template '{template.template_id}' is internal and cannot be used to create a function."
                 }
             )
+        # Deprecated templates are only hidden from the template listing, so a direct API call with the
+        # template id could still create one. Block that too; existing functions keep running, and the
+        # legacy plugin migration (posthog/cdp/migrations.py) is the one internal caller allowed through.
+        if template.status == "deprecated" and not self.context.get("allow_deprecated_template"):
+            raise serializers.ValidationError(
+                {
+                    "template_id": f"Template '{template.template_id}' is deprecated and cannot be used to create a new function."
+                }
+            )
 
     def _validate_hidden_template_not_enabled(self, attrs: dict, is_create: bool) -> None:
         # Creating from a hidden template is already blocked outright. For an existing function built from

@@ -142,7 +142,6 @@ function TaskRunChatContent({
                 {/* Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer. */}
                 {!readOnly && (
                     <RunSurface.Composer isStopping={!!cancellationState}>
-                        <RunSurface.Resources />
                         {/* The composer owns the per-keystroke draft in an isolated child so typing never re-renders
                         the thread/virtualizer rendered as its sibling above — that cascade is what made the input lag. */}
                         <LiveComposer logicProps={logicProps} textAreaRef={textAreaRef} autoFocus={autoFocus} />
