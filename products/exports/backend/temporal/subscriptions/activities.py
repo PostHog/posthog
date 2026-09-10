@@ -92,6 +92,13 @@ class ResolvedExportableInsights:
     no_exportable_reason: str | None
 
 
+@dataclasses.dataclass(frozen=True)
+class _DueSubscriptionsPage:
+    subscriptions: list[DueSubscription]
+    due_items_lower_bound: int
+    oldest_due_at: dt.datetime | None
+
+
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
     dashboard = subscription.dashboard
     if dashboard:
@@ -210,7 +217,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     )
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_subscriptions() -> tuple[list[DueSubscription], int, dt.datetime | None]:
+    def get_subscriptions() -> _DueSubscriptionsPage:
         due_subscriptions = (
             Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
             .exclude(dashboard__deleted=True)
@@ -255,7 +262,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
 
             if not selected_team_ids:
-                return [], 0, oldest_due_at
+                return _DueSubscriptionsPage([], 0, oldest_due_at)
 
             # Each selected tenant contributes an equally bounded number of candidates. The
             # LATERAL limit is applied before the global fair ordering, so even a pathological
@@ -322,7 +329,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             candidate_ids = bounded_candidate_ids[: inputs.max_subscriptions_per_run]
 
         if not candidate_ids:
-            return [], 0, oldest_due_at
+            return _DueSubscriptionsPage([], 0, oldest_due_at)
 
         subscriptions_by_id = {
             sub["id"]: sub
@@ -364,20 +371,22 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             for sub in subscriptions
         ]
         due_items_lower_bound = len(subscriptions) + int(deferred_teams or deferred_candidates)
-        return results, due_items_lower_bound, oldest_due_at
+        return _DueSubscriptionsPage(results, due_items_lower_bound, oldest_due_at)
 
-    subscriptions, due_items_lower_bound, oldest_due_at = await get_subscriptions()
+    page = await get_subscriptions()
     selection = await select_items_within_temporal_payload(
-        subscriptions,
+        page.subscriptions,
         build_payload=lambda items: list(items),
         max_items=inputs.max_subscriptions_per_run,
     )
     limited_by = (
         "item_limit"
-        if selection.limited_by == "none" and due_items_lower_bound > len(selection.items)
+        if selection.limited_by == "none" and page.due_items_lower_bound > len(selection.items)
         else selection.limited_by
     )
-    oldest_age_seconds = max((dt.datetime.now(dt.UTC) - oldest_due_at).total_seconds(), 0) if oldest_due_at else 0
+    oldest_age_seconds = (
+        max((dt.datetime.now(dt.UTC) - page.oldest_due_at).total_seconds(), 0) if page.oldest_due_at else 0
+    )
     record_scheduler_metrics_safely(
         lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
             _SUBSCRIPTION_SCHEDULER_NAME,
@@ -390,13 +399,13 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
         lambda: DEFAULT_SCHEDULER_METRICS.set_backlog(
             _SUBSCRIPTION_SCHEDULER_NAME,
             inputs.region,
-            due_items_lower_bound=due_items_lower_bound,
+            due_items_lower_bound=page.due_items_lower_bound,
             oldest_age_seconds=oldest_age_seconds,
         )
     )
     await LOGGER.ainfo(
         "Fetched due subscriptions",
-        due_items_lower_bound=due_items_lower_bound,
+        due_items_lower_bound=page.due_items_lower_bound,
         selected_count=len(selection.items),
         encoded_size_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,

@@ -143,7 +143,7 @@ class DueSubscription:
     resource_type: str = ""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FetchDueSubscriptionsActivityInputs:
     buffer_minutes: int = 15
     max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
@@ -394,7 +394,7 @@ class SnapshotInsightsResult:
     summary_skipped_over_budget: bool = False
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
     max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
