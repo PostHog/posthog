@@ -17,7 +17,7 @@ import csv
 import math
 import codecs
 import contextlib
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
@@ -380,7 +380,7 @@ def _parse_report_file_rows(
     metadata: dict[str, Any],
     logger: FilteringBoundLogger,
     required_column: str = "",
-) -> Iterator[dict[str, Any]]:
+) -> Generator[dict[str, Any]]:
     # `lines` is any iterator of physical CSV lines (a live response stream or a
     # StringIO), so a large report is parsed row-by-row without buffering the file.
     reader = csv.reader(lines)
