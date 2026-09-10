@@ -139,15 +139,18 @@ return {0, math.ceil(slotAt - now), 1}
 //   ARGV[2..4]   = capacity, refill/sec, TTL seconds for KEYS[1]
 //   ARGV[5..7]   = capacity, refill/sec, TTL seconds for KEYS[2]
 //   ARGV[8]      = reserve-on-deny horizon in ms; 0 disables reservation.
-// Returns {1, 0, 0} when granted. On denial: {0, i, retryAfterMs}, where i is the
-// first bucket (1-based) that came up short. With ARGV[8] = 0, retryAfterMs is only
-// how long until BOTH buckets have their missing tokens back (the slower one
-// decides). Every denied caller gets that same answer, so they all wake together.
-// With ARGV[8] > 0 the denial also books the caller a slot on the slowest short
-// bucket, the same ticket-at-a-counter idea as the claim-up-to script above, and
-// retryAfterMs is the caller's own slot. Slots never go out past ARGV[8]. A slot is
-// a place in line, not a promise: the wake still has to claim. A bucket that never
-// refills has no horizon, and then the denial reports none and books nothing.
+// Returns {1, 0, 0, 0} when granted. On denial: {0, i, retryAfterMs, reserved},
+// where i is the first bucket (1-based) that came up short. With ARGV[8] = 0,
+// retryAfterMs is only how long until BOTH buckets have their missing tokens back
+// (the slower one decides). Every denied caller gets that same answer, so they all
+// wake together. With ARGV[8] > 0 the denial also books the caller a slot on the
+// slowest short bucket, the same ticket-at-a-counter idea as the claim-up-to script
+// above: the first denied caller waits only for the missing tokens, everyone after
+// gets the next slot, one interval later. Slots never go out past ARGV[8]; past
+// that the caller gets ARGV[8] back with reserved=0 and asks again when it wakes.
+// A slot is a place in line, not a promise: the wake still has to claim. A bucket
+// that never refills has no horizon, and then the denial reports none and books
+// nothing.
 const CLAIM_ALL_OR_NOTHING_PAIR_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
@@ -200,27 +203,30 @@ end
 
 if deniedIndex > 0 then
     if not horizonKnown then
-        return {0, deniedIndex, 0}
+        return {0, deniedIndex, 0, 0}
     end
     if reserveOnDenyMaxMs <= 0 then
-        return {0, deniedIndex, retryAfterMs}
+        return {0, deniedIndex, retryAfterMs, 0}
     end
-    local slotMs = (requested / slowRefill) * 1000
+    -- First in line waits only for the pair's shortfall (retryAfterMs is the slower
+    -- bucket's deficit); callers behind a live cursor chain a further requested/refill
+    -- of the slowest bucket each. Same shape as the claim-up-to script above.
     local rawResv = redis.call('hget', KEYS[slowIndex], 'resv')
-    local base = now
+    local slotAt
     if rawResv ~= false and tonumber(rawResv) > now then
-        base = tonumber(rawResv)
+        slotAt = tonumber(rawResv) + (requested / slowRefill) * 1000
+    else
+        slotAt = now + retryAfterMs
     end
-    local slotAt = base + slotMs
     if slotAt - now < retryAfterMs then
         slotAt = now + retryAfterMs
     end
     if slotAt - now > reserveOnDenyMaxMs then
-        return {0, deniedIndex, reserveOnDenyMaxMs}
+        return {0, deniedIndex, reserveOnDenyMaxMs, 0}
     end
     redis.call('hset', KEYS[slowIndex], 'resv', slotAt)
     redis.call('expire', KEYS[slowIndex], slowTtl)
-    return {0, deniedIndex, math.ceil(slotAt - now)}
+    return {0, deniedIndex, math.ceil(slotAt - now), 1}
 end
 
 for i = 1, 2 do
@@ -229,7 +235,7 @@ for i = 1, 2 do
     redis.call('expire', KEYS[i], ttlSeconds)
 end
 
-return {1, 0, 0}
+return {1, 0, 0, 0}
 `
 
 export interface RateLimiterConfig {
@@ -379,7 +385,7 @@ export class RateLimiterService {
         buckets: [Omit<ClaimRequest, 'requested'>, Omit<ClaimRequest, 'requested'>],
         requested: number,
         reserveOnDenyMs: number = 0
-    ): Promise<{ granted: boolean; deniedIndex: 0 | 1 | null; retryAfterMs: number | null }> {
+    ): Promise<{ granted: boolean; deniedIndex: 0 | 1 | null; retryAfterMs: number | null; reserved: boolean }> {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         try {
             const result = await this.valkey.useClient(
@@ -401,23 +407,26 @@ export class RateLimiterService {
                     )
             )
 
-            const [granted, deniedBucket, retryAfterMs] = Array.isArray(result) ? result.map(Number) : [NaN, NaN, NaN]
+            const [granted, deniedBucket, retryAfterMs, reserved] = Array.isArray(result)
+                ? result.map(Number)
+                : [NaN, NaN, NaN, 0]
             if (granted !== 0 && granted !== 1) {
                 logger.warn('🪙', `RateLimiterService(${this.config.name}) pair claim returned invalid result`, {
                     keys: [buckets[0].key, buckets[1].key],
                     raw: result,
                 })
                 claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
-                return { granted: false, deniedIndex: null, retryAfterMs: null }
+                return { granted: false, deniedIndex: null, retryAfterMs: null, reserved: false }
             }
 
             claimCounter.inc({ limiter: this.config.name, result: granted === 1 ? 'granted_full' : 'denied' })
             return granted === 1
-                ? { granted: true, deniedIndex: null, retryAfterMs: null }
+                ? { granted: true, deniedIndex: null, retryAfterMs: null, reserved: false }
                 : {
                       granted: false,
                       deniedIndex: deniedBucket === 2 ? 1 : 0,
                       retryAfterMs: Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : null,
+                      reserved: reserved === 1,
                   }
         } catch (err) {
             logger.warn('🪙', `RateLimiterService(${this.config.name}) pair claim threw`, {
@@ -425,7 +434,7 @@ export class RateLimiterService {
                 error: String(err),
             })
             claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
-            return { granted: false, deniedIndex: null, retryAfterMs: null }
+            return { granted: false, deniedIndex: null, retryAfterMs: null, reserved: false }
         } finally {
             endTimer()
         }

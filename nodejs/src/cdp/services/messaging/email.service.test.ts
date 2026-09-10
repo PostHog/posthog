@@ -747,10 +747,20 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['parks the send until the reported refill horizon', 30 * 60 * 1000, 30 * 60 * 1000],
-                ['clamps the wake to one hour on a longer horizon', 24 * 60 * 60 * 1000, 60 * 60 * 1000],
-            ])('%s', async (_name, retryAfterMs, clampedBaseMs) => {
-                claimAllOrNothingPair.mockResolvedValue({ granted: false, deniedIndex: 1, retryAfterMs })
+                // A reserved slot is exclusive and is parked on exactly; spreading it would
+                // collide it with the slot in front.
+                ['parks exactly on a reserved slot', 30 * 60 * 1000, true, 30 * 60 * 1000, 30 * 60 * 1000],
+                // Past the horizon nothing is reserved: every overflow caller gets the same
+                // wake back and spreads itself 1x-2x across the horizon.
+                [
+                    'spreads an overflow wake across the horizon',
+                    60 * 60 * 1000,
+                    false,
+                    60 * 60 * 1000,
+                    2 * 60 * 60 * 1000,
+                ],
+            ])('%s', async (_name, retryAfterMs, reserved, minMs, maxMs) => {
+                claimAllOrNothingPair.mockResolvedValue({ granted: false, deniedIndex: 1, retryAfterMs, reserved })
 
                 const before = Date.now()
                 const result = await cappedService.executeSendEmail(invocation)
@@ -761,16 +771,20 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
-                // Jitter is 1x-2x the clamped horizon; the slack absorbs scheduler overhead.
-                expect(scheduledMs).toBeGreaterThanOrEqual(before + clampedBaseMs)
-                expect(scheduledMs).toBeLessThan(before + 2 * clampedBaseMs + 5000)
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
+                expect(scheduledMs).toBeLessThan(before + maxMs + 5000)
             })
 
             it('retries on the token bucket cadence when the limiter reports no horizon', async () => {
                 // A Valkey fault denies with no horizon. Parking on the daily cap's pacing
                 // interval would hold the email long after the limiter recovered.
                 jest.spyOn(Math, 'random').mockReturnValue(0)
-                claimAllOrNothingPair.mockResolvedValue({ granted: false, deniedIndex: null, retryAfterMs: null })
+                claimAllOrNothingPair.mockResolvedValue({
+                    granted: false,
+                    deniedIndex: null,
+                    retryAfterMs: null,
+                    reserved: false,
+                })
 
                 const before = Date.now()
                 const result = await cappedService.executeSendEmail(invocation)
@@ -783,7 +797,12 @@ describe('EmailService', () => {
             })
 
             it('sends when the claim is granted', async () => {
-                claimAllOrNothingPair.mockResolvedValue({ granted: true, deniedIndex: null, retryAfterMs: null })
+                claimAllOrNothingPair.mockResolvedValue({
+                    granted: true,
+                    deniedIndex: null,
+                    retryAfterMs: null,
+                    reserved: false,
+                })
 
                 const result = await cappedService.executeSendEmail(invocation)
 

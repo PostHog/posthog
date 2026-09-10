@@ -209,7 +209,7 @@ describe('RateLimiterService', () => {
                 ],
                 30
             )
-            expect(claim).toEqual({ granted: true, deniedIndex: null, retryAfterMs: null })
+            expect(claim).toEqual({ granted: true, deniedIndex: null, retryAfterMs: null, reserved: false })
             // Both pools were charged: the remainder is all that is left to claim.
             expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
             expect(await limiter.claimUpTo({ key: KEY_B, requested: 100, capacity: 100, refillPerSecond: 0 })).toBe(70)
@@ -227,7 +227,7 @@ describe('RateLimiterService', () => {
                 30
             )
             // refillPerSecond 0 means the missing tokens never accrue, so no horizon is reported.
-            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: null })
+            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: null, reserved: false })
             expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(50)
             expect(await limiter.claimUpTo({ key: KEY_B, requested: 10, capacity: 10, refillPerSecond: 0 })).toBe(10)
         })
@@ -242,7 +242,7 @@ describe('RateLimiterService', () => {
                 ],
                 30
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: 10_000 })
+            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: 10_000, reserved: false })
         })
 
         it('reports the slower bucket when both are short', async () => {
@@ -256,7 +256,7 @@ describe('RateLimiterService', () => {
                 ],
                 30
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: 0, retryAfterMs: 40_000 })
+            expect(claim).toEqual({ granted: false, deniedIndex: 0, retryAfterMs: 40_000, reserved: false })
         })
 
         it('fails closed when the Lua call throws', async () => {
@@ -272,14 +272,14 @@ describe('RateLimiterService', () => {
                 ],
                 5
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: null, retryAfterMs: null })
+            expect(claim).toEqual({ granted: false, deniedIndex: null, retryAfterMs: null, reserved: false })
         })
 
         it('hands successive reserved denials distinct, later slots, paced by the slower bucket', async () => {
-            // Both buckets are short. The slower one (0.5/s) sets the pace: its slot spacing is
-            // requested/refill = 60s, and each denial advances the cursor by one slot, so three
-            // denied callers park at three different times instead of all waking at the shared
-            // 40s deficit horizon and re-herding.
+            // Both buckets are short. The slower one (0.5/s) decides: the first caller waits
+            // only its 40s deficit, the caller behind it chains a further requested/refill
+            // (60s) on top, so denied callers park at distinct times instead of all waking
+            // at the shared deficit horizon and re-herding.
             const buckets: [
                 { key: string; capacity: number; refillPerSecond: number },
                 { key: string; capacity: number; refillPerSecond: number },
@@ -291,10 +291,12 @@ describe('RateLimiterService', () => {
             const second = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
 
             expect(first.granted).toBe(false)
-            // Cold cursor: the first slot is one spacing (60s) out, past the 40s deficit.
-            expect(first.retryAfterMs).toBe(60_000)
+            expect(first.reserved).toBe(true)
+            // Cold cursor: the first slot is the 40s deficit, not a full 60s spacing.
+            expect(first.retryAfterMs).toBe(40_000)
+            expect(second.reserved).toBe(true)
             expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
-            expect(second.retryAfterMs!).toBeLessThanOrEqual(120_000)
+            expect(second.retryAfterMs!).toBeLessThanOrEqual(100_000)
         })
 
         it('stops advancing the reservation cursor at the horizon', async () => {
@@ -305,15 +307,19 @@ describe('RateLimiterService', () => {
                 { key: `${KEY_A}/resv-cap`, capacity: 50, refillPerSecond: 0 },
                 { key: `${KEY_B}/resv-cap`, capacity: 10, refillPerSecond: 2 },
             ]
-            // Slot spacing is 15s with a 20s horizon: the first denial reserves the one slot
-            // inside the horizon, everyone after gets the horizon back unchanged and re-contends.
+            // The 10s deficit slot fits the 20s horizon; the next slot (deficit + 15s
+            // spacing) does not, so everyone after the first gets the horizon back,
+            // un-reserved, and must spread its own wake.
             const first = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
             const second = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
             const third = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
 
-            expect(first.retryAfterMs).toBe(15_000)
+            expect(first.retryAfterMs).toBe(10_000)
+            expect(first.reserved).toBe(true)
             expect(second.retryAfterMs).toBe(20_000)
+            expect(second.reserved).toBe(false)
             expect(third.retryAfterMs).toBe(20_000)
+            expect(third.reserved).toBe(false)
         })
     })
 

@@ -663,7 +663,7 @@ export class EmailService {
             }
             const denied = buckets[claim.deniedIndex ?? 1]
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
-            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond)
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond, claim.reserved)
             emailReservedParkMs.labels('team-email').observe(retryDelayMs)
             return {
                 retryDelayMs,
