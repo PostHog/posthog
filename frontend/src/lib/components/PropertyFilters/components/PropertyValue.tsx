@@ -144,9 +144,11 @@ export function PropertyValue({
         orderedKeys: string[]
     }>({ set: new Set(), orderedKeys: [] })
     // the first response is capped, so a value with a comma can appear only once the user searches
-    // for it. Remember that we saw one for as long as the property stays selected, so comma entry
-    // does not switch off again when the next search returns values without one.
-    const [sawValueContainingComma, setSawValueContainingComma] = useState(false)
+    // for it. Remember the property we saw one for, so comma entry does not switch off again when
+    // the next search returns values without one. Holding the property key rather than a boolean
+    // keeps the memory correct without a reset, which a cached response would otherwise race on
+    // mount.
+    const [keyWithValueContainingComma, setKeyWithValueContainingComma] = useState<string | null>(null)
     const currentSearchInput = useRef<string>('')
 
     const hasStaticValues = !!staticValues
@@ -241,14 +243,13 @@ export function PropertyValue({
             propertyOptions?.status === 'loaded' &&
             propertyOptions?.values?.some((v) => toString(v.name).includes(','))
         ) {
-            setSawValueContainingComma(true)
+            setKeyWithValueContainingComma(propertyKey)
         }
-    }, [propertyOptions?.status, propertyOptions?.values, hasStaticValues])
+    }, [propertyOptions?.status, propertyOptions?.values, hasStaticValues, propertyKey])
 
     // reset initial suggested values when propertyKey changes
     useEffect(() => {
         setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
-        setSawValueContainingComma(false)
     }, [propertyKey])
 
     // show suggested values first, then any other available options that aren't in the suggested list
@@ -296,7 +297,8 @@ export function PropertyValue({
     // Read the remembered result rather than the live options, because a search response replaces
     // the options and would turn comma-separated entry back on part-way through typing.
     const someValueContainsComma =
-        (staticValues ?? []).some((option) => toString(option.name).includes(',')) || sawValueContainingComma
+        (staticValues ?? []).some((option) => toString(option.name).includes(',')) ||
+        keyWithValueContainingComma === propertyKey
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()

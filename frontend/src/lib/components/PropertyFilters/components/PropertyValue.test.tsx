@@ -274,6 +274,73 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('keeps a typed comma when the values were already cached before mount', async () => {
+        // A closed filter popover unmounts the editor while the loaded values stay in the model,
+        // so a later open starts from a cached response instead of a fresh request
+        propertyDefinitionsModel.actions.setOptions('name', [{ name: 'Hedgebox, Inc.' }], true)
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Hedgebox, Inc.')
+        await user.keyboard('{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Hedgebox, Inc.'])
+        })
+    })
+
+    it('splits again after the property switches to one whose values hold no comma', async () => {
+        propertyDefinitionsModel.actions.setOptions('name', [{ name: 'Hedgebox, Inc.' }], true)
+        propertyDefinitionsModel.actions.setOptions('city', [{ name: 'Berlin' }], true)
+
+        const onSet = jest.fn()
+        const { rerender } = render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+        rerender(
+            <Provider>
+                <PropertyValue
+                    propertyKey="city"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Berlin,')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Berlin'])
+        })
+    })
+
     it('still splits typed input at a comma when no suggested value contains one', async () => {
         const onSet = jest.fn()
         render(
