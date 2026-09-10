@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { mcpAnalyticsSessionsActivityOverview } from '../generated/api'
+import { mcpAnalyticsSessionsActivityOverview, mcpAnalyticsSessionsIntentDigest } from '../generated/api'
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
@@ -16,6 +16,7 @@ jest.mock('../generated/api', () => ({
 }))
 
 const overviewMock = mcpAnalyticsSessionsActivityOverview as jest.Mock
+const digestMock = mcpAnalyticsSessionsIntentDigest as jest.Mock
 
 const TOOL_FILTER: AnyPropertyFilter = {
     key: '$mcp_tool_name',
@@ -31,6 +32,7 @@ describe('mcpEarlyDataLogic', () => {
         initKeaTests()
         jest.spyOn(api as jest.Mocked<typeof api>, 'query').mockResolvedValue({ results: [] } as any)
         overviewMock.mockResolvedValue(null)
+        digestMock.mockResolvedValue({ digest: 'agents looked at signups', intent_count: 9, themes: [] })
         logic = mcpEarlyDataLogic()
         logic.mount()
     })
@@ -61,5 +63,25 @@ describe('mcpEarlyDataLogic', () => {
 
         expect(overviewMock).toHaveBeenCalledTimes(1)
         expect(overviewMock.mock.calls[0][1]).toMatchObject(expectedParams)
+    })
+
+    // The digest is a project-level LLM summary with no filtered variant, and the card prefers it
+    // over the verbatim intents. Left in place it would describe traffic the rest of the tab
+    // excludes; dropped, the card falls back to the intents from the filtered overview.
+    it('drops the intent digest while a shared filter is active, and restores it after', async () => {
+        await expectLogic(logic).toDispatchActions(['loadIntentDigestSuccess'])
+        expect(logic.values.intentDigest?.digest).toBe('agents looked at signups')
+        digestMock.mockClear()
+
+        await expectLogic(logic, () => {
+            mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+        }).toDispatchActions(['loadIntentDigestSuccess'])
+        expect(logic.values.intentDigest).toBeNull()
+        expect(digestMock).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => {
+            mcpAnalyticsFiltersLogic.actions.setPropertyFilters([])
+        }).toDispatchActions(['loadIntentDigestSuccess'])
+        expect(logic.values.intentDigest?.digest).toBe('agents looked at signups')
     })
 })

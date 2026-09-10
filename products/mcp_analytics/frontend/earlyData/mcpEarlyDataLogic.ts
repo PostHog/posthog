@@ -20,7 +20,12 @@ import { AnyPropertyFilter } from '~/types'
 
 import { mcpAnalyticsSessionsActivityOverview, mcpAnalyticsSessionsIntentDigest } from '../generated/api'
 import type { MCPActivityOverviewApi, MCPIntentThemeApi } from '../generated/api.schemas'
-import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic, sharedFilterParams } from '../mcpAnalyticsFiltersLogic'
+import {
+    isSharedFilterActive,
+    type MCPSharedQueryFilters,
+    mcpAnalyticsFiltersLogic,
+    sharedFilterParams,
+} from '../mcpAnalyticsFiltersLogic'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals } from '../mcpAnalyticsOnboardingLogic'
 import { buildActivitySummary } from './activitySummary'
@@ -141,6 +146,9 @@ export interface mcpEarlyDataLogicActions {
     refreshAll: () => {
         value: true
     }
+    reloadForSharedFilters: () => {
+        value: true
+    }
     setActivityQuery: (query: DataTableNode) => {
         query: DataTableNode
     }
@@ -198,6 +206,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
     })),
     actions({
         refreshAll: true,
+        reloadForSharedFilters: true,
         setActivityQuery: (query: DataTableNode) => ({ query }),
     }),
     reducers({
@@ -211,6 +220,13 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             __default: null as IntentDigest | null,
             loadIntentDigest: async (_: void, breakpoint): Promise<IntentDigest | null> => {
                 if (!values.currentProjectId) {
+                    return null
+                }
+                // The digest is a project-level LLM summary, cached by intent corpus, with no
+                // filtered variant. Serving it next to filtered counters and a filtered feed would
+                // describe traffic the rest of the tab excludes, so under a shared filter the card
+                // falls back to the verbatim intents, which come from the filtered overview.
+                if (isSharedFilterActive(values.sharedQueryFilters)) {
                     return null
                 }
                 try {
@@ -327,12 +343,16 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
     }),
     listeners(({ actions }) => ({
         // The feed's own query object carries the shared filters, so the table reloads itself; the
-        // overview's counters, top tools and clients need an explicit refetch.
+        // overview and the intent digest need an explicit refetch.
         setFilterTestAccounts: () => {
-            actions.loadOverview()
+            actions.reloadForSharedFilters()
         },
         setPropertyFilters: () => {
+            actions.reloadForSharedFilters()
+        },
+        reloadForSharedFilters: () => {
             actions.loadOverview()
+            actions.loadIntentDigest()
         },
         refreshAll: () => {
             actions.loadSignals()
