@@ -60,7 +60,6 @@ from products.slack_app.backend.services.slack_app_home_stats import (
 )
 from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
-    build_ai_preferences_payload,
     resolve_ai_preferences,
     resolve_untagged_followup_mode,
     validate_ai_preferences,
@@ -467,7 +466,7 @@ def render_home_view(
     # model default to inherit from.
     blocks.append({"type": "divider"})
     blocks.extend(_active_model_blocks(effective, source, run_defaults or RunDefaultsState()))
-    blocks.extend(_personal_section_blocks(user_row))
+    blocks.extend(_personal_section_blocks(user_row, run_defaults or RunDefaultsState()))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
     # threads you started reach PostHog on their own. Absent when the workspace
@@ -827,8 +826,14 @@ def _github_account_button(github_state: GitHubState) -> dict | None:
     return button
 
 
-def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
-    """Personal AI override sub-card. Always editable by the user themselves."""
+def _personal_section_blocks(user_row: SlackSettings | None, run_defaults: RunDefaultsState) -> list[dict]:
+    """Personal AI override sub-card. Always editable by the user themselves.
+
+    Saves land on the central per-user tasks config, so the reset button also
+    shows when that config carries a personal default (`run_defaults.source ==
+    "user"`) with no Slack pin left — otherwise a preference saved here a
+    moment ago would render with no way back.
+    """
 
     has_override = bool(user_row and user_row.runtime_adapter and user_row.model)
     summary = (
@@ -844,7 +849,7 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
             "text": {"type": "plain_text", "text": "Edit my settings", "emoji": True},
         }
     ]
-    if has_override:
+    if has_override or run_defaults.source == "user":
         actions.append(
             {
                 "type": "button",
@@ -1577,7 +1582,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_RESET_PERSONAL:
-        _clear_personal_override(integration, slack_user_id)
+        _reset_personal_preferences(integration, slack_user_id)
         republish()
         return HttpResponse(status=200)
 
@@ -1668,13 +1673,16 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
     except ValidationError as exc:
         return _modal_error_response(_first_validation_message(exc))
 
-    _write_row(
-        integration,
-        slack_user_id=slack_user_id,
-        runtime_adapter=runtime_adapter,
-        model=model,
-        reasoning_effort=reasoning_effort,
-    )
+    try:
+        _apply_personal_preferences(
+            integration,
+            slack_user_id,
+            runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+    except ValidationError as exc:
+        return _modal_error_response(_first_validation_message(exc))
 
     _republish_home(integration, slack_user_id)
     return JsonResponse({"response_action": "clear"})
@@ -1821,26 +1829,83 @@ def _supported_efforts(runtime_adapter: str | None, model: str | None) -> list[s
     return [e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)] or None
 
 
-def _write_row(
+def _routed_project_integration(integration: Integration, slack_user_id: str) -> Integration | None:
+    """The integration of the project this viewer's mentions currently route to,
+    restricted to projects the viewer can access. None when they can reach none."""
+    accessible = _accessible_integrations(integration, slack_user_id)
+    try:
+        return resolve_from_candidates(
+            accessible,
+            slack_team_id=integration.integration_id,
+            slack_user_id=slack_user_id,
+        ).resolved_or_first()
+    except Exception:
+        logger.exception("slack_app_home_routed_project_resolution_failed", slack_user_id=slack_user_id)
+        return None
+
+
+def _apply_personal_preferences(
     integration: Integration,
-    *,
     slack_user_id: str,
+    *,
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
 ) -> None:
-    """Upsert a SlackSettings row with the given AI preferences.
+    """Persist the modal's triple as the viewer's central tasks preference.
 
-    `default_integration` is left untouched on existing rows so saving AI
-    preferences doesn't accidentally overwrite the user's routing pick.
+    The central per-(user, project) config — the same store the web composer,
+    PostHog Desktop, and the MCP config tools edit — is where model preferences
+    live; the Slack-local pin store is being retired. The Slack row's AI fields
+    are cleared in the same step so a pre-existing pin cannot shadow the save.
+
+    A viewer we cannot map to a PostHog user has nowhere to store a preference,
+    and their mentions cannot start runs either, so the save is refused with a
+    pointer to account linking rather than written to a store nothing reads.
     """
-
-    payload = build_ai_preferences_payload(runtime_adapter, model, reasoning_effort)
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-        defaults={"ai_preferences": payload or None},
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
     )
+
+    user = _resolve_home_user(integration, slack_user_id)
+    target = _routed_project_integration(integration, slack_user_id) if user is not None else None
+    if user is None or target is None:
+        raise ValidationError(
+            "Link your PostHog account first. You can do that from the Linked accounts card on the Home tab."
+        )
+
+    ai_run_defaults.update_user_ai_run_preferences(
+        target.team_id,
+        user.id,
+        runtime_adapter=runtime_adapter,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
+    _clear_personal_override(integration, slack_user_id)
+
+
+def _reset_personal_preferences(integration: Integration, slack_user_id: str) -> None:
+    """Clear the viewer's model preference wherever it lives.
+
+    For a mapped viewer that is the central per-(user, project) config, which
+    resets them to the project default. The Slack row's AI fields are cleared
+    either way, so an old pin cannot resurface after the reset.
+    """
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
+
+    user = _resolve_home_user(integration, slack_user_id)
+    target = _routed_project_integration(integration, slack_user_id) if user is not None else None
+    if user is not None and target is not None:
+        ai_run_defaults.update_user_ai_run_preferences(
+            target.team_id,
+            user.id,
+            runtime_adapter=None,
+            model=None,
+            reasoning_effort=None,
+        )
+    _clear_personal_override(integration, slack_user_id)
 
 
 def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: str, action: dict) -> None:

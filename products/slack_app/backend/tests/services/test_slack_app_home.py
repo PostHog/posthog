@@ -58,6 +58,7 @@ from products.slack_app.backend.services.slack_app_home import (
     PreferenceSource,
     ProjectChoice,
     ProjectState,
+    RunDefaultsState,
     StatsState,
     TaskItem,
     TasksState,
@@ -70,6 +71,7 @@ from products.slack_app.backend.services.slack_app_home import (
     resolve_source,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
+from products.tasks.backend.facade.ai_run_defaults import get_user_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.models import Task, TaskRun
 
 SLACK_WORKSPACE_ID = "T_HOME"
@@ -419,6 +421,17 @@ class TestRenderHomeView:
         # no extra model control — the model is purely a personal preference.
         assert ACTION_EDIT_PERSONAL in ids
         assert ACTION_RESET_PERSONAL not in ids
+
+    def test_reset_shows_when_only_the_central_user_default_is_set(self):
+        # A preference saved from this card lands on the central config and
+        # clears the Slack pin, so reset must key off the central source too.
+        view = render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
+        )
+        assert ACTION_RESET_PERSONAL in _action_ids(view)
 
     def test_personal_override_renders_reset_button(self):
         view = render_home_view(
@@ -1239,6 +1252,30 @@ class TestResetPersonal:
         assert row.reasoning_effort is None
         assert mock_slack_client.views_publish.called
 
+    def test_mapped_viewer_reset_clears_central_config_and_row(self, slack_integration, mock_slack_client, flag_on):
+        user = User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
+        )
+        update_user_ai_run_preferences(
+            slack_integration.team_id, user.id, runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None
+        )
+        SlackSettings.objects.create(
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            slack_user_id="U001",
+            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
+        )
+        payload = _block_action_payload(
+            action_id=ACTION_RESET_PERSONAL,
+            slack_user_id="U001",
+            trigger_id="trig.8",
+        )
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        assert get_user_ai_run_preferences(slack_integration.team_id, user.id) == {}
+        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+        assert row.ai_preferences is None
+
 
 class TestResetProjectPersonal:
     def test_clears_routing_only_when_ai_preferences_present(
@@ -1300,7 +1337,11 @@ class TestResetProjectPersonal:
 
 
 class TestPersonalSubmit:
-    def test_writes_row_and_republishes(self, slack_integration, mock_slack_client, flag_on, admin_user):
+    def test_unmapped_viewer_submit_is_refused_with_a_link_prompt(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        # No PostHog user maps to U001, so there is nowhere to store the
+        # preference — the modal must say so instead of writing a Slack pin.
         payload = _view_submission_payload(
             callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
             slack_user_id="U001",
@@ -1309,14 +1350,40 @@ class TestPersonalSubmit:
             effort="high",
         )
         response = handle_app_home_view_submission(payload)
-        assert response.status_code == 200
+        body = json.loads(response.content)
+        assert body["response_action"] == "errors"
+        assert "Link your PostHog account" in str(body["errors"])
+        assert not SlackSettings.objects.filter(slack_user_id="U001").exists()
+
+    def test_mapped_viewer_submit_writes_central_config_and_clears_row(
+        self, slack_integration, mock_slack_client, flag_on
+    ):
+        user = User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
+        )
+        # Stale pin on the Slack row: the save must not leave it behind to shadow
+        # the central config it just wrote.
+        SlackSettings.objects.create(
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            slack_user_id="U001",
+            ai_preferences={"runtime_adapter": "codex", "model": "gpt-5", "reasoning_effort": None},
+        )
+        payload = _view_submission_payload(
+            callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
+            slack_user_id="U001",
+            runtime_adapter="claude",
+            model="claude-opus-4-7",
+            effort="high",
+        )
+        response = handle_app_home_view_submission(payload)
         assert json.loads(response.content) == {"response_action": "clear"}
 
+        stored = get_user_ai_run_preferences(slack_integration.team_id, user.id)
+        assert stored.get("model") == "claude-opus-4-7"
+        assert stored.get("runtime_adapter") == "claude"
         row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
-        assert row.runtime_adapter == "claude"
-        assert row.model == "claude-opus-4-7"
-        assert row.reasoning_effort == "high"
-        assert mock_slack_client.views_publish.called
+        assert row.ai_preferences is None
 
     def test_invalid_pair_keeps_modal_open_with_error(self, slack_integration, mock_slack_client, flag_on):
         # `xhigh` isn't supported on claude-sonnet-4-6 — validate_ai_preferences rejects.
