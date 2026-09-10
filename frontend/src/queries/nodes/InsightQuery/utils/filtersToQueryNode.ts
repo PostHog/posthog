@@ -2,7 +2,6 @@ import posthog from 'posthog-js'
 
 import { isKeyOf } from 'lib/utils/guards'
 import { objectCleanWithEmpty } from 'lib/utils/objects'
-import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import {
     isFunnelsFilter,
@@ -76,6 +75,8 @@ import {
     isDataWarehouseFilter,
     isGroupFilter,
 } from '~/types'
+
+import { transformLegacyHiddenLegendKeys } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 

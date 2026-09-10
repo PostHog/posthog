@@ -3,6 +3,7 @@ import { ParquetReader } from '@dsnp/parquetjs'
 
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { replayIndexPartitions } from './replay-index'
 
 const row = (sessionId: string, teamId: string): MlBlockMetadataRow => ({
     session_id: sessionId,
@@ -56,6 +57,68 @@ describe('BlockMetadataParquetStore', () => {
                 return Promise.resolve({})
             }),
         } as unknown as S3Client
+    })
+
+    it.each([
+        { name: 'adjacent URL', pageIndex: 0, pageTime: 1000, window: 'w1', expected: 'https://example.com/page' },
+        { name: 'same timestamp', pageIndex: 0, pageTime: 1100, window: 'w1', expected: 'https://example.com/page' },
+        { name: 'intervening event', pageIndex: 0, pageTime: 1000, window: 'w1', expected: null },
+        { name: 'different window', pageIndex: 0, pageTime: 1000, window: 'w2', expected: null },
+        { name: 'reversed timestamps', pageIndex: 0, pageTime: 1200, window: 'w1', expected: null },
+        { name: 'later URL', pageIndex: 4, pageTime: 1200, window: 'w1', expected: null },
+    ])('enriches snapshot URLs from block metadata: $name', ({ name, pageIndex, pageTime, window, expected }) => {
+        const block: MlBlockMetadataRow = {
+            ...row('s1', 't1'),
+            session_start_ts_ms: 1000,
+            event_count: 6,
+            replay_index_entries: [
+                {
+                    kind: 'full_snapshot',
+                    windowId: 'w1',
+                    eventIndex: name === 'intervening event' ? 2 : 1,
+                    eventTimestamp: 1100,
+                },
+                {
+                    kind: 'page',
+                    windowId: window,
+                    eventIndex: pageIndex,
+                    eventTimestamp: pageTime,
+                    url: 'https://example.com/page',
+                },
+            ],
+        }
+        const entries = [...replayIndexPartitions([block]).values()].flat()
+        expect(entries.find((entry) => entry.kind === 'full_snapshot')?.url).toBe(expected)
+    })
+
+    it('does not carry URLs between blocks', () => {
+        const source = {
+            ...row('s1', 't1'),
+            session_start_ts_ms: 1000,
+        }
+        const entries = [
+            ...replayIndexPartitions([
+                {
+                    ...source,
+                    replay_index_entries: [
+                        {
+                            kind: 'page',
+                            windowId: 'w1',
+                            eventIndex: 0,
+                            eventTimestamp: 1000,
+                            url: 'https://example.com/page',
+                        },
+                    ],
+                },
+                {
+                    ...source,
+                    replay_index_entries: [
+                        { kind: 'full_snapshot', windowId: 'w1', eventIndex: 1, eventTimestamp: 1100 },
+                    ],
+                },
+            ]).values(),
+        ].flat()
+        expect(entries.find((entry) => entry.kind === 'full_snapshot')?.url).toBeNull()
     })
 
     it('writes one dt-partitioned Parquet object that round-trips', async () => {
