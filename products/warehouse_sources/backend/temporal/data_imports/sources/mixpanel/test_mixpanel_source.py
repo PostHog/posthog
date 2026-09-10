@@ -5,11 +5,13 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import PAYMENT_REQUIRED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
 
 LOGGER = structlog.get_logger()
@@ -95,6 +97,20 @@ class TestApiVersions:
         with patch.object(source_module, "mixpanel_source") as mock_source:
             MixpanelSource().source_for_pipeline(_config(), MagicMock(), _inputs(api_version=pin))
         assert mock_source.call_args.kwargs["api_version"] == expected
+
+
+class TestNonRetryableErrors:
+    def test_payment_required_maps_to_plan_message(self) -> None:
+        # A Mixpanel 402 must fail fast with the plan-and-billing message instead of retrying for
+        # the whole Temporal budget on a failure that cannot succeed.
+        observed = "402 Client Error: Payment Required for url: https://mixpanel.com/api/query/cohorts/list"
+        errors = MixpanelSource().get_non_retryable_errors()
+        matched = [message for key, message in errors.items() if error_message_matches(observed, [key])]
+        assert matched == [PAYMENT_REQUIRED_MESSAGE]
+
+    def test_retryable_error_stays_out_of_the_map(self) -> None:
+        errors = MixpanelSource().get_non_retryable_errors()
+        assert not error_message_matches("Mixpanel API error (retryable): status=503", errors.keys())
 
 
 class TestSourceForPipeline:
