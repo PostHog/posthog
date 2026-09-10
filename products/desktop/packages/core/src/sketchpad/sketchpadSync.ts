@@ -12,6 +12,7 @@ import {
   type SketchpadSnapshot,
   sketchpadLogEntrySchema,
 } from "@posthog/shared";
+import { z } from "zod";
 import type { StateStorage } from "zustand/middleware";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ISketchpadService } from "./identifiers";
@@ -39,12 +40,15 @@ export interface SketchpadSyncState {
   channelId: string | null;
   snapshot: SketchpadSnapshot;
   headSeq: number;
+  historyStartSeq: number;
+  historySnapshot: SketchpadSnapshot;
   log: SketchpadLogEntry[];
   logComplete: boolean;
   pending: PendingEntry[];
   status: SketchpadSyncStatus;
   live: boolean;
   lastError?: string;
+  historyConflict: boolean;
   fragmentErrors: Record<string, string>;
 }
 
@@ -62,6 +66,9 @@ const OPS_PAGE_LIMIT = 1000;
 const RETRY_INITIAL_MS = 1000;
 const RETRY_MAX_MS = 15_000;
 const CATCH_UP_PAGE_BUDGET = 500;
+const pendingEntrySchema = sketchpadLogEntrySchema
+  .omit({ seq: true })
+  .extend({ baseSeq: z.number().int().nonnegative().default(0) });
 
 export class SketchpadSyncClient {
   private readonly api: SketchpadApi;
@@ -78,6 +85,8 @@ export class SketchpadSyncClient {
   private name = "";
   private baseSnapshot: SketchpadSnapshot = emptySketchpadSnapshot();
   private baseSeq = 0;
+  private historyStartSeq = 0;
+  private historySnapshot: SketchpadSnapshot = emptySketchpadSnapshot();
   private foldedBase = this.baseSnapshot;
   private foldedSnapshot = this.baseSnapshot;
   private foldedSeq = 0;
@@ -88,6 +97,7 @@ export class SketchpadSyncClient {
   private snapshot: SketchpadSnapshot = emptySketchpadSnapshot();
   private fragmentErrors: Record<string, string> = {};
   private lastError: string | undefined;
+  private historyConflict = false;
 
   private loading = true;
   private loadFailed = false;
@@ -135,10 +145,7 @@ export class SketchpadSyncClient {
           this.pendingStorage &&
           (await this.pendingStorage.storage.getItem(this.pendingStorage.key));
         if (stored) {
-          const entries = sketchpadLogEntrySchema
-            .omit({ seq: true })
-            .array()
-            .parse(JSON.parse(stored));
+          const entries = pendingEntrySchema.array().parse(JSON.parse(stored));
           this.pending = [
             ...this.pending,
             ...entries.filter((entry) => !this.hasOp(entry.opId)),
@@ -149,6 +156,7 @@ export class SketchpadSyncClient {
       const board = await this.api.get(this.sketchpadId);
       this.name = board.name;
       this.channelId = board.channelId;
+      this.applyHistoryCheckpoint(board.historyStartSeq, board.historySnapshot);
       if (board.headSeq >= this.baseSeq) {
         this.baseSnapshot = board.snapshot;
         this.baseSeq = board.headSeq;
@@ -157,7 +165,7 @@ export class SketchpadSyncClient {
       this.refreshLogComplete();
       if (!this.isCurrent()) await this.catchUp();
       this.loadFailed = false;
-      this.lastError = undefined;
+      if (!this.historyConflict) this.lastError = undefined;
       this.retryAttempt = 0;
     } catch (error) {
       this.loadFailed = true;
@@ -165,7 +173,13 @@ export class SketchpadSyncClient {
     } finally {
       this.loading = false;
       this.recompute();
-      if (!this.loadFailed && this.pending.length > 0) this.scheduleFlush();
+      if (
+        !this.loadFailed &&
+        !this.historyConflict &&
+        this.pending.length > 0
+      ) {
+        this.scheduleFlush();
+      }
     }
   }
 
@@ -178,7 +192,7 @@ export class SketchpadSyncClient {
   async loadFullLog(): Promise<void> {
     if (this.logComplete) return;
     try {
-      await this.fetchPages(() => this.contiguousHead(0));
+      await this.fetchPages(() => this.contiguousHead(this.historyStartSeq));
       this.refreshLogComplete();
       this.lastError = undefined;
     } catch (error) {
@@ -212,7 +226,13 @@ export class SketchpadSyncClient {
         op.type === "restore"
           ? { ...op, expectedSeq: this.headSeq + this.pending.length }
           : op;
-      this.appendPending({ opId, op: pendingOp, actor: identity, createdAt });
+      this.appendPending({
+        opId,
+        op: pendingOp,
+        actor: identity,
+        createdAt,
+        baseSeq: this.headSeq,
+      });
       added = true;
     }
 
@@ -233,12 +253,13 @@ export class SketchpadSyncClient {
 
   async flush(): Promise<void> {
     this.clearFlushTimer();
-    if (this.inFlight) return;
+    if (this.inFlight || this.historyConflict) return;
     const batch = leadingActorRun(this.pending);
     if (batch.length === 0) return;
 
     const first = batch[0];
     const input: SketchpadAppendOpsInput = {
+      baseSeq: first.baseSeq,
       ops: batch.map((entry) => ({ opId: entry.opId, op: entry.op })),
       actor: { kind: first.actor.kind, taskId: first.actor.taskId },
     };
@@ -256,7 +277,11 @@ export class SketchpadSyncClient {
       this.lastError = undefined;
     } catch (error) {
       this.lastError = errorMessage(error);
-      if (isRefusedByServer(error)) {
+      if (isHistoryCompacted(error)) {
+        this.historyConflict = true;
+        this.clearRetryTimer();
+        void this.load();
+      } else if (isRefusedByServer(error)) {
         this.discard(batch);
         void this.load();
       } else {
@@ -273,7 +298,11 @@ export class SketchpadSyncClient {
       this.recompute();
     }
 
-    if (this.retryAttempt === 0 && this.pending.length > 0) {
+    if (
+      this.retryAttempt === 0 &&
+      !this.historyConflict &&
+      this.pending.length > 0
+    ) {
       this.scheduleFlush();
     }
   }
@@ -286,7 +315,7 @@ export class SketchpadSyncClient {
     try {
       await this.catchUp();
       this.retryAttempt = 0;
-      this.lastError = undefined;
+      if (!this.historyConflict) this.lastError = undefined;
       if (this.log !== previousLog) this.recompute();
       else this.emit();
     } catch (error) {
@@ -361,8 +390,13 @@ export class SketchpadSyncClient {
       this.emit();
       return;
     }
+    if (seq < this.historyStartSeq) {
+      this.lastError = "This edit is no longer in the saved history.";
+      this.emit();
+      return;
+    }
     const upTo = this.log.filter((entry) => entry.seq <= seq);
-    const target = foldOps(emptySketchpadSnapshot(), upTo);
+    const target = foldOps(this.historySnapshot, upTo);
     this.applyLocal([{ type: "restore", snapshot: target, toSeq: seq }]);
   }
 
@@ -384,7 +418,7 @@ export class SketchpadSyncClient {
         this.applyLocal([
           {
             type: "restore",
-            snapshot: foldOps(emptySketchpadSnapshot(), retained),
+            snapshot: foldOps(this.historySnapshot, retained),
             toSeq: entry.seq - 1,
           },
         ]);
@@ -439,6 +473,10 @@ export class SketchpadSyncClient {
       dedupeByOpId([...(result.replayed ?? []), ...this.log, ...promoted]),
     );
     this.headSeq = Math.max(this.headSeq, result.headSeq, maxSeq);
+    this.pending = this.pending.map((entry) => ({
+      ...entry,
+      baseSeq: this.headSeq,
+    }));
     this.refreshLogComplete();
 
     if (!this.isCurrent()) void this.poll();
@@ -488,6 +526,10 @@ export class SketchpadSyncClient {
         since,
         OPS_PAGE_LIMIT,
       );
+      this.applyHistoryCheckpoint(
+        result.historyStartSeq,
+        result.historySnapshot,
+      );
       this.headSeq = Math.max(this.headSeq, result.headSeq);
       if (result.results.length === 0) return;
       this.ingest(result.results);
@@ -510,12 +552,32 @@ export class SketchpadSyncClient {
 
   private refreshLogComplete(): void {
     this.logComplete =
-      this.log.length === this.headSeq &&
-      this.log.every((entry, index) => entry.seq === index + 1);
+      this.log.length === this.headSeq - this.historyStartSeq &&
+      this.log.every(
+        (entry, index) => entry.seq === this.historyStartSeq + index + 1,
+      );
+  }
+
+  private applyHistoryCheckpoint(
+    seq: number,
+    snapshot: SketchpadSnapshot,
+  ): void {
+    if (seq <= this.historyStartSeq) return;
+    this.historyStartSeq = seq;
+    this.historySnapshot = snapshot;
+    this.log = this.log.filter((entry) => entry.seq > seq);
+    if (this.baseSeq < seq) {
+      this.baseSeq = seq;
+      this.baseSnapshot = snapshot;
+    }
+    this.foldedBase = this.baseSnapshot;
+    this.foldedSnapshot = this.baseSnapshot;
+    this.foldedSeq = this.baseSeq;
+    this.refreshLogComplete();
   }
 
   private scheduleFlush(): void {
-    if (this.flushTimer !== undefined) return;
+    if (this.flushTimer !== undefined || this.historyConflict) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = undefined;
       void this.flush();
@@ -597,7 +659,7 @@ export class SketchpadSyncClient {
   private status(): SketchpadSyncStatus {
     if (this.loading) return "loading";
     if (this.retryAttempt > 0) return "offline";
-    if (this.loadFailed) return "error";
+    if (this.loadFailed || this.historyConflict) return "error";
     if (!this.isCurrent()) return "loading";
     if (this.inFlight || this.pending.length > 0) return "saving";
     return "synced";
@@ -610,14 +672,37 @@ export class SketchpadSyncClient {
       channelId: this.channelId,
       snapshot: this.snapshot,
       headSeq: this.headSeq,
+      historyStartSeq: this.historyStartSeq,
+      historySnapshot: this.historySnapshot,
       log: this.log,
       logComplete: this.logComplete,
       pending: this.pending,
       status: this.status(),
       live: this.live,
       lastError: this.lastError,
+      historyConflict: this.historyConflict,
       fragmentErrors: this.fragmentErrors,
     };
+  }
+
+  rebasePendingAfterCompaction(): void {
+    if (!this.historyConflict) return;
+    this.pending = this.pending.map((entry) => ({
+      ...entry,
+      baseSeq: this.headSeq,
+    }));
+    this.historyConflict = false;
+    this.lastError = undefined;
+    this.recompute();
+    this.scheduleFlush();
+  }
+
+  discardPendingAfterCompaction(): void {
+    if (!this.historyConflict) return;
+    this.pending = [];
+    this.historyConflict = false;
+    this.lastError = undefined;
+    this.recompute();
   }
 
   private persistPending(): void {
@@ -649,7 +734,18 @@ function isRefusedByServer(error: unknown): boolean {
   const data = (
     error as { data?: { code?: unknown; httpStatus?: unknown } } | null
   )?.data;
-  return data?.code === "BAD_REQUEST" || data?.httpStatus === 400;
+  const status = (error as { status?: unknown } | null)?.status;
+  return (
+    data?.code === "BAD_REQUEST" || data?.httpStatus === 400 || status === 400
+  );
+}
+
+function isHistoryCompacted(error: unknown): boolean {
+  const value = error as {
+    status?: unknown;
+    data?: { httpStatus?: unknown };
+  } | null;
+  return value?.status === 409 || value?.data?.httpStatus === 409;
 }
 
 function sortLog(entries: SketchpadLogEntry[]): SketchpadLogEntry[] {
