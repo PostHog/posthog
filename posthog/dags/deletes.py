@@ -23,6 +23,7 @@ from posthog.clickhouse.cluster import (
     NodeRole,
     Query,
     Workload,
+    wait_for_mutations_on_shards,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
@@ -661,8 +662,9 @@ def wait_for_delete_mutations_in_shards(
     pending_deletes_dict, cluster_mutations = delete_mutations
 
     for (cluster_name, shard_role), shard_mutations in cluster_mutations.items():
-        handle = cluster.sibling(cluster_name, shard_role)
-        handle.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
+        # Shared with the squash, which is where the retry comes from: under replication lag a
+        # mutation can be briefly invisible on a shard, and that used to fail the whole run.
+        wait_for_mutations_on_shards(cluster.sibling(cluster_name, shard_role), shard_mutations)
 
     return pending_deletes_dict
 
