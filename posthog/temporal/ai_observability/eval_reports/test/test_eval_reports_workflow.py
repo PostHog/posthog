@@ -359,8 +359,10 @@ async def test_report_child_preserves_legacy_command_without_occurrence_key() ->
     ) as start_child_workflow:
         assert await _start_report_workflow("eval-report", "report-a") is True
 
-    assert start_child_workflow.await_args.kwargs["id"] == "eval-report-report-a"
-    assert start_child_workflow.await_args.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+    await_args = start_child_workflow.await_args
+    assert await_args is not None
+    assert await_args.kwargs["id"] == "eval-report-report-a"
+    assert await_args.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
 
 
 @pytest.mark.parametrize(
