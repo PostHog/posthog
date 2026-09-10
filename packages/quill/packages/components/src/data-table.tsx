@@ -53,6 +53,48 @@ declare module '@tanstack/react-table' {
     }
 }
 
+const ROW_CLICK_IGNORE_SELECTOR = [
+    'a',
+    'button',
+    'input',
+    'select',
+    'textarea',
+    'label',
+    'summary',
+    'audio[controls]',
+    'video[controls]',
+    '[contenteditable]:not([contenteditable="false"])',
+    '[tabindex]:not([tabindex="-1"])',
+    '[role="button"]',
+    '[role="checkbox"]',
+    '[role="combobox"]',
+    '[role="link"]',
+    '[role="listbox"]',
+    '[role="menuitem"]',
+    '[role="menuitemcheckbox"]',
+    '[role="menuitemradio"]',
+    '[role="option"]',
+    '[role="radio"]',
+    '[role="searchbox"]',
+    '[role="slider"]',
+    '[role="spinbutton"]',
+    '[role="switch"]',
+    '[role="tab"]',
+    '[role="textbox"]',
+    '[role="treeitem"]',
+    '[data-row-click-ignore]',
+].join(', ')
+
+function shouldIgnoreRowClick(target: EventTarget | null, row: HTMLTableRowElement): boolean {
+    if (!(target instanceof Element)) {
+        return false
+    }
+
+    const interactiveElement = target.closest(ROW_CLICK_IGNORE_SELECTOR)
+
+    return interactiveElement !== null && interactiveElement !== row
+}
+
 export interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
@@ -292,9 +334,7 @@ function DataTable<TData, TValue>({
                             onClick={
                                 onRowClick
                                     ? (event) => {
-                                          if (
-                                              !(event.target as Element).closest('a, button, input, select, textarea')
-                                          ) {
+                                          if (!shouldIgnoreRowClick(event.target, event.currentTarget)) {
                                               onRowClick(row.original)
                                           }
                                       }

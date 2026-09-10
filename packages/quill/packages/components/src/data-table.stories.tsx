@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { type ColumnDef } from '@tanstack/react-table'
 import * as React from 'react'
 
-import { Badge } from '@posthog/quill-primitives'
+import { Badge, Checkbox, Field, Label } from '@posthog/quill-primitives'
 
 import { DataTable } from './data-table'
 
@@ -134,6 +134,25 @@ const fullWidthColumns: ColumnDef<Person>[] = [
     },
 ]
 
+const clickableColumns: ColumnDef<Person>[] = [
+    ...fullWidthColumns,
+    {
+        id: 'selection',
+        header: 'Select',
+        enableSorting: false,
+        cell: ({ row }) => {
+            const id = `select-${row.original.id}`
+
+            return (
+                <Field orientation="horizontal">
+                    <Checkbox id={id} />
+                    <Label htmlFor={id}>Select</Label>
+                </Field>
+            )
+        },
+    },
+]
+
 export const FullWidth: Story = {
     render: () => (
         <DataTable
@@ -148,7 +167,7 @@ export const FullWidth: Story = {
 export const ClickableRows: Story = {
     render: () => (
         <DataTable
-            columns={fullWidthColumns}
+            columns={clickableColumns}
             data={people}
             fullWidth
             onRowClick={() => undefined}
