@@ -1,3 +1,4 @@
+import json
 import time
 import asyncio
 import dataclasses
@@ -31,7 +32,13 @@ from products.error_tracking.backend.temporal.alerts.delivery import (
     plan_alert_deliveries,
 )
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
-from products.error_tracking.backend.temporal.alerts.messages import build_reply_text, build_root_message, issue_url
+from products.error_tracking.backend.temporal.alerts.messages import (
+    SlackActions,
+    build_reply_text,
+    build_root_edit,
+    build_root_message,
+    issue_url,
+)
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.alerts.workflow import ACTIVITY_RETRY_POLICY
 
@@ -246,6 +253,38 @@ class TestAlertMessages(SimpleTestCase):
 
     def test_spiking_reply_without_measurements_stays_short(self):
         assert build_reply_text(self._inputs()) == "📈 Spiking again"
+
+    def test_root_buttons_carry_the_integration_and_issue_and_drop_resolve_once_resolved(self):
+        inputs = AlertDeliveryWorkflowInputs(
+            notification_id="notif-1",
+            team_id=1,
+            issue_id="issue-1",
+            event="$error_tracking_issue_created",
+            status="Active",
+        )
+        actions = SlackActions(integration_id=7, issue_id="issue-1", team_id=1, fingerprint="fp-1")
+
+        elements = build_root_message(inputs, actions=actions)["blocks"][-1]["elements"]
+        by_action = {el.get("action_id"): el for el in elements}
+        assert "url" in elements[0]
+        assert json.loads(by_action["error_tracking_issue_resolve"]["value"]) == {
+            "integration_id": 7,
+            "issue_id": "issue-1",
+            "team_id": 1,
+            "fingerprint": "fp-1",
+        }
+        assert "error_tracking_issue_assign_me" in by_action
+
+        resolved = dataclasses.replace(inputs, status="Resolved")
+        edited = build_root_edit(resolved, headline="🔴 New issue", actions=actions)["blocks"][-1]["elements"]
+        assert [el.get("action_id") for el in edited] == [None, "error_tracking_issue_assign_me"]
+
+        # A fingerprint that would push the value past Slack's limit is left out, not sent.
+        long_actions = SlackActions(integration_id=7, issue_id="issue-1", team_id=1, fingerprint="x" * 3000)
+        assert "fingerprint" not in json.loads(long_actions.value())
+
+        # Preview and destinations without an integration render no interactive buttons.
+        assert len(build_root_message(inputs)["blocks"][-1]["elements"]) == 1
 
     def test_issue_link_follows_the_fingerprint_when_known(self):
         # A merge deletes the source issue; the fingerprint route redirects to the survivor.

@@ -5,7 +5,11 @@ controlled: render them only inside `plain_text` blocks, and escape anything
 interpolated into mrkdwn text.
 """
 
+import json
+
 from django.conf import settings
+
+from posthog.dataclasses import frozen
 
 from products.error_tracking.backend.logic import build_issue_permalink_path
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
@@ -22,6 +26,39 @@ DEFAULT_HEADLINE = "🔴 Issue alert"
 # headline and title are truncated as one composed string.
 MAX_HEADER_LENGTH = 150
 MAX_DESCRIPTION_LENGTH = 500
+
+# Button action ids the Slack interactivity handler (products.slack_app) dispatches on.
+RESOLVE_ACTION_ID = "error_tracking_issue_resolve"
+MAX_FINGERPRINT_VALUE_LENGTH = 1000
+ASSIGN_ME_ACTION_ID = "error_tracking_issue_assign_me"
+
+
+@frozen
+class SlackActions:
+    """What the interactive buttons on a root message need to carry back.
+
+    The integration id lets the handler route the click to the region that owns the
+    workspace; the issue id names the target. Both are re-verified server side.
+    """
+
+    integration_id: int
+    issue_id: str
+    # Fingerprints are unique per environment; together they let a click on a root whose
+    # issue was merged away land on the surviving issue in the same environment.
+    team_id: int
+    fingerprint: str | None = None
+
+    def value(self) -> str:
+        payload: dict[str, object] = {
+            "integration_id": self.integration_id,
+            "issue_id": self.issue_id,
+            "team_id": self.team_id,
+        }
+        # Slack caps a button value at 2000 characters and fingerprints are unbounded text;
+        # a long one is left out rather than sinking the whole message.
+        if self.fingerprint and len(json.dumps(self.fingerprint)) <= MAX_FINGERPRINT_VALUE_LENGTH:
+            payload["fingerprint"] = self.fingerprint
+        return json.dumps(payload)
 
 
 def escape_slack_text(text: str) -> str:
@@ -68,17 +105,36 @@ def spike_summary(extra: dict[str, str] | None) -> str | None:
     return f"{current:g} events in the last window vs baseline {baseline:g}"
 
 
-def _link_block(inputs: AlertDeliveryWorkflowInputs) -> dict:
+def _link_block(inputs: AlertDeliveryWorkflowInputs, actions: SlackActions | None) -> dict:
+    elements: list[dict] = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "View issue", "emoji": True},
+            "url": issue_url(inputs),
+        }
+    ]
+    if actions is not None:
+        if inputs.status != "Resolved":
+            elements.append(
+                {
+                    "type": "button",
+                    "action_id": RESOLVE_ACTION_ID,
+                    "text": {"type": "plain_text", "text": "Resolve", "emoji": True},
+                    "value": actions.value(),
+                }
+            )
+        elements.append(
+            {
+                "type": "button",
+                "action_id": ASSIGN_ME_ACTION_ID,
+                "text": {"type": "plain_text", "text": "Assign to me", "emoji": True},
+                "value": actions.value(),
+            }
+        )
     return {
         "type": "actions",
         "block_id": f"error_tracking_issue_actions:{inputs.issue_id}",
-        "elements": [
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "View issue", "emoji": True},
-                "url": issue_url(inputs),
-            }
-        ],
+        "elements": elements,
     }
 
 
@@ -87,7 +143,7 @@ def _header_text(inputs: AlertDeliveryWorkflowInputs, headline: str) -> str:
     return _truncate(f"{headline}: {title}", MAX_HEADER_LENGTH)
 
 
-def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> list[dict]:
+def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str, actions: SlackActions | None) -> list[dict]:
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": _header_text(inputs, headline), "emoji": True}}
     ]
@@ -112,23 +168,23 @@ def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> list
         summary = spike_summary(inputs.extra)
         if summary:
             blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": summary}]})
-    blocks.append(_link_block(inputs))
+    blocks.append(_link_block(inputs, actions))
     return blocks
 
 
-def build_root_message(inputs: AlertDeliveryWorkflowInputs) -> dict:
+def build_root_message(inputs: AlertDeliveryWorkflowInputs, *, actions: SlackActions | None = None) -> dict:
     headline = root_headline(inputs.event)
     return {
-        "blocks": _build_blocks(inputs, headline=headline),
+        "blocks": _build_blocks(inputs, headline=headline, actions=actions),
         "text": escape_slack_text(_header_text(inputs, headline)),
         "headline": headline,
     }
 
 
-def build_root_edit(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> dict:
+def build_root_edit(inputs: AlertDeliveryWorkflowInputs, *, headline: str, actions: SlackActions | None = None) -> dict:
     # The headline never changes on edit: it is the thread's identity.
     return {
-        "blocks": _build_blocks(inputs, headline=headline),
+        "blocks": _build_blocks(inputs, headline=headline, actions=actions),
         "text": escape_slack_text(_header_text(inputs, headline)),
     }
 

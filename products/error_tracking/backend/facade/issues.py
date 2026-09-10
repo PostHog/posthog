@@ -8,15 +8,22 @@ django.setup() path of the read-oriented main facade.
 from typing import Any
 from uuid import UUID
 
+from posthog.models.integration import Integration
 from posthog.models.user import User
 
-from ..logic import issue_mutations as _mutations
+from ..logic import (
+    issue_mutations as _mutations,
+    slack_actions as _slack_actions,
+)
 from ..models import ErrorTrackingIssueMergeResult
 from . import api, contracts
 
 CohortNotFoundError = _mutations.CohortNotFoundError
 AssigneeValidationError = _mutations.AssigneeValidationError
 InvalidIssueStatusError = _mutations.InvalidIssueStatusError
+
+
+SlackActionOutcome = _slack_actions.SlackActionOutcome
 
 
 def update_issue(
@@ -66,4 +73,32 @@ def bulk_update_issues(
         assignee=assignee,
         user=user,
         was_impersonated=was_impersonated,
+    )
+
+
+def resolve_issue_from_slack(
+    issue_id: UUID,
+    *,
+    fingerprint: str | None = None,
+    team_id: int | None = None,
+    integration: Integration,
+    user: User,
+) -> SlackActionOutcome:
+    """Resolve an issue from a button on its alert thread. See logic.slack_actions for the checks."""
+    return _slack_actions.resolve_issue_from_slack(
+        issue_id, fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
+    )
+
+
+def assign_issue_to_user_from_slack(
+    issue_id: UUID,
+    *,
+    fingerprint: str | None = None,
+    team_id: int | None = None,
+    integration: Integration,
+    user: User,
+) -> SlackActionOutcome:
+    """Assign an issue to the clicking user from a button on its alert thread."""
+    return _slack_actions.assign_issue_to_user_from_slack(
+        issue_id, fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
     )
