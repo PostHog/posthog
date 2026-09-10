@@ -44,16 +44,20 @@ export const LogsDateRangePicker = ({ dateRange, setDateRange }: LogsDateRangePi
                 timezone={timezone}
                 onTimezoneChange={setTimezone}
                 onZoom={zoomDateRange}
-                dataAvailabilityNotice={
+                dataAvailabilityNotice={({ closePicker }) => (
                     <>
                         Your logs are kept for <span translate="no">{retentionDays}</span> days by default, back to{' '}
                         <span translate="no">{windowStart}</span>. Older logs have been deleted. Retention rules can
                         keep matching logs longer or delete them sooner.{' '}
-                        <Link to={logsRetentionSettingsUrl()} data-attr="logs-date-picker-retention">
+                        <Link
+                            to={logsRetentionSettingsUrl()}
+                            data-attr="logs-date-picker-retention"
+                            onClick={closePicker}
+                        >
                             Change retention
                         </Link>
                     </>
-                }
+                )}
             />
             {beyondRetention && (
                 <Tooltip
