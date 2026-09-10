@@ -1413,8 +1413,19 @@ class TestStartupFailureDiagnostics:
                 "egress blocked",
                 "timed out",
             ),
+            (
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com  curl_exit=127",
+                "did not run",
+                "no egress block detected",
+            ),
         ],
-        ids=["refused", "legacy_image_without_curl_exit", "every_host_timed_out", "one_refused_one_timed_out"],
+        ids=[
+            "refused",
+            "legacy_image_without_curl_exit",
+            "every_host_timed_out",
+            "one_refused_one_timed_out",
+            "curl_never_ran",
+        ],
     )
     @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
     def test_reports_blocked_egress_host(self, probe_stdout: str, expected: str, unexpected: str):
