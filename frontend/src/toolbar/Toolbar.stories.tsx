@@ -168,7 +168,13 @@ export const HeatmapLocked: Story = {
 }
 
 export const HeatmapEntitlementsLoading: Story = {
-    parameters: { featureFlags: { 'toolbar-paid-heatmaps': true } },
+    parameters: {
+        featureFlags: { 'toolbar-paid-heatmaps': true },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: 'text=Checking plan access…',
+        },
+    },
     args: { menu: 'heatmap', heatmapLocked: true, entitlementsState: 'loading' },
 }
 

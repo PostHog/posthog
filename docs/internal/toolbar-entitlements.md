@@ -7,3 +7,5 @@ When the `toolbar-paid-heatmaps` rollout flag is enabled, toolbar heatmaps requi
 Opening the heatmap menu while access is loading does not enable heatmaps. A confirmed entitlement enables the open menu; refreshing or losing that entitlement disables heatmaps. When the rollout flag is disabled, the toolbar retains its existing behavior.
 
 This is a toolbar UI gate. The rollout flag does not add entitlement enforcement to the heatmap data endpoints.
+
+The `HeatmapEntitlementsLoading` Storybook story keeps the entitlement request pending to cover the loading state. Its screenshot test waits for “Checking plan access…” to appear and sets `waitForLoadersToDisappear: false` so the visible spinner does not time out the test.
