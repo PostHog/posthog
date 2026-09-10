@@ -36,7 +36,7 @@ class ScoutContext:
     def org_emails(self) -> frozenset[str]:
         organization_id = Team.objects.get(id=self.team_id).organization_id
         emails = User.objects.filter(
-            organization_memberships__organization_id=organization_id, is_active=True
+            organization_membership__organization_id=organization_id, is_active=True
         ).values_list("email", flat=True)
         return frozenset(email.lower() for email in emails)
 
