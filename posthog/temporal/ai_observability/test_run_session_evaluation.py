@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from unittest.mock import Mock, patch
 
 from asgiref.sync import async_to_sync
@@ -212,7 +213,7 @@ class TestFetchSessionForEvaluation:
         window_start = datetime(2026, 7, 20, tzinfo=UTC)
         now = datetime(2026, 7, 21, tzinfo=UTC)
         with (
-            freeze_time(now),
+            time_machine.travel(now, tick=False),
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",

@@ -292,7 +292,7 @@ class TestFetchTraceForEvaluation:
         trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "q", "$ai_output": "a"})])
 
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=1),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
@@ -331,7 +331,7 @@ class TestFetchTraceForEvaluation:
         # bounded runner can return a trace row with no transcript to grade. A live run keeps
         # whatever it did with that row before, so only the backfilled run skips.
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
@@ -660,7 +660,7 @@ class TestEmitTraceEvaluationEventActivity:
         }
 
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token),
             patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture,
         ):
