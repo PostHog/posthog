@@ -11,11 +11,11 @@ This one makes a charged model call on every check, so most of its rules exist t
 
 An alert author picks "AI judgment" in the detector list and sets:
 
-| Setting | Default | Notes |
-|---|---|---|
-| Instructions | none | What counts as unusual for this metric, in plain words. Up to 2000 characters. |
-| Confidence to alert | 0.7 | The confidence the model must report before the alert fires. |
-| Window | 90 points | How many recent points the model is shown. Maximum 400. |
+| Setting             | Default   | Notes                                                                          |
+| ------------------- | --------- | ------------------------------------------------------------------------------ |
+| Instructions        | none      | What counts as unusual for this metric, in plain words. Up to 2000 characters. |
+| Confidence to alert | 0.7       | The confidence the model must report before the alert fires.                   |
+| Window              | 90 points | How many recent points the model is shown. Maximum 400.                        |
 
 Each check sends the recent series as a table, a rendered chart of the same points, a description of
 the metric, and the author's instructions.
@@ -44,14 +44,14 @@ fire, because the alert is about what is happening now.
 
 ## What it refuses, and why
 
-| Restriction | Reason |
-|---|---|
-| Not available as an ensemble member | An ensemble scores every sub-detector, so it would add a model call to every ensemble check. |
+| Restriction                            | Reason                                                                                       |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Not available as an ensemble member    | An ensemble scores every sub-detector, so it would add a model call to every ensemble check. |
 | Not available on the real-time cadence | The evaluate activity allows about 3 minutes over 2 attempts, which a model call can exceed. |
-| Not available on breakdown insights | One call per breakdown value multiplies the cost of a single check. |
-| Capped per project | The count of enabled AI alerts is the cost ceiling. |
-| Needs AI data processing consent | The series and its metadata are sent to a model provider. |
-| Needs the rollout flag | Turning the flag off stops the spend. |
+| Not available on breakdown insights    | One call per breakdown value multiplies the cost of a single check.                          |
+| Capped per project                     | The count of enabled AI alerts is the cost ceiling.                                          |
+| Needs AI data processing consent       | The series and its metadata are sent to a model provider.                                    |
+| Needs the rollout flag                 | Turning the flag off stops the spend.                                                        |
 
 ## Cost
 
@@ -99,13 +99,13 @@ A live check judges only whether the latest point is anomalous.
 
 ## Where the code lives
 
-| Piece | Path |
-|---|---|
-| Detector, prompt, verdict, errors | `posthog/tasks/alerts/detectors/llm/` |
-| Detection context | `posthog/tasks/alerts/detectors/base.py` |
-| Chart rendering and metric description | `posthog/tasks/alerts/charts.py`, `posthog/tasks/alerts/metric_definition.py` |
-| Evaluation wiring, breach text, simulate | `products/alerts/backend/evaluation/detector.py` |
-| Cap, cadence rule, access check | `products/alerts/backend/llm_detector_limits.py` |
-| API | `products/alerts/backend/presentation/views/alert.py` |
-| Max tool writer | `products/alerts/backend/max_tools.py` |
-| Editor and history UI | `products/alerts/frontend/views/` |
+| Piece                                    | Path                                                                          |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| Detector, prompt, verdict, errors        | `posthog/tasks/alerts/detectors/llm/`                                         |
+| Detection context                        | `posthog/tasks/alerts/detectors/base.py`                                      |
+| Chart rendering and metric description   | `posthog/tasks/alerts/charts.py`, `posthog/tasks/alerts/metric_definition.py` |
+| Evaluation wiring, breach text, simulate | `products/alerts/backend/evaluation/detector.py`                              |
+| Cap, cadence rule, access check          | `products/alerts/backend/llm_detector_limits.py`                              |
+| API                                      | `products/alerts/backend/presentation/views/alert.py`                         |
+| Max tool writer                          | `products/alerts/backend/max_tools.py`                                        |
+| Editor and history UI                    | `products/alerts/frontend/views/`                                             |
