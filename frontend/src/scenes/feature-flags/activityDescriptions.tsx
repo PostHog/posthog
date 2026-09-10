@@ -3,12 +3,12 @@ import { Fragment } from 'react'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -411,16 +411,14 @@ const EXCLUDED_FLAG_FIELDS = new Set(
 )
 
 const getActorName = (logItem: ActivityLogItem): JSX.Element => {
-    const userName = userNameForLogItem(logItem)
     if (logItem.detail.trigger?.job_type === 'scheduled_change') {
         return (
             <>
-                <strong className="ph-no-capture">{userName}</strong>{' '}
-                <span className="text-muted">(via scheduled change)</span>
+                <ActivityLogUserName logItem={logItem} /> <span className="text-muted">(via scheduled change)</span>
             </>
         )
     }
-    return <strong className="ph-no-capture">{userName}</strong>
+    return <ActivityLogUserName logItem={logItem} />
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
