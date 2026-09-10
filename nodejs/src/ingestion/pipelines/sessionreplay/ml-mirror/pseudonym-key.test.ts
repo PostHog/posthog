@@ -1,10 +1,10 @@
 import { PseudonymKeyConfig, pseudonymKeyFingerprint, resolvePseudonymKey } from './pseudonym-key'
 
 const baseConfig = (over: Partial<PseudonymKeyConfig> = {}): PseudonymKeyConfig => ({
-    SESSION_RECORDING_ML_PSEUDONYM_SECRET: '',
-    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: '',
-    SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION: '',
-    SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: '',
+    AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
+    AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY: '',
+    AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: '',
+    AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: '',
     ...over,
 })
 
@@ -24,7 +24,7 @@ describe('ml-mirror pseudonym key', () => {
 
         it('uses the plaintext env secret when no ciphertext is set (local dev)', async () => {
             const key = await resolvePseudonymKey(
-                baseConfig({ SESSION_RECORDING_ML_PSEUDONYM_SECRET: 'dev' }),
+                baseConfig({ AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: 'dev' }),
                 failDecrypt
             )
             expect(key).toBe('dev')
@@ -34,8 +34,8 @@ describe('ml-mirror pseudonym key', () => {
             const decrypt = jest.fn().mockResolvedValue(Buffer.from('kms-key-bytes'))
             const key = await resolvePseudonymKey(
                 baseConfig({
-                    SESSION_RECORDING_ML_PSEUDONYM_SECRET: 'dev',
-                    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: 'Y2lwaGVy',
+                    AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: 'dev',
+                    AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY: 'Y2lwaGVy',
                 }),
                 decrypt
             )
@@ -45,7 +45,7 @@ describe('ml-mirror pseudonym key', () => {
 
         it('fails closed when neither a ciphertext nor a plaintext secret is set', async () => {
             await expect(resolvePseudonymKey(baseConfig(), failDecrypt)).rejects.toThrow(
-                'SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY or SESSION_RECORDING_ML_PSEUDONYM_SECRET'
+                'AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY or AI_RESEARCH_REPLAY_PSEUDONYM_SECRET'
             )
         })
 
@@ -53,8 +53,8 @@ describe('ml-mirror pseudonym key', () => {
             const fingerprint = pseudonymKeyFingerprint('dev')
             const key = await resolvePseudonymKey(
                 baseConfig({
-                    SESSION_RECORDING_ML_PSEUDONYM_SECRET: 'dev',
-                    SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: fingerprint,
+                    AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: 'dev',
+                    AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: fingerprint,
                 }),
                 failDecrypt
             )
@@ -65,8 +65,8 @@ describe('ml-mirror pseudonym key', () => {
             await expect(
                 resolvePseudonymKey(
                     baseConfig({
-                        SESSION_RECORDING_ML_PSEUDONYM_SECRET: 'rotated-key',
-                        SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: pseudonymKeyFingerprint('original-key'),
+                        AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: 'rotated-key',
+                        AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: pseudonymKeyFingerprint('original-key'),
                     }),
                     failDecrypt
                 )

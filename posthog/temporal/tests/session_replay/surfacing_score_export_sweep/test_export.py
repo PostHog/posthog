@@ -21,6 +21,11 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
     EXPORT_FLOOR_DAY,
     REEXPORT_WINDOW_DAYS,
 )
+from posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize import resolve_pseudonym_key
+from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
+    score_export_destination,
+    score_export_object_key,
+)
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
     ExportPartitionSpec,
     ExportScoresSweepInputs,
@@ -84,7 +89,8 @@ _FORMAT_CASES = json.loads(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["mixed", "raw_only", "legacy_only", "empty"])
-async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str) -> None:
+@pytest.mark.parametrize("env_prefix", ["AI_RESEARCH_REPLAY_", "SESSION_RECORDING_ML_"])
+async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_prefix: str) -> None:
     cases = [
         case
         for case in _FORMAT_CASES
@@ -97,9 +103,9 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str) -> N
     pages = [rows[i : i + 2] for i in range(0, len(rows), 2)]
     if not rows or len(rows) % 2 == 0:
         pages.append([])
-    environment = {"SESSION_RECORDING_ML_SCORE_EXPORT_S3_BUCKET": "ml-bucket"}
+    environment = {f"{env_prefix}SCORE_EXPORT_S3_BUCKET": "ml-bucket"}
     if any(not case["rawIdentifiers"] for case in cases):
-        environment["SESSION_RECORDING_ML_PSEUDONYM_SECRET"] = "test-secret"
+        environment[f"{env_prefix}PSEUDONYM_SECRET"] = "test-secret"
     activity_environment = ActivityEnvironment()
     with (
         patch.dict(os.environ, environment, clear=True),
@@ -135,3 +141,66 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str) -> N
             for case in cases
             if case["rawIdentifiers"] == raw_identifiers
         ]
+
+
+@pytest.mark.parametrize("prefix", ["AI_RESEARCH_REPLAY_", "SESSION_RECORDING_ML_"])
+def test_score_destination_accepts_both_setting_names(prefix: str) -> None:
+    with patch.dict(
+        os.environ,
+        {
+            f"{prefix}SCORE_EXPORT_S3_BUCKET": "ml-bucket",
+            f"{prefix}SCORE_EXPORT_S3_REGION": "us-west-2",
+            f"{prefix}SCORE_EXPORT_S3_ENDPOINT": "https://storage.example.com",
+            f"{prefix}SCORE_EXPORT_S3_ACCESS_KEY_ID": "test-access-key",
+            f"{prefix}SCORE_EXPORT_S3_SECRET_ACCESS_KEY": "test-secret-key",
+            f"{prefix}SCORE_EXPORT_PREFIX": "custom-scores",
+        },
+        clear=True,
+    ):
+        destination = score_export_destination()
+        assert destination is not None
+        assert destination.bucket == "ml-bucket"
+        assert destination.region == "us-west-2"
+        assert destination.endpoint == "https://storage.example.com"
+        assert destination.access_key_id == "test-access-key"
+        assert destination.secret_access_key == "test-secret-key"
+        assert score_export_object_key("2026-09-12", 0, 1).startswith("custom-scores/v2/")
+
+
+@pytest.mark.parametrize("bucket", ["canonical-bucket", ""])
+def test_score_destination_prefers_canonical_settings_including_empty(bucket: str) -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_BUCKET": bucket,
+            "SESSION_RECORDING_ML_SCORE_EXPORT_S3_BUCKET": "legacy-bucket",
+        },
+        clear=True,
+    ):
+        destination = score_export_destination()
+        if bucket:
+            assert destination is not None
+            assert destination.bucket == bucket
+        else:
+            assert destination is None
+
+
+@pytest.mark.parametrize("prefix", ["AI_RESEARCH_REPLAY_", "SESSION_RECORDING_ML_"])
+def test_legacy_key_uses_the_configured_wrapped_key_and_region(prefix: str) -> None:
+    with (
+        patch.dict(
+            os.environ,
+            {
+                f"{prefix}PSEUDONYM_WRAPPED_KEY": "dGVzdA==",
+                f"{prefix}PSEUDONYM_KMS_REGION": "us-west-2",
+                f"{prefix}PSEUDONYM_KEY_FINGERPRINT": "db7dc188104c2bae",
+            },
+            clear=True,
+        ),
+        patch("posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize._SECRET", None),
+        patch("posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize.boto3_client") as client,
+    ):
+        client.return_value.decrypt.return_value = {"Plaintext": b"super-secret"}
+        assert resolve_pseudonym_key() == b"super-secret"
+    client.assert_called_once_with("kms", region_name="us-west-2")
+    client.return_value.decrypt.assert_called_once_with(CiphertextBlob=b"test")

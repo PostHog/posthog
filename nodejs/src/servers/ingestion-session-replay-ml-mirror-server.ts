@@ -25,7 +25,7 @@ import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-m
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
 import {
     MlMirrorConfig,
-    getDefaultMlMirrorConfig,
+    getMlMirrorConfig,
     resolveMlAnonymizeMaxConcurrency,
     resolveMlMirrorRedisConnection,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
@@ -68,7 +68,7 @@ export function buildMlMirrorServerConfig(
         }),
         ...overrideConfigWithEnv(getDefaultSessionRecordingApiConfig()),
         ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
-        ...overrideConfigWithEnv(getDefaultMlMirrorConfig()),
+        ...getMlMirrorConfig(),
         ...config,
     }
 }
@@ -130,7 +130,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
 
         const s3Client = buildSessionRecordingS3Client(this.config)
         const bucket = this.config.SESSION_RECORDING_V2_S3_BUCKET
-        const prefix = this.config.SESSION_RECORDING_ML_S3_PREFIX
+        const prefix = this.config.AI_RESEARCH_REPLAY_S3_PREFIX
 
         const pseudonymSecret = await resolvePseudonymKey(this.config)
 

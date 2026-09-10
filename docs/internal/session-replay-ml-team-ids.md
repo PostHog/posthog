@@ -45,7 +45,7 @@ Resolve inline image references to image content before training because the ref
 | URL images          | `scrubbed-images/url/`            |
 | Surfacing scores    | `score/v2/`                       |
 
-`SESSION_RECORDING_ML_S3_PREFIX` sets the replay block prefix and defaults to `rrweb_2`.
+`AI_RESEARCH_REPLAY_S3_PREFIX` sets the replay block prefix and defaults to `rrweb_2`.
 `SESSION_RECORDING_V2_S3_PREFIX` sets the legacy replay prefix in the mirror, typically `rrweb`.
 Metadata, image, and score paths use their configured prefixes with the version suffixes shown above.
 Select a dataset version explicitly: a recursive scan of a parent prefix can mix raw IDs and legacy pseudonyms.
@@ -78,3 +78,22 @@ The image consumer accepts both formats and commits Kafka offsets only after all
 Read replay blocks from the locations in their metadata; legacy block locations remain valid.
 Legacy score exports use `score/`; raw-identifier exports use `score/v2/`.
 Each score export writes both formats, including empty files, so retries and re-exports remove stale rows from either dataset.
+
+## Configuration names
+
+Use `AI_RESEARCH_REPLAY_*` names for the replay prefix, HMAC key settings, and score-export destination.
+The matching `SESSION_RECORDING_ML_*` names remain accepted as aliases.
+When both names are set, `AI_RESEARCH_REPLAY_*` takes precedence, including an explicit empty value.
+Other established mirror and fetch settings retain their current names.
+
+| Settings                    | Canonical names                                                                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Raw replay prefix           | `AI_RESEARCH_REPLAY_S3_PREFIX`                                                                                                          |
+| HMAC key                    | `AI_RESEARCH_REPLAY_PSEUDONYM_SECRET`, `AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY`                                                       |
+| HMAC key region and pin     | `AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION`, `AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT`                                               |
+| Score-export prefix         | `AI_RESEARCH_REPLAY_SCORE_EXPORT_PREFIX`                                                                                                |
+| Score-export S3 destination | `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_BUCKET`, `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_REGION`, `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_ENDPOINT` |
+| Score-export S3 credentials | `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_ACCESS_KEY_ID`, `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_SECRET_ACCESS_KEY`                              |
+
+Both HMAC key names must resolve to the same existing key material.
+Changing an environment variable name must not generate or rotate a key.
