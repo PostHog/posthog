@@ -91,16 +91,22 @@ def examples_events(
     *,
     partition_key: str,
     run_id: str,
+    feature_set: str,
     snapshots: int,
     backfilled_rows: int,
     per_head: Mapping[str, HeadExampleCounts],
 ) -> list[TrainingEvent]:
-    """One event per head with its example and positive counts; the run-level counts repeat on each."""
+    """One event per head with its example and positive counts; the run-level counts repeat on each.
+
+    Examples are per feature set, not per model family: every family on a set trains on one
+    Parquet, so `feature_set` is the dimension that separates two of these series.
+    """
     return [
         TrainingEvent(
             event=EXAMPLES_BUILT_EVENT,
             properties={
                 "model_version": partition_key,
+                "feature_set": feature_set,
                 "run_id": run_id,
                 "snapshots": snapshots,
                 "backfilled_state_rows_excluded": backfilled_rows,
