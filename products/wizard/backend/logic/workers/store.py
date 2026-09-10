@@ -1,7 +1,9 @@
 from dataclasses import replace
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Case, CharField, F, Value, When
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from products.wizard.backend.facade.enums import WizardWorkerCleanupStatus
@@ -36,14 +38,27 @@ def record_provisioned_worker(team_id: int, run_id: UUID, provisioning: WizardWo
     )
 
 
+@transaction.atomic
 def record_usage(team_id: int, run_id: UUID, usage: WizardWorkerUsageMeasurement) -> None:
-    worker = WizardWorker.objects.for_team(team_id).only("resource_usage").get(run_id=run_id)
+    worker = WizardWorker.objects.for_team(team_id).select_for_update().only("resource_usage").get(run_id=run_id)
     resource_usage = record_to_worker_resource_usage(worker.resource_usage)
+
+    if (
+        resource_usage.provider_usage_measured_at is not None
+        and usage.measured_at < resource_usage.provider_usage_measured_at
+    ):
+        return
 
     updated_resource_usage = replace(
         resource_usage,
-        provider_cpu_usage_usec=usage.cpu_usage_usec,
-        provider_billed_cpu_usage_usec=usage.billed_cpu_usage_usec,
+        provider_cpu_usage_usec=(
+            usage.cpu_usage_usec if usage.cpu_usage_usec is not None else resource_usage.provider_cpu_usage_usec
+        ),
+        provider_billed_cpu_usage_usec=(
+            usage.billed_cpu_usage_usec
+            if usage.billed_cpu_usage_usec is not None
+            else resource_usage.provider_billed_cpu_usage_usec
+        ),
         provider_usage_measured_at=usage.measured_at,
     )
 
@@ -78,7 +93,7 @@ def mark_cleaned(team_id: int, run_id: UUID) -> None:
     WizardWorker.objects.for_team(team_id).filter(run_id=run_id).update(
         cleanup_status=WizardWorkerCleanupStatus.CLEANED.value,
         cleanup_error=None,
-        cleaned_at=timezone.now(),
+        cleaned_at=Coalesce("cleaned_at", timezone.now()),
     )
 
 

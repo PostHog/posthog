@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from modal.exception import NotFoundError as ModalNotFoundError
 from parameterized import parameterized
 
 from products.tasks.backend.facade.sandbox import SandboxNotFoundError
@@ -35,6 +36,7 @@ from products.wizard.backend.logic.workers.service import (
     create_git_repository_handoff,
     destroy_worker,
     execute_wizard,
+    measure_worker_usage,
     prepare_local_wizard,
     provision_wizard_worker,
 )
@@ -64,6 +66,8 @@ def test_provision_worker_configures_wizard_environment(
 
     provisioning = provision_wizard_worker(request)
 
+    get_sandbox_class.return_value.create.return_value.start_cpu_billing_sampler.assert_called_once_with()
+
     assert provisioning.sandbox_id == "worker-id"
     assert provisioning.resource_usage.cpu_cores == 2
     assert provisioning.resource_usage.memory_gb == 4
@@ -79,6 +83,39 @@ def test_provision_worker_configures_wizard_environment(
     assert "POSTHOG_TASK_ID" not in config.environment_variables
     assert config.environment_variables["POSTHOG_HANDOFF_OUTPUT_PATH"] == wizard_handoff_output_path(request.run_id)
     assert config.ttl_seconds == 75 * 60
+
+
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+def test_usage_measurement_uses_wizard_cpu_request(get_sandbox_class: MagicMock) -> None:
+    sandbox = get_sandbox_class.return_value.get_by_id.return_value
+    sandbox.config.cpu_cores = 4
+    sandbox.read_cpu_usage_usec.return_value = 100
+    sandbox.read_billed_cpu_usage_usec.side_effect = lambda: int(sandbox.config.cpu_cores * 1_000_000)
+
+    usage = measure_worker_usage("worker-id")
+
+    assert usage is not None
+    assert usage.cpu_usage_usec == 100
+    assert usage.billed_cpu_usage_usec == 2_000_000
+
+
+@pytest.mark.parametrize("cpu_usage", [None, 100])
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+def test_usage_measurement_preserves_cpu_when_billing_read_is_unavailable(
+    get_sandbox_class: MagicMock, cpu_usage: int | None
+) -> None:
+    sandbox = get_sandbox_class.return_value.get_by_id.return_value
+    sandbox.read_cpu_usage_usec.return_value = cpu_usage
+    sandbox.read_billed_cpu_usage_usec.side_effect = ModalNotFoundError("sandbox unavailable")
+
+    usage = measure_worker_usage("worker-id")
+
+    if cpu_usage is None:
+        assert usage is None
+    else:
+        assert usage is not None
+        assert usage.cpu_usage_usec == cpu_usage
+        assert usage.billed_cpu_usage_usec is None
 
 
 @override_settings(DEBUG=False, SANDBOX_MCP_URL="http://host.docker.internal:8787/mcp")
