@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 from freezegun import freeze_time
 from unittest.mock import patch
@@ -22,11 +24,23 @@ MODULE_PATH = "products.signals.backend.temporal.safety_filter"
         (None, None, "unknown"),
     ],
 )
-async def test_safety_filter_wires_prompt_source_and_model(source_product, source_type, expected_source):
+async def test_safety_filter_wires_prompt_source_and_model(
+    source_product: str | None, source_type: str | None, expected_source: str
+) -> None:
     # Guards the single prompt for every source, the source and date preamble, and SAFETY_MODEL wiring.
-    captured: dict = {}
+    captured: dict[str, str] = {}
 
-    async def fake_call_llm(*, team_id, system_prompt, user_prompt, validate, stage, ai_product, model, **_kwargs):
+    async def fake_call_llm(
+        *,
+        team_id: int | None,
+        system_prompt: str,
+        user_prompt: str,
+        validate: Callable[[str], SafetyFilterJudgeResponse],
+        stage: str,
+        ai_product: str,
+        model: str,
+        **_kwargs: object,
+    ) -> SafetyFilterJudgeResponse:
         captured.update(system_prompt=system_prompt, user_prompt=user_prompt, ai_product=ai_product, model=model)
         return SafetyFilterJudgeResponse(safe=True)
 
