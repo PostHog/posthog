@@ -130,7 +130,7 @@ def _rpc(url: str, payload: dict[str, Any], session_id: str | None = None) -> _R
     # Stream so the body is read under PROBE_RESPONSE_MAX_BYTES rather than buffered whole.
     # The session must stay open while we read, so this uses pinned_session directly.
     with pinned_session(url) as session:
-        response = session.post(url, json=payload, headers=headers, timeout=PROBE_TIMEOUT_SECONDS, stream=True)
+        response = session.post(url, json=payload, headers=headers, timeout=PROBE_TIMEOUT_SECONDS, stream=True, allow_redirects=False)
         try:
             text, truncated = _read_bounded(response)
             return _RpcResponse(
