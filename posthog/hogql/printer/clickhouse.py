@@ -922,6 +922,12 @@ class ClickHousePrinter(BasePrinter):
         # ClickHouse rejects a `transform` whose match or result array holds a column or a computed value.
         # `caseWithExpression` has no such limit and reads the source once, so print that instead of
         # letting the query fail.
+
+        # The rewrite carries over only the name and the arguments, so a call that sets a modifier has
+        # to keep printing as `transform`. ClickHouse rejects those forms, and dropping the modifier
+        # would answer an invalid query with rows instead of an error.
+        if node.params or node.distinct or node.within_group or node.order_by or node.filter_expr:
+            return None
         if len(node.args) not in (3, 4):
             return None
         source, matches, results = node.args[:3]

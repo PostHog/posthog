@@ -399,6 +399,26 @@ class TestPrinter(BaseTest):
                 "transform(events.event, [%(hogql_val_0)s, %(hogql_val_1)s], "
                 "[%(hogql_val_2)s, %(hogql_val_3)s], %(hogql_val_4)s)",
             ),
+            # `caseWithExpression` takes only a name and arguments, so a call that sets a modifier
+            # keeps printing as `transform`. A rewrite would drop the modifier from the SQL.
+            (
+                "filter_keeps_transform",
+                "select transform(event, [event, 'b'], ['x', 'y'], 'z') FILTER (WHERE 1 = 1) from events",
+                "transform(events.event, [events.event, %(hogql_val_0)s], "
+                "[%(hogql_val_1)s, %(hogql_val_2)s], %(hogql_val_3)s) FILTER (WHERE 1)",
+            ),
+            (
+                "params_keep_transform",
+                "select transform(1)(event, [event, 'b'], ['x', 'y'], 'z') from events",
+                "transform(1)(events.event, [events.event, %(hogql_val_0)s], "
+                "[%(hogql_val_1)s, %(hogql_val_2)s], %(hogql_val_3)s)",
+            ),
+            (
+                "order_by_keeps_transform",
+                "select transform(event, [event, 'b'], ['x', 'y'], 'z' ORDER BY 1) from events",
+                "transform(events.event, [events.event, %(hogql_val_0)s], "
+                "[%(hogql_val_1)s, %(hogql_val_2)s], %(hogql_val_3)s ORDER BY 1 ASC)",
+            ),
         ]
     )
     def test_transform_falls_back_to_case_with_expression(self, _name: str, query: str, expected: str):
