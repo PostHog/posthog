@@ -1098,9 +1098,8 @@ async def test_integration_failure_is_classified_before_the_bare_404_rule():
     handle_mock.assert_not_awaited()
 
 
-# A credential failure is platform-wide, so the budget one run spends is multiplied by every sync
-# PostHog runs — the reasoning sits on MAX_INTEGRATION_CREDENTIAL_ATTEMPTS. The cases below are
-# the attempt below the budget, the attempt that spends it, and one past it.
+# Why the budget is small sits on MAX_INTEGRATION_CREDENTIAL_ATTEMPTS. The cases are the attempt
+# below it, the attempt that spends it, and one past it.
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "attempt,retryable",

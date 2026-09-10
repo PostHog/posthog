@@ -671,21 +671,12 @@ INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE = (
 )
 
 
-# How many attempts one run spends on a credential the integration service could not resolve, and
-# how long it waits between them. Both are small on purpose, and much smaller than the activity's
-# own retry budget.
-#
-# Every failure of this kind is platform-side, so it is the same failure for every schema of every
-# team at the same moment. A budget sized for one customer's source therefore multiplies by the
-# number of schemas PostHog syncs: each schema spends its whole budget, about a minute apart,
-# against a dependency that is already down — thousands of failed extractions an hour, which slow
-# the recovery instead of helping it.
-#
-# Two attempts still absorb a dropped packet, because the credential client makes one 5-second
-# request and has no retry of its own. The delay makes the second attempt a fresh sample rather
-# than another poke at the same second. Past that the run fails and the next scheduled sync picks
-# it up, which is what the customer-facing message above promises. The schema is never disabled,
-# so recovery needs nothing from the customer.
+# One run's budget for a credential the integration service could not resolve, far below the
+# activity's own. This failure is platform-side, so it is the same failure for every schema of
+# every team at once: a budget sized for one customer's source multiplies by every sync PostHog
+# runs, and each attempt hits a dependency that is already down. Two attempts still absorb a
+# dropped packet, because the credential client sends one 5-second request and does not retry.
+# Past that the run fails and the next scheduled sync takes it, with the schema still enabled.
 MAX_INTEGRATION_CREDENTIAL_ATTEMPTS = 2
 INTEGRATION_CREDENTIAL_RETRY_DELAY = dt.timedelta(minutes=5)
 
