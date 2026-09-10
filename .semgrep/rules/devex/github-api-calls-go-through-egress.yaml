@@ -36,9 +36,9 @@ rules:
                 regex: .*(api|uploads)\.github\.com.*
       paths:
           include:
-              - common/**/*.py
-              - ee/**/*.py
-              - posthog/**/*.py
-              - products/**/*.py
+              - /common/**/*.py
+              - /ee/**/*.py
+              - /posthog/**/*.py
+              - /products/**/*.py
           exclude:
-              - posthog/egress/**
+              - /posthog/egress/**
