@@ -10,6 +10,7 @@ import { showActionsTool } from "./tools/show-actions";
 import { signedCommitTool } from "./tools/signed-commit";
 import { signedMergeTool } from "./tools/signed-merge";
 import { signedRewriteTool } from "./tools/signed-rewrite";
+import { sketchpadTools } from "./tools/sketchpad";
 import { speakTool } from "./tools/speak";
 import { uploadArtifactTool } from "./tools/upload-artifact";
 
@@ -36,6 +37,7 @@ export const LOCAL_TOOLS: LocalTool[] = [
   finishTool,
   listAgentsTool,
   sendAgentMessageTool,
+  ...sketchpadTools,
 ];
 
 /** Tools whose gate passes for the given context — the set to actually expose. */

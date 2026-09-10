@@ -68,7 +68,7 @@ import {
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
-import { resolveSpokenNarration } from "../session-meta";
+import { resolveSketchpadId, resolveSpokenNarration } from "../session-meta";
 import {
   AppServerClient,
   type AppServerClientHandlers,
@@ -189,6 +189,7 @@ type AppServerSessionMeta = {
   mode?: string;
   channelMode?: boolean;
   spokenNarration?: boolean;
+  sketchpadId?: string;
   baseBranch?: string;
   taskOriginProduct?: string;
   endRunWhenDone?: boolean;
@@ -747,6 +748,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       background: meta.mode === "background",
       channelMode: meta.channelMode,
       spokenNarration: resolveSpokenNarration(meta),
+      sketchpadId: resolveSketchpadId(meta),
       taskId: meta.taskId,
       taskRunId: meta.taskRunId,
       persistence: meta.persistence,

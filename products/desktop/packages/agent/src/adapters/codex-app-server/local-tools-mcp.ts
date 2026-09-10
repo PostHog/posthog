@@ -81,6 +81,7 @@ export function buildLocalToolsServer(
     taskId: resolveTaskId(meta),
     taskRunId: meta?.taskRunId,
     baseBranch: meta?.baseBranch,
+    sketchpadId: meta?.sketchpadId,
   };
   const tools = enabledLocalTools(toolCtx, {
     ...meta,
