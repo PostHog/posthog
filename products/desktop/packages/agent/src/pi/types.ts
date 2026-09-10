@@ -190,3 +190,5 @@ export const piExtensionSessionEventSchema = z.union([
 ]);
 
 export type PiSessionStats = Awaited<ReturnType<RpcClient["getSessionStats"]>>;
+
+export type PiUsageStats = Pick<PiSessionStats, "contextUsage">;

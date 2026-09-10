@@ -1,7 +1,9 @@
+import { mockFeatureFlags } from '@playwright-utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
 import { Locator, Page } from '@playwright/test'
 import snappy from 'snappyjs'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import {
     lateFullSnapshotAsJSONLines,
@@ -145,8 +147,14 @@ async function mockRecordingApi(page: Page): Promise<void> {
     }
 }
 
-function playerFrame(page: Page): Locator {
-    return page.locator('.PlayerFrame__content .replayer-wrapper iframe')
+// The frame shell (posthog/templates/replay_player_frame/index.html) reuses these class names, so
+// only the document boundary differs between paths, and a Locator searches one document.
+const PLAYER_CONTENT_SELECTOR = '.PlayerFrame__content .replayer-wrapper iframe'
+
+function playerFrame(page: Page, ownDocument = false): Locator {
+    return ownDocument
+        ? page.frameLocator('iframe.PlayerFrame__document').locator(PLAYER_CONTENT_SELECTOR)
+        : page.locator(PLAYER_CONTENT_SELECTOR)
 }
 
 // One button whose data-attr reflects player state and stays assertable while the auto-hiding controls chrome is hidden (hover via revealControls before clicking it).
@@ -170,16 +178,47 @@ async function scrubTo(page: Page, fraction: number): Promise<void> {
     await page.mouse.click(box.x + box.width * fraction, box.y + box.height / 2)
 }
 
+// featureFlagLogic merges the server's `persisted_feature_flags` list as an always-on baseline over
+// posthog-js flags, so an instance that force-enables this flag picks the path on its own.
+// Pinning has to override both sources.
+async function pinOwnDocumentFlag(page: Page, enabled: boolean): Promise<void> {
+    await page.addInitScript(
+        ({ flag, enabled }: { flag: string; enabled: boolean }) => {
+            let context: Record<string, any> | undefined
+            // The app context lands in a later inline script, so intercept the assignment.
+            Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
+                configurable: true,
+                get: () => context,
+                set: (value: Record<string, any> | undefined) => {
+                    const persisted = value?.persisted_feature_flags
+                    if (!value || !Array.isArray(persisted)) {
+                        context = value
+                        return
+                    }
+                    const withoutFlag = persisted.filter((f: string) => f !== flag)
+                    context = {
+                        ...value,
+                        persisted_feature_flags: enabled ? [...withoutFlag, flag] : withoutFlag,
+                    }
+                },
+            })
+        },
+        { flag: FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT, enabled }
+    )
+    await mockFeatureFlags(page, { [FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT]: enabled })
+}
+
 test.describe.configure({ mode: 'serial' })
 
+let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+test.beforeAll(async ({ playwrightSetup }) => {
+    workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
+})
+
 test.describe('Session replay player', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
-    })
-
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        await pinOwnDocumentFlag(page, false)
         await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
         await mockRecordingApi(page)
     })
@@ -278,5 +317,27 @@ test.describe('Session replay player', () => {
         await expect(playerFrame(page)).toBeVisible({ timeout: 30000 })
         await expect(page.getByTestId('recording-timestamp')).toHaveText(/00:09.*00:11/)
         await expect(bufferingIndicator(page)).not.toBeVisible()
+    })
+})
+
+test.describe('Session replay player in its own document', () => {
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await pinOwnDocumentFlag(page, true)
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
+        await mockRecordingApi(page)
+    })
+
+    test('mounts the player inside the frame document and plays', async ({ page }) => {
+        await page.goto(`/replay/${SESSION_ID}?t=0`)
+
+        await expect(page.locator('iframe.PlayerFrame__document')).toBeVisible({ timeout: 30000 })
+        // PlayerFrame swaps in this container when the frame loads without its mount node. Its absence
+        // proves no fallback, which would otherwise satisfy the assertions below and hide a broken frame.
+        await expect(page.locator('div.PlayerFrame__content')).toHaveCount(0)
+
+        await expect(playerFrame(page, true)).toBeVisible({ timeout: 30000 })
+
+        await expect(playPauseButton(page)).toHaveAttribute('data-attr', 'recording-pause')
+        await expect(page.getByTestId('recording-timestamp')).toHaveText(/00:0[1-9]|00:1[01]/, { timeout: 15000 })
     })
 })

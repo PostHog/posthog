@@ -51,6 +51,8 @@ import type {
     ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
     ScoutReportApi,
+    SearchSuggestionsQueryApi,
+    SearchSuggestionsResponseApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionAlertConfigurationApi,
@@ -62,6 +64,7 @@ import type {
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
     VisionObservationsSearchRetrieveParams,
+    VisionObservationsSearchSuggestionsRetrieveParams,
     VisionQuotaApi,
     VisionScannersBackfillsListParams,
     VisionScannersImpactRetrieveParams,
@@ -428,6 +431,24 @@ export const visionObservationsRetryCreate = async (
     })
 }
 
+export const getVisionObservationsViewedCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/viewed/`
+}
+
+/**
+ * Record that the calling user opened this observation. Idempotent.
+ */
+export const visionObservationsViewedCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsViewedCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionObservationsSearchRetrieveUrl = (
     projectId: string,
     params: VisionObservationsSearchRetrieveParams
@@ -459,6 +480,64 @@ export const visionObservationsSearchRetrieve = async (
     return apiMutator<ObservationSearchResponseApi>(getVisionObservationsSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionObservationsSearchSuggestionsRetrieveUrl = (
+    projectId: string,
+    params?: VisionObservationsSearchSuggestionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/observations/search_suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/search_suggestions/`
+}
+
+/**
+ * Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
+ * scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect.
+ */
+export const visionObservationsSearchSuggestionsRetrieve = async (
+    projectId: string,
+    params?: VisionObservationsSearchSuggestionsRetrieveParams,
+    options?: RequestInit
+): Promise<SearchSuggestionsResponseApi> => {
+    return apiMutator<SearchSuggestionsResponseApi>(
+        getVisionObservationsSearchSuggestionsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionObservationsSearchViewedCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/observations/search_viewed/`
+}
+
+/**
+ * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
+ * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ */
+export const visionObservationsSearchViewedCreate = async (
+    projectId: string,
+    searchSuggestionsQueryApi?: SearchSuggestionsQueryApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsSearchViewedCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(searchSuggestionsQueryApi),
     })
 }
 
@@ -1038,6 +1117,25 @@ export const visionScannersObservationsRetryCreate = async (
     options?: RequestInit
 ): Promise<RetryResponseApi> => {
     return apiMutator<RetryResponseApi>(getVisionScannersObservationsRetryCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getVisionScannersObservationsViewedCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/viewed/`
+}
+
+/**
+ * Record that the calling user opened this observation. Idempotent.
+ */
+export const visionScannersObservationsViewedCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsViewedCreateUrl(projectId, scannerId, id), {
         ...options,
         method: 'POST',
     })

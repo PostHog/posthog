@@ -144,7 +144,7 @@ overlap its own. The lane script over-reports targets on purpose, so in
 practice that is most of the queue. So:
 
 - The failing run is on that branch, never on the PR's head SHA. Take it from
-  the `Trunk Merge Queue` check run (`/merging-prs` step 4), not `gh pr checks`.
+  `trunk merge status <n>` (`/merging-prs` step 4), not `gh pr checks`. Trunk publishes no check run here.
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).
@@ -157,6 +157,35 @@ practice that is most of the queue. So:
   against that PR until you find the change that caused it; the branch's other
   merge commits are the first suspects.
 - In the digest this is the `blocking_merge_queue` state.
+
+### 3. Read the CI report comment (for a PR)
+
+Before reading logs, read the shared CI report comment. It collects independent
+CI signals and advisories in many sections.
+
+Read the full raw comment, not GitHub's collapsed view. This command finds it
+even when the PR has many comments:
+
+```bash
+gh api --paginate "repos/<owner>/<repo>/issues/<pr>/comments?per_page=100" \
+  --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- posthog-ci-report -->"))) | .body'
+```
+
+Inspect every `ci-report:section` block, including unknown sections. Record its
+title, status, summary, and links. Do not stop at the first `fail` section or
+treat the comment heading as an overall verdict.
+
+- Treat `fail` as a lead, and match it to the current job.
+- Treat `alert` and `warn` as non-blocking findings. Review their details and
+  follow their stated action, but do not call either a failed job unless its
+  job failed.
+- `ok` and `info` are not test results.
+- A missing report means the reporter did not run or could not write. It does
+  not prove the PR is healthy.
+
+The report is a summary. A section without a head SHA or run link can be stale.
+Confirm it against the current job. If it disagrees with the current logs,
+report the mismatch and use the logs for the cause.
 
 Inspect read-only:
 

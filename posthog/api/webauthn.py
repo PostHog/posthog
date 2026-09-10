@@ -53,6 +53,10 @@ WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
 WEBAUTHN_2FA_CHALLENGE_KEY = "webauthn_2fa_challenge"
 
 
+def _login_error(message: str) -> Response:
+    return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
+
 def user_uuid_to_handle(user_uuid: uuid.UUID) -> bytes:
     """Convert a user's UUID to bytes for use as a WebAuthn user handle."""
     return user_uuid.bytes
@@ -248,124 +252,33 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         request.session.save()
 
         if not challenge:
-            return Response(
-                {"error": "No login challenge found. Please start login again."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return _login_error("No login challenge found. Please start login again.")
 
         # Validate request data format
         response_data: dict[str, Any] = request.data.get("response", {})
-        user_handle_b64 = response_data.get("userHandle")
-
-        if not user_handle_b64:
-            return Response(
-                {"error": "No userHandle in response. Make sure you're using a discoverable credential."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        credential_id = request.data.get("rawId")
-        if not credential_id:
-            return Response(
-                {"error": "No credential ID in response."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Validate response structure
-        if not all(key in response_data for key in ("authenticatorData", "clientDataJSON", "signature")):
-            return Response(
-                {"error": "Invalid response structure. Missing required fields."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        credential_id: str = request.data.get("rawId") or ""
+        if payload_error := self._assertion_payload_error(credential_id, response_data):
+            return _login_error(payload_error)
 
         # Type the response data
         typed_response: WebAuthnAuthenticationResponse = {
             "authenticatorData": response_data["authenticatorData"],
             "clientDataJSON": response_data["clientDataJSON"],
             "signature": response_data["signature"],
-            "userHandle": user_handle_b64,
+            "userHandle": response_data["userHandle"],
         }
 
         # Track if user was already authenticated (for re-auth detection)
-        was_authenticated_before_login_attempt = request.user is not None and request.user.is_authenticated
+        was_authenticated_before_login_attempt = bool(getattr(request.user, "is_authenticated", False))
 
         try:
-            # Perform cryptographic verification first — this is the only trustworthy
-            # source of user identity. The client-provided userHandle is NOT part of the
-            # signed assertion and can be freely spoofed.
-            authenticated_user = authenticate(
-                request=request,
-                credential_id=credential_id,
-                challenge=challenge,
-                response=typed_response,
-                backend=WebauthnBackend,  # no reason to use password or social auth backends
+            verified_user = self._verify_login_assertion(
+                request, credential_id=credential_id, challenge=challenge, typed_response=typed_response
             )
-
-            if not authenticated_user:
-                # Try to extract user from userHandle for axes failure recording.
-                # This is best-effort — the userHandle may be spoofed, but recording
-                # failures against the claimed identity is acceptable for rate limiting.
-                claimed_user = self._extract_user_from_user_handle(user_handle_b64)
-                if lockout_response := self._handle_authentication_failure(request, claimed_user):
-                    return lockout_response
-
-                return Response(
-                    {"error": "Authentication failed. Please check your passkey and try again."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # Cast to our User model — WebauthnBackend.authenticate() always returns
-            # posthog.models.User, but Django's authenticate() stub returns _User.
-            verified_user = cast(User, authenticated_user)
-
-            # Verify the userHandle matches the authenticated user. The userHandle
-            # is not signed, so we must confirm it wasn't spoofed before trusting
-            # any pre-authentication context derived from it.
-            claimed_user = self._extract_user_from_user_handle(user_handle_b64)
-            if not claimed_user or claimed_user.pk != verified_user.pk:
-                logger.warning(
-                    "webauthn_login_user_handle_mismatch",
-                    claimed_user_id=claimed_user.pk if claimed_user else None,
-                    authenticated_user_id=verified_user.pk,
-                )
-                # Record failure against the verified user so repeated
-                # mismatch attempts trigger axes rate limiting.
-                if lockout_response := self._handle_authentication_failure(request, verified_user):
-                    return lockout_response
-
-                return Response(
-                    {"error": "Authentication failed."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # All policy checks run against the cryptographically verified user
-            evaluate_auth_attempt(
-                request=request._request,
-                email=verified_user.email,
-                action=RadarAction.SIGNIN,
-                auth_method=RadarAuthMethod.PASSKEY,
-                user_id=str(verified_user.distinct_id),
-            )
-
-            # Check axes lockout against the verified user
-            if lockout_response := self._check_axes_lockout(request, verified_user):
-                return lockout_response
-
-            # Check SSO enforcement against the verified user
-            if sso_enforcement_response := self._check_sso_enforcement(verified_user):
-                return sso_enforcement_response
-
-            # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
-            if not resolve_login_organization(verified_user):
-                return Response(
-                    {"error": VERIFIED_DOMAIN_REQUIRED_ERROR},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if not is_email_verified_for_login(verified_user):
-                # The passkey assertion is verified at this point, so the uuid is safe to return:
-                # the password path returns the same uuid after a correct password. The frontend
-                # uses the uuid to route to /verify_email/<uuid>.
-                raise EmailVerificationPending(str(verified_user.uuid))
+            if not isinstance(verified_user, User):
+                return verified_user
+            if policy_response := self._enforce_login_policy(request, verified_user):
+                return policy_response
 
             # Login the user with the WebauthnBackend
             login(request, verified_user, backend="posthog.auth.WebauthnBackend")
@@ -392,6 +305,107 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 {"error": f"Login failed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+    def _assertion_payload_error(self, credential_id: str, response_data: dict[str, Any]) -> str | None:
+        """Reject an assertion the verification step cannot read, before any cryptographic work."""
+        if not response_data.get("userHandle"):
+            return "No userHandle in response. Make sure you're using a discoverable credential."
+
+        if not credential_id:
+            return "No credential ID in response."
+
+        # Validate response structure
+        if not all(key in response_data for key in ("authenticatorData", "clientDataJSON", "signature")):
+            return "Invalid response structure. Missing required fields."
+
+        return None
+
+    def _verify_login_assertion(
+        self,
+        request: Request,
+        credential_id: str,
+        challenge: str,
+        typed_response: WebAuthnAuthenticationResponse,
+    ) -> User | Response | JsonResponse:
+        """Return the user the assertion cryptographically proves.
+
+        Returns the response to send instead when it proves no one.
+        """
+        # Perform cryptographic verification first — this is the only trustworthy
+        # source of user identity. The client-provided userHandle is NOT part of the
+        # signed assertion and can be freely spoofed.
+        authenticated_user = authenticate(
+            request=request,
+            credential_id=credential_id,
+            challenge=challenge,
+            response=typed_response,
+            backend=WebauthnBackend,  # no reason to use password or social auth backends
+        )
+        user_handle_b64 = typed_response["userHandle"]
+
+        if not authenticated_user:
+            # Try to extract user from userHandle for axes failure recording.
+            # This is best-effort — the userHandle may be spoofed, but recording
+            # failures against the claimed identity is acceptable for rate limiting.
+            claimed_user = self._extract_user_from_user_handle(user_handle_b64)
+            return self._handle_authentication_failure(request, claimed_user) or _login_error(
+                "Authentication failed. Please check your passkey and try again."
+            )
+
+        # Cast to our User model — WebauthnBackend.authenticate() always returns
+        # posthog.models.User, but Django's authenticate() stub returns _User.
+        verified_user = cast(User, authenticated_user)
+
+        # Verify the userHandle matches the authenticated user. The userHandle
+        # is not signed, so we must confirm it wasn't spoofed before trusting
+        # any pre-authentication context derived from it.
+        claimed_user = self._extract_user_from_user_handle(user_handle_b64)
+        if not claimed_user or claimed_user.pk != verified_user.pk:
+            logger.warning(
+                "webauthn_login_user_handle_mismatch",
+                claimed_user_id=claimed_user.pk if claimed_user else None,
+                authenticated_user_id=verified_user.pk,
+            )
+            # Record failure against the verified user so repeated
+            # mismatch attempts trigger axes rate limiting.
+            return self._handle_authentication_failure(request, verified_user) or _login_error("Authentication failed.")
+
+        return verified_user
+
+    def _enforce_login_policy(self, request: Request, verified_user: User) -> Response | JsonResponse | None:
+        """Run the policy checks that gate a session, all against the verified user.
+
+        Returns the response to send when a check refuses the login, or None when all of them
+        pass. Email verification is the exception: it raises, so the DRF handler formats the 401
+        the password path also returns.
+        """
+        evaluate_auth_attempt(
+            request=request._request,
+            email=verified_user.email,
+            action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSKEY,
+            user_id=str(verified_user.distinct_id),
+        )
+
+        # Check axes lockout against the verified user
+        if lockout_response := self._check_axes_lockout(request, verified_user):
+            return lockout_response
+
+        # Check SSO enforcement against the verified user
+        if sso_enforcement_response := self._check_sso_enforcement(verified_user):
+            return sso_enforcement_response
+
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(verified_user):
+            return _login_error(VERIFIED_DOMAIN_REQUIRED_ERROR)
+
+        if not is_email_verified_for_login(verified_user):
+            # The passkey assertion is verified at this point, so the uuid is safe to return:
+            # the password path returns the same uuid after a correct password. The frontend
+            # uses the uuid to route to /verify_email/<uuid>.
+            raise EmailVerificationPending(str(verified_user.uuid))
+
+        return None
 
     def _extract_user_from_user_handle(self, user_handle_b64: str) -> User | None:
         """Extract user from base64url-encoded userHandle (UUID bytes)."""

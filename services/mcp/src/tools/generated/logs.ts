@@ -484,6 +484,38 @@ const logsAnomaliesScan = (): ToolBase<
     },
 })
 
+const LogsAnomaliesSeriesBandsSchema = () => {
+    const LogsAnomaliesSeriesBandsCreateBody = orvalSchemas.LogsAnomaliesSeriesBandsCreateBody()
+    return LogsAnomaliesSeriesBandsCreateBody
+}
+
+const logsAnomaliesSeriesBands = (): ToolBase<
+    ReturnType<typeof LogsAnomaliesSeriesBandsSchema>,
+    Schemas.LogsSeriesBandsResponse
+> => ({
+    name: 'logs-anomalies-series-bands',
+    schema: LogsAnomaliesSeriesBandsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAnomaliesSeriesBandsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.serviceName !== undefined) {
+            body['serviceName'] = params.serviceName
+        }
+        if (params.dateRange !== undefined) {
+            body['dateRange'] = params.dateRange
+        }
+        if (params.intervalMinutes !== undefined) {
+            body['intervalMinutes'] = params.intervalMinutes
+        }
+        const result = await context.api.request<Schemas.LogsSeriesBandsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/anomalies/series_bands/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LogsAttributeValuesListSchema = () => {
     const LogsValuesRetrieveQueryParams = orvalSchemas.LogsValuesRetrieveQueryParams()
     return LogsValuesRetrieveQueryParams
@@ -775,6 +807,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-alerts-retrieve': logsAlertsRetrieve,
     'logs-alerts-simulate-create': logsAlertsSimulateCreate,
     'logs-anomalies-scan': logsAnomaliesScan,
+    'logs-anomalies-series-bands': logsAnomaliesSeriesBands,
     'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,

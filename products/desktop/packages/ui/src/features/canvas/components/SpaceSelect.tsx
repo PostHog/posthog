@@ -77,6 +77,7 @@ export function SpaceSelect({
 
   const triggerGlyph = channelGlyph(current?.name, {
     personal: current?.channelType === "personal",
+    private: current?.channelType === "private",
     size: 14,
     space: true,
   });
@@ -145,6 +146,7 @@ export function SpaceSelect({
                     >
                       {channelGlyph(space.name, {
                         personal: space.channelType === "personal",
+                        private: space.channelType === "private",
                         size: 14,
                         space: true,
                       })}

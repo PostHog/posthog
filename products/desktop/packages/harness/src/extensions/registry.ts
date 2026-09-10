@@ -4,6 +4,7 @@ import type {
   InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import { createBenjaminGuidanceExtension } from "./benjamin-guidance/extension";
+import { createCurrentWorkExtension } from "./current-work/extension";
 import {
   HARNESS_EXTENSION_ENTRYPOINTS,
   type HarnessExtensionName,
@@ -37,6 +38,7 @@ const EXTENSIONS: HarnessExtension[] = [
   { name: "hog-branding", create: createHogBrandingExtension },
   { name: "posthog-provider", create: createPosthogProviderExtension },
   { name: "product-engineer", create: () => createProductEngineerExtension() },
+  { name: "current-work", create: () => createCurrentWorkExtension() },
   { name: "orchestration", create: () => createOrchestrationExtension() },
   { name: "rtk", create: () => createRtkExtension() },
   { name: "web-access", create: createWebAccessExtension },

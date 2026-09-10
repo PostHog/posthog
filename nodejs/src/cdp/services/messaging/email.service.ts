@@ -1,7 +1,7 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
@@ -110,6 +110,44 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     return Math.floor(baseMs * (1 + Math.random()))
 }
 
+// Bounds for the non-reserved cap retry delays (fallbacks and horizon overflow; a
+// reserved slot is parked on exactly). The floor keeps second-scale refills from
+// churning the queue. The ceiling bounds how stale the computed wake time can get:
+// capacity can appear earlier than computed (a limit raise, or an idle bucket
+// expiring back to full capacity), and a parked job only notices when it wakes.
+const CAP_RETRY_MIN_MS = 1_000
+const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
+
+// How far denied sends park. Everything at or below the top bucket is a real slot.
+// Above the top bucket is overflow: the backlog is deeper than one hour of refill.
+// A sustained rate up there means a team queues more email than its limit can send.
+const emailReservedParkMs = new Histogram({
+    name: 'cdp_email_reserved_park_ms',
+    help: 'How far into the future a rate-limit-denied email parked, by limiter.',
+    labelNames: ['limiter'],
+    buckets: [1_000, 5_000, 15_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000],
+})
+
+function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number, reserved: boolean): number {
+    // No horizon means the limiter itself failed, not that the bucket was empty.
+    // Wake on the short token-bucket cadence, not on a cap that paces in hours.
+    if (retryAfterMs === null) {
+        return pickTokenBucketRetryDelayMs(refillPerSecond)
+    }
+    // A reserved slot is the caller's own, exactly one token interval behind the slot
+    // in front. Park on it as-is, with no floor: waking off the slot in either
+    // direction means the token is not there (the bucket banks no surplus), the send
+    // gets denied again, and it goes to the back of the line.
+    if (reserved) {
+        return retryAfterMs
+    }
+    const parkMs = Math.max(retryAfterMs, CAP_RETRY_MIN_MS)
+    // Past the horizon nothing is reserved: every overflow caller got this same wake
+    // time back. Spread them over the next horizon so they do not arrive as one herd
+    // asking for tokens that will not be there.
+    return Math.floor(parkMs * (1 + Math.random()))
+}
+
 const teamEmailCapDelayedTotal = new Counter({
     name: 'cdp_team_email_cap_delayed_total',
     help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode).',
@@ -167,11 +205,14 @@ type TeamEmailCapBucket = {
     label: string
 }
 
-function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number): TeamEmailCapBucket[] {
+// The `{teamId}` hash tag puts both bucket keys in the same cluster slot. Enforce mode claims
+// both keys in one Lua call (claimAllOrNothingPair), and clustered Valkey rejects a multi-key
+// call whose keys hash to different slots with a CROSSSLOT error.
+export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number): TeamEmailCapBucket[] {
     return [
         {
             name: 'hour',
-            key: `@posthog/team-email-rate-hour/${teamId}`,
+            key: `@posthog/team-email-rate-hour/{${teamId}}`,
             capacity: hourlyCap,
             refillPerSecond: hourlyCap / 3600,
             ttlSeconds: TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS,
@@ -179,7 +220,7 @@ function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number
         },
         {
             name: 'day',
-            key: `@posthog/team-email-rate-day/${teamId}`,
+            key: `@posthog/team-email-rate-day/{${teamId}}`,
             capacity: dailyCap,
             refillPerSecond: dailyCap / 86400,
             ttlSeconds: TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS,
@@ -403,13 +444,16 @@ export class EmailService {
                 // A near-empty bucket keeps every window at ~count and spreads sends evenly, which
                 // is what the pacing is for.
                 const capacity = Math.max(1, Math.ceil(refillPerSecond))
-                const granted = await this.workflowEmailRateLimiter.claimUpTo({
-                    key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
-                    requested: 1,
-                    capacity,
-                    refillPerSecond,
-                })
-                if (granted === 0) {
+                const claim = await this.workflowEmailRateLimiter.claimOrReserve(
+                    {
+                        key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
+                        requested: 1,
+                        capacity,
+                        refillPerSecond,
+                    },
+                    CAP_RETRY_MAX_MS
+                )
+                if (claim.granted === 0) {
                     workflowEmailRateLimitedTotal.inc()
                     result.finished = false
                     // Re-attach the email payload before rescheduling. createInvocationResult cleared
@@ -418,7 +462,8 @@ export class EmailService {
                     // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
                     // queue-routing paths, which re-attach the same way.
                     result.invocation.queueParameters = params
-                    const retryDelayMs = pickTokenBucketRetryDelayMs(refillPerSecond)
+                    const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond, claim.reserved)
+                    emailReservedParkMs.labels('workflow-email').observe(retryDelayMs)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                     addLog(
                         'info',
@@ -608,14 +653,20 @@ export class EmailService {
             // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
             // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
             // every retry and starve the team's other emails while never sending itself.
-            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair([buckets[0], buckets[1]], requested)
+            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair(
+                [buckets[0], buckets[1]],
+                requested,
+                CAP_RETRY_MAX_MS
+            )
             if (claim.granted) {
                 return null
             }
             const denied = buckets[claim.deniedIndex ?? 1]
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond, claim.reserved)
+            emailReservedParkMs.labels('team-email').observe(retryDelayMs)
             return {
-                retryDelayMs: pickTokenBucketRetryDelayMs(denied.refillPerSecond),
+                retryDelayMs,
                 label: denied.label,
             }
         }

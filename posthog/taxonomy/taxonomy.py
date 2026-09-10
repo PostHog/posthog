@@ -19,6 +19,11 @@ class CoreFilterDefinition(TypedDict):
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
+    # Keep this event out of pickers that build a query someone saves and runs later, because its rows
+    # are moving out of the events table. Surfaces that read live event data still offer it.
+    # This marks a migration in progress, not a permanent trait: drop the field once every event
+    # carrying it has moved and its old artifacts are migrated (RFC #1209).
+    hidden_in_query_builders: NotRequired[bool]
 
 
 def is_hidden_from_assistant(definition: CoreFilterDefinition) -> bool:
@@ -177,10 +182,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$feature_flag_called": {
             "label": "Feature flag called",
             "description": (
-                'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active feature flags".'
+                "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab."
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
+            "hidden_in_query_builders": True,
+            "primary_property": "$feature_flag",
+        },
+        "$experiment_exposure": {
+            "label": "Experiment exposure",
+            "description": "When a user is exposed to an experiment variant.",
+            "ignored_in_assistant": True,  # Duplicate of $feature_flag_called; mixing both double-counts exposures
             "primary_property": "$feature_flag",
         },
         "$feature_view": {
@@ -243,7 +255,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals": {
             "label": "Web vitals",
-            "description": "Automatically captured web vitals data.",
+            "description": "Automatically captured web vitals data. One event only carries the metrics that were ready when it was sent, so LCP, FCP, INP, and CLS are spread over different events.",
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
@@ -1768,7 +1780,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag": {
             "label": "Feature flag",
-            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active feature flags".',
+            "description": 'The key of the feature flag, sent on "Feature flag called", "Experiment exposure", and "Feature enrollment" events. To find other events where a flag was active, use "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
@@ -2090,24 +2102,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals_FCP_value": {
             "label": "Web vitals FCP value",
+            "description": "First contentful paint, in milliseconds: the time until the browser paints the first text or image. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [800, 1500, 3000],
+            "type": "Numeric",
         },
         "$web_vitals_LCP_event": {
             "label": "Web vitals LCP measure event details",
         },
         "$web_vitals_LCP_value": {
             "label": "Web vitals LCP value",
+            "description": "Largest contentful paint, in milliseconds: the time until the largest text or image in the viewport is painted. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [1200, 2500, 4000],
+            "type": "Numeric",
         },
         "$web_vitals_INP_event": {
             "label": "Web vitals INP measure event details",
         },
         "$web_vitals_INP_value": {
             "label": "Web vitals INP value",
+            "description": "Interaction to next paint, in milliseconds: how long the page takes to respond to a user interaction. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. INP is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP. A page with no user interaction has no INP value at all, so the metric counts are not comparable.",
+            "examples": [50, 200, 500],
+            "type": "Numeric",
         },
         "$web_vitals_CLS_event": {
             "label": "Web vitals CLS measure event details",
         },
         "$web_vitals_CLS_value": {
             "label": "Web vitals CLS value",
+            "description": "Cumulative layout shift, a score without a unit, usually between 0 and 1. Do not plot it on the same axis as the millisecond metrics, and aggregate it with a percentile such as P90 rather than a count or an average. CLS is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP, and the metric counts are not comparable.",
+            "examples": [0.01, 0.1, 0.25],
+            "type": "Numeric",
         },
         "$web_vitals_allowed_metrics": {
             "label": "Web vitals allowed metrics",
@@ -2306,7 +2330,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_cache_creation_input_tokens": {
             "label": "AI cache creation input tokens (LLM)",
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
+            "description": "The number of tokens created in the cache for the input prompt.",
             "examples": [23],
         },
         "$ai_cache_creation_5m_input_tokens": {
@@ -2893,6 +2917,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
             "examples": ["ClaudeCode", "ClaudeAI", "Cowork"],
         },
+        "$mcp_llm_model": {
+            "label": "MCP model",
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": ["claude-sonnet-5", "gpt-5.6-sol"],
+        },
+        "$mcp_llm_model_source": {
+            "label": "MCP model source",
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": ["client_metadata", "self_reported"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
@@ -3180,7 +3214,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_is_bot": {
             "label": "Is bot",
-            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent or from operator-published bot IP ranges.",
+            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent, from operator-published bot IP ranges, or from a bot the project defined itself in settings.",
             "type": "Boolean",
             "virtual": True,
         },
@@ -3193,7 +3227,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_traffic_category": {
             "label": "Traffic category",
-            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
+            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc. Bots the project defined itself report the category picked in settings.",
             "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
             "type": "String",
             "virtual": True,

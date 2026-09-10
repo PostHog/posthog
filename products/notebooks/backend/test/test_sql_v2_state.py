@@ -18,6 +18,11 @@ from products.notebooks.backend.sql_v2_state import (
     extract_cells,
     validate_cell_count,
 )
+from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariable,
+    substitute_duckdb_variables,
+    substitute_hogql_variables,
+)
 
 
 def markdown_content(markdown: str) -> dict[str, Any]:
@@ -35,6 +40,8 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             "# Doc\n\n"
             '<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />\n\n'
             '<PythonV2 nodeId="p1" code="out = df.head()" returnVariable="out" />\n\n'
+            '<PythonV2 nodeId="p2" code="import pandas as pd\n\nout = pd.DataFrame()" returnVariable="multiline" />\n\n'
+            '\\<PythonV2 nodeId="p3" code="\\# Build the frame\n\nout = df.head()" returnVariable="recovered" />\n\n'
             '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />\n\n'
             '<SQLV2 code="select 2" returnVariable="anon" />\n\n'
             '<RevenueCard metric="arr" />\n'
@@ -43,8 +50,40 @@ class TestCellExtractionAndEdges(SimpleTestCase):
         assert [(c.node_id, c.cell_type, c.dataframe_name) for c in cells] == [
             ("s1", "sql", "df"),
             ("p1", "python", "out"),
+            ("p2", "python", "multiline"),
+            ("p3", "python", "recovered"),
             ("q1", "saved_insight", ""),
         ]
+        assert cells[2].code == "import pandas as pd\n\nout = pd.DataFrame()"
+        assert cells[3].code == "# Build the frame\n\nout = df.head()"
+
+    @parameterized.expand(
+        [
+            ("unquoted_prop", "<PythonV2 nodeId=p\n\ncode=print(1) />", []),
+            (
+                "unterminated_quoted_prop",
+                '<PythonV2 nodeId="p\n\nFollowing paragraph',
+                [],
+            ),
+        ]
+    )
+    def test_malformed_component_does_not_cross_a_blank_line(
+        self, _name: str, markdown: str, expected_node_ids: list[str]
+    ) -> None:
+        content = markdown_content(markdown)
+
+        assert [cell.node_id for cell in extract_cells(content)] == expected_node_ids
+
+    def test_malformed_single_line_component_keeps_parsed_props(self) -> None:
+        content = markdown_content('<PythonV2 nodeId="p" code="print(1)" returnVariable="out" broken="unterminated />')
+
+        cells = extract_cells(content)
+        assert [(cell.node_id, cell.code, cell.dataframe_name) for cell in cells] == [("p", "print(1)", "out")]
+
+    def test_component_scan_is_bounded(self) -> None:
+        markdown = "\n".join(['<PythonV2 nodeId="p" code="', *(["x"] * 1_001), '" />'])
+
+        assert extract_cells(markdown_content(markdown)) == []
 
     def test_rich_text_content_yields_no_cells(self) -> None:
         assert extract_cells({"type": "doc", "content": [{"type": "paragraph"}]}) == []
@@ -196,6 +235,47 @@ class TestNotebookCellState(APIBaseTest):
         self._run(notebook, "up", "select 2 as x", NotebookNodeRun.Status.DONE)
         assert build_notebook_cell_state(self.team.id, notebook)[1].status == "stale"
 
+    def test_sql_cell_reading_a_variable_is_done_until_the_value_changes(self) -> None:
+        notebook = self._notebook('<SQLV2 nodeId="s" code="select {country} as c" returnVariable="df" />')
+        notebook.variables = [{"name": "country", "type": "string", "value": "US"}]
+        notebook.save()
+        self._run(
+            notebook,
+            "s",
+            substitute_hogql_variables("select {country} as c", [NotebookVariable(name="country", value="US")]),
+            NotebookNodeRun.Status.DONE,
+        )
+        assert build_notebook_cell_state(self.team.id, notebook)[0].status == "done"
+
+        notebook.variables = [{"name": "country", "type": "string", "value": "DE"}]
+        notebook.save()
+        assert build_notebook_cell_state(self.team.id, notebook)[0].status == "stale"
+
+        # Deleting the declaration leaves nothing to bind the placeholder to.
+        notebook.variables = []
+        notebook.save()
+        assert build_notebook_cell_state(self.team.id, notebook)[0].status == "stale"
+
+    def test_sql_cell_on_duckdb_is_done_until_its_code_or_an_input_changes(self) -> None:
+        notebook = self._notebook(
+            '<PythonV2 nodeId="p" code="df = 1" returnVariable="df" />\n\n'
+            '<SQLV2 nodeId="s" code="select * from df where c = {country}" returnVariable="" />'
+        )
+        notebook.variables = [{"name": "country", "type": "string", "value": "US"}]
+        notebook.save()
+        self._run(notebook, "p", "df = 1", NotebookNodeRun.Status.DONE, node_type="python")
+        # A SQL cell reading a local frame runs on the sandbox's DuckDB, which stores `$name`
+        # parameters rather than bound values.
+        duckdb_code = substitute_duckdb_variables(
+            "select * from df where c = {country}", [NotebookVariable(name="country", value="US")]
+        )[0]
+        self._run(notebook, "s", duckdb_code, NotebookNodeRun.Status.DONE, node_type="duckdb")
+        assert build_notebook_cell_state(self.team.id, notebook)[1].status == "done"
+
+        # The frame it read was rebuilt after its run.
+        self._run(notebook, "p", "df = 1", NotebookNodeRun.Status.DONE, node_type="python")
+        assert build_notebook_cell_state(self.team.id, notebook)[1].status == "stale"
+
     def test_sql_cell_referencing_never_run_upstream_is_stale(self) -> None:
         notebook = self._notebook(
             '<SQLV2 nodeId="up" code="select 1" returnVariable="df" />\n\n'
@@ -210,12 +290,15 @@ class TestNotebookCellState(APIBaseTest):
             '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
             '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />'
         )
+        notebook.variables = [{"name": "limit", "type": "number", "value": 10}]
+        notebook.save()
         self._run(notebook, "s", "select 1", NotebookNodeRun.Status.DONE)
 
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sql_v2/state/")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["notebook_id"] == notebook.short_id
+        assert data["variables"] == [{"name": "limit", "type": "number", "value": 10}]
         assert '<SQLV2 nodeId="s"' in data["markdown"]
         assert data["content"] is None
         assert data["kernel"]["status"] == "stopped"

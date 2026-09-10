@@ -570,21 +570,22 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         self.assertEqual(app.name, "Original Name")
 
+    @parameterized.expand(
+        [
+            ("validation_error", CIMDValidationError("document exceeds the 5120 byte limit")),
+            ("fetch_error", CIMDFetchError("connection reset")),
+        ]
+    )
     @patch("posthog.api.oauth.cimd.capture_exception")
     @patch("posthog.api.oauth.cimd.fetch_and_upsert_cimd_application")
-    def test_refresh_task_does_not_capture_expected_validation_error(self, mock_fetch, mock_capture, _url_mock):
-        # Rejecting a non-compliant partner document is expected, so it must not surface as an error-tracking issue.
-        mock_fetch.side_effect = CIMDValidationError("document exceeds the 5120 byte limit")
-        refresh_cimd_metadata_task(VALID_CIMD_URL)
-        mock_capture.assert_not_called()
-
-    @patch("posthog.api.oauth.cimd.capture_exception")
-    @patch("posthog.api.oauth.cimd.fetch_and_upsert_cimd_application")
-    def test_refresh_task_captures_unexpected_fetch_error(self, mock_fetch, mock_capture, _url_mock):
-        error = CIMDFetchError("connection reset")
+    def test_refresh_task_does_not_capture_expected_partner_errors(
+        self, _name, error, mock_fetch, mock_capture, _url_mock
+    ):
+        # A rejected partner document or an unreachable partner endpoint is expected, so neither must
+        # surface as an error-tracking issue.
         mock_fetch.side_effect = error
         refresh_cimd_metadata_task(VALID_CIMD_URL)
-        mock_capture.assert_called_once_with(error)
+        mock_capture.assert_not_called()
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
@@ -1117,6 +1118,9 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("invalid", response.json().get("error", "").lower())
+        # A CIMD client_id is a URL we resolve, not a registration we hold, so the description
+        # must point at the metadata document instead of suggesting the other cloud region.
+        self.assertIn("client metadata document", response.json()["error_description"])
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_mismatched_redirect_uri_rejected(self, mock_get, _url_mock):

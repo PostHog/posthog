@@ -12,6 +12,7 @@ from django.test import RequestFactory
 
 from parameterized import parameterized
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import UserHomeSettings
 from posthog.utils import get_context_for_template
 
@@ -71,6 +72,20 @@ class TestGetContextForTemplate(APIBaseTest):
 
         app_context = json.loads(actual["posthog_app_context"])
         assert app_context["homepage"] == (stored_homepage or None)
+
+    def test_bootstraps_project_tags_into_app_context(self):
+        # projectLogic reads currentProject from the app context and only calls the API when it is
+        # absent, so tags missing here render an empty Tags field until something refetches.
+        set_tags_on_object(["production", "eu-region"], self.team.project)
+
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        actual = get_context_for_template("layout", request)
+
+        app_context = json.loads(actual["posthog_app_context"])
+        assert sorted(app_context["current_project"]["tags"]) == ["eu-region", "production"]
 
     @parameterized.expand(
         [
