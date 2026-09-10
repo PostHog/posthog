@@ -137,18 +137,32 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
         {
             title: 'Status',
             key: 'status',
-            render: (_, backfill) => (
-                <div className="flex items-center gap-1 flex-wrap">
+            render: (_, backfill) => {
+                const statusTag = (
                     <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
                         {BACKFILL_STATUS_TAG[backfill.status].label}
                     </LemonTag>
-                    {backfill.rerun_existing && (
-                        <LemonTag type="muted" size="small">
-                            Includes evaluated units
-                        </LemonTag>
-                    )}
-                </div>
-            ),
+                )
+                return (
+                    <div className="flex items-center gap-1 flex-wrap">
+                        {/* A completed row means every unit was sent out, not that every evaluation has finished. */}
+                        {backfill.status === 'completed' ? (
+                            <Tooltip
+                                title={`Each ${backfill.target} is evaluated on its own, so the last results can take a few minutes to appear in the Runs tab.`}
+                            >
+                                {statusTag}
+                            </Tooltip>
+                        ) : (
+                            statusTag
+                        )}
+                        {backfill.rerun_existing && (
+                            <LemonTag type="muted" size="small">
+                                Includes evaluated units
+                            </LemonTag>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Scope',
