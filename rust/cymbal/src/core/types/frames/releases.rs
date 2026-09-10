@@ -165,32 +165,85 @@ fn truncate_chars(value: &mut String, max_chars: usize) {
 
 fn sanitize_metadata_for_event(metadata: &Value) -> Value {
     let mut sanitized = metadata.clone();
-    if let Some(Value::String(remote_url)) = sanitized.pointer_mut("/git/remote_url") {
-        *remote_url = sanitize_remote_url(remote_url);
+    let Some(Value::String(remote_url)) = sanitized.pointer("/git/remote_url") else {
+        return sanitized;
+    };
+
+    match sanitize_remote_url(remote_url) {
+        Some(cleaned) => {
+            if let Some(Value::String(target)) = sanitized.pointer_mut("/git/remote_url") {
+                *target = cleaned;
+            }
+        }
+        // Dropping only the URL keeps branch, commit and repo name on the event.
+        None => {
+            if let Some(git) = sanitized.pointer_mut("/git").and_then(Value::as_object_mut) {
+                git.remove("remote_url");
+            }
+        }
     }
     sanitized
 }
 
-fn sanitize_remote_url(url: &str) -> String {
-    let sanitized_end = url.find(['?', '#']).unwrap_or(url.len());
-    let Some(scheme_end) = url[..sanitized_end].find("://") else {
-        return url[..sanitized_end].to_string();
-    };
-    let authority_start = scheme_end + 3;
-    let authority_end = url[authority_start..sanitized_end]
-        .find('/')
-        .map_or(sanitized_end, |index| authority_start + index);
-    let authority = &url[authority_start..authority_end];
-    let Some(credentials_end) = authority.rfind('@') else {
-        return url[..sanitized_end].to_string();
+/// Removes the userinfo component, the query, and the fragment from a git remote URL.
+///
+/// Returns `None` when a credential sits where no parser can isolate it, so the caller drops
+/// the URL rather than store a secret.
+fn sanitize_remote_url(url: &str) -> Option<String> {
+    // `?token=` and `#access_token=` both carry secrets, and a git remote needs neither.
+    let trimmed = match url.find(['?', '#']) {
+        Some(index) => &url[..index],
+        None => url,
     };
 
-    format!(
+    // `https://user:token?x@host/o/r.git` loses its `@` to the trim, and what remains is the
+    // credential. Nothing tells that from a query that legitimately holds an `@`.
+    if url.contains('@') && !trimmed.contains('@') {
+        return None;
+    }
+
+    let Some(scheme_end) = trimmed.find("://") else {
+        // In `git@host:owner/repo.git` the leading `git` is a fixed SSH username, not a secret.
+        let path = trimmed.split_once(':').map_or("", |(_, path)| path);
+        return if path_holds_credential(path) {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    };
+
+    let authority_start = scheme_end + 3;
+    let authority_end = trimmed[authority_start..]
+        .find('/')
+        .map_or(trimmed.len(), |index| authority_start + index);
+    let authority = &trimmed[authority_start..authority_end];
+    let path = &trimmed[authority_end..];
+
+    // `https://host/${TOKEN}@host/o/r.git` is a CI script interpolating one segment too late.
+    // The authority parses clean, so userinfo stripping never sees the token.
+    if path_holds_credential(path) {
+        return None;
+    }
+
+    let Some(credentials_end) = authority.rfind('@') else {
+        return Some(trimmed.to_string());
+    };
+
+    Some(format!(
         "{}{}{}",
-        &url[..authority_start],
+        &trimmed[..authority_start],
         &authority[credentials_end + 1..],
-        &url[authority_end..sanitized_end]
-    )
+        path
+    ))
+}
+
+/// An `@` opening a segment is an npm scope (`/@scope/package`), not a credential.
+fn path_holds_credential(path: &str) -> bool {
+    path.split('/').any(|segment| {
+        segment
+            .split_once('@')
+            .is_some_and(|(before, _)| !before.is_empty())
+    })
 }
 
 /// Reconstruct the release `hash_id` the CLI wrote for a mobile build, from the app metadata the
@@ -328,35 +381,57 @@ mod tests {
 
     #[test]
     fn event_remote_urls_drop_credentials_query_and_fragment() {
-        let cases = [
+        // `None` means the URL cannot be cleaned, so the key is dropped from the event.
+        let cases: [(&str, Option<&str>); 9] = [
             (
                 "https://user:password@github.com/example/repo.git?token=query#access_token=fragment",
-                "https://github.com/example/repo.git",
+                Some("https://github.com/example/repo.git"),
             ),
             (
                 "https://github.com/example/repo.git#access_token=fragment",
-                "https://github.com/example/repo.git",
+                Some("https://github.com/example/repo.git"),
             ),
             (
                 "https://github.com/example/repo.git",
-                "https://github.com/example/repo.git",
+                Some("https://github.com/example/repo.git"),
             ),
             (
                 "git@github.com:example/repo.git",
-                "git@github.com:example/repo.git",
+                Some("git@github.com:example/repo.git"),
             ),
             (
                 "git@github.com:example/repo.git?token=query#access_token=fragment",
-                "git@github.com:example/repo.git",
+                Some("git@github.com:example/repo.git"),
+            ),
+            (
+                "https://github.com/ghs_tokenvalue@github.com/example/repo.git",
+                None,
+            ),
+            ("git@github.com:ghs_tokenvalue@example/repo.git", None),
+            ("https://user:ghp_tokenvalue?x@github.com/example/repo.git", None),
+            (
+                "https://github.com/example/@scope/package.git",
+                Some("https://github.com/example/@scope/package.git"),
             ),
         ];
 
         for (remote_url, expected) in cases {
             let info = serde_json::to_value(
-                record(Some(json!({"git": {"remote_url": remote_url}}))).to_info(),
+                record(Some(
+                    json!({"git": {"remote_url": remote_url, "branch": "main"}}),
+                ))
+                .to_info(),
             )
             .unwrap();
-            assert_eq!(info["metadata"]["git"]["remote_url"], expected);
+            let git = &info["metadata"]["git"];
+            match expected {
+                Some(value) => assert_eq!(git["remote_url"], value, "case: {remote_url}"),
+                None => assert!(
+                    git.get("remote_url").is_none(),
+                    "case: {remote_url} should have been dropped, got {git:?}"
+                ),
+            }
+            assert_eq!(git["branch"], "main", "case: {remote_url}");
         }
     }
 
