@@ -1,4 +1,4 @@
-import { Evaluator, Lexer, Parser, data } from '@actions/expressions'
+import { Evaluator, Lexer, Parser, data, wellKnownFunctions } from '@actions/expressions'
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 export type Context = Record<string, JsonValue>
@@ -171,4 +171,17 @@ export function evaluateTemplate(raw: unknown, context: Context, functions: Map<
 
 export function containsExpression(raw: unknown): boolean {
     return typeof raw === 'string' && raw.includes('${{')
+}
+
+// An empty string is an output no script produced at plan time, so it resolves to null instead of failing.
+const FROM_JSON_OR_NULL: ExpressionFunction = {
+    name: 'fromJSON',
+    minArgs: 1,
+    maxArgs: 1,
+    call: (...args) =>
+        args[0]!.coerceString().trim() === '' ? new data.Null() : wellKnownFunctions['fromjson']!.call(...args),
+}
+
+export function withNullForEmptyJson(functions: Map<string, ExpressionFunction>): Map<string, ExpressionFunction> {
+    return new Map([...functions, ['fromjson', FROM_JSON_OR_NULL]])
 }

@@ -10,6 +10,7 @@ import {
     evaluateTemplate,
     evaluateValue,
     statusFunctions,
+    withNullForEmptyJson,
 } from './expressions.ts'
 
 export type Outcome = 'success' | 'failure' | 'cancelled' | 'skipped'
@@ -181,7 +182,8 @@ export function countMatrixCells(
     if (rawMatrix === undefined || rawMatrix === null) {
         return undefined
     }
-    const matrix = resolveMatrixValue(rawMatrix, context, functions)
+    const matrixFunctions = withNullForEmptyJson(functions)
+    const matrix = resolveMatrixValue(rawMatrix, context, matrixFunctions)
     if (Array.isArray(matrix)) {
         return matrix.length
     }
@@ -189,16 +191,22 @@ export function countMatrixCells(
         return undefined
     }
     const entries = matrix as Record<string, unknown>
-    const include = resolveMatrixValue(entries['include'], context, functions)
+    const include = resolveMatrixValue(entries['include'], context, matrixFunctions)
+    if (include === null) {
+        return undefined
+    }
     const includeCount = Array.isArray(include) ? include.length : 0
     const axes = Object.entries(entries)
         .filter(([key]) => key !== 'include' && key !== 'exclude')
-        .map(([, value]) => resolveMatrixValue(value, context, functions))
-        .map((value) => (Array.isArray(value) ? value.length : 1))
-    if (axes.length === 0) {
+        .map(([, value]) => resolveMatrixValue(value, context, matrixFunctions))
+    if (axes.some((value) => value === null)) {
+        return undefined
+    }
+    const axisSizes = axes.map((value) => (Array.isArray(value) ? value.length : 1))
+    if (axisSizes.length === 0) {
         return includeCount
     }
-    return axes.reduce((product, size) => product * size, 1) + includeCount
+    return axisSizes.reduce((product, size) => product * size, 1) + includeCount
 }
 
 function planSteps(

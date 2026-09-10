@@ -192,13 +192,12 @@ export function allFiltersChanged(workflow: Workflow): Record<string, Record<str
 export function defaultScenarios(workflow: Workflow): Scenario[] {
     const steps = allFiltersChanged(workflow)
     return [
-        { name: 'draft PR', github: pullRequest({ draft: true }), steps },
-        { name: 'ready PR', github: pullRequest(), steps },
-        { name: 'fork PR', github: pullRequest({ fork: true }), steps },
-        { name: 'merge queue', github: mergeQueue(), steps },
-        { name: 'master push', github: push(), steps },
-        { name: 'schedule', github: schedule(), steps },
-        { name: 'dispatch', github: workflowDispatch(), steps },
-        { name: 'ready PR, cancelled', github: pullRequest(), steps, cancelled: true },
+        { name: 'draft', github: pullRequest({ draft: true }), steps },
+        { name: 'ready', github: pullRequest(), steps },
+        { name: 'fork', github: pullRequest({ fork: true }), steps },
+        { name: 'queued', github: mergeQueue(), steps },
+        { name: 'merged', github: push(), steps },
+        { name: 'scheduled', github: schedule(), steps },
+        { name: 'dispatched', github: workflowDispatch(), steps },
     ]
 }

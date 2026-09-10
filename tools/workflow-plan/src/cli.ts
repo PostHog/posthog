@@ -45,7 +45,7 @@ function main(argv: string[]): number {
         scenario,
         plan: planWorkflow(workflow, scenario),
     }))
-    print(values.steps ? renderSteps(scenarioPlans, values.steps) : renderPlanTable(scenarioPlans))
+    print(`\n${values.steps ? renderSteps(scenarioPlans, values.steps) : renderPlanTable(scenarioPlans)}`)
     const blocking = scenarioPlans.some(({ plan }) => plan.errors.some((error) => error.where !== 'matrix'))
     return blocking ? 1 : 0
 }

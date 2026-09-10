@@ -1055,7 +1055,7 @@ tools:
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
     ci:plan:
         cmd: pnpm --filter @posthog/workflow-plan --silent plan
-        description: Show which jobs (or --steps <job>) of a workflow file run on a draft PR, ready PR, fork, merge queue, push, and schedule
+        description: Show which jobs (or --steps <job>) of a workflow file run on a draft, ready, or fork PR, the merge queue, a master push, schedule, and dispatch
 desktop:
     desktop:dev:
         cmd: pnpm --dir products/desktop dev

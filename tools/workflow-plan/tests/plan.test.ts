@@ -188,7 +188,9 @@ jobs:
         expect(plan.jobs['a']?.result).toBe(expected)
     })
 
-    it.each<{ matrix: string; output: string; expected: number }>([
+    it.each<{ matrix: string; output: string; expected: number | undefined }>([
+        { matrix: '${{ fromJSON(needs.a.outputs.m) }}', output: '', expected: undefined },
+        { matrix: '\n        include: ${{ fromJSON(needs.a.outputs.m) }}', output: '', expected: undefined },
         { matrix: '${{ fromJSON(needs.a.outputs.m) }}', output: '{"include":[]}', expected: 0 },
         { matrix: '${{ fromJSON(needs.a.outputs.m) }}', output: '{"include":[{"g":1},{"g":2}]}', expected: 2 },
         { matrix: '\n        include: ${{ fromJSON(needs.a.outputs.m) }}', output: '[{"g":1}]', expected: 1 },

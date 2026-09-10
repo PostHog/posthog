@@ -34,7 +34,7 @@ Third-party action digests are bumped by Renovate.
 ## Check what a condition does before you push it
 
 The linters check the shape of an `if:`; `tools/workflow-plan` checks what it does.
-It evaluates every job and step condition with GitHub's own expression evaluator against a synthetic draft PR, ready PR, fork PR, merge-queue run, master push, hourly schedule, and cancelled run, and prints which jobs run:
+It evaluates every job and step condition with GitHub's own expression evaluator against a synthetic draft PR, ready PR, fork PR, merge-queue run, master push, hourly schedule, and manual dispatch, and prints which jobs run:
 
 ```bash
 hogli ci:plan .github/workflows/ci-backend.yml            # one row per job, one column per scenario
