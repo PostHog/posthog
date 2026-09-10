@@ -13,8 +13,6 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.api.serializers import _derive_scope_globs
 from products.business_knowledge.backend.constants import CLASSIFY_MAX_ATTEMPTS
-from products.business_knowledge.backend.facade.api import create_generated_knowledge_document
-from products.business_knowledge.backend.facade.contracts import CreateGeneratedKnowledgeDocument
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
 
 
@@ -25,8 +23,8 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
 
     def _create_generated_source(self) -> str:
-        result = create_generated_knowledge_document(
-            CreateGeneratedKnowledgeDocument(
+        result = logic.create_generated_knowledge_document(
+            logic.CreateGeneratedKnowledgeDocument(
                 team_id=self.team.id,
                 ticket_id=UUID("10000000-0000-0000-0000-000000000001"),
                 resolution_comment_id=UUID("20000000-0000-0000-0000-000000000002"),

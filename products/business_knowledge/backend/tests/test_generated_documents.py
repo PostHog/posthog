@@ -7,12 +7,7 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.business_knowledge.backend import generated_documents, logic
-from products.business_knowledge.backend.facade import api
-from products.business_knowledge.backend.facade.contracts import (
-    CreateGeneratedKnowledgeDocument,
-    GeneratedKnowledgeDocument,
-)
+from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
     KnowledgeDocument,
@@ -32,8 +27,8 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         analysis_version: str = "post_resolution_v1",
         title: str = "Refund policy",
         content: str = "Refunds are available within 30 days.",
-    ) -> CreateGeneratedKnowledgeDocument:
-        return CreateGeneratedKnowledgeDocument(
+    ) -> logic.CreateGeneratedKnowledgeDocument:
+        return logic.CreateGeneratedKnowledgeDocument(
             team_id=team_id or self.team.id,
             ticket_id=uuid.UUID("10000000-0000-0000-0000-000000000001"),
             resolution_comment_id=resolution_comment_id or uuid.UUID("20000000-0000-0000-0000-000000000002"),
@@ -45,13 +40,13 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
     def test_creates_generated_source_document_and_chunks(self) -> None:
         input = self._input()
 
-        result = api.create_generated_knowledge_document(input)
+        result = logic.create_generated_knowledge_document(input)
 
         source = KnowledgeSource.objects.unscoped().get(id=result.source_id)
         document = KnowledgeDocument.objects.unscoped().get(id=result.id)
         chunks = list(KnowledgeChunk.objects.unscoped().filter(document=document))
         provenance = {
-            "origin": generated_documents.GENERATED_KNOWLEDGE_ORIGIN,
+            "origin": logic.GENERATED_KNOWLEDGE_ORIGIN,
             "ticket_id": str(input.ticket_id),
             "resolution_comment_id": str(input.resolution_comment_id),
             "analysis_version": input.analysis_version,
@@ -59,7 +54,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
 
         assert result.created is True
         assert source.team_id == self.team.id
-        assert source.name == generated_documents.GENERATED_SOURCE_NAME
+        assert source.name == logic.GENERATED_SOURCE_NAME
         assert source.source_type == SourceType.TEXT
         assert source.is_generated is True
         assert source.status == SourceStatus.READY
@@ -77,14 +72,14 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert input.analysis_version not in searchable_text
 
     def test_retry_returns_existing_document_without_rewriting_it(self) -> None:
-        first = api.create_generated_knowledge_document(self._input())
+        first = logic.create_generated_knowledge_document(self._input())
 
-        retry = api.create_generated_knowledge_document(
+        retry = logic.create_generated_knowledge_document(
             self._input(title="Changed title", content="Changed content that must not replace the original.")
         )
 
         document = KnowledgeDocument.objects.unscoped().get(id=first.id)
-        assert retry == GeneratedKnowledgeDocument(
+        assert retry == logic.GeneratedKnowledgeDocument(
             id=first.id,
             source_id=first.source_id,
             created=False,
@@ -95,8 +90,8 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert KnowledgeDocument.objects.unscoped().filter(source_id=first.source_id).count() == 1
 
     def test_new_analysis_revision_reuses_team_source(self) -> None:
-        first = api.create_generated_knowledge_document(self._input())
-        second = api.create_generated_knowledge_document(self._input(analysis_version="post_resolution_v2"))
+        first = logic.create_generated_knowledge_document(self._input())
+        second = logic.create_generated_knowledge_document(self._input(analysis_version="post_resolution_v2"))
 
         assert first.source_id == second.source_id
         assert first.id != second.id
@@ -110,8 +105,8 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
             name="Other",
         )
 
-        mine = api.create_generated_knowledge_document(self._input())
-        theirs = api.create_generated_knowledge_document(self._input(team_id=other_team.id))
+        mine = logic.create_generated_knowledge_document(self._input())
+        theirs = logic.create_generated_knowledge_document(self._input(team_id=other_team.id))
 
         assert mine.source_id != theirs.source_id
         assert mine.id != theirs.id
@@ -126,13 +121,13 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
             name="Child environment",
         )
 
-        result = api.create_generated_knowledge_document(self._input(team_id=child_team.id))
+        result = logic.create_generated_knowledge_document(self._input(team_id=child_team.id))
 
         assert KnowledgeSource.objects.unscoped().get(id=result.source_id).team_id == self.team.id
         assert KnowledgeDocument.objects.unscoped().get(id=result.id).team_id == self.team.id
 
     def test_disabling_generated_source_removes_it_from_search_without_deleting_data(self) -> None:
-        result = api.create_generated_knowledge_document(self._input())
+        result = logic.create_generated_knowledge_document(self._input())
         document = KnowledgeDocument.objects.unscoped().get(id=result.id)
         logic.set_document_safety(
             team_id=self.team.id,
@@ -142,24 +137,24 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         )
         assert logic.search_knowledge(self.team.id, "refunds")
 
-        assert api.set_generated_knowledge_source_ready(self.team.id, ready=False) is True
+        assert logic.set_generated_knowledge_source_ready(self.team.id, ready=False) is True
 
         assert logic.search_knowledge(self.team.id, "refunds") == []
         assert KnowledgeDocument.objects.unscoped().filter(id=result.id).exists()
         assert KnowledgeChunk.objects.unscoped().filter(document_id=result.id).exists()
 
     def test_disabling_generated_source_remains_effective_after_later_publish(self) -> None:
-        first = api.create_generated_knowledge_document(self._input())
-        assert api.set_generated_knowledge_source_ready(self.team.id, ready=False) is True
+        first = logic.create_generated_knowledge_document(self._input())
+        assert logic.set_generated_knowledge_source_ready(self.team.id, ready=False) is True
 
-        second = api.create_generated_knowledge_document(self._input(analysis_version="post_resolution_v2"))
+        second = logic.create_generated_knowledge_document(self._input(analysis_version="post_resolution_v2"))
 
         source = KnowledgeSource.objects.unscoped().get(id=first.source_id)
         assert second.source_id == first.source_id
         assert source.status == SourceStatus.ERROR
 
     def test_logic_mutations_reject_generated_source(self) -> None:
-        result = api.create_generated_knowledge_document(self._input())
+        result = logic.create_generated_knowledge_document(self._input())
 
         with self.assertRaises(logic.GeneratedSourceReadOnlyError):
             logic.update_text_source(
@@ -174,7 +169,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
             logic.claim_refresh_source(source_id=result.source_id, team_id=self.team.id)
 
     def test_generated_source_does_not_consume_user_source_quota(self) -> None:
-        api.create_generated_knowledge_document(self._input())
+        logic.create_generated_knowledge_document(self._input())
 
         with patch.object(logic, "MAX_SOURCES_PER_TEAM", 1):
             logic.create_text_source(
@@ -200,16 +195,16 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
                 text="User-authored content",
             )
 
-            result = api.create_generated_knowledge_document(self._input())
+            result = logic.create_generated_knowledge_document(self._input())
 
         assert KnowledgeSource.objects.unscoped().get(id=result.source_id).is_generated is True
 
     def test_chunk_quota_failure_rolls_back_new_source(self) -> None:
         with (
-            patch.object(generated_documents, "MAX_CHUNKS_PER_TEAM", 0),
-            self.assertRaises(api.GeneratedKnowledgeDocumentQuotaExceededError),
+            patch.object(logic, "MAX_CHUNKS_PER_TEAM", 0),
+            self.assertRaises(logic.QuotaExceededError),
         ):
-            api.create_generated_knowledge_document(self._input())
+            logic.create_generated_knowledge_document(self._input())
 
         assert not KnowledgeSource.objects.unscoped().filter(team=self.team, is_generated=True).exists()
 
@@ -217,30 +212,30 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         [
             (
                 "title",
-                "x" * (generated_documents.MAX_DOCUMENT_TITLE_LENGTH + 1),
+                "x" * (logic.MAX_GENERATED_DOCUMENT_TITLE_LENGTH + 1),
                 "Valid content",
             ),
             (
                 "content",
                 "Valid title",
-                "x" * (generated_documents.MAX_TEXT_SIZE_BYTES + 1),
+                "x" * (logic.MAX_TEXT_SIZE_BYTES + 1),
             ),
         ]
     )
     def test_rejects_unbounded_document_fields(self, _name: str, title: str, content: str) -> None:
-        with self.assertRaises(api.GeneratedKnowledgeDocumentInvalidInputError):
-            api.create_generated_knowledge_document(self._input(title=title, content=content))
+        with self.assertRaises(logic.InvalidGeneratedKnowledgeDocument):
+            logic.create_generated_knowledge_document(self._input(title=title, content=content))
 
     @parameterized.expand(
         [
             ("empty", ""),
-            ("too_long", "x" * (generated_documents.MAX_ANALYSIS_VERSION_LENGTH + 1)),
+            ("too_long", "x" * (logic.MAX_ANALYSIS_VERSION_LENGTH + 1)),
             ("invalid_character", "post resolution v1"),
         ]
     )
     def test_rejects_invalid_analysis_version(self, _name: str, analysis_version: str) -> None:
-        with self.assertRaises(api.GeneratedKnowledgeDocumentInvalidInputError):
-            api.create_generated_knowledge_document(self._input(analysis_version=analysis_version))
+        with self.assertRaises(logic.InvalidGeneratedKnowledgeDocument):
+            logic.create_generated_knowledge_document(self._input(analysis_version=analysis_version))
 
     @parameterized.expand(
         [
@@ -257,5 +252,5 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         title: str,
         content: str,
     ) -> None:
-        with self.assertRaises(api.GeneratedKnowledgeDocumentInvalidInputError):
-            api.create_generated_knowledge_document(self._input(title=title, content=content))
+        with self.assertRaises(logic.InvalidGeneratedKnowledgeDocument):
+            logic.create_generated_knowledge_document(self._input(title=title, content=content))

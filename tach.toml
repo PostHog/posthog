@@ -1308,7 +1308,6 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.api.*",
-    "backend\\.facade.*",
     "backend\\.logic.*",
     "backend\\.constants.*",
     "backend\\.models.*",
