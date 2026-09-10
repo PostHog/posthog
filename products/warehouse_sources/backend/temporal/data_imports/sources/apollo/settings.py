@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -13,7 +15,7 @@ _UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@frozen
 class ApolloEndpointConfig:
     name: str
     # Path under /api/v1 (search endpoints are POSTs with JSON bodies, lookups are GETs).
