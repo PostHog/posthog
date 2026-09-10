@@ -14,10 +14,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
+from math import ceil
 from typing import Any, cast
 from uuid import UUID
 
 import pytz
+from dateutil.relativedelta import relativedelta
 from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 from pytz.tzinfo import BaseTzInfo
 
@@ -146,12 +148,95 @@ def _calendar_anchor_utc(
     return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
 
 
+def _next_check_at_for_schedule_start_time(
+    interval: CalendarInterval,
+    *,
+    now: datetime,
+    team_timezone: BaseTzInfo,
+    local_now: datetime,
+    next_check_at: datetime | None,
+    schedule_start_time: str,
+) -> datetime:
+    start_minutes = _parse_hhmm(schedule_start_time)
+    start_hour, start_minute = divmod(start_minutes, 60)
+    start_local = local_now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+    start_utc = _localize_wall_time(team_timezone, start_local.replace(tzinfo=None)).astimezone(UTC)
+
+    match interval:
+        case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
+            cadence_minutes = {
+                CalendarInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
+                CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
+                CalendarInterval.HOURLY: 60,
+            }[interval]
+            earliest_allowed = next_check_at + timedelta(minutes=cadence_minutes) if next_check_at else now
+            earliest_allowed = max(earliest_allowed, now)
+            if next_check_at is not None or start_utc <= now:
+                elapsed_seconds = (earliest_allowed - start_utc).total_seconds()
+                intervals_to_advance = ceil(elapsed_seconds / (cadence_minutes * 60))
+                start_utc += timedelta(minutes=intervals_to_advance * cadence_minutes)
+            if start_utc <= now:
+                start_utc += timedelta(minutes=cadence_minutes)
+            return start_utc
+        case CalendarInterval.DAILY:
+            return _next_calendar_schedule_start_time(
+                start_local,
+                now=now,
+                team_timezone=team_timezone,
+                next_check_at=next_check_at,
+                interval_delta=timedelta(days=1),
+            )
+        case CalendarInterval.WEEKLY:
+            return _next_calendar_schedule_start_time(
+                start_local + timedelta(days=(7 - start_local.weekday()) % 7),
+                now=now,
+                team_timezone=team_timezone,
+                next_check_at=next_check_at,
+                interval_delta=timedelta(days=7),
+            )
+        case CalendarInterval.MONTHLY:
+            return _next_calendar_schedule_start_time(
+                start_local.replace(day=1),
+                now=now,
+                team_timezone=team_timezone,
+                next_check_at=next_check_at,
+                interval_delta=relativedelta(months=1),
+            )
+
+
+def _next_calendar_schedule_start_time(
+    first_candidate_local: datetime,
+    *,
+    now: datetime,
+    team_timezone: BaseTzInfo,
+    next_check_at: datetime | None,
+    interval_delta: timedelta | relativedelta,
+) -> datetime:
+    earliest_allowed = now
+    if next_check_at is not None:
+        earliest_allowed = max(
+            earliest_allowed,
+            _localize_wall_time(
+                team_timezone,
+                (next_check_at.astimezone(team_timezone) + interval_delta).replace(tzinfo=None),
+            ).astimezone(UTC),
+        )
+
+    candidate_local = first_candidate_local
+    candidate_utc = _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+    while candidate_utc <= now or candidate_utc < earliest_allowed:
+        candidate_local += interval_delta
+        candidate_utc = _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+    return candidate_utc
+
+
 def next_calendar_check_time(
     interval: CalendarInterval,
     *,
     now: datetime,
     tz_name: str,
     next_check_at: datetime | None,
+    schedule_start_time: str | None = None,
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
@@ -163,6 +248,16 @@ def next_calendar_check_time(
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
+
+    if schedule_start_time is not None:
+        return _next_check_at_for_schedule_start_time(
+            interval,
+            now=now,
+            team_timezone=team_timezone,
+            local_now=local_now,
+            next_check_at=next_check_at,
+            schedule_start_time=schedule_start_time,
+        )
 
     match interval:
         case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
@@ -253,6 +348,14 @@ def _parse_hhmm(value: str) -> int:
     if h < 0 or h > 23 or m < 0 or m > 59:
         raise ValueError("Invalid HH:MM")
     return h * 60 + m
+
+
+def validate_and_normalize_schedule_start_time(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise ValueError("schedule_start_time must be a HH:MM string")
+    return _hhmm(_parse_hhmm(raw))
 
 
 def _parse_window_pair(start_s: str, end_s: str) -> BlockedWindow:
