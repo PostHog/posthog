@@ -215,6 +215,9 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     },
                 },
                 {
+                    // Without a key this column derives one from `dataIndex` and collides with the
+                    // "Type" column, so React drops one of the two cells.
+                    key: 'actions',
                     width: 0,
                     dataIndex: 'type',
                     render: function RenderActions(_, data) {

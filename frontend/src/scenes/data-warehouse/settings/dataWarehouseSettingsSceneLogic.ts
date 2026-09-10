@@ -461,6 +461,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             try {
                 await api.dataWarehouseTables.updateSchema(tableId, schemaUpdates)
                 actions.refreshDatabaseSchema()
+                lemonToast.success('Column types updated')
 
                 if (values.selectedRow) {
                     posthog.capture('source schema saved', {
