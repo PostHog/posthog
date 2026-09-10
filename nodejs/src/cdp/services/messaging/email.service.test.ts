@@ -504,13 +504,12 @@ describe('EmailService', () => {
             })
 
             it.each([
-                // A reserved slot is exclusive and already spaced one token interval behind the
-                // slot in front of it, so the send parks on it exactly. Adding any spread here
-                // shortens the gap to the send in front whenever the spread shrinks, and the wake
-                // then finds the bucket short and parks again behind the whole queue.
+                // A reserved slot means "your turn is at this exact time". Park on it as-is:
+                // wake earlier and the token is not there yet, so the send gets denied again
+                // and goes to the back of the line.
                 ['exactly at the reserved slot', 5000, true, 5000, 5000],
-                // Past the horizon nothing is reserved and every caller is handed the same wake
-                // time, so those wakes are spread 1x-2x across the whole horizon.
+                // Past the horizon there are no slots left and everyone gets the same "come
+                // back in an hour", so those wakes get spread out (1x-2x) instead.
                 [
                     'with spread when re-contending at the horizon',
                     60 * 60 * 1000,
@@ -545,11 +544,9 @@ describe('EmailService', () => {
             })
 
             it('parks consecutive denials on their exact reserved slots', async () => {
-                // 30/minute is the capacity-1 regime: burst capacity is ~1s of budget, so the
-                // bucket banks nothing beyond one token. The limiter hands out slots one token
-                // interval (2s) apart, and that spacing only survives if every send parks on its
-                // own slot untouched. Move one wake earlier and it finds the bucket a fraction of
-                // a token short, is denied again, and re-reserves behind the whole backlog.
+                // At 30/minute the limiter hands out slots 2s apart. Each send has to wake at
+                // its own slot, exactly. If one wake moves even a little earlier, its token is
+                // not there yet and the send goes to the back of the line.
                 invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 30, period: 'minute' } }
                 const slotMs = 2000
 
@@ -568,10 +565,10 @@ describe('EmailService', () => {
             })
 
             it('scatters a backlog that overflows the reservation horizon', async () => {
-                // Once the slot cursor runs past the horizon the limiter reserves nothing and
-                // hands every remaining send the same wake time. That set is unbounded, and a
-                // rescheduled email keeps its dequeue position, so waking them together puts the
-                // whole group back at the head of the queue to be denied again.
+                // When the backlog is deeper than one hour of refill there are no slots left:
+                // every remaining send gets "come back in an hour". If they all came back at
+                // the same moment they would pile up at the front of the queue again, so their
+                // wakes get spread out over the hour.
                 claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 60 * 60 * 1000, reserved: false })
 
                 const parkedAt: number[] = []
@@ -581,9 +578,8 @@ describe('EmailService', () => {
                     parkedAt.push(denied.invocation.queueScheduledAt!.toMillis())
                 }
 
-                // The wakes have to cover a real span of the horizon rather than one narrow
-                // window. Twenty samples spread over an hour clear ten minutes with room to
-                // spare; the herd this replaces fits inside a quarter of a second.
+                // 20 wakes spread over an hour should easily span more than 10 minutes.
+                // Before this fix they all landed within a quarter of a second.
                 const spreadMs = Math.max(...parkedAt) - Math.min(...parkedAt)
                 expect(spreadMs).toBeGreaterThan(10 * 60 * 1000)
             })

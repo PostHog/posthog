@@ -302,16 +302,14 @@ describe('RateLimiterService', () => {
             expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
             expect(third.retryAfterMs!).toBeGreaterThan(second.retryAfterMs!)
             expect(third.retryAfterMs!).toBeLessThanOrEqual(1_500)
-            // Each of these slots is the caller's alone, which is what lets the caller park on
-            // it as given instead of spreading its wake and closing the gap to the caller ahead.
+            // All three got their own slot, so each can park on it exactly.
             expect([first.reserved, second.reserved, third.reserved]).toEqual([true, true, true])
         })
 
         it('charges the first denial only for the tokens the bucket is short of', async () => {
-            // Capacity 1 at 0.25 tokens/s, so a whole token interval is 4s. Drain, then let
-            // part of a token accrue. The reserved slot must be the shortfall, not the full
-            // interval: the accrued part is credit already earned, and waiting the interval out
-            // also lets accrual run past a capacity of 1, where the cap throws the surplus away.
+            // One token takes 4s to refill. Drain the bucket, wait 1s so a quarter of a
+            // token is back, then get denied. The slot must only cover what is still
+            // missing (~3s), not the full 4s: the quarter token is credit already earned.
             const partialReq = { key: `${RESERVE_KEY}/partial`, requested: 1, capacity: 1, refillPerSecond: 0.25 }
             await limiter.claimUpTo(partialReq)
             await new Promise((resolve) => setTimeout(resolve, 1_000))
@@ -320,17 +318,15 @@ describe('RateLimiterService', () => {
 
             expect(denial.granted).toBe(0)
             expect(denial.reserved).toBe(true)
-            // The slot is 4s minus whatever accrued during the wait, so a runner that oversleeps
-            // only shortens it. Charging the full interval would report 4s and fail here.
+            // A slow test runner only makes the slot shorter (more refill happened). The old
+            // code always reported the full 4s and fails this bound.
             expect(denial.retryAfterMs).toBeGreaterThan(0)
             expect(denial.retryAfterMs).toBeLessThanOrEqual(3_000)
         })
 
         it('stops advancing the cursor at the horizon', async () => {
-            // Slot interval 1s with a 1s horizon: the first denial can reserve the one
-            // slot inside the horizon; everyone after gets the horizon back unchanged
-            // (and un-reserved), so a deep backlog re-contends there instead of the
-            // cursor running away.
+            // One 1s slot fits the 1s horizon. The first denial takes it; everyone after
+            // just gets "come back in 1s" with no slot, so the cursor cannot run away.
             const slowReq = { key: `${RESERVE_KEY}/capped`, requested: 1, capacity: 1, refillPerSecond: 1 }
             await limiter.claimUpTo({ ...slowReq })
 
@@ -341,8 +337,8 @@ describe('RateLimiterService', () => {
             expect(first.retryAfterMs).toBeLessThanOrEqual(1_000)
             expect(second.retryAfterMs).toBe(1_000)
             expect(third.retryAfterMs).toBe(1_000)
-            // Only the first held a slot. The other two share one wake time, so they report
-            // `reserved: false` and the caller knows to spread them itself.
+            // Only the first got a slot. The other two share one wake time and are told so,
+            // which is the caller's cue to spread its own wake.
             expect([first.reserved, second.reserved, third.reserved]).toEqual([true, false, false])
         })
     })
