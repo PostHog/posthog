@@ -52,13 +52,17 @@ function initialChecksHistoryParams(): ChecksHistoryParams {
 /**
  * An AI check's stored score folds the model's verdict and its confidence into one number, so a
  * low-confidence "no anomaly" sits above the threshold without being a check that would fire. The
- * verdict itself is on the check, and firing needs both it and the confidence.
+ * verdict itself is on the check, and firing needs the verdict, the confidence, and the model
+ * naming the latest point — a confident anomaly about older history does not fire either.
  */
 export function llmCheckWouldFire(check: AlertCheck, threshold: number): boolean | null {
     const verdictIsAnomaly = check.triggered_metadata?.verdict_is_anomaly
     const confidence = check.triggered_metadata?.confidence
     if (typeof verdictIsAnomaly !== 'boolean' || typeof confidence !== 'number') {
         return null
+    }
+    if (check.triggered_metadata?.latest_point_not_flagged === true) {
+        return false
     }
     return verdictIsAnomaly && confidence >= threshold
 }

@@ -31,8 +31,9 @@ tools:
             up to 2000 characters), threshold (the model confidence needed to fire, 0-1, default 0.7), and window
             (points shown to the model, default 90, max 400). It cannot be an ensemble member, cannot use preprocessing,
             cannot run on the real_time cadence, is not available on breakdown insights, is capped per project, and is
-            only available where the AI detector is enabled for the organization. Requires an insight ID and at least
-            one subscribed user.
+            only available where the AI detector is enabled for the organization. Always send detector_config.type
+            explicitly: a config with no type is read as a z-score detector, and any llm-only field you sent with it is
+            dropped without an error. Requires an insight ID and at least one subscribed user.
 
             The config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index,
             check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate
@@ -156,7 +157,8 @@ tools:
             numeric insight ID or its saved short ID. Omit detector_config to use the default daily z-score detector
             (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass
             detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca,
-            ensemble, or llm). The llm type makes a real model call per simulation, is rate limited per project, and
+            ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector,
+            and any llm-only field you sent with it is dropped without an error. The llm type makes a real model call per simulation, is rate limited per project, and
             takes the same instructions, threshold (default 0.7), and window (default 90) as an llm alert; its scores
             are the model's confidence, not a statistical probability. Optionally specify date_from (e.g. '-48h',
             '-30d') to control how far back to simulate, and series_index to pick which series to analyze. Returns data
