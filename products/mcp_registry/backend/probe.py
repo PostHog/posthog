@@ -20,11 +20,12 @@ import requests
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
 from products.mcp_registry.backend.constants import (
     PROBE_BATCH_SIZE,
     PROBE_CONCURRENCY,
+    PROBE_RESPONSE_MAX_BYTES,
     PROBE_TIMEOUT_SECONDS,
     PROBE_TOOL_DESCRIPTION_MAX_CHARS,
     PROBE_TOOL_LIMIT,
@@ -75,27 +76,74 @@ def _parse_jsonrpc_body(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _classify_auth(response: requests.Response) -> str:
-    www_authenticate = response.headers.get("WWW-Authenticate", "")
+def _classify_auth(headers: Any, text: str) -> str:
+    www_authenticate = headers.get("WWW-Authenticate", "")
     if "bearer" in www_authenticate.lower():
         return "oauth"
-    hint = (www_authenticate + response.text[:400]).lower()
+    hint = (www_authenticate + text[:400]).lower()
     if "api key" in hint or "api-key" in hint or "api_key" in hint:
         return "api_key"
     return "unknown"
 
 
-def _rpc(url: str, payload: dict[str, Any], session_id: str | None = None) -> requests.Response:
+@frozen
+class _RpcResponse:
+    """A probe response with the body already read and bounded.
+
+    The body is never more than PROBE_RESPONSE_MAX_BYTES, so callers can parse it without
+    a publisher-controlled endpoint deciding how much memory the worker holds.
+    """
+
+    status_code: int
+    headers: Any
+    text: str
+    truncated: bool = False
+
+
+def _read_bounded(response: requests.Response, limit: int = PROBE_RESPONSE_MAX_BYTES) -> tuple[str, bool]:
+    """Read a streamed response body, stopping at ``limit`` bytes.
+
+    ``requests`` would otherwise buffer the entire body in memory; with PROBE_CONCURRENCY
+    probes in flight, a few oversized publisher endpoints could OOM the worker. Iterating
+    the stream caps what we hold regardless of how much the server sends. Returns the
+    decoded text (best-effort) and whether it was cut short.
+    """
+    chunks: list[bytes] = []
+    received = 0
+    truncated = False
+    for chunk in response.iter_content(chunk_size=65536):
+        received += len(chunk)
+        if received > limit:
+            chunks.append(chunk[: max(0, len(chunk) - (received - limit))])
+            truncated = True
+            break
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    encoding = response.encoding or "utf-8"
+    return body.decode(encoding, errors="replace"), truncated
+
+
+def _rpc(url: str, payload: dict[str, Any], session_id: str | None = None) -> _RpcResponse:
     headers = dict(_HEADERS)
     if session_id:
         headers["mcp-session-id"] = session_id
-    return pinned_request("POST", url, json=payload, headers=headers, timeout=PROBE_TIMEOUT_SECONDS)
+    # Stream so the body is read under PROBE_RESPONSE_MAX_BYTES rather than buffered whole.
+    # The session must stay open while we read, so this uses pinned_session directly.
+    with pinned_session(url) as session:
+        response = session.post(url, json=payload, headers=headers, timeout=PROBE_TIMEOUT_SECONDS, stream=True)
+        try:
+            text, truncated = _read_bounded(response)
+            return _RpcResponse(
+                status_code=response.status_code, headers=response.headers, text=text, truncated=truncated
+            )
+        finally:
+            response.close()
 
 
 def _fetch_tools(url: str, session_id: str | None) -> list[dict[str, Any]]:
     _rpc(url, {"jsonrpc": "2.0", "method": "notifications/initialized"}, session_id)
     response = _rpc(url, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}, session_id)
-    body = _parse_jsonrpc_body(response.text) or {}
+    body = {} if response.truncated else (_parse_jsonrpc_body(response.text) or {})
     tools = (body.get("result") or {}).get("tools")
     if not isinstance(tools, list):
         return []
@@ -123,6 +171,10 @@ def shallow_probe(url: str) -> ProbeOutcome:
         # A redirect target never went through SSRF validation, so refuse to follow.
         return ProbeOutcome(liveness="not_mcp", detail=f"redirect http {response.status_code}")
 
+    if response.truncated:
+        # The body blew past the read cap, so it isn't a usable JSON-RPC envelope.
+        return ProbeOutcome(liveness="not_mcp", detail=f"response exceeded {PROBE_RESPONSE_MAX_BYTES} bytes")
+
     body = _parse_jsonrpc_body(response.text)
     result = (body or {}).get("result") or {}
     if result.get("serverInfo") or result.get("capabilities"):
@@ -135,7 +187,7 @@ def shallow_probe(url: str) -> ProbeOutcome:
         return ProbeOutcome(liveness="alive_open", auth_method="none", detail=detail, tools=tools)
 
     if response.status_code in (401, 403):
-        return ProbeOutcome(liveness="alive_auth", auth_method=_classify_auth(response))
+        return ProbeOutcome(liveness="alive_auth", auth_method=_classify_auth(response.headers, response.text))
     if response.status_code == 200 and (body or {}).get("error"):
         return ProbeOutcome(liveness="alive_protocol", detail=f"rpc error {(body or {})['error'].get('code')}")
     if 200 <= response.status_code < 300:
