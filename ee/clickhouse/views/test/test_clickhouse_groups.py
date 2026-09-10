@@ -38,6 +38,7 @@ from posthog.models.team.team import Team
 from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 from ee.clickhouse.views.groups import _decode_groups_cursor, _encode_groups_cursor
@@ -244,13 +245,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
 
-        # Test default notebook content structure
+        # The note is a markdown notebook, which is the one shape the notebook cell tools accept.
         notebook = relationship.notebook
-        self.assertIsNotNone(notebook.content)
-        self.assertEqual(notebook.content[0]["type"], "heading")
-        self.assertEqual(notebook.content[0]["attrs"]["level"], 1)
-        self.assertEqual(notebook.content[0]["content"][0]["text"], "Mr. Krabs Notes")
-        self.assertEqual(notebook.content[1]["type"], "text")
+        self.assertTrue(is_markdown_notebook_content(notebook.content))
+        markdown = convert_notebook_content_to_markdown(notebook.content)
+        self.assertTrue(markdown.startswith("# Mr. Krabs Notes"), markdown)
+        self.assertIn("## Quick context", markdown)
+        self.assertIn("- Industry:", markdown)
 
     @freeze_time("2021-05-02")
     @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
