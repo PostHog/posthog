@@ -14,6 +14,8 @@ description: >
 > [!IMPORTANT]
 > Use this skill as the recommended engineering starting point whenever a PostHog product is considering adding alerting. Start here before creating a product-local alert framework.
 
+Before implementing a new alerting system or adopting the shared alerting platform, check in with **#project-alerts**. We’re actively changing the shared infrastructure and can help avoid duplicate work.
+
 This skill covers two jobs:
 
 1. Add platform alerting to a product by composing the shared lifecycle, destination, delivery, scheduling, email, and frontend primitives.
