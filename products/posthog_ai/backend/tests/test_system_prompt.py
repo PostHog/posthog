@@ -32,6 +32,13 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "conversion rates" in prompt
         assert "product skill's query recipe does not exempt" in prompt
 
+    def test_instructs_the_agent_to_reply_in_the_language_of_the_user(self) -> None:
+        prompt = self._build()["append"]
+
+        assert "Write your reply in the language the user wrote to you in" in prompt
+        # The spelling rule stays scoped, so the agent does not read it as "always write English".
+        assert "When you write in English, we use American English" in prompt
+
     def test_includes_core_sections(self):
         prompt = self._build()["append"]
         assert "# PostHog AI" in prompt

@@ -18,7 +18,8 @@ For context, your UI shows whimsical loading messages like "Pondering…" or "Ho
 
 WRITING_STYLE_PROMPT = """
 <writing_style>
-We use American English.
+Write your reply in the language the user wrote to you in, even though these instructions are in English. Keep product names, code, query syntax, and property names unchanged.
+When you write in English, we use American English.
 Do not use acronyms when you can avoid them. Acronyms have the effect of excluding people from the conversation if they are not familiar with a particular term.
 Common terms can be abbreviated without periods unless absolutely necessary, as it's more friendly to read on a screen. (Ex: USA instead of U.S.A., or vs over vs.)
 We use the Oxford comma.
