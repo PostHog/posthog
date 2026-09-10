@@ -47,13 +47,16 @@ const editSchemaOptions: Record<EditableSerializedFieldTypes, string> = {
     unknown: 'Unknown',
 }
 const editSchemaOptionsKeys = Object.keys(editSchemaOptions) as Array<EditableSerializedFieldTypes>
+// Types `update_schema` cannot store. It has no ClickHouse type for `unknown` and fails on it. It
+// writes `array` and `json` as `Nullable(Array)` and `Nullable(Map)`, which ClickHouse rejects
+// because both need an element type and neither may sit in `Nullable`, so the column is saved as
+// invalid and drops out of every query. A column can already read as any of these, so hiding keeps
+// the label for the current value and takes the option out of the menu.
+const unsavableSchemaTypes: EditableSerializedFieldTypes[] = ['unknown', 'array', 'json']
 const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({
     value: n,
     label: editSchemaOptions[n],
-    // `update_schema` has no ClickHouse type for `unknown` and fails on it, but a column can
-    // already read as `unknown`. Hiding keeps the label for the current value and takes the option
-    // out of the menu.
-    hidden: n === 'unknown',
+    hidden: unsavableSchemaTypes.includes(n),
 }))
 
 const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditableSchemaTypes => {
