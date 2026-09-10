@@ -10,8 +10,11 @@ interface Column {
     cells: string[]
 }
 
-/** Decorates every second data row, for example with a background color. */
-export type RowStripe = (line: string) => string
+/** Terminal-only decoration of the header row and every second data row. */
+export interface TableStyle {
+    header: (line: string) => string
+    stripe: (line: string) => string
+}
 
 const MARKS: Record<Outcome, string> = {
     success: '▶',
@@ -37,18 +40,19 @@ function center(text: string, width: number): string {
     return text.padStart(text.length + left).padEnd(width)
 }
 
-function renderGrid(cornerLabel: string, rowLabels: string[], columns: Column[], stripe?: RowStripe): string[] {
+function renderGrid(cornerLabel: string, rowLabels: string[], columns: Column[], style?: TableStyle): string[] {
     const labelWidth = Math.max(cornerLabel.length, ...rowLabels.map((label) => label.length))
     const widths = columns.map(({ name, cells }) => Math.max(name.length, ...cells.map((cell) => cell.length)))
     const row = (label: string, cells: string[]): string =>
         `${label.padEnd(labelWidth)} ${cells.map((cell, index) => center(cell, widths[index]!)).join(' ')}`
     const decorate = (line: string, rowIndex: number): string =>
-        stripe && rowIndex % 2 === 1 ? stripe(line) : line.trimEnd()
+        style && rowIndex % 2 === 1 ? style.stripe(line) : line.trimEnd()
+    const header = row(
+        cornerLabel,
+        columns.map(({ name }) => name)
+    ).trimEnd()
     return [
-        row(
-            cornerLabel,
-            columns.map(({ name }) => name)
-        ).trimEnd(),
+        style ? style.header(header) : header,
         ...rowLabels.map((label, rowIndex) =>
             decorate(
                 row(
@@ -61,7 +65,7 @@ function renderGrid(cornerLabel: string, rowLabels: string[], columns: Column[],
     ]
 }
 
-export function renderPlanTable(scenarioPlans: ScenarioPlan[], stripe?: RowStripe): string {
+export function renderPlanTable(scenarioPlans: ScenarioPlan[], style?: TableStyle): string {
     const first = scenarioPlans[0]
     if (!first) {
         return ''
@@ -77,7 +81,7 @@ export function renderPlanTable(scenarioPlans: ScenarioPlan[], stripe?: RowStrip
             return job.matrixCells === 0 ? `${MARKS[job.result]}${EMPTY_MATRIX_SUFFIX}` : MARKS[job.result]
         }),
     }))
-    const lines = [...renderGrid('job', jobIds, columns, stripe), '', LEGEND]
+    const lines = [...renderGrid('job', jobIds, columns, style), '', LEGEND]
     const errors = scenarioPlans.flatMap(({ scenario, plan }) =>
         plan.errors.map(
             (error) =>
@@ -90,7 +94,7 @@ export function renderPlanTable(scenarioPlans: ScenarioPlan[], stripe?: RowStrip
     return lines.join('\n')
 }
 
-export function renderSteps(scenarioPlans: ScenarioPlan[], jobId: string, stripe?: RowStripe): string {
+export function renderSteps(scenarioPlans: ScenarioPlan[], jobId: string, style?: TableStyle): string {
     const first = scenarioPlans[0]
     const job = first?.plan.jobs[jobId]
     if (!first || !job) {
@@ -103,5 +107,5 @@ export function renderSteps(scenarioPlans: ScenarioPlan[], jobId: string, stripe
             plan.jobs[jobId]?.steps[stepIndex]?.runs ? MARKS.success : MARKS.skipped
         ),
     }))
-    return [...renderGrid('step', labels, columns, stripe), '', LEGEND].join('\n')
+    return [...renderGrid('step', labels, columns, style), '', LEGEND].join('\n')
 }
