@@ -62,7 +62,7 @@ Slack Events API and interactivity endpoints persist a receipt, then acknowledge
 A Slack retry of a row that is waiting on backoff does not skip `due_at`.
 Owning-region proxy failure returns 502 so Slack retries.
 Celery `on_commit` dispatch is a wake-up hint with `apply_async(..., retry=False)`, so a hung broker cannot stall the Slack ack.
-`sweep_inbound_events` (every minute) re-drives due and expired-lease rows, nulls payloads after 24 hours, and deletes tombstones after 30 days.
+`sweep_inbound_events` (every minute) re-drives due and expired-lease rows, then drains payload cleanup and tombstone deletion in batches of 100 until a short batch or 20 rounds.
 
 Workers claim a row with a fencing token and a 20-minute lease.
 The lease covers a crashed worker. It is not a live handler wall-clock.

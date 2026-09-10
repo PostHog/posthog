@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.http import HttpResponse
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -46,7 +47,7 @@ class TestSupportSlackEventsAPI(BaseTest):
             **kwargs,
         )
 
-    def _post_committed(self, payload: dict[str, Any], **kwargs):
+    def _post_committed(self, payload: dict[str, Any], **kwargs: Any) -> HttpResponse:
         with self.captureOnCommitCallbacks(execute=True):
             return self._post(payload, **kwargs)
 
@@ -276,7 +277,7 @@ class TestSupportSlackInteractivityAPI(BaseTest):
     def _post(self, payload: Any, **kwargs):
         return self._post_raw(json.dumps(payload), **kwargs)
 
-    def _post_committed(self, payload: Any, **kwargs):
+    def _post_committed(self, payload: Any, **kwargs: Any) -> HttpResponse:
         with self.captureOnCommitCallbacks(execute=True):
             return self._post(payload, **kwargs)
 

@@ -1,7 +1,7 @@
 """Slack inbound events, interactivity, and outbound replies."""
 
 import json
-from typing import Any, cast, get_args
+from typing import Any, Literal, cast, get_args
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -12,6 +12,7 @@ import requests
 import structlog
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError
+from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
 from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
@@ -37,6 +38,7 @@ from products.conversations.backend.services.inbound_events import (
     cleanup_inbound_payloads,
     complete_inbound_event,
     delete_inbound_tombstones,
+    drain_inbound_retention,
     due_inbound_event_ids,
     fail_inbound_event,
     inbound_event_payload_event,
@@ -48,6 +50,7 @@ from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_OPEN,
     NudgeClassifierVerdict,
     NudgeFunnelVerdict,
+    SlackConfirmationNeedsRetry,
     capture_nudge_event,
     create_ticket_from_confirmation,
     get_bot_user_id,
@@ -67,6 +70,21 @@ from ..support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_miss
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
+PromptUpdateResult = Literal["updated", "missing", "transient", "permanent"]
+_PERMANENT_PROMPT_UPDATE_ERROR_CODES = frozenset(
+    {
+        "account_inactive",
+        "cannot_update_message",
+        "cant_update_message",
+        "channel_not_found",
+        "invalid_auth",
+        "is_archived",
+        "message_not_found",
+        "msg_too_long",
+        "not_in_channel",
+        "token_revoked",
+    }
+)
 
 
 def _is_duplicate_supporthog_event(event_id: str) -> bool:
@@ -234,15 +252,21 @@ def _delete_supporthog_prompt(team: Team, channel: str, message_ts: str) -> None
         logger.warning("supporthog_interactivity_prompt_delete_failed", exc_info=True)
 
 
-def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> bool:
+def _slack_api_error_code(exc: Exception) -> str | None:
+    if not isinstance(exc, SlackApiError) or exc.response is None:
+        return None
+    error = exc.response.get("error")
+    return error if isinstance(error, str) else None
+
+
+def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> PromptUpdateResult:
     """Replace the "open a ticket?" prompt in place with a new status line (buttons removed).
 
-    Never raises — a failure here must not block the ticket creation that already ran —
-    but reports success so callers can retry updates that must not be lost (the final
-    confirmation/error state, as opposed to the best-effort progress placeholder).
+    Never raises. Callers retry only a ``transient`` result. A missing or deleted prompt
+    cannot recover, so those must not sit in the inbound retry queue.
     """
     if not channel or not message_ts:
-        return False
+        return "missing"
     try:
         get_slack_client(team).chat_update(
             channel=channel,
@@ -250,10 +274,13 @@ def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: s
             text=text,
             blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
         )
-        return True
-    except Exception:
+        return "updated"
+    except Exception as exc:
         logger.warning("supporthog_interactivity_prompt_update_failed", exc_info=True)
-        return False
+        error_code = _slack_api_error_code(exc)
+        if error_code in _PERMANENT_PROMPT_UPDATE_ERROR_CODES:
+            return "permanent"
+        return "transient"
 
 
 def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts: str) -> None:
@@ -361,19 +388,11 @@ def _handle_supporthog_interactivity(
                         slack_channel_id=source_channel,
                         message_ts=source_message_ts,
                     )
-                    if ticket is None:
-                        # A duplicate delivery (double click or webhook retry) can lose the
-                        # per-thread create lock to a concurrent sibling and see None while
-                        # the sibling's ticket is mid-create. Retry instead of reporting a
-                        # false failure — the re-run resolves to the committed ticket via
-                        # the existing-ticket check in create_ticket_from_confirmation.
-                        # Genuine failures exhaust retries into the error update below.
-                        _raise_if_retry_allowed(allow_retry)
-                except TransientInboundError:
-                    raise
+                except SlackConfirmationNeedsRetry:
+                    _raise_if_retry_allowed(allow_retry)
                 except Exception as e:
                     logger.exception("supporthog_interactivity_create_failed", error=str(e))
-                    # Retry transient failures — the retried run redoes the whole handler,
+                    # Retry transient failures. The retried run redoes the whole handler,
                     # so the prompt still resolves on eventual success. Once retries are
                     # exhausted, fall through to the error update below rather than leaving
                     # the user staring at live buttons forever.
@@ -386,13 +405,11 @@ def _handle_supporthog_interactivity(
             else:
                 emoji = get_safe_ticket_emoji(support_settings)
                 text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
-            final_update_ok = _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
+            final_update = _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
             prompt_can_be_updated = bool(prompt_channel and prompt_ts)
-            if not final_update_ok and prompt_can_be_updated:
-                # The progress placeholder must never be the prompt's last word — if the
-                # final update fails transiently, retry the task (creation is idempotent,
-                # the re-run re-attempts just this update). Once retries are exhausted,
-                # fall through so the funnel event still records the outcome.
+            if final_update == "transient" and prompt_can_be_updated:
+                # The progress placeholder must never be the prompt's last word. Retry a
+                # transient Slack failure. A deleted or unauthorized prompt cannot recover.
                 _raise_if_retry_allowed(allow_retry)
             # Captured after all retry exits (each retry re-raise leaves the task first),
             # so the event fires once with the final outcome.
@@ -405,7 +422,7 @@ def _handle_supporthog_interactivity(
                     "ticket_id": str(ticket.id) if ticket else None,
                 },
             )
-            return ticket is not None and (final_update_ok or not prompt_can_be_updated)
+            return ticket is not None
     return True
 
 
@@ -501,8 +518,8 @@ def sweep_inbound_events() -> None:
         if wake_inbound_event(ConversationInboundEvent(id=inbound_event_id, source=source)):
             dispatched += 1
 
-    payload_gc_count = cleanup_inbound_payloads(now)
-    tombstone_delete_count = delete_inbound_tombstones(now)
+    payload_gc_count = drain_inbound_retention(cleanup_inbound_payloads, now)
+    tombstone_delete_count = drain_inbound_retention(delete_inbound_tombstones, now)
     queue_metrics = record_inbound_queue_metrics(now)
     if dispatched or payload_gc_count or tombstone_delete_count:
         logger.info(

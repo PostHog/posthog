@@ -39,6 +39,10 @@ INBOUND_BACKOFF_BASE_SECONDS = 15
 INBOUND_BACKOFF_MAX_SECONDS = 15 * 60
 INBOUND_MAX_AGE = INBOUND_PAYLOAD_TTL
 INBOUND_SWEEP_BATCH_SIZE = 100
+# Caps one Beat tick so retention catch-up cannot run unbounded.
+INBOUND_SWEEP_MAX_ROUNDS = 20
+
+InboundWake = Callable[[ConversationInboundEvent], object]
 
 
 class TransientInboundError(Exception):
@@ -103,7 +107,7 @@ def retry_delay_seconds(attempts: int) -> int:
     return max(int(backoff + jitter), 1)
 
 
-def _safe_wake(wake: Callable[[ConversationInboundEvent], None], row: ConversationInboundEvent) -> None:
+def _safe_wake(wake: InboundWake, row: ConversationInboundEvent) -> None:
     try:
         wake(row)
     except Exception:
@@ -165,17 +169,24 @@ def persist_inbound_event(
             )
     except IntegrityError as exc:
         try:
-            row = ConversationInboundEvent.objects.for_team(team.id).get(source=source, source_id=source_id)
+            with transaction.atomic():
+                # Concurrent Slack retries can both hit IntegrityError. Lock the existing
+                # row so retry metadata updates cannot race.
+                row = (
+                    ConversationInboundEvent.objects.for_team(team.id)
+                    .select_for_update()
+                    .get(source=source, source_id=source_id)
+                )
+                ConversationInboundEvent.objects.for_team(team.id).filter(id=row.id).update(
+                    provider_retry_num=provider_retry_num,
+                    provider_retry_reason=provider_retry_reason,
+                    updated_at=timezone.now(),
+                )
+                row.refresh_from_db()
+                return row
         except ConversationInboundEvent.DoesNotExist:
             # Unique conflict is the only IntegrityError that leaves a row to replay.
             raise exc from None
-        ConversationInboundEvent.objects.for_team(team.id).filter(id=row.id).update(
-            provider_retry_num=provider_retry_num,
-            provider_retry_reason=provider_retry_reason,
-            updated_at=timezone.now(),
-        )
-        row.refresh_from_db()
-        return row
 
 
 def accept_inbound_event(
@@ -187,7 +198,7 @@ def accept_inbound_event(
     payload: dict[str, Any] | None,
     provider_retry_num: int | None,
     provider_retry_reason: str,
-    wake: Callable[[ConversationInboundEvent], None],
+    wake: InboundWake,
 ) -> ConversationInboundEvent:
     with transaction.atomic():
         row = persist_inbound_event(
@@ -390,6 +401,16 @@ def delete_inbound_tombstones(now: datetime, *, limit: int = INBOUND_SWEEP_BATCH
     # nosemgrep: idor-lookup-without-team (IDs come from the cross-team retention query above)
     deleted, _ = ConversationInboundEvent.objects.unscoped().filter(id__in=event_ids).delete()
     return deleted
+
+
+def drain_inbound_retention(cleanup: Callable[[datetime], int], now: datetime) -> int:
+    total = 0
+    for _ in range(INBOUND_SWEEP_MAX_ROUNDS):
+        cleaned = cleanup(now)
+        total += cleaned
+        if cleaned < INBOUND_SWEEP_BATCH_SIZE:
+            break
+    return total
 
 
 def _push_inbound_queue_gauges(*, backlog: list[tuple[str, str, int]], oldest_age: float, now: datetime) -> None:

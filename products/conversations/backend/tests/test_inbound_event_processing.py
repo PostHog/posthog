@@ -25,9 +25,12 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.inbound_event import INBOUND_PAYLOAD_TTL, INBOUND_TOMBSTONE_TTL
 from products.conversations.backend.services.inbound_events import (
     INBOUND_MAX_ATTEMPTS,
+    INBOUND_SWEEP_BATCH_SIZE,
+    INBOUND_SWEEP_MAX_ROUNDS,
     accept_inbound_event,
     claim_inbound_event,
     complete_inbound_event,
+    drain_inbound_retention,
     persist_inbound_event,
     schedule_inbound_retry,
     slack_events_source_id,
@@ -110,6 +113,24 @@ class TestWakeInboundEvent(SimpleTestCase):
         row = ConversationInboundEvent(id=uuid4(), source=ConversationInboundEventSource.SLACK_EVENTS)
         assert wake_inbound_event(row) is False
         mock_apply.assert_called_once()
+
+
+class TestDrainInboundRetention(SimpleTestCase):
+    def test_stops_on_short_batch(self) -> None:
+        calls = {"n": 0}
+
+        def cleanup(_now: object) -> int:
+            calls["n"] += 1
+            return INBOUND_SWEEP_BATCH_SIZE if calls["n"] == 1 else 3
+
+        assert drain_inbound_retention(cleanup, timezone.now()) == INBOUND_SWEEP_BATCH_SIZE + 3
+        assert calls["n"] == 2
+
+    def test_caps_rounds(self) -> None:
+        def cleanup(_now: object) -> int:
+            return INBOUND_SWEEP_BATCH_SIZE
+
+        assert drain_inbound_retention(cleanup, timezone.now()) == INBOUND_SWEEP_BATCH_SIZE * INBOUND_SWEEP_MAX_ROUNDS
 
 
 class TestInboundEventProcessing(BaseTest):
@@ -297,7 +318,7 @@ class TestInboundEventProcessing(BaseTest):
         assert row.last_error_code == "no_team"
         mock_handle.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.slack._update_supporthog_prompt", return_value=True)
+    @patch("products.conversations.backend.tasks.slack._update_supporthog_prompt", return_value="updated")
     @patch("products.conversations.backend.tasks.slack.create_ticket_from_confirmation", return_value=None)
     def test_exhausted_interactivity_is_failed(self, mock_create: MagicMock, mock_update: MagicMock) -> None:
         row = self._create_pending(
@@ -366,6 +387,27 @@ class TestInboundEventProcessing(BaseTest):
         )
         sweep_inbound_events()
         assert not ConversationInboundEvent.objects.unscoped().filter(id=row.id).exists()
+
+    def test_sweeper_drains_more_than_one_tombstone_batch(self) -> None:
+        cutoff = timezone.now() - INBOUND_TOMBSTONE_TTL - timedelta(minutes=1)
+        ConversationInboundEvent.objects.for_team(self.team.id).bulk_create(
+            [
+                ConversationInboundEvent(
+                    team=self.team,
+                    source=ConversationInboundEventSource.SLACK_EVENTS,
+                    source_id=f"Ev-tombstone-{i}",
+                    provider_account_id="T123",
+                    status=ConversationInboundEvent.Status.FAILED,
+                    terminal_at=cutoff,
+                    payload=None,
+                )
+                for i in range(INBOUND_SWEEP_BATCH_SIZE + 1)
+            ]
+        )
+
+        sweep_inbound_events()
+
+        assert ConversationInboundEvent.objects.unscoped().filter(source_id__startswith="Ev-tombstone-").count() == 0
 
     @patch("products.conversations.backend.tasks.slack.wake_inbound_event")
     def test_sweeper_measures_expired_lease_age_from_lease_expiry(self, mock_wake: MagicMock) -> None:
