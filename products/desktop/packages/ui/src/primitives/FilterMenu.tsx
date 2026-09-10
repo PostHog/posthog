@@ -21,10 +21,8 @@ export interface FilterOption<Value extends string> {
 }
 
 /**
- * The list-filter menu every surface with a list wears: a funnel button that
- * marks itself when something is filtered, rows that read "Label   value ›",
- * and a clear item at the bottom. Canvases, Activity and Self-driving all draw
- * it, so it lives here rather than being retyped per feature.
+ * The parts every list-filter menu is built from. Canvases, Activity and
+ * Self-driving all draw them, so they live here rather than per feature.
  */
 export function FilterMenuTrigger({
   active,

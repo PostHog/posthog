@@ -26,6 +26,8 @@ export interface InboxPanePresentationProps {
   isFetchingNextPage: boolean;
   hasNextPage: boolean;
   hasActiveFilters: boolean;
+  /** Runs the age buckets the other way, so the list reads oldest first. */
+  oldestFirst: boolean;
   filterControl: ReactNode;
   renderReport: (report: SignalReport) => ReactNode;
   onClearFilters: () => void;
@@ -46,6 +48,7 @@ export function InboxPanePresentation({
   isFetchingNextPage,
   hasNextPage,
   hasActiveFilters,
+  oldestFirst,
   filterControl,
   renderReport,
   onClearFilters,
@@ -54,7 +57,10 @@ export function InboxPanePresentation({
 }: InboxPanePresentationProps): ReactElement {
   const isSearching = query.trim() !== "";
   const optionValues = reports.map((report) => report.id);
-  const groups = useMemo(() => groupReportsByAge(reports), [reports]);
+  const groups = useMemo(
+    () => groupReportsByAge(reports, { oldestFirst }),
+    [reports, oldestFirst],
+  );
 
   return (
     <Autocomplete<string>

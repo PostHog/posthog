@@ -21,8 +21,9 @@ const AGE_ORDER = [
  */
 export function groupReportsByAge(
   reports: readonly SignalReport[],
-  now: Date = new Date(),
+  options: { now?: Date; oldestFirst?: boolean } = {},
 ): ReportAgeGroup[] {
+  const now = options.now ?? new Date();
   const buckets = new Map<string, SignalReport[]>();
   for (const report of reports) {
     // A clock skewed ahead of ours would otherwise fall out of every bucket.
@@ -32,8 +33,10 @@ export function groupReportsByAge(
     if (bucket) bucket.push(report);
     else buckets.set(label, [report]);
   }
-  return AGE_ORDER.filter((label) => buckets.has(label)).map((label) => ({
-    label,
-    reports: buckets.get(label) ?? [],
-  }));
+  // Oldest first means oldest first, so the buckets run the other way too.
+  // Reading down the list otherwise contradicts the sort that built it.
+  const order = options.oldestFirst ? [...AGE_ORDER].reverse() : AGE_ORDER;
+  return order
+    .filter((label) => buckets.has(label))
+    .map((label) => ({ label, reports: buckets.get(label) ?? [] }));
 }

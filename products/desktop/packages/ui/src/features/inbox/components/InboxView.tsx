@@ -50,14 +50,8 @@ export function InboxView() {
   // keyboard-triageable page, and reclaims the inbox slot from the spaces
   // redirect below. Detail routes keep their own bodies.
   const reportsInboxEnabled = useReportsInboxEnabled();
-  // Under the spaces layout the list is the sidebar column (ChannelsSidebar
-  // draws it for this route), so the pane beside it is whatever you picked from
-  // that list. Without that layout there is no such column and the page has to
-  // carry the list itself.
   const spacesLayout = useChannelsLayout();
-  // The breadcrumb row names what the pane is showing. Beside the rail's list
-  // the pane holds no report of its own, only an empty state or triage, so
-  // there is nothing to name and the row would repeat the column's own title.
+  // Beside the rail's list the pane names nothing the column has not said.
   const paneOwnsTitle = spacesLayout && reportsInboxEnabled && !isDetailView;
   useSetHeaderContent(paneOwnsTitle ? null : headerContent);
 

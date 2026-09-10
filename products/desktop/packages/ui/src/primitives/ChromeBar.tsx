@@ -14,12 +14,8 @@ const INSET_CLASS: Record<ChromeBarInset, string> = {
  * The bar across the top of a pane, a column, or a side panel. Every such bar
  * in the app is this one, so they stay the same height and colour.
  *
- * Whatever names the thing below goes in `children`; whatever acts on it goes
- * in `actions`, which is what reaches the far end. A caller that spreads its
- * own children instead gets a row that only looks right-aligned while its
- * title happens to be long, so pass `actions` unless the controls must not sit
- * in a wrapper (`SpaceHeaderRow` says why) — then give the leading child
- * `flex-1` yourself.
+ * `actions` is what reaches the far end. Children spread instead only look
+ * right-aligned while the title is long enough to push them.
  */
 export function ChromeBar({
   children,

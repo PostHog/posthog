@@ -51,4 +51,13 @@ describe("groupReportsByAge", () => {
       ["This month", "p0-this-month", "p2-this-month"],
     ]);
   });
+
+  it("runs the buckets oldest first when the list is sorted that way", () => {
+    expect(
+      groupReportsByAge(
+        [report("today", 0), report("yesterday", 1), report("older", 90)],
+        { oldestFirst: true },
+      ).map((group) => group.label),
+    ).toEqual(["Earlier", "Yesterday", "Today"]);
+  });
 });

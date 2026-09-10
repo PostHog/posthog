@@ -5,6 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import {
   resolveNavigationSource,
   useReportSourceHref,
@@ -19,6 +20,9 @@ import type { ReactElement } from "react";
  */
 export function ReportDetailCloseButton(): ReactElement | null {
   const source = resolveNavigationSource(useReportSourceHref());
+  // TanStack blanks history state on a plain navigate, so triage's place in
+  // the queue has to travel with the click or the queue restarts at the top.
+  const triageOrigin = useInboxTriageOrigin();
   if (!source) return null;
 
   return (
@@ -33,7 +37,13 @@ export function ReportDetailCloseButton(): ReactElement | null {
             aria-label="Close report"
             data-attr="report-detail-close"
             onClick={() =>
-              void getRouterOrNull()?.navigate({ href: source.href })
+              void getRouterOrNull()?.navigate({
+                href: source.href,
+                state: (previous) => ({
+                  ...previous,
+                  ...(triageOrigin ? { inboxTriageOrigin: triageOrigin } : {}),
+                }),
+              })
             }
           />
         }

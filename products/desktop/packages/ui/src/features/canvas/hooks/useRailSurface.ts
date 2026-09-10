@@ -16,14 +16,9 @@ export interface RailSurface {
  *  stable and unrelated route changes don't re-render every consumer. */
 export function useRailPane(): NavRailPane {
   return useRouterState({
-    // One location decides, and it is the one the app is navigating to. The
-    // three things a navigation moves — `location`, `matches`, and
-    // `resolvedLocation` — land at different points in the transition, so a
-    // rule that reads two of them can answer with a destination neither is on:
-    // reading the source off `resolvedLocation` while the fallback read
-    // `matches` gave "reports" for the frames after the matches arrived and
-    // before the settled location caught up, which took the column off screen
-    // and put it back.
+    // One location decides. `location`, `matches` and `resolvedLocation` land
+    // at different points in a transition, so a rule reading two of them
+    // answers with a destination neither is on, and the column blinks.
     select: (state) => railPaneForHref(state.location.href),
   });
 }

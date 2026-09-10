@@ -95,11 +95,7 @@ function showSpaces(): void {
   navigateToChannel(channelId);
 }
 
-/**
- * What a click on the destination you are already in does. Navigating to its
- * root would close what you are reading, and the emptied route would then be
- * recorded as where you were.
- */
+/** Navigating to the root instead would close what you are reading. */
 function focusColumnSearch(): void {
   useSidebarStore.getState().setOpen(true);
   requestSidebarSearchFocus();

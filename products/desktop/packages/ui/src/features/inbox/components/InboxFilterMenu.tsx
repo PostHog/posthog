@@ -31,11 +31,6 @@ import { type ReactElement, useState } from "react";
 
 const DEFAULT_SORT_KEY = inboxSortOptionKey("created_at", "desc");
 
-/**
- * Status, priority, sort and reviewer scope for the sidebar list, folded into
- * one icon button. The page body has room for these as separate controls; a
- * column this narrow does not.
- */
 export function InboxFilterMenu({
   active,
   onClearFilters,

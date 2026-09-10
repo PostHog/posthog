@@ -68,14 +68,9 @@ function useAutoPage(query: InboxQuery, enabled: boolean): void {
 }
 
 /**
- * The inbox list, assembled from the three queries the report-state filter
- * selects between: PR-backed work to review, reports still needing a decision,
- * and the terminal ones.
- *
- * Both surfaces that draw this list read it from here — the page body and the
- * rail's sidebar pane — so they can never disagree about what is in the inbox.
- * React Query dedupes the underlying requests, but paging is a side effect, so
- * only one caller may drive it (`autoPage`).
+ * Both surfaces that draw the inbox list read it from here, so they cannot
+ * disagree about what is in it. React Query dedupes the requests, but paging is
+ * a side effect, so only one caller may drive it (`autoPage`).
  */
 export function useInboxSectionedReports(options?: {
   autoPage?: boolean;

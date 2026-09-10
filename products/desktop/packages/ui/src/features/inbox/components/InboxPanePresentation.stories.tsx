@@ -69,6 +69,7 @@ const meta: Meta<typeof InboxPanePresentation> = {
     isFetchingNextPage: false,
     hasNextPage: false,
     hasActiveFilters: false,
+    oldestFirst: false,
     filterControl: <InboxFilterMenu active={false} onClearFilters={() => {}} />,
     renderReport: paneRow,
     onQueryChange: () => {},
