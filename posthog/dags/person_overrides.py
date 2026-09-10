@@ -17,9 +17,16 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import EVENTS_JSON, EVENTS_TARGETS, placement_for, sweep_clusters
+from posthog.models.deletion_targets import EVENTS_JSON, EVENTS_TARGETS, FLAG_EVALUATIONS, placement_for, sweep_clusters
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+# Every table the squash rewrites person_id on. sharded_flag_evaluations is not an events table,
+# but it stamps rows with the same person_id, so a squash that skips it leaves those rows on the
+# person a merge absorbed while the events rows move to the survivor. A later person deletion is
+# keyed on the survivor's uuid and never matches them.
+SQUASH_TARGETS = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
 
 
 def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
@@ -27,7 +34,7 @@ def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
 
     The rewrite joins the snapshot dictionary, so the dictionary has to exist on each of them.
     """
-    return sweep_clusters(cluster, EVENTS_TARGETS)
+    return sweep_clusters(cluster, SQUASH_TARGETS)
 
 
 @dataclass
@@ -145,8 +152,19 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
     def events_json_update_mutation_runner(self) -> AlterTableMutationRunner:
         """The same person_id squash applied to the native-JSON events table — both tables must be
         rewritten or person_id diverges between them while they coexist."""
+        return self.update_mutation_runner_for(EVENTS_JSON_DATA_TABLE)
+
+    @property
+    def flag_evaluations_update_mutation_runner(self) -> AlterTableMutationRunner:
+        """The same person_id squash applied to the flag-evaluation table.
+
+        person_id is not in its sort key, so it takes an ALTER UPDATE like the events tables do.
+        """
+        return self.update_mutation_runner_for(FLAG_EVALUATIONS_DATA_TABLE)
+
+    def update_mutation_runner_for(self, table: str) -> AlterTableMutationRunner:
         return AlterTableMutationRunner(
-            table=EVENTS_JSON_DATA_TABLE,
+            table=table,
             commands=self.update_commands,
             parameters={"name": self.qualified_name},
         )
@@ -291,12 +309,16 @@ def run_person_id_update_mutations(
 ) -> PersonOverridesSnapshotDictionary:
     dictionary.update_mutation_runner.run_on_shards(cluster)
 
-    # sharded_events_json may be stored on another cluster, whose shards only its own handle
-    # enumerates. Skipping it would leave those rows on a person_id this run just squashed away,
-    # and the overrides that record the correct one are deleted immediately after.
-    placement = placement_for(cluster, EVENTS_JSON)
-    if placement is not None:
-        dictionary.events_json_update_mutation_runner.run_on_shards(placement.cluster)
+    # The other squash targets may be stored on another cluster, whose shards only its own handle
+    # enumerates. Skipping one would leave its rows on a person_id this run just squashed away, and
+    # the overrides that record the correct one are deleted immediately after.
+    for target, runner in (
+        (EVENTS_JSON, dictionary.events_json_update_mutation_runner),
+        (FLAG_EVALUATIONS, dictionary.flag_evaluations_update_mutation_runner),
+    ):
+        placement = placement_for(cluster, target)
+        if placement is not None:
+            runner.run_on_shards(placement.cluster)
     return dictionary
 
 

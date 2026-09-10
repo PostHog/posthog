@@ -12,6 +12,7 @@ import dagster
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import (
     GetExistingDictionaryConfig,
     PersonOverridesSnapshotDictionary,
@@ -24,6 +25,8 @@ from posthog.dags.person_overrides import (
     squash_person_overrides,
     wait_for_overrides_delete_mutations,
 )
+from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import EVENTS_JSON, TargetPlacement
 
 
@@ -121,6 +124,75 @@ def test_full_job(cluster: ClickhouseCluster):
         UUID(int=100): {"z"},
     }
     assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"z"}
+
+
+@pytest.mark.django_db
+def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: ClickhouseCluster):
+    # A merge moves a distinct_id's rows onto the surviving person, and a deletion of that person
+    # names only the surviving uuid. The squash is what makes the two agree, so a table it skips
+    # keeps the absorbed uuid and the sweep never matches those rows — permanently, because the
+    # override that recorded the mapping is deleted in the same squash run.
+    timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
+    team_id = 4242
+    absorbed_person, surviving_person = UUID(int=9001), UUID(int=9002)
+    row_uuid = UUID(int=9003)
+
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [(team_id, "merged", absorbed_person, row_uuid, timestamp - timedelta(hours=2))],
+        )
+    ).result()
+
+    def insert_override(client: Client) -> None:
+        client.execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, _timestamp, version) VALUES",
+            [(team_id, "merged", surviving_person, timestamp - timedelta(hours=1), 1)],
+        )
+
+    cluster.any_host(insert_override).result()
+
+    def surviving_flag_evaluation_person_ids(client: Client) -> set[UUID]:
+        # _row_exists = 1 drops rows a lightweight delete already hid; without it a swept row
+        # still reads back until its part merges.
+        rows = client.execute(
+            "SELECT person_id FROM flag_evaluations WHERE uuid = %(uuid)s AND _row_exists = 1",
+            {"uuid": row_uuid},
+        )
+        return {person_id for [person_id] in rows}
+
+    squash_person_overrides.execute_in_process(
+        run_config=dagster.RunConfig(
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp=timestamp.isoformat())}
+        ),
+        resources={"cluster": cluster},
+    )
+
+    assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == {surviving_person}
+
+    deletion = AsyncDeletion.objects.create(
+        team_id=team_id, deletion_type=DeletionType.Person, key=str(surviving_person)
+    )
+    deletion.created_at = timestamp
+    deletion.save()
+
+    # A person sweep only picks up requests made before the oldest surviving override, and the
+    # squash consumed the only one this test wrote. An empty overrides table pins that watermark at
+    # the epoch, so give the sweep an unrelated later override, which is what production always has.
+    def insert_later_override(client: Client) -> None:
+        client.execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, _timestamp, version) VALUES",
+            [(team_id, "unrelated", UUID(int=9004), timestamp + timedelta(hours=1), 1)],
+        )
+
+    cluster.any_host(insert_later_override).result()
+
+    deletes_job.execute_in_process(
+        run_config={"ops": {"create_pending_deletions_table": {"config": {"team_id": team_id}}}},
+        resources={"cluster": cluster},
+    )
+
+    assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == set()
 
 
 def test_cleanup_job(cluster: ClickhouseCluster) -> None:

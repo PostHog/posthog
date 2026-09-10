@@ -79,8 +79,8 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 - Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
 
 The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
-`squash_person_overrides` rewrites `person_id` on `sharded_events` and `sharded_events_json` through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
-Skipping the second table there is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` — `sharded_events`, `sharded_events_json` and `sharded_flag_evaluations` — through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
+Skipping one of those tables is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
 `posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
 ## Covered tables
@@ -162,6 +162,10 @@ The shadow-routing producer (`posthog-code/flag-evaluations-shadow-routing`) for
 If a future producer emitted rows before person resolution, leaving `person_id` unset, a person deletion would strand them.
 The fix would belong to the producer, not the scanner.
 Keeping the fork downstream of person resolution is the contract, tracked on #81002.
+
+Write-time parity is not sufficient on its own, because a merge moves a `distinct_id` to another person after the row was written.
+A deletion names only the surviving person, and the squash is what makes the stored `person_id` agree with that name.
+So `sharded_flag_evaluations` is a squash target as well as a deletion target: it is in `SQUASH_TARGETS` in `posthog/dags/person_overrides.py`, and `person_id` is not in its sort key, so it takes the same `ALTER UPDATE` the events tables take.
 
 ## Related, and deliberately unchanged
 
