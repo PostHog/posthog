@@ -81,6 +81,7 @@
     "ManagedMigrationNew": "../../products/managed_migrations/frontend/ManagedMigration",
     "MCPAnalytics": "../../products/mcp_analytics/frontend/MCPAnalyticsScene",
     "MCPAnalyticsToolDetail": "../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail",
+    "MCPRegistry": "../../products/mcp_registry/frontend/MCPRegistryScene",
     "McpGateway": "../../products/mcp_store/frontend/gateway/McpGatewayScene",
     "McpGatewayServer": "../../products/mcp_store/frontend/gateway/GatewayServerScene",
     "McpGatewayAgent": "../../products/mcp_store/frontend/gateway/GatewayAgentScene",
