@@ -49,7 +49,7 @@ Use `posthog:execute-sql` when:
 
 ### When either method fits
 
-For a simple count, sum, or other aggregate, either method can be correct. Choose the method that needs less work and preserves the requested definition and output. You do not need to prove that a typed query is impossible before using SQL.
+For a new query, prefer a typed query when both methods preserve the requested calculation and output. This includes simple counts, sums, and other supported aggregates. Use SQL directly when the task calls for it. You do not need to try a typed query first.
 
 Keep a valid existing query when it fits the task. Reassess the method when the task changes, regardless of the previous tool call. A chart or table alone does not determine the method: both typed queries and SQL can support saved visualizations.
 

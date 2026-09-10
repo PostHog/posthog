@@ -24,10 +24,14 @@ This SQL represents the same query specification. Use it when inspecting or adap
 {{ render_hogql_example({"kind": "TrendsQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
 ```
 
-## Simple aggregate: either method can fit
+## Simple aggregate: prefer a typed query when both fit
 
 For "Count `chat with ai` events in the last seven days", either a typed total or SQL can answer the question.
-The SQL form is:
+Prefer the typed query for a new analysis when both methods preserve the requested calculation and output.
+Use `posthog:query-trends` with `math: "total"`, `trendsFilter.display: "BoldNumber"`, and the requested time bounds.
+Set `dateRange.explicitDate` to `true` to prevent date rounding when matching the SQL window below.
+
+The SQL form remains valid when the user requests SQL or an existing SQL query already fits:
 
 ```sql
 SELECT count() AS event_count
@@ -37,6 +41,4 @@ WHERE event = 'chat with ai'
   AND timestamp <= now()
 ```
 
-For a typed total, use `posthog:query-trends` with `math: "total"`, `trendsFilter.display: "BoldNumber"`, and the same time bounds.
-Set `dateRange.explicitDate` to `true` to prevent date rounding when matching the SQL window.
 Keep test-account filtering consistent. Reuse either valid form when it already fits the task. A single number does not require a method change.

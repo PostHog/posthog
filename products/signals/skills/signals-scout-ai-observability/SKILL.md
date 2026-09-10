@@ -124,7 +124,7 @@ Telemetry & cost:
 - `query-llm-trace` — drill into a single trace (full request/response, tool calls, spans).
 - `get-llm-total-costs-for-project` — top-level cost surface.
 - `query-trends` — native trends, breakdowns, and comparisons over `$ai_*` events when its aggregations preserve the required calculation.
-- `execute-sql` — existing SQL, custom calculations, joins, and record inspection. Either method can answer a simple aggregate. Follow `posthog:querying-posthog-data` for query selection and SQL guidance.
+- `execute-sql` — existing SQL, custom calculations, joins, and record inspection. For a new aggregate, prefer a typed query when both methods preserve the requested calculation and output. Follow `posthog:querying-posthog-data` for query selection and SQL guidance.
 
 Evals & enrichment config:
 
