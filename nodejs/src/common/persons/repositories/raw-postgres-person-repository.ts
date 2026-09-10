@@ -95,6 +95,17 @@ export interface RawPostgresPersonRepository {
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
 
+    /**
+     * Pointer-mode alternative to moveDistinctIds: writes merged_into_id on the
+     * source instead of moving its mapping rows, emitting the same ClickHouse
+     * messages a move would. The target must carry its post-merge version.
+     */
+    writeMergePointer(
+        source: InternalPerson,
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<MoveDistinctIdsResult>
+
     /** Distinct-id counts per person id (single team), for the folded-merge limit pre-check. */
     countDistinctIdsForPersons(
         teamId: number,

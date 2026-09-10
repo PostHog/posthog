@@ -72,6 +72,13 @@ export interface PersonsStoreTransactionForBatch {
         distinctId: string
     ): Promise<MoveDistinctIdsResult>
 
+    /** Pointer-mode alternative to moveDistinctIds; see RawPostgresPersonRepository.writeMergePointer. */
+    writeMergePointer(
+        source: InternalPerson,
+        target: InternalPerson,
+        distinctId: string
+    ): Promise<MoveDistinctIdsResult>
+
     /** Batched deletePerson for folded merges; all persons must belong to one team. */
     deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]>
 
@@ -248,6 +255,14 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
         distinctId: string
     ): Promise<MoveDistinctIdsResult> {
         return this.tx.moveDistinctIdsFromPersons(sources, target, distinctId, this.batchId)
+    }
+
+    writeMergePointer(
+        source: InternalPerson,
+        target: InternalPerson,
+        distinctId: string
+    ): Promise<MoveDistinctIdsResult> {
+        return this.tx.writeMergePointer(source, target, distinctId, this.batchId)
     }
 
     deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]> {

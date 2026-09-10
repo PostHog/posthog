@@ -90,6 +90,10 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.moveDistinctIdsFromPersons(sources, target, this.transaction)
     }
 
+    async writeMergePointer(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult> {
+        return await this.repository.writeMergePointer(source, target, this.transaction)
+    }
+
     async countDistinctIdsForPersons(
         teamID: Team['id'],
         personIds: InternalPerson['id'][]

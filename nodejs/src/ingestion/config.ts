@@ -192,6 +192,10 @@ export type IngestionConsumerConfig = {
     // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
     // teams; empty means no teams.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Pointer merges: for these teams, a merge writes merged_into_id on the source person row
+    // instead of moving its distinct id rows; reads follow the chain to the live root.
+    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
+    PERSON_MERGE_POINTER_TEAM_ALLOWLIST: string
     // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
     // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
     // a merge's commit and its produce; see MergeMappingDebounce for why the cache is in-memory.
@@ -371,6 +375,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_MERGE_POINTER_TEAM_ALLOWLIST: '',
         PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,

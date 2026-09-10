@@ -1277,6 +1277,134 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('writeMergePointer()', () => {
+        // writeMergePointer expects the target to already carry its post-merge version.
+        const asMergedTarget = (person: InternalPerson): InternalPerson => ({
+            ...person,
+            version: person.version + 1,
+        })
+
+        async function fetchPersonRow(personId: string) {
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT merged_into_id, is_deleted, version, properties FROM posthog_person WHERE team_id = $1 AND id = $2',
+                [team.id, personId],
+                'fetchPointeredRow'
+            )
+            return rows[0]
+        }
+
+        it('writes the pointer, keeps mappings in place, and emits move-equivalent messages', async () => {
+            const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
+            const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
+            await repository.addDistinctId(sourcePerson, 'source-distinct-id-2', 1)
+            const target = asMergedTarget(targetPerson)
+
+            const result = await repository.writeMergePointer(sourcePerson, target)
+
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('writeMergePointer should have succeeded')
+            }
+            expect(result.distinctIdsMoved.sort()).toEqual(['source-distinct-id', 'source-distinct-id-2'])
+
+            // The source row lives on as a pointer with scrubbed properties.
+            const sourceRow = await fetchPersonRow(sourcePerson.id)
+            expect(sourceRow).toMatchObject({
+                merged_into_id: target.id,
+                is_deleted: false,
+                properties: {},
+            })
+            expect(Number(sourceRow.version)).toBe(sourcePerson.version + 1)
+
+            // Mapping rows did not move.
+            const mappings = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT distinct_id, version FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2',
+                [team.id, sourcePerson.id],
+                'fetchSourceMappings'
+            )
+            expect(mappings.rows).toHaveLength(2)
+
+            // One override per union mapping with the derived version, as a move would emit.
+            const mappingMessages = result.messages.filter((m) => m.output === PERSON_DISTINCT_IDS_OUTPUT)
+            expect(mappingMessages).toHaveLength(2)
+            for (const message of mappingMessages) {
+                const value = parseJSON(message.value!.toString())
+                const mappingRow = mappings.rows.find((row: any) => row.distinct_id === value.distinct_id)
+                expect(value).toMatchObject({
+                    person_id: target.uuid,
+                    team_id: team.id,
+                    is_deleted: 0,
+                    version: Number(mappingRow.version || 0) + target.version,
+                })
+            }
+
+            // The source person dies in ClickHouse even though the PG row stays live.
+            const deathMessages = result.messages.filter((m) => m.output === PERSONS_OUTPUT)
+            expect(deathMessages).toHaveLength(1)
+            expect(parseJSON(deathMessages[0].value!.toString())).toMatchObject({
+                id: sourcePerson.uuid,
+                is_deleted: 1,
+                version: sourcePerson.version + 1 + 100,
+            })
+
+            // Reads through any of the source's distinct ids resolve to the target.
+            const resolved = await repository.fetchPerson(team.id, 'source-distinct-id-2')
+            expect(resolved?.id).toBe(target.id)
+        })
+
+        it('returns SourceNotFound when the source is already pointered', async () => {
+            const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', {})
+            const targetPerson = await createTestPerson(team.id, 'target-distinct-id', {})
+            const target = asMergedTarget(targetPerson)
+
+            const first = await repository.writeMergePointer(sourcePerson, target)
+            expect(first.success).toBe(true)
+
+            // A concurrent merge that lost the race must see zero rows and retry.
+            const second = await repository.writeMergePointer(sourcePerson, target)
+            expect(second.success).toBe(false)
+            if (!second.success) {
+                expect(second.error).toBe('SourceNotFound')
+            }
+        })
+
+        it('collects the whole union when merging a chained source, and reads resolve through the chain', async () => {
+            const personA = await createTestPerson(team.id, 'distinct-a', {})
+            const personB = await createTestPerson(team.id, 'distinct-b', {})
+            const personC = await createTestPerson(team.id, 'distinct-c', {})
+
+            const resultAB = await repository.writeMergePointer(personA, asMergedTarget(personB))
+            expect(resultAB.success).toBe(true)
+
+            // Merging B (which already absorbed A) must emit overrides for A's mappings too.
+            const targetC = asMergedTarget(personC)
+            const resultBC = await repository.writeMergePointer(personB, targetC)
+            expect(resultBC.success).toBe(true)
+            if (!resultBC.success) {
+                throw new Error('writeMergePointer should have succeeded')
+            }
+            expect(resultBC.distinctIdsMoved.sort()).toEqual(['distinct-a', 'distinct-b'])
+
+            // Every fetch flavor resolves the depth-2 chain to the root.
+            const viaFetchPerson = await repository.fetchPerson(team.id, 'distinct-a')
+            expect(viaFetchPerson?.id).toBe(personC.id)
+
+            const viaBatch = await repository.fetchPersonsByDistinctIds(
+                [{ teamId: team.id, distinctId: 'distinct-a' }],
+                false
+            )
+            expect(viaBatch).toHaveLength(1)
+            expect(viaBatch[0].id).toBe(personC.id)
+            expect(viaBatch[0].distinct_id).toBe('distinct-a')
+
+            const viaForUpdate = await repository.fetchPersonsForUpdateByDistinctIds(team.id, ['distinct-a'])
+            expect(viaForUpdate).toHaveLength(1)
+            expect(viaForUpdate[0].id).toBe(personC.id)
+        })
+    })
+
     describe('fetchPersonDistinctIds()', () => {
         it('should fetch all distinct IDs when no limit is specified', async () => {
             const person = await createTestPerson(team.id, 'test-distinct-id', { name: 'Test Person' })

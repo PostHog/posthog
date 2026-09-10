@@ -128,6 +128,15 @@ export class PersonsStoreTransaction {
         return await this.store.moveDistinctIdsFromPersons(sources, target, distinctId, this.tx, batchId)
     }
 
+    async writeMergePointer(
+        source: InternalPerson,
+        target: InternalPerson,
+        distinctId: string,
+        batchId: number
+    ): Promise<MoveDistinctIdsResult> {
+        return await this.store.writeMergePointer(source, target, distinctId, this.tx, batchId)
+    }
+
     async deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]> {
         return await this.store.deletePersons(persons, distinctId, this.tx)
     }

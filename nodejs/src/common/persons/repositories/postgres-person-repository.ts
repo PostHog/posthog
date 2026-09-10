@@ -71,6 +71,12 @@ const PERSON_COLUMN_NAMES = [
 export const PERSON_COLUMNS = PERSON_COLUMN_NAMES.join(', ')
 const PERSON_COLUMNS_PREFIXED = PERSON_COLUMN_NAMES.map((column) => `p.${column}`).join(', ')
 
+// Pointer-merge chains are star-shaped in practice and background maintenance
+// bounds their depth; a walk this deep means a bug or corruption, not data.
+const MERGE_POINTER_MAX_DEPTH = 32
+
+type RawPersonWithMergePointer = RawPerson & { merged_into_id: string | null }
+
 // Postgres reports the violated index per partition (posthog_person_p58_team_id_uuid_idx),
 // so match on the column instead of a fixed name. The distinct-ID constraint is named
 // "unique distinct_id for team new", which this does not match.
@@ -225,6 +231,45 @@ export class PostgresPersonRepository
         }
     }
 
+    /**
+     * Follows merged_into_id from a fetched row to its union's live root.
+     * A row without a pointer (every person outside pointer-merge teams)
+     * returns immediately with no extra query, so this is free on the hot
+     * path. `undefined` means the chain dead-ends in a deleted person.
+     */
+    private async resolveMergePointer(
+        row: RawPersonWithMergePointer,
+        options: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string } = {},
+        tx?: TransactionClient
+    ): Promise<InternalPerson | undefined> {
+        // The pointer is resolution plumbing, not person state; it must not leak
+        // into InternalPerson (see the PERSON_COLUMN_NAMES comment).
+        const { merged_into_id, ...personRow } = row
+        if (merged_into_id == null) {
+            return this.toPerson(personRow)
+        }
+        const use = tx ?? (options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE)
+        let nextId = merged_into_id
+        for (let hop = 0; hop < MERGE_POINTER_MAX_DEPTH; hop++) {
+            const { rows } = await this.postgres.query<RawPersonWithMergePointer>(
+                use,
+                `SELECT ${PERSON_COLUMNS}, merged_into_id FROM posthog_person
+                 WHERE team_id = $1 AND id = $2 AND is_deleted = false${options.forUpdate ? ' FOR UPDATE' : ''}`,
+                [row.team_id, nextId],
+                queryTag('resolveMergePointer', options.callerTag)
+            )
+            if (rows.length === 0) {
+                return undefined
+            }
+            const { merged_into_id: nextPointer, ...rootRow } = rows[0]
+            if (nextPointer == null) {
+                return this.toPerson(rootRow)
+            }
+            nextId = nextPointer
+        }
+        throw new Error(`Person merge pointer chain exceeded depth ${MERGE_POINTER_MAX_DEPTH} for team ${row.team_id}`)
+    }
+
     private trimPropertiesToFitSize(
         properties: Record<string, any>,
         targetSizeBytes: number,
@@ -296,7 +341,8 @@ export class PostgresPersonRepository
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
-                posthog_person.last_seen_at
+                posthog_person.last_seen_at,
+                posthog_person.merged_into_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
                 posthog_persondistinctid.person_id = posthog_person.id
@@ -314,7 +360,7 @@ export class PostgresPersonRepository
         }
         const values = [teamId, distinctId]
 
-        const { rows } = await this.postgres.query<RawPerson>(
+        const { rows } = await this.postgres.query<RawPersonWithMergePointer>(
             options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             values,
@@ -322,7 +368,7 @@ export class PostgresPersonRepository
         )
 
         if (rows.length > 0) {
-            return this.toPerson(rows[0])
+            return await this.resolveMergePointer(rows[0], options)
         }
     }
 
@@ -394,6 +440,7 @@ export class PostgresPersonRepository
                 posthog_person.version,
                 posthog_person.is_identified,
                 posthog_person.last_seen_at,
+                posthog_person.merged_into_id,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
@@ -407,17 +454,21 @@ export class PostgresPersonRepository
                 posthog_persondistinctid.is_deleted = false
                 AND posthog_person.is_deleted = false`
 
-        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
+        const { rows } = await this.postgres.query<RawPersonWithMergePointer & { distinct_id: string }>(
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             [teamIds, distinctIds],
             queryTag('fetchPersonsByDistinctIds', callerTag)
         )
 
-        return rows.map((row) => ({
-            ...this.toPerson(row),
-            distinct_id: row.distinct_id,
-        }))
+        const persons: InternalPersonWithDistinctId[] = []
+        for (const row of rows) {
+            const person = await this.resolveMergePointer(row, { useReadReplica, callerTag })
+            if (person) {
+                persons.push({ ...person, distinct_id: row.distinct_id })
+            }
+        }
+        return persons
     }
 
     async fetchPersonsForUpdateByDistinctIds(
@@ -446,6 +497,7 @@ export class PostgresPersonRepository
                 posthog_person.version,
                 posthog_person.is_identified,
                 posthog_person.last_seen_at,
+                posthog_person.merged_into_id,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
@@ -461,17 +513,21 @@ export class PostgresPersonRepository
             ORDER BY posthog_person.id
             FOR UPDATE`
 
-        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
+        const { rows } = await this.postgres.query<RawPersonWithMergePointer & { distinct_id: string }>(
             PostgresUse.PERSONS_WRITE,
             queryString,
             [teamId, uniqueDistinctIds],
             queryTag('fetchPersonsForUpdateByDistinctIds', callerTag)
         )
 
-        return rows.map((row) => ({
-            ...this.toPerson(row),
-            distinct_id: row.distinct_id,
-        }))
+        const persons: InternalPersonWithDistinctId[] = []
+        for (const row of rows) {
+            const person = await this.resolveMergePointer(row, { forUpdate: true, callerTag })
+            if (person) {
+                persons.push({ ...person, distinct_id: row.distinct_id })
+            }
+        }
+        return persons
     }
 
     async fetchPersonsByPersonIds(
@@ -1726,6 +1782,84 @@ export class PostgresPersonRepository
             messages: kafkaMessages,
             distinctIdsMoved: movedDistinctIdResult.rows.map((row) => row.distinct_id),
         }
+    }
+
+    /**
+     * Pointer-mode merge write: the source person row stays in place pointing at
+     * the target instead of having its distinct id rows moved. Emits exactly what
+     * a physical move would have: one override message per mapping in the source's
+     * union (version derived as mapping.version + target.version, monotonic because
+     * the target's version strictly grows across merges) and a ClickHouse delete
+     * for the source person, whose PG row stays live as the pointer.
+     *
+     * The target must already carry its post-merge version. The merged_into_id
+     * IS NULL guard is the race protection: a concurrent merge that pointered the
+     * source first makes this zero rows, surfaced as SourceNotFound for the
+     * caller's refresh-and-retry loop.
+     */
+    async writeMergePointer(
+        source: InternalPerson,
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<MoveDistinctIdsResult> {
+        const updateResult = await this.postgres.query<{ version: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `UPDATE posthog_person
+             SET merged_into_id = $1,
+                 version = COALESCE(version, 0) + 1,
+                 properties = '{}'::jsonb,
+                 properties_last_updated_at = '{}'::jsonb,
+                 properties_last_operation = '{}'::jsonb
+             WHERE team_id = $2 AND id = $3 AND is_deleted = false AND merged_into_id IS NULL
+             RETURNING version`,
+            [target.id, source.team_id, source.id],
+            'writeMergePointer'
+        )
+        if (updateResult.rows.length === 0) {
+            return { success: false, error: 'SourceNotFound' }
+        }
+
+        const { rows } = await this.postgres.query<{ distinct_id: string; version: string | null }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `WITH RECURSIVE members AS (
+                SELECT id, 1 AS depth FROM posthog_person WHERE team_id = $1 AND id = $2
+                UNION ALL
+                SELECT p.id, m.depth + 1 FROM posthog_person p
+                JOIN members m ON p.merged_into_id = m.id
+                WHERE p.team_id = $1 AND m.depth < $3
+            )
+            SELECT d.distinct_id, d.version
+            FROM posthog_persondistinctid d
+            JOIN members m ON d.person_id = m.id
+            WHERE d.team_id = $1 AND d.is_deleted = false`,
+            [source.team_id, source.id, MERGE_POINTER_MAX_DEPTH],
+            'fetchUnionDistinctIdsForPointerMerge'
+        )
+
+        const messages: PersonMessage[] = rows.map((row) => ({
+            output: PERSON_DISTINCT_IDS_OUTPUT,
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: source.team_id,
+                    distinct_id: row.distinct_id,
+                    person_id: target.uuid,
+                    version: Number(row.version || 0) + target.version,
+                    is_deleted: 0,
+                })
+            ),
+        }))
+
+        // The CH person row dies while the PG row lives on as the pointer; the +100
+        // headroom mirrors the hard delete's, outranking concurrently landed bumps.
+        messages.push(
+            generateKafkaPersonUpdateMessage(
+                { ...source, properties: {} },
+                true,
+                Number(updateResult.rows[0].version || 0) + 100
+            )
+        )
+
+        return { success: true, messages, distinctIdsMoved: rows.map((row) => row.distinct_id) }
     }
 
     async countDistinctIdsForPersons(

@@ -128,6 +128,8 @@ export interface PostgresMergePolicy {
     updateAllProperties: boolean
     /** Teams on the new-world merge behavior: lifecycle-mark claims plus tombstone deletes. */
     isTombstoneTeam: ValueMatcher<number>
+    /** Teams whose merges write a merged_into_id pointer instead of moving distinct id rows. */
+    isPointerMergeTeam: ValueMatcher<number>
     mergeEvents: MergeEventsConfig
     /**
      * When set, already-satisfied merges re-emit the committed mappings (debounced),
@@ -179,6 +181,10 @@ export class PostgresPersonMerge {
 
     private tombstoneEnabled(): boolean {
         return this.policy.isTombstoneTeam(this.teamId)
+    }
+
+    private pointerMergeEnabled(): boolean {
+        return this.policy.isPointerMergeTeam(this.teamId)
     }
 
     async execute(): Promise<MergePersonsResult> {
@@ -923,6 +929,34 @@ export class PostgresPersonMerge {
                     this.targetDistinctId
                 )
 
+                if (this.pointerMergeEnabled()) {
+                    // Pointer merge: the source row stays in place pointing at the target,
+                    // no mapping rows move, no person row is deleted. writeMergePointer
+                    // emits the same ClickHouse messages the move path would have.
+                    const pointerResult = await tx.writeMergePointer(currentSourcePerson, person, this.targetDistinctId)
+                    if (!pointerResult.success) {
+                        throw new SourcePersonNotFoundError(
+                            'Source person was pointered or deleted by a concurrent merge'
+                        )
+                    }
+                    this.recordOverrideCount('bothExistPointer', pointerResult.distinctIdsMoved.length)
+
+                    // Cohort and FF-hash-key rows have no ClickHouse mirror and are queried by
+                    // person_id, so they re-home physically even in pointer mode. Accumulated
+                    // rows always sit on the current root, so this stays O(1).
+                    await tx.updateCohortsAndFeatureFlagsForMerge(
+                        currentSourcePerson.team_id,
+                        currentSourcePerson.id,
+                        currentTargetPerson.id,
+                        this.targetDistinctId
+                    )
+
+                    if (this.tombstoneEnabled()) {
+                        await tx.releaseLifecycleMarks(lifecycleOpId, this.teamId, this.targetDistinctId)
+                    }
+                    return [person, [...updatePersonMessages, ...pointerResult.messages]]
+                }
+
                 // Move distinct IDs first to establish ownership of the source person quickly.
                 // This reduces contention when multiple concurrent merges target the same source,
                 // as subsequent lookups via distinct ID will fail faster.
@@ -1140,6 +1174,14 @@ export class PostgresPersonMerge {
         let currentSourcePerson = sourcePerson
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            // Pointer-world refreshes resolve through merge pointers, so a source
+            // absorbed by a concurrent merge comes back as the target itself.
+            // Merging a person into itself must be a no-op, never a self-pointer.
+            if (this.pointerMergeEnabled() && currentSourcePerson.id === currentTargetPerson.id) {
+                const { kafkaAck } = await this.reemitSatisfiedMappings([sourceDistinctId, targetDistinctId])
+                return mergeSuccess(currentTargetPerson, kafkaAck, true)
+            }
+
             const result = await this.executeTransaction(
                 currentTargetPerson,
                 currentSourcePerson,

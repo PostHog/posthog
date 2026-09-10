@@ -299,7 +299,8 @@ describe('PersonState.processEvent()', () => {
         mergeMode = createDefaultSyncMergeMode(),
         mergeEventsConfig?: { enabled: boolean; partitionCount: number; teamAllowlist?: string },
         customPersonsStore?: BatchWritingPersonsStore,
-        mergeTombstoneEnabled = false
+        mergeTombstoneEnabled = false,
+        mergePointerEnabled = false
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -317,6 +318,7 @@ describe('PersonState.processEvent()', () => {
                 createPersonOutputs(kafkaProducer),
                 {
                     mergeTombstoneTeamAllowlist: mergeTombstoneEnabled ? '*' : '',
+                    mergePointerTeamAllowlist: mergePointerEnabled ? '*' : '',
                     mergeEventsEnabled: mergeEventsConfig?.enabled ?? false,
                     mergeEventsPartitionCount: mergeEventsConfig?.partitionCount ?? 64,
                     // Allow-all default so the enabled/produce tests are unaffected by the
@@ -4025,6 +4027,132 @@ describe('PersonState.processEvent()', () => {
                 .filter((m) => (m.value as any)?.id === secondUserUuid && (m.value as any)?.is_deleted === 1)
             expect(deathMessages).toHaveLength(1)
             expect(deathMessages[0].value).toMatchObject({ is_deleted: 1, version: 1, properties: '{}' })
+        })
+
+        it('pointer-mode merge writes a pointer instead of moving distinct ids and emits move-equivalent messages', async () => {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const source = await createPerson(
+                hub,
+                timestamp,
+                { plan: 'pro' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                {
+                    distinctId: secondUserDistinctId,
+                }
+            )
+            const repo = new PostgresPersonRepository(hub.postgres)
+            await repo.addDistinctId(source, 'second-extra', 1)
+
+            const producerObserver = new KafkaProducerObserver(kafkaProducer)
+            const mergeService: PersonMergeService = personMergeService(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: firstUserDistinctId,
+                    properties: { alias: secondUserDistinctId },
+                    uuid: new UUIDT().toString(),
+                },
+                hub,
+                undefined,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                undefined,
+                undefined,
+                false,
+                true
+            )
+
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            // The source row lives on pointing at the target, properties scrubbed.
+            const personRows = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT id, uuid, merged_into_id, is_deleted, version, properties FROM posthog_person WHERE team_id = $1',
+                [teamId],
+                'fetchPointerRows'
+            )
+            const targetRow = personRows.rows.find((row: any) => row.uuid === firstUserUuid)
+            const sourceRow = personRows.rows.find((row: any) => row.uuid === secondUserUuid)
+            expect(sourceRow).toMatchObject({ merged_into_id: targetRow.id, is_deleted: false, properties: {} })
+            expect(targetRow.properties).toMatchObject({ plan: 'pro' })
+
+            // No mapping rows moved: the source keeps both of its distinct ids.
+            const mappingRows = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT distinct_id, person_id, version FROM posthog_persondistinctid WHERE team_id = $1',
+                [teamId],
+                'fetchMappingRows'
+            )
+            const sourceMappings = mappingRows.rows.filter((row: any) => row.person_id === sourceRow.id)
+            expect(sourceMappings.map((row: any) => row.distinct_id).sort()).toEqual(['second', 'second-extra'])
+
+            // Override messages are what a physical move would emit: person_id is the
+            // target, version is mapping.version + the merged target's version (1).
+            const overrideMessages = producerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_PERSON_DISTINCT_ID)
+                .filter((m) => (m.value as any)?.person_id === firstUserUuid)
+            const versionsByDistinctId = Object.fromEntries(
+                overrideMessages.map((m) => [(m.value as any).distinct_id, (m.value as any).version])
+            )
+            expect(versionsByDistinctId).toMatchObject({
+                [secondUserDistinctId]: 1, // mapping version 0 + target version 1
+                'second-extra': 2, // mapping version 1 + target version 1
+            })
+
+            // The source person dies in ClickHouse at its pointered version + 100.
+            const deathMessages = producerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_PERSON)
+                .filter((m) => (m.value as any)?.id === secondUserUuid && (m.value as any)?.is_deleted === 1)
+            expect(deathMessages).toHaveLength(1)
+            expect(deathMessages[0].value).toMatchObject({ version: 101 })
+
+            // Reads through the source's distinct ids resolve to the target.
+            const resolved = await repo.fetchPerson(teamId, 'second-extra')
+            expect(resolved?.uuid).toBe(firstUserUuid)
+
+            // Replaying the merge is a no-op: chain-resolved reads land both distinct
+            // ids on the target, and the pointer must not turn into a self-pointer.
+            const repeatService: PersonMergeService = personMergeService(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: firstUserDistinctId,
+                    properties: { alias: secondUserDistinctId },
+                    uuid: new UUIDT().toString(),
+                },
+                hub,
+                undefined,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                undefined,
+                undefined,
+                false,
+                true
+            )
+            const repeatResult = await repeatService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
+            expect(repeatResult.success).toBe(true)
+
+            const sourceRowAfter = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT merged_into_id, is_deleted FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                [teamId, secondUserUuid],
+                'fetchPointerRowAfterReplay'
+            )
+            expect(sourceRowAfter.rows[0]).toEqual({ merged_into_id: targetRow.id, is_deleted: false })
         })
 
         describe('SYNC mode with batch processing', () => {

@@ -72,6 +72,7 @@ type MethodName =
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
+    | 'writeMergePointer'
     | 'fetchPersonsForUpdateByDistinctIds'
     | 'countDistinctIdsForPersons'
     | 'fetchPersonDistinctIds'
@@ -116,6 +117,8 @@ export interface BatchWritingPersonsStoreOptions {
     metricEmissionIntervalMs: number
     /** Teams on the new-world merge behavior (lifecycle-mark claims plus tombstone deletes); '*' for all. */
     mergeTombstoneTeamAllowlist: string
+    /** Teams whose merges write a merged_into_id pointer instead of moving distinct id rows; '*' for all. */
+    mergePointerTeamAllowlist: string
     /** Gate, partition count, and team allowlist ('*' for all) for the cross-partition merge-event producer. */
     mergeEventsEnabled: boolean
     mergeEventsPartitionCount: number
@@ -135,6 +138,7 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     updateAllProperties: false,
     metricEmissionIntervalMs: 30_000,
     mergeTombstoneTeamAllowlist: '',
+    mergePointerTeamAllowlist: '',
     mergeEventsEnabled: false,
     mergeEventsPartitionCount: 64,
     mergeEventsTeamAllowlist: '',
@@ -572,6 +576,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.mergePolicy = {
             updateAllProperties: this.options.updateAllProperties,
             isTombstoneTeam: buildIntegerMatcher(this.options.mergeTombstoneTeamAllowlist, true),
+            isPointerMergeTeam: buildIntegerMatcher(this.options.mergePointerTeamAllowlist, true),
             mergeEvents: {
                 enabled: this.options.mergeEventsEnabled,
                 partitionCount: this.options.mergeEventsPartitionCount,
@@ -1628,6 +1633,39 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
+            }
+        }
+
+        return response
+    }
+
+    async writeMergePointer(
+        source: InternalPerson,
+        target: InternalPerson,
+        distinctId: string,
+        tx: PersonRepositoryTransaction,
+        batchId: number
+    ): Promise<MoveDistinctIdsResult> {
+        this.incrementCount('writeMergePointer', distinctId)
+        this.incrementDatabaseOperation('writeMergePointer', distinctId)
+        const start = performance.now()
+        const response = await tx.writeMergePointer(source, target)
+        observeLatencyByVersion(target, start, 'writeMergePointer')
+
+        // The source row lives on as a pointer, but cached copies of it are stale.
+        this.clearAllCachesForPersonId(source.team_id, source.id)
+
+        // Mirror moveDistinctIds' target-cache handling for the triggering distinct id
+        const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
+        if (existingTargetCache) {
+            const mergedPersonUpdate = { ...existingTargetCache, distinct_id: distinctId }
+            this.setCachedPersonForUpdate(target.team_id, distinctId, mergedPersonUpdate, batchId)
+        } else {
+            this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId), batchId)
+        }
+        if (response.success) {
+            for (const unionDistinctId of response.distinctIdsMoved) {
+                this.setDistinctIdToPersonId(target.team_id, unionDistinctId, target.id, batchId)
             }
         }
 

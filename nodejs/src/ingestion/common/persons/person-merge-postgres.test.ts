@@ -45,6 +45,7 @@ describe('PostgresPersonMerge merge events', () => {
             {
                 updateAllProperties: false,
                 isTombstoneTeam: () => false,
+                isPointerMergeTeam: () => false,
                 mergeEvents,
             },
             request,
@@ -288,6 +289,7 @@ describe('PostgresPersonMerge merge events', () => {
             {
                 updateAllProperties: false,
                 isTombstoneTeam: () => false,
+                isPointerMergeTeam: () => false,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
                 ...policyOverrides,
             },
@@ -336,6 +338,7 @@ describe('PostgresPersonMerge merge events', () => {
             {
                 updateAllProperties: false,
                 isTombstoneTeam: () => false,
+                isPointerMergeTeam: () => false,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
             },
             request,
