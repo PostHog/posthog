@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import pyarrow as pa
@@ -155,8 +155,12 @@ def _source(
     )
 
 
-@freeze_time(NOW)
 class TestPaymentsWindowWalking:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @mock.patch(PAGE_LIMIT_PATCH, 2)
     @mock.patch(SESSION_PATCH)
     def test_full_page_subdivides_window_and_yields_ascending(self, mock_make_session):
@@ -306,8 +310,12 @@ class TestPaymentsWindowWalking:
         assert "query_required" in logger.error.call_args[0][0]
 
 
-@freeze_time(NOW)
 class TestPaymentActionsFanout:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @pytest.mark.parametrize(
         "actions_payload",
         [
@@ -384,8 +392,12 @@ class TestPaymentActionsFanout:
         assert SYNC_BUDGET_EXCEEDED_MARKER in str(excinfo.value)
 
 
-@freeze_time(NOW)
 class TestCustomersFanout:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @mock.patch(SESSION_PATCH)
     def test_email_only_references_resolve_once_per_customer(self, mock_make_session):
         # `/payments/search` returns customers as an email with no `cus_` id; requiring an
@@ -483,8 +495,12 @@ class TestCustomersFanout:
         assert "jo@example.com" not in logger.error.call_args[0][0]
 
 
-@freeze_time(NOW)
 class TestInstrumentsFanout:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @mock.patch(SESSION_PATCH)
     def test_resolves_instrument_ids_via_payment_detail(self, mock_make_session):
         # `/payments/search` describes a card source (fingerprint, last4) without an
@@ -599,8 +615,12 @@ class TestInstrumentsFanout:
         assert manager.saved_states == []
 
 
-@freeze_time(NOW)
 class TestPaymentsCustomerIdColumn:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @mock.patch(SESSION_PATCH)
     def test_rows_carry_customer_id_resolved_once_per_email(self, mock_make_session):
         # Search rows reference their customer by email alone, so without resolution the
@@ -680,8 +700,12 @@ class TestPaymentsCustomerIdColumn:
         assert len(session.lookups) == 1
 
 
-@freeze_time(NOW)
 class TestUnresolvableReferences:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @pytest.mark.parametrize(
         "schema_name, payment",
         [

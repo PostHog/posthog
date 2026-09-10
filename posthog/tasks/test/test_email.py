@@ -2,7 +2,7 @@ import uuid
 import datetime as dt
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
@@ -66,7 +66,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataMo
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
-    with freeze_time(creation_date):
+    with time_machine.travel(creation_date, tick=False):
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)
         user = User.objects.create_and_join(
@@ -726,7 +726,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             sent = send_external_data_failure_digest(
                 self.team.pk,
                 [
@@ -768,7 +768,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     ) -> None:
         mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 09:59:00"):
+        with time_machine.travel("2024-05-15 09:59:00", tick=False):
             send_external_data_failure_digest(
                 self.team.pk,
                 [
@@ -828,7 +828,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             record, _ = MessagingRecord.objects.get_or_create(
                 raw_email="someone@posthog.com",
                 campaign_key=f"external_data_failure_digest_{self.team.pk}_2024-05-15",
@@ -895,7 +895,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
             }
         ]
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
 
         assert mocked_email_messages[0].to == [
@@ -905,11 +905,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
-        with freeze_time("2024-05-15 18:00:00"):
+        with time_machine.travel("2024-05-15 18:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages) == 1
 
-        with freeze_time("2024-05-16 10:00:00"):
+        with time_machine.travel("2024-05-16 10:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages[1].to) == 2
 

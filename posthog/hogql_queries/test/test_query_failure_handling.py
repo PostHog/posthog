@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -106,7 +106,7 @@ class TestQueryFailureHandling(SimpleTestCase):
         assert budget_for_limit_context(limit_context) == expected
 
     def test_build_failure_exception_preserves_class_and_status(self):
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             original_detail = str(ClickHouseQueryTimeOut().detail)
             record = _record("timeout", 3, original_detail, open_until=datetime.now(UTC) + timedelta(minutes=2))
 
@@ -129,7 +129,7 @@ class TestQueryFailureHandling(SimpleTestCase):
         assert "was not run again" in str(error.detail)
 
     def test_build_failure_exception_first_failure_wording(self):
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             original_detail = str(ClickHouseQueryMemoryLimitExceeded().detail)
             record = _record("memory_limit", 1, original_detail, open_until=datetime.now(UTC) + timedelta(minutes=2))
 
