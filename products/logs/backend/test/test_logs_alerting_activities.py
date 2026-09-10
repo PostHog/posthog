@@ -25,6 +25,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import QueryErrorCategory
 from posthog.slo.types import SloOperation, SloOutcome
+from posthog.temporal.scheduler.payload import MAX_SCHEDULER_PAYLOAD_BYTES, temporal_payload_size_bytes
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_signal_emitter import AlertSignalAction, NotifiedAlert
@@ -32,6 +33,7 @@ from products.logs.backend.alert_state_machine import AlertCheckOutcome, AlertSt
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
     EmitAlertSignalsInput,
+    EvaluateCohortBatchOutput,
     _AlertCohort,
     _AlertEvaluation,
     _build_notified_from_saved,
@@ -43,6 +45,7 @@ from products.logs.backend.temporal.activities import (
     _save_cohort_outcomes,
     emit_alert_signals_activity,
 )
+from products.logs.backend.temporal.constants import EMIT_SIGNAL_BATCH_SIZE, MAX_ALERTS_PER_RUN
 
 
 def _evaluate_and_save_one(
@@ -142,7 +145,35 @@ class TestNotifiedAlertCollection(APIBaseTest):
         assert notified[0].alert_id == str(alert.id)
         assert notified[0].team_id == self.team.id
         assert notified[0].result_count == 250
-        assert notified[0].filters == {"serviceNames": ["checkout"]}
+        assert notified[0].alert_name == ""
+        assert notified[0].threshold_count == 100
+        assert notified[0].threshold_operator == "above"
+        assert notified[0].window_minutes == 5
+        assert notified[0].filters == {}
+
+    def test_notified_payloads_stay_within_the_scheduler_wire_budget(self):
+        alert = self._make_alert()
+        alert.name = "n" * 255
+        alert.filters = {"serviceNames": ["s" * 10_000]}
+        notification = _build_notified_from_saved([self._dispatched(alert, NotificationAction.FIRE, False)])[0]
+
+        evaluation_size = asyncio.run(
+            temporal_payload_size_bytes(
+                EvaluateCohortBatchOutput(
+                    alerts_checked=MAX_ALERTS_PER_RUN,
+                    alerts_fired=MAX_ALERTS_PER_RUN,
+                    alerts_resolved=0,
+                    alerts_errored=0,
+                    notified=[notification] * MAX_ALERTS_PER_RUN,
+                )
+            )
+        )
+        emission_size = asyncio.run(
+            temporal_payload_size_bytes(EmitAlertSignalsInput(notified=[notification] * EMIT_SIGNAL_BATCH_SIZE))
+        )
+
+        assert evaluation_size <= MAX_SCHEDULER_PAYLOAD_BYTES
+        assert emission_size <= MAX_SCHEDULER_PAYLOAD_BYTES
 
     @parameterized.expand(
         [
@@ -178,9 +209,25 @@ class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
         )
 
     def test_emits_one_signal_per_notified_alert(self):
+        first_alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Checkout failures",
+            threshold_count=10,
+            threshold_operator="above",
+            window_minutes=5,
+            filters={"serviceNames": ["checkout"]},
+        )
+        second_alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Ingestion failures",
+            threshold_count=10,
+            threshold_operator="above",
+            window_minutes=5,
+            filters={"severityLevels": ["error"]},
+        )
         notified = [
-            self._notified("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "firing", 99, 0),
-            self._notified("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "broken", None, 5),
+            self._notified(str(first_alert.id), "firing", 99, 0),
+            self._notified(str(second_alert.id), "broken", None, 5),
         ]
 
         with patch("products.logs.backend.alert_signal_emitter.emit_signal", new=AsyncMock()) as mock_emit:
@@ -188,10 +235,23 @@ class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
 
         assert count == 2
         assert mock_emit.await_count == 2
-        # Confirms _load_teams_for_signals resolved the real team across the thread boundary.
         assert {c.kwargs["team"].id for c in mock_emit.call_args_list} == {self.team.id}
         assert {c.kwargs["source_product"] for c in mock_emit.call_args_list} == {"logs"}
         assert sorted(c.kwargs["weight"] for c in mock_emit.call_args_list) == [1.0, 1.0]
+        extras_by_source = {c.kwargs["source_id"]: c.kwargs["extra"] for c in mock_emit.call_args_list}
+        assert extras_by_source[f"{first_alert.id}:firing"]["alert_name"] == "Checkout failures"
+        assert extras_by_source[f"{first_alert.id}:firing"]["filters"] == {"serviceNames": ["checkout"]}
+        assert extras_by_source[f"{second_alert.id}:broken"]["alert_name"] == "Ingestion failures"
+        assert extras_by_source[f"{second_alert.id}:broken"]["filters"] == {"severityLevels": ["error"]}
+
+    def test_missing_alert_is_skipped(self):
+        notified = [self._notified("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "firing", 99, 0)]
+
+        with patch("products.logs.backend.alert_signal_emitter.emit_signal", new=AsyncMock()) as mock_emit:
+            count = asyncio.run(emit_alert_signals_activity(EmitAlertSignalsInput(notified=notified)))
+
+        assert count == 0
+        mock_emit.assert_not_awaited()
 
     def test_empty_input_is_noop(self):
         count = asyncio.run(emit_alert_signals_activity(EmitAlertSignalsInput(notified=[])))
@@ -2335,9 +2395,11 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
             schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
         )
 
-        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+        with patch("products.logs.backend.temporal.activities.logger.ainfo", new=AsyncMock()) as scheduler_log:
+            result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
 
         assert result.manifests == []
+        assert scheduler_log.call_args.kwargs["limited_by"] == "none"
         alert.refresh_from_db()
         assert alert.next_check_at == datetime(2026, 5, 6, 7, 0, tzinfo=UTC)
 

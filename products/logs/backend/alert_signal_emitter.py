@@ -33,7 +33,10 @@ _ACTION_WEIGHT: dict[NotificationAction, tuple[AlertSignalAction, float]] = {
 class NotifiedAlert:
     """Serialisable descriptor of one alert that emitted a notification this cycle.
 
-    Crosses the Temporal activity boundary, so every field is a primitive / JSON.
+    Crosses the Temporal activity boundary, so every field is a primitive / JSON. Evaluation
+    returns reloadable presentation fields as empty placeholders to keep the payload bounded;
+    signal emission hydrates them from the alert row. Older workflow histories may contain the
+    full values and remain compatible with the same shape.
     """
 
     alert_id: str
