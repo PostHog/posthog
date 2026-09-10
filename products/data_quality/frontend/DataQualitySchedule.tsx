@@ -16,7 +16,7 @@ function NextRunTime({ nextRunAt }: { nextRunAt: string }): JSX.Element {
 
     if (dayjs(nextRunAt).valueOf() <= Date.now()) {
         return (
-            <Tooltip title="Past its scheduled time. The scheduler will pick it up on its next pass.">
+            <Tooltip title="Refreshing the next scheduled time.">
                 <span>due now</span>
             </Tooltip>
         )
