@@ -36,10 +36,11 @@ class OpenWeatherEndpointConfig:
 
 
 # Opaque vendor version labels (never parsed or ordered). The Current Weather, 5 Day / 3 Hour
-# Forecast and Air Pollution APIs are served under `2.5`; the One Call product's current stable
-# release is `3.0` (One Call 2.5 was closed in June 2024).
+# Forecast and Air Pollution APIs are served under `2.5`; the One Call product runs on `3.0` and,
+# since June 2026, `4.0` (One Call 2.5 was closed in June 2024).
 API_VERSION_2_5 = "2.5"
 API_VERSION_3_0 = "3.0"
+API_VERSION_4_0 = "4.0"
 
 # The 2.5 general-purpose APIs. Each endpoint is its own request per location per sync.
 OPENWEATHER_ENDPOINTS: dict[str, OpenWeatherEndpointConfig] = {
@@ -96,16 +97,63 @@ OPENWEATHER_ENDPOINTS_3_0: dict[str, OpenWeatherEndpointConfig] = {
     ),
 }
 
+# The One Call API 4.0 splits the 3.0 response into one endpoint per timeline step, so each table
+# is its own request. Every endpoint answers with the same `{lat, lon, timezone, data: [...]}`
+# envelope, and each `data` item carries its own `dt`, so the shared `[lat, lon, dt]` key and
+# `dt_iso` partition still apply. `current`, `hourly` and `daily` keep the 3.0 table names so a
+# 4.0 source exposes the same tables under different paths.
+_ONECALL_4_BASE = "/data/4.0/onecall"
+# Timeline endpoints answer a fixed-size page and offer `next`/`prev` URLs to walk further. We read
+# the first page only: each page is billed as its own call, and one request per location per sync is
+# the cost the source's setup copy promises.
+OPENWEATHER_ENDPOINTS_4_0: dict[str, OpenWeatherEndpointConfig] = {
+    "current": OpenWeatherEndpointConfig(
+        name="current",
+        path=f"{_ONECALL_4_BASE}/current",
+        data_key="data",
+        description="Current weather snapshot for each configured location, from the One Call API 4.0. "
+        "One row per location per sync; use append sync to accumulate a time series.",
+    ),
+    "minutely": OpenWeatherEndpointConfig(
+        name="minutely",
+        path=f"{_ONECALL_4_BASE}/timeline/1min",
+        data_key="data",
+        description="Minute-by-minute precipitation forecast for the next hour. One row per minute per location.",
+    ),
+    "quarter_hourly": OpenWeatherEndpointConfig(
+        name="quarter_hourly",
+        path=f"{_ONECALL_4_BASE}/timeline/15min",
+        data_key="data",
+        description="15 minute weather forecast timeline. One row per 15 minute slot, up to 50 slots ahead "
+        "of the sync time.",
+    ),
+    "hourly": OpenWeatherEndpointConfig(
+        name="hourly",
+        path=f"{_ONECALL_4_BASE}/timeline/1h",
+        data_key="data",
+        description="Hourly weather forecast timeline. One row per hour, up to 20 hours ahead of the sync time.",
+    ),
+    "daily": OpenWeatherEndpointConfig(
+        name="daily",
+        path=f"{_ONECALL_4_BASE}/timeline/1day",
+        data_key="data",
+        description="Daily weather forecast timeline. One row per day, up to 10 days ahead of the sync time.",
+    ),
+}
+
 OPENWEATHER_ENDPOINTS_BY_VERSION: dict[str, dict[str, OpenWeatherEndpointConfig]] = {
     API_VERSION_2_5: OPENWEATHER_ENDPOINTS,
     API_VERSION_3_0: OPENWEATHER_ENDPOINTS_3_0,
+    API_VERSION_4_0: OPENWEATHER_ENDPOINTS_4_0,
 }
 
 # The endpoint each version's credential probe hits — chosen so it exercises the same product
-# (and subscription) the sync reads, not just any key-accepting endpoint.
+# (and subscription) the sync reads, not just any key-accepting endpoint. A 4.0 subscription is
+# sold separately from a 3.0 one, so probing 4.0's own endpoint is what catches an unsubscribed key.
 PROBE_ENDPOINT_BY_VERSION: dict[str, str] = {
     API_VERSION_2_5: "current_weather",
     API_VERSION_3_0: "current",
+    API_VERSION_4_0: "current",
 }
 
 

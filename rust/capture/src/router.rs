@@ -18,9 +18,10 @@ use tower_http::trace::TraceLayer;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
+use crate::outputs::OutputRegistry;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
-use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
+use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
 use limiters::overflow::OverflowLimiter;
@@ -50,7 +51,7 @@ pub struct WireBodyLimit(pub usize);
 
 #[derive(Clone)]
 pub struct State {
-    pub sink: Arc<dyn sinks::Event + Send + Sync>,
+    pub outputs: Arc<OutputRegistry>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
@@ -169,7 +170,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     timesource: TZ,
     readiness: ReadinessHandler,
     liveness: LivenessHandler,
-    sink: Arc<dyn sinks::Event + Send + Sync>,
+    outputs: Arc<OutputRegistry>,
     redis: Arc<R>,
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
@@ -200,7 +201,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
-        sink,
+        outputs,
         timesource: Arc::new(timesource),
         redis,
         global_rate_limiter_token_distinctid,
@@ -460,19 +461,19 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // scoped to v0/status routes; v1 ships its own policy.
     router = router.layer(cors);
 
-    // The v1 analytics endpoint is only routable when a v1 sink is
-    // configured. Without a sink the handler can't publish, so we keep
-    // the path unregistered (404) rather than advertising an endpoint
-    // that can only ever return 503. This also isolates the route to
-    // deployments that opt in via CAPTURE_V1_SINKS.
+    // The v1 endpoints are only routable when a v1 sink is configured.
+    // Without a sink the handler can't publish, so we keep the paths
+    // unregistered (404) rather than advertising endpoints that can only
+    // ever return 503. This also isolates the routes to deployments that
+    // opt in via CAPTURE_V1_SINKS.
     //
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
     // concurrency cap to its own routes.
     //
     // Matched exhaustively, like the legacy route gating above: a new capture
-    // mode must declare whether it serves the v1 analytics endpoint instead of
-    // silently defaulting to "no v1 routes" and 404ing its traffic.
+    // mode must declare whether it serves each v1 endpoint instead of silently
+    // defaulting to "no v1 routes" and 404ing its traffic.
     let serves_v1_analytics = match capture_mode {
         CaptureMode::Events | CaptureMode::Import => true,
         // `/i/v1/analytics/events` is an analytics endpoint: it accepts any
@@ -480,10 +481,20 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         // which capture-ai no longer loads.
         CaptureMode::Ai | CaptureMode::Recordings => false,
     };
-    if serves_v1_analytics && state.v1_sink_router.is_some() {
+    let serves_v1_ai_events = match capture_mode {
+        // `/i/v1/ai/events` belongs to capture-ai the way the v0 AI paths do:
+        // that deployment produces straight to the AI topic and sizes its
+        // ceilings for AI events. See `v1::analytics::router::ai_routes` for
+        // why the shared handler needs no AI-specific branch.
+        CaptureMode::Ai => true,
+        CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => false,
+    };
+    if (serves_v1_analytics || serves_v1_ai_events) && state.v1_sink_router.is_some() {
         router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
             concurrency_limit,
             max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
+            serves_analytics: serves_v1_analytics,
+            serves_ai_events: serves_v1_ai_events,
         }));
     }
 

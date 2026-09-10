@@ -178,7 +178,8 @@ def self_driving_line(reports: Sequence[InboxReportSummary]) -> str:
     line = (
         "Findings land in Self-driving, their inbox in the sidebar. When one comes up, offer a "
         "`show_actions` `open_inbox` button rather than describing where to look. That button "
-        "opens Self-driving on its own, or one report when you pass `report_id`."
+        "opens Self-driving on its own, or one report when you pass `report_id`. Write what you "
+        "have to say first, then call `show_actions`, so the button sits under the text."
     )
     if not reports:
         return line
@@ -198,8 +199,9 @@ def teaching_canvas_line(teaching: TeachingCanvas) -> str:
     return (
         f'A canvas named "{TEACHING_CANVAS_NAME}" is pinned in this space: a short tour of how '
         "the app works, and itself an example of a canvas. At a natural moment after your first "
-        "message, mention it in one sentence and offer it with a `show_actions` `open_canvas` "
-        f"button (channel_id `{teaching.channel_id}`, canvas_id `{teaching.canvas_id}`). "
+        "message, mention it in one sentence, then offer it with a `show_actions` `open_canvas` "
+        f"button (channel_id `{teaching.channel_id}`, canvas_id `{teaching.canvas_id}`). Write "
+        "the sentence before you make the call, so the button sits under it rather than above. "
         "You did not make it, so never claim it as your work."
     )
 

@@ -11,11 +11,10 @@ import {
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 import type { RefObject } from 'react'
 
 import api from 'lib/api'
-import { urls } from 'scenes/urls'
+import { createFuse } from 'lib/utils/fuseSearch'
 
 import {
     DataModelingDAG,
@@ -32,6 +31,11 @@ import { Edge, ElkDirection, Node, NodeHandle, SearchMode, ViewMode } from './mo
 
 const POLL_INTERVAL_MS = 5000
 const MIN_RUNNING_DURATION_MS = 2000
+
+// Match the SQL editor sidebar's fuzzy search (queryDatabaseLogic) so the same term gives the same
+// answer in both places. ignoreLocation lets a match land anywhere in the name.
+const graphNodeFuse = createFuse<Node>([], { keys: ['data.name'], ignoreLocation: true })
+const modelingNodeFuse = createFuse<DataModelingNode>([], { keys: ['name'], ignoreLocation: true })
 
 const nodeStartTimes: Map<string, number> = new Map()
 
@@ -824,11 +828,11 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 const { upstream, downstream } = buildAdjacencyMaps(edges)
 
                 return (baseName: string, mode: 'upstream' | 'downstream' | 'all'): Set<string> => {
-                    const lowerBaseName = baseName.toLowerCase()
-                    let startNode = nodes.find((n) => n.data.name.toLowerCase() === lowerBaseName)
-                    if (!startNode) {
-                        startNode = nodes.find((n) => n.data.name.toLowerCase().includes(lowerBaseName))
-                    }
+                    // Resolve the lineage start node through the same fuzzy instance the plain search
+                    // uses, so a near-miss term like `custmer+` finds `customer_orders` here too.
+                    // Exact/substring matching left the graph blank while the list view found the model.
+                    graphNodeFuse.setCollection(nodes)
+                    const startNode = graphNodeFuse.search(baseName)[0]?.item
                     if (!startNode) {
                         return new Set()
                     }
@@ -870,8 +874,11 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 if (parsedSearch.mode !== 'search') {
                     return highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode)
                 }
-                const lowerBaseName = parsedSearch.baseName.toLowerCase()
-                return new Set(nodes.filter((n) => n.data.name.toLowerCase().includes(lowerBaseName)).map((n) => n.id))
+                if (!parsedSearch.baseName) {
+                    return null
+                }
+                graphNodeFuse.setCollection(nodes)
+                return new Set(graphNodeFuse.search(parsedSearch.baseName).map((r) => r.item.id))
             },
         ],
         filteredNodes: [
@@ -881,7 +888,11 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                     return dataModelingNodes
                 }
                 const { baseName } = parseSearchTerm(searchTerm)
-                return dataModelingNodes.filter((n) => n.name.toLowerCase().includes(baseName.toLowerCase()))
+                if (!baseName) {
+                    return dataModelingNodes
+                }
+                modelingNodeFuse.setCollection(dataModelingNodes)
+                return modelingNodeFuse.search(baseName).map((r) => r.item)
             },
         ],
         selectedDag: [
@@ -1172,13 +1183,6 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             actions.setEdges([])
             actions.loadDataModelingNodes()
             actions.loadDataModelingEdges()
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        [urls.dataOps()]: (_, searchParams) => {
-            if (typeof searchParams.dag === 'string' && searchParams.dag !== values.selectedDagId) {
-                actions.setSelectedDagId(searchParams.dag)
-            }
         },
     })),
     afterMount(({ actions }) => {

@@ -140,6 +140,9 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             # retrying can't recover. Match the shared message fragment all four loops emit, not the
             # per-loop prefix or the volatile URL.
             "401 - refreshed token, retrying": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            # HubSpot's CRM API may also surface 401 through raise_for_status() in other fetch paths.
+            # Match the stable host prefix, not the per-object URL path, which varies by endpoint.
+            "401 Client Error: Unauthorized for url: https://api.hubapi.com": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
             "403 Client Error: Forbidden for url: https://api.hubapi.com": "Your HubSpot credentials do not have permission to access this data. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
             # Raised by source_for_pipeline when the source config carries no refresh token at all
             # (integration never connected or lost its token). Retrying cannot recover.

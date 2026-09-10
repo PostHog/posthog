@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from typing import cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, PropertyMock, patch
@@ -10,17 +11,28 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ErrorDetail, PermissionDenied
 from rest_framework.test import APIRequestFactory
 
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
+from posthog.auth import (
+    ExportRendererAuthentication,
+    IDJagAccessTokenAuthentication,
+    JwtAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    SessionAuthentication,
+    TeamSecretTokenAuthentication,
+)
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
+from posthog.permissions import AccessControlPermission, ActiveOrganizationPermission, PostHogFeatureFlagPermission
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -861,7 +873,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
     def test_forbids_wildcard_scope_for_internal_required_scope_on_public_viewset(self):
         """Regression: when a viewset's `scope_object` is public (e.g. `signal_scout`) but a
         specific action's `required_scopes` targets an INTERNAL_API_SCOPE_OBJECTS object
-        (e.g. `signal_scout_internal:write`), `*` must NOT satisfy that action. Otherwise
+        (e.g. `signal_scratchpad_internal:write`), `*` must NOT satisfy that action. Otherwise
         a user-consented `*` token could write durable scout memory or emit findings —
         bypassing the threat model that those scopes are sandbox-only.
         """
@@ -873,12 +885,12 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
             data={"key": "noop"},
         )
         self.assertEqual(response.status_code, 403)
-        self.assertIn("signal_scout_internal:write", response.json()["detail"])
+        self.assertIn("signal_scratchpad_internal:write", response.json()["detail"])
 
     def test_allows_explicit_internal_write_scope_on_public_viewset(self):
-        """Sibling to the above: a token with explicit `signal_scout_internal:write` reaches
+        """Sibling to the above: a token with explicit `signal_scratchpad_internal:write` reaches
         the same endpoint (validated_data parses, the forget tool reports deleted=false)."""
-        self.access_token.scope = "signal_scout_internal:write"
+        self.access_token.scope = "signal_scratchpad_internal:write"
         self.access_token.save()
         response = self._do_request(
             f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/",
@@ -890,7 +902,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
 
     def test_session_auth_cannot_satisfy_internal_write_scope(self):
         """Session auth must NOT bypass an internal-scope requirement. A logged-in team member
-        POSTing to a scout internal-write action (`signal_scout_internal:write`) via browser
+        POSTing to a scratchpad internal-write action (`signal_scratchpad_internal:write`) via browser
         session is denied — otherwise any member could write durable scout scratchpad, which is
         read verbatim into the scout's prompt. No bearer token here, so SessionAuthentication is
         the successful authenticator and must hit the internal-scope guard."""
@@ -1371,3 +1383,191 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         self.assertFalse(result)
         mock_ff.assert_called_once()
+
+
+class TestActiveOrganizationPermission(SimpleTestCase):
+    # The permission reads three fields off the organization, so unsaved instances are enough.
+    def setUp(self):
+        self.permission = ActiveOrganizationPermission()
+        self.organization = Organization(name="Test org")
+        self.team = Team(organization=self.organization)
+
+    def _view(self, scope_object="insight", team=None, basename="project_insights", action="list"):
+        view = Mock()
+        view.parent_query_kwargs = ["team_id"]
+        view.param_derived_from_user_current_team = None
+        view.team = team if team is not None else self.team
+        view.scope_object = scope_object
+        view.basename = basename
+        view.action = action
+        # A bare Mock would hand back a truthy attribute and skip the check everywhere.
+        view.detail = False
+        return view
+
+    def _root_view(self, basename="projects", action="create"):
+        view = self._view(basename=basename, action=action)
+        view.parent_query_kwargs = []
+        view.organization = self.organization
+        return view
+
+    def _request(self, authenticator, method="GET"):
+        request = Mock()
+        request.successful_authenticator = authenticator
+        request.method = method
+        return request
+
+    def _personal_api_key_auth(self):
+        auth = PersonalAPIKeyAuthentication()
+        auth.personal_api_key = PersonalAPIKey(scopes=["*"])
+        return auth
+
+    def _oauth_auth(self):
+        auth = OAuthAccessTokenAuthentication()
+        auth.access_token = OAuthAccessToken(scope="insight:read")
+        return auth
+
+    def _project_secret_key_auth(self):
+        auth = ProjectSecretAPIKeyAuthentication()
+        auth.project_secret_api_key = ProjectSecretAPIKey(scopes=["feature_flag:read"])
+        return auth
+
+    def _id_jag_auth(self):
+        auth = IDJagAccessTokenAuthentication()
+        auth.scopes = ["insight:read"]
+        return auth
+
+    def _export_renderer_auth(self):
+        auth = ExportRendererAuthentication()
+        auth.scopes = ["insight:read"]
+        return auth
+
+    def _deactivate(self, reason=None):
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = reason
+
+    def _denial_code(self, exception: PermissionDenied) -> str | None:
+        return cast(ErrorDetail, exception.detail).code
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", "_personal_api_key_auth"),
+            ("oauth", "_oauth_auth"),
+            ("project_secret_api_key", "_project_secret_key_auth"),
+            ("id_jag", "_id_jag_auth"),
+            ("export_renderer", "_export_renderer_auth"),
+        ]
+    )
+    def test_every_token_credential_is_blocked_for_a_deactivated_organization(self, _name, auth_factory):
+        self._deactivate()
+        request = self._request(getattr(self, auth_factory)())
+
+        with self.assertRaises(PermissionDenied) as denial:
+            self.permission.has_permission(request, self._view())
+
+        self.assertEqual(self._denial_code(denial.exception), "organization_deactivated")
+
+    @parameterized.expand(
+        [
+            ("session", SessionAuthentication),
+            ("jwt", JwtAuthentication),
+            ("team_secret_token", TeamSecretTokenAuthentication),
+            ("none", None),
+        ]
+    )
+    def test_non_token_credentials_still_reach_a_deactivated_organization(self, _name, authenticator_class):
+        self._deactivate()
+        authenticator = authenticator_class() if authenticator_class else None
+
+        self.assertTrue(self.permission.has_permission(self._request(authenticator), self._view()))
+
+    def test_null_is_active_is_treated_as_deactivated(self):
+        self.organization.is_active = None
+
+        with self.assertRaises(PermissionDenied) as denial:
+            self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view())
+
+        self.assertEqual(self._denial_code(denial.exception), "organization_deactivated")
+
+    def test_active_organization_admits_a_token(self):
+        self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view()))
+
+    def test_pending_deletion_is_blocked_even_while_active(self):
+        self.organization.is_pending_deletion = True
+
+        with self.assertRaises(PermissionDenied) as denial:
+            self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view())
+
+        self.assertEqual(self._denial_code(denial.exception), "organization_pending_deletion")
+
+    def test_billing_stays_reachable_so_a_customer_can_pay(self):
+        self._deactivate(reason="Access revoked due to unpaid balance.")
+        view = self._view(scope_object="billing")
+
+        self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), view))
+
+    def test_deactivation_reason_is_surfaced_to_the_caller(self):
+        self._deactivate(reason="Access revoked due to unpaid balance.")
+
+        with self.assertRaises(PermissionDenied) as denial:
+            self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view())
+
+        self.assertIn("Access revoked due to unpaid balance.", str(denial.exception.detail))
+
+    def test_a_second_organization_is_judged_on_its_own_state(self):
+        self._deactivate()
+        other_team = Team(organization=Organization(name="Still active"))
+
+        view = self._view(team=other_team)
+
+        self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), view))
+
+    def test_object_level_check_covers_root_viewsets(self):
+        self._deactivate()
+        view = self._view()
+        view.parent_query_kwargs = []
+        request = self._request(self._personal_api_key_auth())
+
+        self.assertTrue(self.permission.has_permission(request, view))
+        with self.assertRaises(PermissionDenied):
+            self.permission.has_object_permission(request, view, self.organization)
+        with self.assertRaises(PermissionDenied):
+            self.permission.has_object_permission(request, view, self.team)
+
+    @parameterized.expand([("post", "POST"), ("patch", "PATCH"), ("delete", "DELETE")])
+    def test_root_writes_are_blocked_for_the_current_organization(self, _name, method):
+        # DRF runs no object check for a root create, so has_permission is the only gate.
+        self._deactivate()
+        request = self._request(self._personal_api_key_auth(), method=method)
+
+        with self.assertRaises(PermissionDenied) as denial:
+            self.permission.has_permission(request, self._root_view())
+
+        self.assertEqual(self._denial_code(denial.exception), "organization_deactivated")
+
+    def test_root_reads_stay_open_so_a_member_can_switch_organization(self):
+        # Listing organizations is how a member leaves a deactivated one.
+        self._deactivate()
+        request = self._request(self._personal_api_key_auth(), method="GET")
+
+        view = self._root_view(basename="organizations", action="list")
+        self.assertTrue(self.permission.has_permission(request, view))
+
+    def test_creating_an_organization_is_not_judged_on_the_current_one(self):
+        self._deactivate()
+        request = self._request(self._personal_api_key_auth(), method="POST")
+
+        view = self._root_view(basename="organizations", action="create")
+        self.assertTrue(self.permission.has_permission(request, view))
+
+    @parameterized.expand([("patch", "PATCH", "partial_update"), ("delete", "DELETE", "destroy")])
+    def test_a_root_detail_route_is_left_to_the_object_check(self, _name, method, action):
+        # The URL names the target, but the mixin resolves no organization from it and falls back
+        # to the current one. Gating here would refuse an active organization whenever a
+        # deactivated one happened to be current.
+        self._deactivate()
+        request = self._request(self._personal_api_key_auth(), method=method)
+
+        view = self._root_view(basename="projects", action=action)
+        view.detail = True
+
+        self.assertTrue(self.permission.has_permission(request, view))

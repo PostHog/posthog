@@ -733,7 +733,7 @@ class TestFetchArrowBatches:
 
         tables = list(_fetch_arrow_batches(cursor, 5, _STREAM_SCHEMA, fetch_size=2))
 
-        assert _ids(tables) == [[1, 2, 3, 4, 5, 6], [7]]
+        assert _ids(tables) == [[1, 2, 3, 4, 5], [6, 7]]
         assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2, 2, 2, 2]
 
     def test_fetches_a_whole_chunk_at_a_time_by_default(self):
@@ -1379,6 +1379,27 @@ def build_pipeline_mocks(mocker):
 class TestIsTransientConnectionDropError:
     def test_matches_connection_is_lost(self):
         assert _is_transient_connection_drop_error(psycopg.OperationalError("the connection is lost")) is True
+
+    def test_matches_connect_time_server_closed(self):
+        # A drop during the connect handshake surfaces as a different message than an already-open
+        # connection dying, so the guard must match it too or it re-raises on the first attempt.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("connection failed: server closed the connection unexpectedly")
+            )
+            is True
+        )
+
+    def test_matches_consuming_input_failed_ssl_syscall_error(self):
+        # Regression: a drop detected while reading a query's response (e.g. `get_table_metadata`
+        # mid-probe) surfaces as "consuming input failed: SSL SYSCALL error: EOF detected" rather
+        # than either message above, and previously fell through to a full Temporal activity retry.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+            )
+            is True
+        )
 
     def test_does_not_match_unrelated_operational_error(self):
         # A permanent, non-actionable failure that also raises OperationalError must not be

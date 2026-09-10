@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
@@ -54,7 +54,6 @@ import {
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
-import { formatBucketLabel } from './timeBuckets'
 import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
 import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
 
@@ -247,7 +246,6 @@ function StatTiles({
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
-    const sparkLabels = daily.labels.map((label) => formatBucketLabel(label, interval))
 
     const tiles: {
         label: string
@@ -314,11 +312,12 @@ function StatTiles({
                     key={tile.label}
                     {...tile}
                     loading={loading}
-                    labels={sparkLabels}
+                    labels={daily.labels}
+                    interval={interval}
                     theme={theme}
                     restingSubtitle={dateRangeLabel}
                     sparklineHeight={40}
-                    sparklineDashedFromIndex={incompleteTail ? sparkLabels.length - 1 : undefined}
+                    sparklineDashedFromIndex={incompleteTail ? daily.labels.length - 1 : undefined}
                 />
             ))}
         </div>
@@ -786,9 +785,11 @@ function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Elemen
                                     {String(r[2])}
                                 </span>
                             ) : (
-                                <span className="text-muted text-xs">
-                                    Not captured (event predates error message capture)
-                                </span>
+                                <Tooltip title="No $mcp_error_message on this event. Check that your MCP server sends it on failed tool calls.">
+                                    <span className="text-muted text-xs whitespace-nowrap">
+                                        Not captured <IconInfo />
+                                    </span>
+                                </Tooltip>
                             ),
                     },
                     {

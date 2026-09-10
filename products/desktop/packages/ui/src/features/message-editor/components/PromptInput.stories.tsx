@@ -75,7 +75,6 @@ const mockUsage: ContextUsage = {
   used: 24_000,
   size: 353_000,
   percentage: 7,
-  cost: { amount: 0.42, currency: "USD" },
   breakdown: {
     systemPrompt: 14_000,
     tools: 0,

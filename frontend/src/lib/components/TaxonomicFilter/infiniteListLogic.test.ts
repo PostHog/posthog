@@ -9,6 +9,8 @@ import {
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
@@ -916,6 +918,88 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('events a picker excludes', () => {
+        const HIDDEN_EVENT = '$feature_flag_called'
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        // The Pinned and Recent tabs filter against the caller's record rather than the Events
+        // group's own list, so the hidden names have to reach that record for a pin saved before
+        // the event was hidden to drop.
+        it('folds the hidden names into the record the Recent and Pinned tabs read', () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'hidden-events',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            expect(listLogic.values.excludedPropertiesWithHiddenEvents?.[TaxonomicFilterGroupType.Events]).toContain(
+                HIDDEN_EVENT
+            )
+        })
+    })
+
+    // Transformation filters exclude `$exception` while allowing uncaptured events, so an excluded
+    // name must never be offered as "not seen yet".
+    describe('the "not seen yet" option and excluded names', () => {
+        const EXCLUDED_EVENT = '$exception'
+
+        it.each([
+            [EXCLUDED_EVENT, false],
+            ['checkout_started', true],
+        ])('searching %p offers the option: %p', async (query, expected) => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `excluded-events-${query}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: [EXCLUDED_EVENT] },
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery(query)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ showNonCapturedEventOption: expected })
+        })
+    })
+
+    // A hidden event is excluded by its label and case variants, not just its raw name, so a picker
+    // that allows uncaptured events must not offer any of those forms as "not seen yet" — that would
+    // commit a name no event carries and hide the explanation of the event's absence.
+    describe('the "not seen yet" option and hidden events', () => {
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([['$feature_flag_called'], ['$FEATURE_FLAG_CALLED'], ['Feature flag called']])(
+            'does not offer the option when searching %p',
+            async (query) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: `hidden-not-seen-${query}`,
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                    allowNonCapturedEvents: true,
+                })
+                listLogic.mount()
+
+                await expectLogic(listLogic, () => {
+                    listLogic.actions.setSearchQuery(query)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ showNonCapturedEventOption: false })
+            }
+        )
+    })
+
     describe('data warehouse pin lifecycle', () => {
         beforeEach(() => {
             const databaseLogic = databaseTableListLogic()
@@ -1074,6 +1158,45 @@ describe('infiniteListLogic', () => {
             logic.mount()
         })
 
+        it.each([200, 500])('reveals scoped results before the full count returns %s', async (status) => {
+            let resolveCount!: (response: [number, { count: number; results: { name: string }[] }]) => void
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (
+                            url.searchParams.get('search') === 'browser' &&
+                            !url.searchParams.has('filter_by_event_names')
+                        ) {
+                            return new Promise((resolve) => {
+                                resolveCount = resolve
+                            })
+                        }
+                        return [200, { results: [{ name: '$browser', id: 'browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.setSearchQuery('browser'))
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ searchQuery: 'browser', count: 1 }),
+                    isLoading: false,
+                    isExpandable: false,
+                    expandedCountResultLoading: true,
+                })
+            const visibleResults = logic.values.results
+            const selectedIndex = logic.values.index
+            await expectLogic(logic, () => resolveCount([status, { count: 9, results: [{ name: '$browser' }] }]))
+                .toDispatchActions(['loadExpandedCountSuccess'])
+                .toMatchValues({
+                    isLoading: false,
+                    isExpandable: status === 200,
+                    expandedCount: status === 200 ? 9 : 0,
+                    results: visibleResults,
+                    index: selectedIndex,
+                })
+        })
+
         it('setting search query filters events', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('browser')
@@ -1090,7 +1213,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 2,
                     remoteItems: partial({
                         count: 1,
-                        expandedCount: 2,
                         results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
@@ -1110,7 +1232,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1134,7 +1255,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1160,7 +1280,6 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({
                         count: 1,
-                        expandedCount: 2,
                         results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
@@ -1184,7 +1303,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1789,6 +1907,34 @@ describe('infiniteListLogic', () => {
                 .map((i) => (i as { name: string }).name)
             expect(names).not.toContain('message')
             expect(names).toContain('level')
+        })
+
+        it('hides a pinned value that is excluded for its source group', () => {
+            // A pin outlives the picker it was made in, so without this the Pinned tab is a second
+            // door to selecting a value the exclusion forbids.
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', '$exception', {
+                name: '$exception',
+            })
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'checkout_started', {
+                name: 'checkout_started',
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'pinned-excluded-test',
+                listGroupType: TaxonomicFilterGroupType.PinnedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PinnedFilters],
+                showNumericalPropsOnly: false,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$exception'] },
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredPinnedItems
+                .filter((i) => 'name' in i)
+                .map((i) => (i as { name: string }).name)
+            expect(names).not.toContain('$exception')
+            expect(names).toContain('checkout_started')
         })
 
         it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {

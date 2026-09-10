@@ -5,11 +5,13 @@ Shared PostHog test fixtures (team, user, django_db_setup) are inherited
 from products/conftest.py which re-exports posthog/conftest.py.
 """
 
+import io
 import re
 import json
 import base64
 import hashlib
 import subprocess
+from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -19,12 +21,45 @@ from unittest.mock import MagicMock
 from django.db import connections
 
 import responses
+from PIL import Image
 
 from posthog.models.scoping import team_scope
 
 from products.visual_review.backend.models import Repo
 
 PRODUCT_DATABASES = {"default", "visual_review_db_writer", "visual_review_db_reader"}
+
+# --- Image builders shared by the diff tests ---
+
+
+def to_png(image: Image.Image) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def open_png(png_bytes: bytes) -> Image.Image:
+    return Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+
+
+def make_striped_png(row_colors: Sequence[tuple[int, int, int, int]], width: int = 20) -> bytes:
+    # Every row gets its own color, so no two rows hash alike and row alignment
+    # has exactly one answer, which lets a test assert a band position.
+    image = Image.new("RGBA", (width, len(row_colors)))
+    for y, color in enumerate(row_colors):
+        image.paste(color, (0, y, width, y + 1))
+    return to_png(image)
+
+
+def insert_background_rows(png_bytes: bytes, y: int, rows: int, fill: tuple[int, int, int, int]) -> bytes:
+    # Pushes everything below `y` down by `rows` rows of `fill`, which is what a
+    # panel that gained a pixel of padding does to a full-page screenshot.
+    image = open_png(png_bytes)
+    width, height = image.size
+    out = Image.new("RGBA", (width, height + rows), fill)
+    out.paste(image.crop((0, 0, width, y)), (0, 0))
+    out.paste(image.crop((0, y, width, height)), (0, y + rows))
+    return to_png(out)
 
 
 @pytest.fixture(scope="package", autouse=True)

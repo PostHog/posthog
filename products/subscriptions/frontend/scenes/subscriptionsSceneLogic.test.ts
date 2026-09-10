@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { TargetTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { subscriptionsSceneLogic, SubscriptionsTab } from './subscriptionsSceneLogic'
 
@@ -208,7 +208,7 @@ describe('subscriptionsSceneLogic', () => {
             subscriptionRequestUrls.length = 0
 
             await expectLogic(logic, () => {
-                logic.actions.setTargetTypeFilter(TargetTypeEnumApi.Slack)
+                logic.actions.setTargetTypeFilter(SubscriptionTargetEnumApi.Slack)
             }).toDispatchActions(['setTargetTypeFilter', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
 
             expect(subscriptionRequestUrls).toHaveLength(1)

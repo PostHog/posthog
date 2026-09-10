@@ -53,6 +53,10 @@ from products.ai_observability.backend.api.personal_spend import PersonalSpendEU
 from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
 from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
+from products.customer_analytics.backend.presentation.views.internal import (
+    InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
+    InternalAccountView as CustomerAnalyticsInternalAccountView,
+)
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
@@ -95,6 +99,7 @@ from .views import (
     preferences_page,
     preflight_check,
     render_query,
+    replay_player_frame,
     robots_txt,
     security_txt,
     stats,
@@ -167,6 +172,15 @@ def _dispatch_loop_triggers(request: HttpRequest, event_type: str, payload: dict
     return None
 
 
+def _dispatch_workflow_triggers(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> None:
+    from products.workflows.backend.github_workflow_events import emit_github_event
+
+    emit_github_event(event_type, payload, delivery_id)
+    return None
+
+
 # event_type -> ordered list of (handler_name, handler). Order matters only in that
 # the first handler in a bucket to return a non-None HttpResponse determines the
 # response sent back to GitHub; the pre-existing single handler in each bucket keeps
@@ -175,17 +189,21 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     "issues": [
         ("conversations", _dispatch_conversations_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "issue_comment": [
         ("conversations", _dispatch_conversations_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "pull_request": [
         ("tasks_pr_backstop", _dispatch_pull_request_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "pull_request_review": [
         ("tasks_pr_review", _dispatch_pull_request_review_event),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "installation": [
         ("installation_lifecycle", _dispatch_installation_event),
@@ -195,6 +213,7 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     ],
     "push": [
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
 }
 
@@ -495,6 +514,11 @@ urlpatterns = [
     # NOTE: We have _health, livez, and _readyz. _health is deprecated and
     # is only included for compatability with old installations. For new
     # operations livez and readyz should be used.
+    # Same-origin shell the session replay player mounts rrweb into. Unauthenticated because
+    # shared recordings render the player too; it carries no data of its own. The path ends in
+    # index.html so Storybook's static server, which does no directory-index resolution, serves the
+    # same file at the same URL.
+    path("replay_player_frame/index.html", replay_player_frame),
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
@@ -632,6 +656,15 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
         csrf_exempt(ConversationsInternalTicketView.as_view()),
     ),
+    # Account routes for the CDP worker's workflow actions (auth: scoped service JWT)
+    path(
+        "api/projects/<str:team_id>/internal/customer_analytics/account",
+        csrf_exempt(CustomerAnalyticsInternalAccountView.as_view()),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/customer_analytics/account/custom_property_values",
+        csrf_exempt(CustomerAnalyticsInternalAccountCustomPropertiesView.as_view()),
+    ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     opt_slash_path(
@@ -741,8 +774,8 @@ if settings.CLOUD_DEPLOYMENT == "EU":
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
     # that in production we expose these metrics on a separate port (8001), to ensure
-    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
-    # for details on the production metrics setup.
+    # external clients cannot see them. See bin/granian_metrics.py for details on the
+    # production metrics setup.
 
     # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)
     import os
