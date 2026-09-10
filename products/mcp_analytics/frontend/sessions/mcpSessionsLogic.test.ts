@@ -3,11 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import {
-    mcpAnalyticsSessionsGenerateIntent,
-    mcpAnalyticsSessionsList,
-    mcpAnalyticsSessionsToolCalls,
-} from '../generated/api'
+import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 
@@ -19,7 +15,6 @@ jest.mock('../generated/api', () => ({
 
 const listMock = mcpAnalyticsSessionsList as jest.Mock
 const toolCallsMock = mcpAnalyticsSessionsToolCalls as jest.Mock
-const generateIntentMock = mcpAnalyticsSessionsGenerateIntent as jest.Mock
 
 const toolCall = (eventId: string): any => ({
     event_id: eventId,
@@ -107,31 +102,42 @@ describe('mcpSessionsLogic', () => {
         })
 
         // Without this the list narrows but the open session's detail panel keeps showing calls
-        // the list no longer counts. The reload has to run after the list resolves: the filters
-        // move the session's aggregated session_start, which bounds the detail scan.
-        it("reloads the selected session's calls once the refreshed session row arrives", async () => {
+        // the list no longer counts. The panel must not show the old calls in the meantime either,
+        // which is what tagging the loaded calls with their filters buys.
+        it("reloads the selected session's calls with the same filters", async () => {
             listMock.mockResolvedValue({
                 results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }],
-                has_next: false,
+                has_next: true,
             })
-            toolCallsMock.mockResolvedValue({ results: [toolCall('a1')], has_next: false })
+            toolCallsMock.mockResolvedValueOnce({ results: [toolCall('a1')], has_next: true })
+            // Load the list first: the detail scan is bounded by the session row's session_start.
             await expectLogic(logic, () => {
-                logic.actions.selectSession('A')
-            }).toDispatchActions(['loadToolCallsSuccess'])
-            listMock.mockResolvedValue({
-                results: [{ session_id: 'A', session_start: '2026-01-01T00:09:00Z' }],
-                has_next: false,
-            })
+                logic.actions.loadSessions()
+            }).toDispatchActions(['loadSessionsSuccess', 'loadToolCallsSuccess'])
             toolCallsMock.mockClear()
 
+            let resolveFiltered: (value: any) => void = () => {}
+            toolCallsMock.mockImplementationOnce(() => new Promise((resolve) => (resolveFiltered = resolve)))
             await expectLogic(logic, () => {
                 mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
-            }).toDispatchActions(['loadSessionsSuccess', 'loadToolCalls', 'loadToolCallsSuccess'])
+            }).toDispatchActions(['loadToolCalls'])
+
+            // The pre-filter calls are gone from the panel while the filtered page is in flight, so
+            // no stale row shows and "Load more" cannot paginate from them.
+            expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
+            expect(logic.values.selectedSessionToolCalls.calls).toEqual([])
+            expect(logic.values.selectedSessionToolCalls.hasNext).toBe(false)
+
+            await expectLogic(logic, () => {
+                resolveFiltered({ results: [toolCall('filtered')], has_next: false })
+            }).toDispatchActions(['loadToolCallsSuccess'])
 
             expect(toolCallsMock.mock.calls[0][2]).toMatchObject({
                 properties: JSON.stringify([TOOL_FILTER]),
-                date_from: '2026-01-01T00:09:00Z',
+                // session_start is filter-independent, so the detail scan still covers the session.
+                date_from: '2026-01-01T00:05:00Z',
             })
+            expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(['filtered'])
         })
 
         // The session stays selected across a filter change, so the session-id guard alone lets an
@@ -162,34 +168,6 @@ describe('mcpSessionsLogic', () => {
             }).toDispatchActions(['loadMoreToolCallsSuccess'])
 
             expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(['filtered'])
-        })
-
-        // The summary is persisted per session and never regenerated, so generating one from the
-        // first *matching* call would store a summary of part of the session for good.
-        it.each([
-            ['no shared filter is set', false, '2026-01-01T00:05:00Z'],
-            ['a shared filter narrows the session', true, undefined],
-        ])('bounds intent generation by the session start when %s', async (_label, narrowed, expected) => {
-            listMock.mockResolvedValue({
-                results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }],
-                has_next: false,
-            })
-            toolCallsMock.mockResolvedValue({ results: [], has_next: false })
-            generateIntentMock.mockResolvedValue({ session_id: 'A', intent: 'looked at signups' })
-            await expectLogic(logic, () => {
-                logic.actions.loadSessions()
-            }).toDispatchActions(['loadSessionsSuccess'])
-            if (narrowed) {
-                await expectLogic(logic, () => {
-                    mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
-                }).toDispatchActions(['loadSessionsSuccess'])
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.generateIntent('A')
-            }).toDispatchActions(['generateIntentSuccess'])
-
-            expect(generateIntentMock.mock.calls[0][2]).toEqual({ date_from: expected })
         })
 
         // Two rapid filter changes leave two list requests in flight. If the first one still

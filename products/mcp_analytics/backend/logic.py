@@ -132,6 +132,13 @@ SESSIONS_CACHE_TTL_SECONDS = 30
 # why a session straddling the window boundary reports full (not clipped) start/end/
 # duration/count, and why its detail view (bounded by session_start) shows every event.
 #
+# The shared filters are a per-event `matches` flag rather than a WHERE clause, so they
+# narrow *what the session did* (tool_call_count, tools_used, and which client and user
+# the row names) without moving *when it ran*. session_start has to stay the session's
+# real first event: it bounds the detail scan and the intent generation, both of which
+# describe the whole session and must not shrink to the first matching call. A session
+# with no matching event at all is dropped by the HAVING.
+#
 # NB: the session id reads from the `$session_id` field, NOT `properties.$session_id`.
 # `$session_id` is a materialised events column; the `properties.` accessor renders it
 # null-wrapped in SELECT but the raw column in HAVING/ORDER, so the search HAVING would
@@ -139,29 +146,35 @@ SESSIONS_CACHE_TTL_SECONDS = 30
 # column consistently across SELECT/GROUP/HAVING/ORDER.
 _MCP_SESSIONS_SQL = """
 SELECT
-    $session_id AS session_id,
+    session_id,
     min(timestamp) AS session_start,
     max(timestamp) AS session_end,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
-    count() AS tool_call_count,
-    groupUniqArray(properties.$mcp_tool_name) AS tools_used,
-    argMax(distinct_id, timestamp) AS distinct_id,
-    argMax(properties.$mcp_client_name, timestamp) AS mcp_client_name
-FROM events
-WHERE event = {event}
-    -- Buffered range so an overlapping session's events outside the window still
-    -- aggregate into its full stats; the timestamp bounds keep the sort key pruning.
-    AND timestamp >= {scan_from}
-    AND timestamp <= {scan_to}
-    -- $session_id is a materialised String column — '' (not NULL) for sessionless
-    -- events — so a bare `!= ''` drops them without a coalesce.
-    AND $session_id != ''
-    -- Applied to the events, not the aggregate, so a filtered session still reports the
-    -- full stats of the events that match.
-    AND {shared_filters}
+    countIf(matches) AS tool_call_count,
+    groupUniqArrayIf(tool_name, matches) AS tools_used,
+    argMaxIf(event_distinct_id, timestamp, matches) AS distinct_id,
+    argMaxIf(client_name, timestamp, matches) AS mcp_client_name
+FROM (
+    SELECT
+        $session_id AS session_id,
+        timestamp,
+        distinct_id AS event_distinct_id,
+        properties.$mcp_tool_name AS tool_name,
+        properties.$mcp_client_name AS client_name,
+        {shared_filters} AS matches
+    FROM events
+    WHERE event = {event}
+        -- Buffered range so an overlapping session's events outside the window still
+        -- aggregate into its full stats; the timestamp bounds keep the sort key pruning.
+        AND timestamp >= {scan_from}
+        AND timestamp <= {scan_to}
+        -- $session_id is a materialised String column — '' (not NULL) for sessionless
+        -- events — so a bare `!= ''` drops them without a coalesce.
+        AND $session_id != ''
+)
 GROUP BY session_id
--- Session-level inclusion: at least one event inside the requested window.
-HAVING countIf(timestamp >= {window_from} AND timestamp <= {window_to}) > 0
+-- Session-level inclusion: at least one *matching* event inside the requested window.
+HAVING countIf(matches AND timestamp >= {window_from} AND timestamp <= {window_to}) > 0
     __SEARCH__
 ORDER BY __ORDER__
 LIMIT {limit}
@@ -238,9 +251,10 @@ def list_mcp_sessions(
     distinct_id, mcp_client_name, and any element of tools_used. ``order_by`` is a
     whitelisted column name; prefix with '-' for descending.
 
-    ``properties`` and ``filter_test_accounts`` are the tabs' shared filters. They narrow the
-    *events* the aggregation sees, so a matching session still reports the full stats of its
-    matching events rather than being dropped or clipped.
+    ``properties`` and ``filter_test_accounts`` are the tabs' shared filters. A session with no
+    matching event is dropped; a session that keeps some reports how many of *its* calls matched
+    (``tool_call_count``, ``tools_used``) while ``session_start`` / ``session_end`` still describe
+    when the whole session ran, because those bound the detail and intent scans.
 
     Person email/name are resolved from distinct_id via personhog. ``intent`` is
     empty until the ad-hoc summary endpoint (separate PR) fills the intent seam.
