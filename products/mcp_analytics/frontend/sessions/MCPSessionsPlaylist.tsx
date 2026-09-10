@@ -26,6 +26,7 @@ import { cn } from 'lib/utils/css-classes'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { McpDateFilter } from '../components/McpDateFilter'
+import { McpSharedFilters } from '../components/McpSharedFilters'
 import type { MCPSessionApi } from '../generated/api.schemas'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
@@ -196,6 +197,7 @@ function SessionsListPanel(): JSX.Element {
                         </Select>
                     </div>
                 </div>
+                <McpSharedFilters pageKey="mcp-sessions" dataAttrPrefix="mcp-sessions" />
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto" data-attr="mcp-sessions-list">
                 {sessionsLoading && sessions.length === 0 ? (

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
@@ -7,7 +8,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
@@ -26,6 +27,7 @@ from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_MAX_LIMIT,
     MCP_TOOL_CALLS_DEFAULT_LIMIT,
     MCP_TOOL_CALLS_MAX_LIMIT,
+    MCPActivityOverviewQuerySerializer,
     MCPSessionListQuerySerializer,
     MCPSessionToolCallsQuerySerializer,
 )
@@ -721,6 +723,80 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         # The first event sits at exactly session_start; a `timestamp >= session_start` bound must
         # still include it after the round-trip — otherwise we'd get just ["last_tool"].
         assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
+
+    @parameterized.expand(
+        [
+            ("sessions_list", "", {"date_from": "-7d"}),
+            ("tool_calls", "{session_id}/tool_calls/", {"date_from": "-7d"}),
+            ("activity_overview", "activity_overview/", {}),
+        ]
+    )
+    def test_shared_filters_reach_the_query(self, _name: str, suffix: str, extra: dict[str, str]) -> None:
+        session_id = str(uuid7())
+        for tool in ["kept_tool", "dropped_tool"]:
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="seed",
+                timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
+                properties={"$session_id": session_id, "$mcp_tool_name": tool},
+            )
+        path = f"/api/environments/{self.team.id}/mcp_analytics/sessions/{suffix.format(session_id=session_id)}"
+        properties = json.dumps(
+            [{"key": "$mcp_tool_name", "value": ["kept_tool"], "operator": "exact", "type": "event"}]
+        )
+
+        response = self.client.get(path, {**extra, "properties": properties})
+
+        assert response.status_code == status.HTTP_200_OK
+        # Every endpoint narrows to the one matching event; without the filter each would report two.
+        assert "dropped_tool" not in response.content.decode()
+
+    def test_unparseable_properties_are_a_400(self) -> None:
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"properties": "{not json"}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+# `properties` and `filter_test_accounts` are declared identically on all three query serializers,
+# so one matrix covers them. The endpoint tests prove each viewset is wired to its serializer.
+class TestSharedFilterQueryParams(SimpleTestCase):
+    QUERY_SERIALIZERS = [
+        ("sessions_list", MCPSessionListQuerySerializer),
+        ("tool_calls", MCPSessionToolCallsQuerySerializer),
+        ("activity_overview", MCPActivityOverviewQuerySerializer),
+    ]
+
+    @parameterized.expand(QUERY_SERIALIZERS)
+    def test_shared_filters_default_to_off(self, _name: str, serializer_class: type[serializers.Serializer]) -> None:
+        serializer = serializer_class(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["properties"] == []
+        assert serializer.validated_data["filter_test_accounts"] is False
+
+    @parameterized.expand(QUERY_SERIALIZERS)
+    def test_properties_parse_into_schema_filters(
+        self, _name: str, serializer_class: type[serializers.Serializer]
+    ) -> None:
+        raw = json.dumps([{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}])
+        serializer = serializer_class(data={"properties": raw})
+        assert serializer.is_valid(), serializer.errors
+        parsed = serializer.validated_data["properties"]
+        assert [(f.key, f.value) for f in parsed] == [("$mcp_tool_name", ["query_run"])]
+
+    @parameterized.expand(
+        [
+            ("not_json", "{definitely not json"),
+            ("not_a_list", '{"key": "$mcp_tool_name"}'),
+            ("unknown_filter_type", '[{"key": "a", "value": "b", "type": "nonsense"}]'),
+        ]
+    )
+    def test_unparseable_properties_are_rejected(self, _name: str, raw: str) -> None:
+        serializer = MCPSessionListQuerySerializer(data={"properties": raw})
+        assert not serializer.is_valid()
+        assert "properties" in serializer.errors
 
 
 class TestMCPSessionListQuerySerializer(SimpleTestCase):
