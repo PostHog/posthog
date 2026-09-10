@@ -9,6 +9,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnection,
     ManagedWarehouseTrinoConnectionUnavailable,
 )
+from products.managed_warehouse.backend.local_dev import is_enabled as local_dev_enabled
 from products.managed_warehouse.backend.trino_target import get_ready_trino_connection_target
 
 if TYPE_CHECKING:
@@ -48,16 +49,27 @@ def connect_managed_warehouse_trino(organization_id: str) -> Iterator[Connection
     from trino.dbapi import connect  # noqa: PLC0415 -- keeps the optional driver off startup paths
 
     config = resolve_managed_warehouse_trino_connection(organization_id)
-    connection = connect(
-        host=config.host,
-        port=config.port,
-        user=config.username,
-        catalog=config.catalog,
-        http_scheme="https",
-        auth=BasicAuthentication(config.username, config.password),
-        request_timeout=60,
-        verify=True,
-    )
+    if local_dev_enabled():
+        connection = connect(
+            host=config.host,
+            port=config.port,
+            user=config.username,
+            catalog=config.catalog,
+            http_scheme="http",
+            request_timeout=60,
+            verify=False,
+        )
+    else:
+        connection = connect(
+            host=config.host,
+            port=config.port,
+            user=config.username,
+            catalog=config.catalog,
+            http_scheme="https",
+            auth=BasicAuthentication(config.username, config.password),
+            request_timeout=60,
+            verify=True,
+        )
     try:
         yield connection
     finally:

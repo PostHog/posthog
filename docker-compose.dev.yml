@@ -832,9 +832,17 @@ services:
         extends:
             file: docker-compose.base.yml
             service: duckgres
-        profiles: ['duckgres']
+        profiles: ['duckgres', 'managed_warehouse']
         ports:
             - '15432:15432'
+
+    trino:
+        extends:
+            file: docker-compose.base.yml
+            service: trino
+        profiles: ['managed_warehouse']
+        ports:
+            - '127.0.0.1:38080:8080'
 
     etcd:
         image: quay.io/coreos/etcd:v3.6.8

@@ -29,6 +29,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ServiceCredential,
     ServiceCredentialConnect,
 )
+from products.managed_warehouse.backend.local_dev import is_enabled as local_dev_enabled
 from products.managed_warehouse.backend.service_credentials import ServiceCredentialUnavailable, mint_service_credential
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
@@ -367,6 +368,16 @@ def resolve_managed_warehouse_postgres_connection(
         or source_auth.lifecycle_generation < 0
     ):
         raise ServiceCredentialUnavailable("managed warehouse source has no valid lifecycle generation")
+
+    if local_dev_enabled():
+        return ManagedWarehousePostgresConnection(
+            host=settings.MANAGED_WAREHOUSE_LOCAL_DUCKGRES_HOST,
+            port=settings.MANAGED_WAREHOUSE_LOCAL_DUCKGRES_PORT,
+            database="ducklake",
+            username="posthog",
+            password="posthog",
+            sslmode="require",
+        )
 
     credential = (credential_cache or _service_credential_cache).get(
         organization_id,
