@@ -7,6 +7,7 @@
 //! changelog — the single ack covers both planes.
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use futures::stream::{self, StreamExt};
@@ -24,12 +25,21 @@ use crate::storage::{Person, PersonStub, StubOutcome};
 const MAX_CONCURRENT_PROPERTY_WRITES: usize = 8;
 
 const GET_OR_CREATE_TOTAL: &str = "personhog_identity_get_or_create_total";
+const GET_OR_CREATE_PHASE_DURATION: &str = "personhog_identity_get_or_create_phase_duration_ms";
 
 fn count_outcome(outcome: &str) {
     common_metrics::inc(
         GET_OR_CREATE_TOTAL,
         &[("outcome".to_string(), outcome.to_string())],
         1,
+    );
+}
+
+fn record_phase(phase: &str, start: Instant) {
+    common_metrics::histogram(
+        GET_OR_CREATE_PHASE_DURATION,
+        &[("phase".to_string(), phase.to_string())],
+        start.elapsed().as_secs_f64() * 1000.0,
     );
 }
 
@@ -72,11 +82,13 @@ impl PersonHogIdentityService {
             .filter(|entry| validate_entry(&self.limits, entry).is_ok())
             .map(|entry| (entry.team_id, entry.distinct_id.clone()))
             .collect();
+        let phase = Instant::now();
         let resolved = self
             .storage
             .resolve_distinct_ids(&keys)
             .await
             .map_err(|e| log_and_convert_error(e, "resolve_distinct_ids"))?;
+        record_phase("resolve", phase);
 
         // Plan each entry and collect one stub per missing key.
         let mut stubs: Vec<PersonStub> = Vec::new();
@@ -101,6 +113,7 @@ impl PersonHogIdentityService {
             })
             .collect();
 
+        let phase = Instant::now();
         let outcomes = if stubs.is_empty() {
             Vec::new()
         } else {
@@ -109,6 +122,7 @@ impl PersonHogIdentityService {
                 .await
                 .map_err(|e| log_and_convert_error(e, "create_person_stubs"))?
         };
+        record_phase("create_stubs", phase);
 
         // Lost races re-resolve in one batch: the winner's mapping committed,
         // so a fresh resolve finds it.
@@ -117,6 +131,7 @@ impl PersonHogIdentityService {
             .filter(|(_, &index)| matches!(outcomes[index], StubOutcome::LostRace))
             .map(|(key, _)| key.clone())
             .collect();
+        let phase = Instant::now();
         let lost_resolved = if lost_keys.is_empty() {
             HashMap::new()
         } else {
@@ -125,6 +140,7 @@ impl PersonHogIdentityService {
                 .await
                 .map_err(|e| log_and_convert_error(e, "resolve_after_lost_race"))?
         };
+        record_phase("resolve_lost_race", phase);
 
         // Assemble results; created owners go through the leader fan-out.
         let lost_race_result = |i: usize| {
@@ -175,6 +191,7 @@ impl PersonHogIdentityService {
             results.push(result);
         }
 
+        let phase = Instant::now();
         let applied: Vec<(usize, Result<ProtoPerson, Status>)> =
             stream::iter(property_writes.into_iter().map(|(i, person)| {
                 let entry = &entries[i];
@@ -183,11 +200,14 @@ impl PersonHogIdentityService {
             .buffered(MAX_CONCURRENT_PROPERTY_WRITES)
             .collect()
             .await;
+        record_phase("apply_properties", phase);
         for (i, result) in applied {
             let result = result.map(|person| (person, true));
-            if result.is_ok() {
-                count_outcome("created");
-            }
+            count_outcome(if result.is_ok() {
+                "created"
+            } else {
+                "properties_failed"
+            });
             results[i] = Some(result);
         }
 
