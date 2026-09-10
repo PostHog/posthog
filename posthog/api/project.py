@@ -1560,7 +1560,7 @@ class ProjectViewSet(
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.
     @cached_property
-    def team(self):
+    def team(self) -> Team:
         return self.get_object().passthrough_team
 
     def perform_destroy(self, project: Project):
