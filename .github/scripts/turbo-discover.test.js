@@ -56,8 +56,8 @@ function parseCoreStep(text) {
     return {
         core,
         poe,
-        ignores: matchAll(step.replace(/full_ignores\+=\([^)]*\)/g, ''), /--ignore=(\S+)/g),
-        poeIgnores: poeIgnoreLine ? matchAll(poeIgnoreLine[1], /--ignore=(\S+)/g) : [],
+        ignores: matchAll(step.replace(/full_ignores\+=\([^)]*\)/g, ''), /--ignore=([^\s)]+)/g),
+        poeIgnores: poeIgnoreLine ? matchAll(poeIgnoreLine[1], /--ignore=([^\s)]+)/g) : [],
     }
 }
 
