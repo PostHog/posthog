@@ -20,16 +20,23 @@ const dates = [
     '2026-08-29',
 ]
 
+// A month of daily buckets, so a story can exercise a window several times longer than the default.
+const sparseDates = Array.from({ length: 30 }, (_, index) => {
+    const day = new Date(Date.UTC(2026, 6, 31 + index))
+    return day.toISOString().slice(0, 10)
+})
+
 function eventMetricQuery(
     event: string,
     customName: string,
-    math: BaseMathType = BaseMathType.TotalCount
+    math: BaseMathType = BaseMathType.TotalCount,
+    dateFrom: string = '-14d'
 ): InsightVizNode<TrendsQuery> {
     return {
         kind: NodeKind.InsightVizNode,
         source: {
             kind: NodeKind.TrendsQuery,
-            dateRange: { date_from: '-14d', date_to: null },
+            dateRange: { date_from: dateFrom, date_to: null },
             interval: 'day',
             series: [
                 {
@@ -75,7 +82,7 @@ const conversionQuery: InsightVizNode<TrendsQuery> = {
     },
 }
 
-const liveMetricResults: Record<string, { aggregatedValue: number; data: number[]; label: string }> = {
+const liveMetricResults: Record<string, { aggregatedValue: number; data: number[]; label: string; days?: string[] }> = {
     $autocapture: {
         aggregatedValue: 1248,
         data: [88, 96, 104, 99, 121, 118, 132, 132, 184, 211, 196, 249, 238, 263],
@@ -95,6 +102,12 @@ const liveMetricResults: Record<string, { aggregatedValue: number; data: number[
         aggregatedValue: 0,
         data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         label: 'Errors',
+    },
+    upload_failed: {
+        aggregatedValue: 5,
+        data: [3, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        days: sparseDates,
+        label: 'People who hit the overwrite',
     },
 }
 
@@ -158,6 +171,22 @@ export const reportMetricsFixture: ReportMetricApi[] = [
     },
 ]
 
+/** A rare event over a month: single-digit daily counts, most of them zero, and long stretches of nothing. */
+export const reportSparseMetricFixture: ReportMetricApi = {
+    metric_id: 'upload-overwrites',
+    title: 'People who hit the overwrite',
+    kind: 'affected_users',
+    role: 'primary',
+    value: 5,
+    value_at: '2026-08-29T12:00:00Z',
+    series: liveMetricResults.upload_failed.data,
+    value_format: 'count',
+    unit: 'users',
+    query: eventMetricQuery('upload_failed', 'Upload overwrite', BaseMathType.UniqueUsers, '-30d'),
+    caption: 'Counted once per person, so the daily bars add up to more than the total.',
+    comparison: null,
+}
+
 /** A primary metric whose query the viewer cannot see, so only the saved snapshot is left to show. */
 export const reportSavedValueMetricFixture: ReportMetricApi = {
     metric_id: 'checkout-duration',
@@ -203,8 +232,8 @@ export async function reportMetricQueryHandler({ request }: { request: Request }
                     label: result.label,
                     count: result.data.at(-1) ?? 0,
                     data: result.data,
-                    days: dates,
-                    labels: dates,
+                    days: result.days ?? dates,
+                    labels: result.days ?? dates,
                     aggregated_value: result.aggregatedValue,
                 },
             ],

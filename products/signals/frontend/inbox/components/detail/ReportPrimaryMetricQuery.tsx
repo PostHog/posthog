@@ -17,7 +17,7 @@ import {
 } from '../../utils/reportMetrics'
 import { comparisonMetaSegments, measuredMetaSegments, ReportMetricMetaLine } from './ReportMetricMetaLine'
 import { ReportObservationCard } from './ReportObservationCard'
-import { ReportObservationChart } from './ReportObservationChart'
+import { OBSERVATION_CHART_HEIGHT_CLASS, ReportObservationChart } from './ReportObservationChart'
 import { ReportObservationValue } from './ReportObservationValue'
 
 export function ReportPrimaryMetricQuery({
@@ -100,7 +100,7 @@ export function ReportPrimaryMetricQuery({
                 )}
             </div>
             {seriesLoading && !seriesResolved ? (
-                <LemonSkeleton className="h-20 w-full" />
+                <LemonSkeleton className={`${OBSERVATION_CHART_HEIGHT_CLASS} w-full`} />
             ) : seriesError ? (
                 <p className="m-0 text-xs text-tertiary">Couldn't load the trend. Refresh the page to try again.</p>
             ) : points ? (
