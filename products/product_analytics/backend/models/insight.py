@@ -1,4 +1,3 @@
-from functools import cached_property
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -278,19 +277,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         sharing_configurations = self.sharingconfiguration_set.all()
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
 
-    @cached_property
-    def query_from_filters(self):
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-
-        try:
-            return {
-                "kind": "InsightVizNode",
-                "source": filter_to_query(self.filters).model_dump(exclude_none=True),
-                "full": True,
-            }
-        except Exception as e:
-            capture_exception(e)
-
     def dashboard_filters(
         self, dashboard: Optional["Dashboard"] = None, dashboard_filters_override: Optional[dict] = None
     ):
@@ -419,9 +405,9 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def _unwrapped_query_kind(self) -> str | None:
         """Innermost query ``kind`` after unwrapping DataTable/DataVisualization/InsightVizNode
         wrappers, or None if the insight has no query."""
-        from posthog.schema_migrations.upgrade_manager import upgrade_query
+        from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
-        with upgrade_query(self):
+        with upgrade_insight(self):
             query = self.query
             if query is None:
                 return None

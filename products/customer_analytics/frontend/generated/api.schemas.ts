@@ -465,8 +465,8 @@ export interface CustomPropertyValueApi {
 export interface CustomPropertyValueWriteApi {
     /** UUID of the custom property definition whose value to set for this account. */
     definition: string
-    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. */
-    value: string | number | boolean
+    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. Null clears the current value while preserving its history. */
+    value: string | number | boolean | null
 }
 
 export interface AccountNotebookApi {
@@ -820,6 +820,13 @@ export interface PaginatedMeetingListApi {
     /** @nullable */
     previous?: string | null
     results: MeetingApi[]
+}
+
+export interface AccountPresenceViewerApi {
+    /** PostHog user ID of the teammate viewing this account. */
+    readonly user_id: number
+    /** Display name of the teammate viewing this account. */
+    readonly display_name: string
 }
 
 /**
@@ -1383,6 +1390,8 @@ export interface ClickhouseQueryProgressApi {
 }
 
 export interface QueryStatusApi {
+    budget_remaining_bytes?: number | null
+    bytes_read?: number | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null
@@ -2192,12 +2201,13 @@ export interface CalendarSyncStatusApi {
     readonly is_syncing: boolean
 }
 
-/**
- * Request body of the calendar sync-now trigger.
- */
-export interface CalendarSyncTriggerApi {
-    /** Id of the google-calendar integration to sync. */
+export interface CalendarSyncBackfillApi {
+    /** Id of the Google account integration to backfill. */
     integration_id: number
+    /** First UTC date to include. Must be within the last 365 days. */
+    start_date: string
+    /** Final UTC date to include. Cannot be after today. */
+    end_date: string
 }
 
 /**
@@ -2221,6 +2231,14 @@ export interface CalendarSyncTriggerResponseApi {
      * * `started` - started
      * * `already_running` - already_running */
     status: CalendarSyncTriggerResponseStatusEnumApi
+}
+
+/**
+ * Request body of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerApi {
+    /** Id of the google-calendar integration to sync. */
+    integration_id: number
 }
 
 /**
@@ -3926,6 +3944,38 @@ export interface PatchedGroupUsageMetricApi {
      * @nullable
      */
     math_property?: string | null
+}
+
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type PinnedAccountPropertyKindEnumApi =
+    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+
+export const PinnedAccountPropertyKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface PinnedAccountPropertyApi {
+    /** Definition type for this pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: PinnedAccountPropertyKindEnumApi
+    /** Team-scoped custom property or relationship definition UUID. */
+    id: string
+}
+
+export interface UserCustomerAnalyticsConfigApi {
+    /** Account properties pinned in sidebar display order. */
+    readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+}
+
+export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
+    /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
+    pinned_properties?: PinnedAccountPropertyApi[]
 }
 
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {

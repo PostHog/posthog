@@ -821,3 +821,25 @@ class TestLLMTraceToFormatterFormat:
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
 
         assert [node["event"]["id"] for node in hierarchy] == ["slow-start-first", "quick-start-second"]
+
+
+class TestSurrogateSafety:
+    """Test that a trace holding half an emoji still yields encodable text."""
+
+    def test_trace_text_repr_encodes_as_utf8(self):
+        """Should repair content captured with an unpaired surrogate."""
+        trace = {"properties": {"$ai_span_name": "broken \ud83c"}}
+        hierarchy = [
+            {
+                "event": {
+                    "event": "$ai_generation",
+                    "properties": {"$ai_input": [{"role": "user", "content": "hello \ud83c"}]},
+                },
+                "children": [],
+            }
+        ]
+
+        text, _ = format_trace_text_repr(trace=trace, hierarchy=hierarchy)
+
+        assert text.encode("utf-8")
+        assert "\ud83c" not in text

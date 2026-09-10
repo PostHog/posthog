@@ -273,3 +273,60 @@ persisted, with caps and the no-secrets rule above.**
 4. Creation-payload plumbing (`relayed_mcp_servers`) + composer UX flips the
    "Requires your machine" annotation to "Relayed via your machine".
 5. Enable `posthog-code-local-mcp-import` for staff once the Django side lands.
+
+
+## Claude subscription credentials
+
+The cloud subscription feature uses the same transport under `posthog-code-claude-own-subscription-cloud`.
+Keep the flag off until the backend and sandbox agent build are deployed.
+Desktop runs `claude setup-token` in the same terminal dialog used for local login.
+Users complete Claude's own login, copy the token, then paste it into Cloud tasks in Settings.
+The token field removes spaces and line breaks when users paste.
+Desktop encrypts each token with Electron `safeStorage`. Each server and account has a separate file with owner-only permissions.
+On macOS, the Keychain protects the encryption key. The token itself is in the encrypted file, not a Keychain entry.
+Windows uses DPAPI. Linux uses the system secret store; Desktop rejects the `basic_text` fallback.
+If secure storage is not available, Desktop refuses to save or read the token.
+The renderer can save, remove, and check for a token. Its generic store API cannot read the saved token.
+Only the main process reads the saved token for relay.
+Sign-out keeps the account's encrypted token. Other accounts cannot use it. Clear all data deletes all saved Claude tokens.
+An unreadable token does not stop app startup. Users can replace or remove it without decryption.
+This protects stored data. It does not protect a token from a compromised app process or sandbox while the token is in use.
+
+A subscription run emits a `credential_request` before initializing Claude.
+Desktop checks the authenticated user against the server-set run owner before it accepts a token request.
+Delivery stays bound to that account, API host, project, task, and run.
+After a Desktop restart, a pending request triggers the same account and run-owner checks before token delivery resumes.
+Hosts without a token store ignore token requests.
+Sandbox credentials cannot select subscription billing, including through a resumed run.
+The API checks the run owner again and blocks redirects when it forwards the token.
+Only that owner can drive model use or obtain a direct sandbox connection token. Other users can still read a shared run.
+Other viewers ignore the request.
+Request metadata uses the durable event stream so a late watcher can receive it.
+The `credential_response` command carries the secret in flight to sandbox memory, never into stored events, task state, logs, or analytics.
+Desktop retries temporary delivery failures until the request expires, and duplicate responses are safe.
+
+The run fails if the token does not arrive within 120 seconds, the backend flag is unavailable, or the sandbox lacks `--claudeSubscription` support.
+It never changes an explicit subscription choice to PostHog model billing.
+Pi hides subscription billing. Desktop omits the subscription choice from Pi requests and does not send a token.
+The API and worker reject direct Pi subscription requests before sandbox startup.
+Continuation keeps that choice. Desktop checks the token before uploading attachments.
+Clients must explicitly confirm subscription billing on resume. Clients without token support receive an error before sandbox creation.
+The worker checks the feature flag for the subscription owner. A sandbox stop check uses the provider state, not the billing record.
+Subscription runs skip prewarming because a warm Claude process has already selected its credentials.
+An unused warm run expires through its idle timeout; its cleanup does not block a subscription run.
+Sandbox compute still uses PostHog credits.
+
+Claude tokens go only to the signed-in PostHog server and project. Token requests cannot follow redirects.
+Desktop checks for a token before all Claude cloud starts and resumes, including Inbox actions.
+If delivery fails after a new run starts, Desktop cancels that run. It releases unused warm runs when the billing choice changes.
+The native Claude process reads the token from a private pipe. The token is absent from its environment and command arguments.
+The pipe is empty after Claude reads it. Child processes do not receive the token. Tool shells also clear credential variables.
+Explicit Claude settings fix the Anthropic endpoint and credential handling.
+Subscription runs ignore executable overrides and disable project API key helpers and other provider routes.
+They also block proxy and custom CA settings and require TLS verification.
+Logs and event streams remove Claude token strings, including tokens split across adjacent text chunks.
+Log redaction covers combined message chunks, buffered tool updates, cached responses, and task failures. These controls do not protect against a compromised process with access to Claude's memory.
+The task sandbox has the same credential boundary as GitHub runs. Code inside it can obtain run credentials.
+A Claude setup token lasts longer than a GitHub token. Remove token does not revoke it or clear an active Claude process.
+
+Direct event uploads stay open by default. Local development closes each batch because local proxies can buffer an open request.

@@ -10,7 +10,7 @@ Two distinct skill families live in this directory:
 
 ## Scout fleet convention (`signals-scout-*`)
 
-The harness discovers scouts by globbing `signals-scout-*` over the team's `LLMSkill` table. The canonical content on disk in this directory is mirrored to each agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see `../backend/scout_harness/AGENTS.md` for the sync mechanics, and the `sync_signals_scout_skills` management command for the manual fan-out path.
+A scout is a skill that holds a `SignalScoutConfig`. The harness globs `signals-scout-*` over the team's `LLMSkill` table to auto-register a config for a prefixed skill that has none, which is how the canonical fleet in this directory comes online. The canonical content on disk in this directory is mirrored to each agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see `../backend/scout_harness/AGENTS.md` for the sync mechanics, and the `sync_signals_scout_skills` management command for the manual fan-out path.
 
 ### Generalist + specialists
 

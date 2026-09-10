@@ -8,6 +8,14 @@ const require = createRequire(import.meta.url);
 const skipNotarize =
   process.env.SKIP_NOTARIZE === "1" || !process.env.APPLE_TEAM_ID;
 
+// A test build installs beside a release build, so it must not claim the
+// release deep-link scheme: the OS would route one of the two builds'
+// callbacks to the wrong app.
+const isTestChannelBuild = process.env.VITE_POSTHOG_BUILD_CHANNEL === "test";
+const deeplinkSchemes = isTestChannelBuild
+  ? ["posthog-code-test"]
+  : ["posthog-code"];
+
 const config: Configuration = {
   // Original release bundle id; changing it breaks existing installs' data dir and Keychain entries.
   appId: "com.posthog.array",
@@ -64,7 +72,7 @@ const config: Configuration = {
   protocols: [
     {
       name: "PostHog",
-      schemes: ["posthog-code"],
+      schemes: deeplinkSchemes,
     },
   ],
 

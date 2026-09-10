@@ -1,5 +1,4 @@
 SELECT
-  uuid,
   team_id,
   metric_name,
   series_fingerprint,
