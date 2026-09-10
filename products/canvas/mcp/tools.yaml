@@ -444,6 +444,12 @@ tools:
     sketchpads-partial-update:
         operation: sketchpads_partial_update
         enabled: false
+    sketchpads-presence-create:
+        operation: sketchpads_presence_create
+        enabled: false
     sketchpads-retrieve:
         operation: sketchpads_retrieve
+        enabled: false
+    sketchpads-stream-retrieve:
+        operation: sketchpads_stream_retrieve
         enabled: false
