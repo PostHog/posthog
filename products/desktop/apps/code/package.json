@@ -64,6 +64,7 @@
     "electron": "^42.3.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.1",
+    "http-server": "^14.1.1",
     "jest-image-snapshot": "^6.5.2",
     "jimp": "^1.6.1",
     "jsdom": "^26.0.0",
