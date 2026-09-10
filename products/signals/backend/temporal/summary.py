@@ -69,7 +69,6 @@ from products.signals.backend.temporal.types import (
     SignalReportSummaryWorkflowInputs,
     next_research_bucket,
 )
-from products.tasks.backend.facade.contracts import TaskRunDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -193,6 +192,18 @@ class ReportDecision:
     # broken repo-selection integration apart from the agent legitimately asking for human input.
     # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
     pending_reason: str | None = None
+
+
+@frozen
+class ImplementationRunRef:
+    """The implementation run the finalizer waits on and charges.
+
+    Only the two identifiers, never the run itself: an activity result is written to the workflow's
+    durable history, and a task run's raw state carries live sandbox credentials.
+    """
+
+    task_id: str
+    run_id: str
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -326,7 +337,7 @@ class SignalReportSummaryWorkflow:
         self,
         inputs: SignalReportSummaryWorkflowInputs,
         signal_key: str | None,
-        implementation_run: TaskRunDTO | None = None,
+        implementation_run: ImplementationRunRef | None = None,
     ) -> None:
         if not signal_key or not workflow.patched("signals-stage-handoffs-v1"):
             return
@@ -336,8 +347,8 @@ class SignalReportSummaryWorkflow:
                 SignalImplementationInput(
                     team_id=inputs.team_id,
                     signal_key=signal_key,
-                    task_id=str(implementation_run.task_id) if implementation_run else None,
-                    run_id=str(implementation_run.id) if implementation_run else None,
+                    task_id=implementation_run.task_id if implementation_run else None,
+                    run_id=implementation_run.run_id if implementation_run else None,
                 ),
                 id=SignalImplementationFinalizerWorkflow.workflow_id_for(inputs.team_id, signal_key),
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -357,7 +368,7 @@ class SignalReportSummaryWorkflow:
         inputs: SignalReportSummaryWorkflowInputs,
         signal_keys: list[str],
         triggering_signal_key: str | None,
-        implementation_run: TaskRunDTO | None = None,
+        implementation_run: ImplementationRunRef | None = None,
     ) -> None:
         for signal_key in signal_keys:
             await self._start_signal_finalizer(
@@ -1091,7 +1102,9 @@ class MaybeAutostartImplementationInput:
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
-async def maybe_autostart_implementation_activity(input: MaybeAutostartImplementationInput) -> TaskRunDTO | None:
+async def maybe_autostart_implementation_activity(
+    input: MaybeAutostartImplementationInput,
+) -> ImplementationRunRef | None:
     """Evaluate self-driving auto-start from the report's current artefacts, once it has settled.
 
     Runs at the workflow's settle point (report READY, no pending signals) rather than per research
@@ -1105,9 +1118,10 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
     handoff = await read_handoff(input.signal_key, input.team_id)
     if handoff.signal.metadata.get("report_id") != input.report_id:
         raise ValueError("Signal handoff belongs to another report")
-    return await maybe_autostart_from_report_artefacts(
+    run = await maybe_autostart_from_report_artefacts(
         team_id=input.team_id, report_id=input.report_id, signal_key=input.signal_key
     )
+    return ImplementationRunRef(task_id=str(run.task_id), run_id=str(run.id)) if run else None
 
 
 @dataclass

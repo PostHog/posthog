@@ -2,6 +2,7 @@ import uuid
 import random
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -13,7 +14,7 @@ from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.client import WorkflowHistory
 from temporalio.contrib.pydantic import pydantic_data_converter
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
@@ -35,13 +36,16 @@ from products.signals.backend.temporal.signal_queries import FetchSignalsForRepo
 from products.signals.backend.temporal.summary import (
     EMPTY_FETCH_RETRY_ATTEMPTS,
     CheckReportQuotaGateInput,
+    ImplementationRunRef,
     MarkReportFailedInput,
     MarkReportInProgressInput,
+    MaybeAutostartImplementationInput,
     ReportHasAssignedSignalsInput,
     ResetReportToPotentialInput,
     RevertReportToCandidateInput,
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
+    maybe_autostart_implementation_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
     select_research_signal_key,
@@ -462,6 +466,29 @@ async def test_handoff_finalizes_each_submitted_key_after_the_first_pass() -> No
         ("first", None, None),
         ("covered", None, None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_autostart_activity_hands_back_only_the_run_identifiers() -> None:
+    report_id = str(uuid.uuid4())
+    run = SimpleNamespace(
+        id=uuid.uuid4(),
+        task_id=uuid.uuid4(),
+        state={"sandbox_connect_token": "a-live-sandbox-credential"},
+        output={"pr_url": "https://example.com/pr/1"},
+    )
+    handoff = SimpleNamespace(signal=SimpleNamespace(metadata={"report_id": report_id}))
+
+    with (
+        patch(f"{SUMMARY_MODULE_PATH}.read_handoff", AsyncMock(return_value=handoff)),
+        patch(f"{SUMMARY_MODULE_PATH}.maybe_autostart_from_report_artefacts", AsyncMock(return_value=run)),
+    ):
+        result = await ActivityEnvironment().run(
+            maybe_autostart_implementation_activity,
+            MaybeAutostartImplementationInput(team_id=1, report_id=report_id, signal_key="key-1"),
+        )
+
+    assert result == ImplementationRunRef(task_id=str(run.task_id), run_id=str(run.id))
 
 
 @pytest.mark.asyncio
