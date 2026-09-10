@@ -2708,6 +2708,14 @@ def update_task_run(
         # marking it failed or cancelled frees the per-run idempotency slot. The workflow and the
         # run's own agent write status through paths that do not pass through here.
         validated_data.pop("status")
+    if (
+        "status" in validated_data
+        and not caller_is_agent
+        and run.task.origin_product == Task.OriginProduct.WORKFLOW
+        and validated_data["status"] != TaskRun.Status.CANCELLED
+    ):
+        # A finished status wakes the workflow step with this run's output, so only the agent may set it.
+        validated_data.pop("status")
 
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
     has_state_merge = "state" in validated_data and isinstance(validated_data["state"], dict)
