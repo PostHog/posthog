@@ -79,6 +79,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     InvoiceListWithAllLines,
+    RateLimitCallback,
     _RequestPacer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -709,6 +710,33 @@ class TestRequestPacer:
 
         assert sleeps == pytest.approx([5.0, 5.2])
 
+    def test_a_rate_limit_holds_a_worker_that_already_reserved_its_slot(self):
+        clock = {"now": 0.0}
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock["now"] += seconds
+            if len(sleeps) == 1:
+                pacer.throttled(retry_after=5)
+
+        pacer = _RequestPacer(10.0, clock=lambda: clock["now"], sleep=sleep)
+        pacer.wait_turn()
+        pacer.wait_turn()
+
+        assert sleeps == pytest.approx([0.1, 5.0])
+
+    def test_rate_limits_reported_during_a_hold_do_not_compound(self):
+        pacer, clock, sleeps = self._pacer()
+        pacer.throttled(retry_after=5)
+        pacer.throttled(retry_after=5)
+
+        clock["now"] = 4.9
+        pacer.wait_turn()
+        pacer.wait_turn()
+
+        assert sleeps == pytest.approx([0.1, 0.3])
+
     def test_the_rate_recovers_after_a_quiet_window(self):
         pacer, clock, sleeps = self._pacer()
         pacer.throttled(retry_after=None)
@@ -728,14 +756,13 @@ class TestInvoiceListWithAllLines:
         )
         client = MagicMock()
         client.invoices.list.return_value = pages
-        worker_client = MagicMock()
-        worker_client.invoices.line_items.list.side_effect = lambda invoice=None, params=None: _list_object(
+        client.invoices.line_items.list.side_effect = lambda invoice=None, params=None: _list_object(
             [{"id": f"il_{invoice}_a"}, {"id": f"il_{invoice}_b"}]
         )
 
         result = list(
             InvoiceListWithAllLines(
-                client, params={}, logger=MagicMock(), client_factory=lambda _throttled: worker_client
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
             ).auto_paging_iter()
         )
 
@@ -744,7 +771,6 @@ class TestInvoiceListWithAllLines:
         assert result[0].lines.has_more is False
         assert result[1].lines.data == [{"id": "embedded"}]
         assert result[2].lines.data == [{"id": "il_in_3_a"}, {"id": "il_in_3_b"}]
-        client.invoices.line_items.list.assert_not_called()
 
     def test_line_fetches_run_with_the_callers_context(self):
         label: contextvars.ContextVar[str] = contextvars.ContextVar("label")
@@ -761,38 +787,43 @@ class TestInvoiceListWithAllLines:
 
         list(
             InvoiceListWithAllLines(
-                client, params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
             ).auto_paging_iter()
         )
 
         assert seen == ["job-42", "job-42"]
 
-    def test_line_fetches_overlap_across_workers(self):
+    def test_line_fetches_overlap_across_workers_on_their_own_clients(self):
         first_started = threading.Event()
         second_finished = threading.Event()
+        threads_by_client: dict[int, set[int]] = {}
 
-        def line_items_list(invoice=None, params=None):
-            if invoice == "in_1":
-                first_started.set()
-                assert second_finished.wait(2), "the second fetch never ran while the first was in flight"
-            else:
-                first_started.wait(2)
-                second_finished.set()
-            return _list_object([{"id": f"il_{invoice}"}])
+        def make_client(_throttled: RateLimitCallback) -> MagicMock:
+            client = MagicMock()
 
-        worker_client = MagicMock()
-        worker_client.invoices.line_items.list.side_effect = line_items_list
-        client = MagicMock()
-        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1"), _invoice("in_2")])
+            def line_items_list(invoice=None, params=None):
+                threads_by_client.setdefault(id(client), set()).add(threading.get_ident())
+                if invoice == "in_1":
+                    first_started.set()
+                    assert second_finished.wait(2), "the second fetch never ran while the first was in flight"
+                else:
+                    first_started.wait(2)
+                    second_finished.set()
+                return _list_object([{"id": f"il_{invoice}"}])
+
+            client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1"), _invoice("in_2")])
+            client.invoices.line_items.list.side_effect = line_items_list
+            return client
 
         result = list(
             InvoiceListWithAllLines(
-                client, params={}, logger=MagicMock(), client_factory=lambda _throttled: worker_client, concurrency=2
+                params={}, logger=MagicMock(), client_factory=make_client, concurrency=2
             ).auto_paging_iter()
         )
 
-        assert [inv.id for inv in result] == ["in_1", "in_2"]
         assert [inv.lines.data for inv in result] == [[{"id": "il_in_1"}], [{"id": "il_in_2"}]]
+        assert len(threads_by_client) == 2
+        assert all(len(threads) == 1 for threads in threads_by_client.values())
 
     def test_skips_lines_for_invoice_deleted_mid_sync(self):
         def line_items_list(invoice=None, params=None):
@@ -808,7 +839,7 @@ class TestInvoiceListWithAllLines:
 
         result = list(
             InvoiceListWithAllLines(
-                client, params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
             ).auto_paging_iter()
         )
 
@@ -830,7 +861,7 @@ class TestInvoiceListWithAllLines:
         with pytest.raises(stripe_lib.InvalidRequestError):
             list(
                 InvoiceListWithAllLines(
-                    client, params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+                    params={}, logger=MagicMock(), client_factory=lambda _throttled: client
                 ).auto_paging_iter()
             )
 

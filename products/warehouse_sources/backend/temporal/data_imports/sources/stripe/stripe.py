@@ -232,6 +232,13 @@ def _is_non_list_stripe_response(body: Any) -> bool:
 RATE_LIMIT_RETRIES = 5
 
 
+def _retry_after_seconds(headers: Mapping[str, str]) -> Optional[float]:
+    try:
+        return float(headers["retry-after"])
+    except (KeyError, ValueError):
+        return None
+
+
 class _RateLimitRetryingRequestsClient(RequestsClient):
     """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
     retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
@@ -278,7 +285,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
             # client hears about it first so every worker slows down, not only the one that was hit.
             headers = response[2] or {}
             if self._on_rate_limited is not None:
-                self._on_rate_limited(self._retry_after_header((response[0], response[1], headers)))
+                self._on_rate_limited(_retry_after_seconds(headers))
             if str(headers.get("stripe-should-retry", "")).lower() == "false":
                 return False
             return num_retries < RATE_LIMIT_RETRIES
@@ -714,7 +721,7 @@ def _build_resources(
         INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
         INVOICE_RESOURCE_NAME: StripeResource(
             method=(
-                (lambda params: InvoiceListWithAllLines(client, params, logger, client_factory=client_factory))  # type: ignore
+                (lambda params: InvoiceListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
                 if logger is not None and client_factory is not None
                 else client.invoices.list
             )

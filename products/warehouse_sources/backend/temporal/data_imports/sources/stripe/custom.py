@@ -31,8 +31,9 @@ class _RequestPacer:
 
     Every worker calls wait_turn() before a request, so the pool never starts more than
     `per_second` requests in any second. A 429 halves the rate for the hold window and, when
-    Stripe sends Retry-After, holds every worker until it passes. Each quiet window after that
-    doubles the rate back until the base rate is restored.
+    Stripe sends Retry-After, holds every worker until it passes, including workers already
+    waiting for a slot. Each quiet window after that doubles the rate back until the base rate
+    is restored.
     """
 
     def __init__(
@@ -47,9 +48,22 @@ class _RequestPacer:
         self._sleep = sleep
         self._lock = threading.Lock()
         self._next_start = 0.0
+        self._hold_until = 0.0
         self._recover_at: Optional[float] = None
 
     def wait_turn(self) -> None:
+        start = self._reserve_slot()
+        while True:
+            delay = start - self._clock()
+            if delay > 0:
+                self._sleep(delay)
+            with self._lock:
+                if self._hold_until <= start:
+                    return
+            # A throttle arrived during the sleep and its hold covers this slot: take a later one.
+            start = self._reserve_slot()
+
+    def _reserve_slot(self) -> float:
         with self._lock:
             now = self._clock()
             if self._recover_at is not None and now >= self._recover_at:
@@ -57,17 +71,19 @@ class _RequestPacer:
                 self._recover_at = None if self._interval == self._base_interval else now + RATE_LIMIT_HOLD_SECONDS
             start = max(now, self._next_start)
             self._next_start = start + self._interval
-        delay = start - now
-        if delay > 0:
-            self._sleep(delay)
+            return start
 
     def throttled(self, retry_after: Optional[float]) -> None:
         with self._lock:
             now = self._clock()
+            if now < self._hold_until:
+                # Requests already in flight when the first 429 landed report the same throttle.
+                return
             hold = retry_after if retry_after is not None and retry_after > 0 else RATE_LIMIT_HOLD_SECONDS
             self._interval = min(self._interval * 2, self._base_interval * 16)
             if retry_after is not None and retry_after > 0:
-                self._next_start = max(self._next_start, now + retry_after)
+                self._hold_until = now + retry_after
+                self._next_start = max(self._next_start, self._hold_until)
             self._recover_at = now + hold
 
 
@@ -88,20 +104,19 @@ class InvoiceListWithAllLines:
     `/lines` call. Those calls run on a small thread pool while the next page downloads. Each worker
     thread builds its own client from the factory: Stripe's RequestsClient hands a caller-supplied
     session to every thread, `requests.Session` is not documented as thread-safe, and the retrying
-    client keeps per-request state. Invoices are yielded in list order because the `starting_after`
-    resume cursor is the last yielded id.
+    client keeps per-request state. The page client comes from the same factory, so a 429 on
+    either leg slows the whole pool. Invoices are yielded in list order because the
+    `starting_after` resume cursor is the last yielded id.
     """
 
     def __init__(
         self,
-        client: StripeClient,
         params: InvoiceService.ListParams,
         logger: FilteringBoundLogger,
         client_factory: ClientFactory,
         concurrency: int = LINE_FETCH_CONCURRENCY,
         requests_per_second: float = LINE_REQUESTS_PER_SECOND,
     ) -> None:
-        self.client = client
         self.params = params
         self.logger = logger
         self._client_factory = client_factory
@@ -110,7 +125,8 @@ class InvoiceListWithAllLines:
         self._thread_clients = threading.local()
 
     def auto_paging_iter(self) -> Iterator[Invoice]:
-        page: ListObject[Invoice] = self.client.invoices.list(params=self.params)
+        page_client = self._client_factory(self._pacer.throttled)
+        page: ListObject[Invoice] = page_client.invoices.list(params=self.params)
 
         total_line_calls = 0
         invoice_count = 0
