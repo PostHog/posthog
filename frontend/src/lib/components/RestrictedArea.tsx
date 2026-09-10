@@ -34,7 +34,7 @@ export interface RestrictedAreaProps extends UseRestrictedAreaProps {
 export interface RestrictedAreaCheck {
     /** Why the area is closed to this user, or null when they have access. Also null while the check loads. */
     restrictionReason: null | string
-    /** True until the organization or project the check reads has arrived. */
+    /** True while the organization or project the check reads is still on its way. */
     isLoading: boolean
     /** Fetch the membership again, for a level that changed after this tab loaded. */
     revalidate: () => void
@@ -116,7 +116,12 @@ export function useRestrictedAreaCheck(props: UseRestrictedAreaProps): Restricte
     const { currentTeamLoading } = useValues(teamLogic)
     const { loadCurrentTeam } = useActions(teamLogic)
 
-    const isProjectScope = props.scope === RestrictionScope.Project
+    const scope = props.scope ?? RestrictionScope.Organization
+    const isProjectScope = scope === RestrictionScope.Project
+    const isScopeLoading = isProjectScope ? currentTeamLoading : currentOrganizationLoading
+    // A read that fails leaves the loader finished with nothing to check. Report that as a refusal
+    // the retry can clear, because a spinner keyed on the missing value alone never stops.
+    const isUnavailable = !!loadingReason && !isScopeLoading
 
     const revalidate = useCallback(() => {
         if (isProjectScope) {
@@ -137,10 +142,10 @@ export function useRestrictedAreaCheck(props: UseRestrictedAreaProps): Restricte
     }, [restrictionReason, revalidate])
 
     return {
-        restrictionReason,
-        isLoading: !!loadingReason,
+        restrictionReason: isUnavailable ? `We couldn't check your access to the current ${scope}.` : restrictionReason,
+        isLoading: !!loadingReason && !isUnavailable,
         revalidate,
-        isRevalidating: isProjectScope ? currentTeamLoading : currentOrganizationLoading,
+        isRevalidating: isScopeLoading,
     }
 }
 
