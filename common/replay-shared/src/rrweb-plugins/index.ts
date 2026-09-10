@@ -66,10 +66,17 @@ export const CorsPlugin: ReplayPlugin & {
 const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL}; }`
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
+// The Chrome extension "Translator, dictionary - accurate translate" (id bebmphofpgkhclocdbgomhnjcpelbenh)
+// prepends its language-picker popup to <body> on every page. The CSS that hides and positions it
+// lives in the extension's content-script stylesheet, which browsers keep out of document.styleSheets,
+// so the recorder cannot capture it. Without it the popup renders in normal flow as a full-height
+// list of languages and pushes the recorded page below the fold.
+const translatorExtensionPopupFix =
+    'body > div.translate-tooltip-mtz, body > span.translate-button-mtz { display: none !important; }'
 
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
+    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix, translatorExtensionPopupFix],
     // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
     // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
     // recorded content escape the sandbox into the app origin. Canvas is replayed via

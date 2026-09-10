@@ -19,4 +19,12 @@ describe('COMMON_REPLAYER_CONFIG', () => {
         // PostHog renders canvas via CanvasReplayerPlugin instead, so this must stay off.
         expect(COMMON_REPLAYER_CONFIG.UNSAFE_replayCanvas).toBe(false)
     })
+
+    it.each([
+        ['body > div.translate-tooltip-mtz', 'translator extension popup'],
+        ['body > span.translate-button-mtz', 'translator extension button'],
+    ])('hides %s (%s) injected by a browser extension', (selector) => {
+        const rule = COMMON_REPLAYER_CONFIG.insertStyleRules?.find((r) => r.includes(selector))
+        expect(rule).toContain('display: none !important')
+    })
 })
