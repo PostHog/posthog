@@ -10,6 +10,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
+from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.tasks.backend.facade import api as facade
 from products.tasks.backend.logic.services.ai_run_defaults import (
     get_team_ai_run_preferences,
@@ -420,6 +421,25 @@ class TestTasksConfigAPI(APIBaseTest):
         assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").status_code == 200
         assert self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE).status_code == 403
         assert self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", USER_TRIPLE).status_code == 200
+
+    def test_me_config_reports_slack_model_pins(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
+        assert response.json()["slack_model_pins"] == []
+
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_PIN", config={"team": {"id": "T_PIN", "name": "Acme"}}
+        )
+        SlackUserProfileCache.objects.create(integration=integration, slack_user_id="U42", email=self.user.email)
+        SlackSettings.objects.create(
+            slack_workspace_id="T_PIN",
+            slack_user_id="U42",
+            ai_preferences=TEAM_TRIPLE,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
+        assert response.json()["slack_model_pins"] == [
+            {"slack_workspace_id": "T_PIN", "slack_workspace_name": "Acme", **TEAM_TRIPLE}
+        ]
 
     def test_me_config_is_scoped_to_the_requesting_user(self):
         other = User.objects.create_and_join(self.organization, "other@posthog.com", None)

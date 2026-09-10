@@ -518,7 +518,9 @@ tools:
             Set the caller's per-project default AI run preferences (runtime adapter, model, reasoning effort). They
             override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three
             fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved
-            defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.
+            defaults a new run will use. When `slack_model_pins` is non-empty, tell the user: a model they pinned in
+            Slack overrides these defaults for runs started from that workspace, and clearing it from the Slack App
+            Home tab makes Slack runs follow these defaults. Use tasks-models-retrieve to list valid model identifiers.
         feature_flag: tasks
     tasks-me-config-list:
         operation: tasks_me_config_list
@@ -533,7 +535,8 @@ tools:
         description: >
             Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when
             no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says
-            which level supplied it).
+            which level supplied it). `slack_model_pins` lists models the caller pinned in connected Slack workspaces;
+            a pin overrides these defaults for runs started from that workspace.
         feature_flag: tasks
     tasks-models-retrieve:
         operation: tasks_models_retrieve

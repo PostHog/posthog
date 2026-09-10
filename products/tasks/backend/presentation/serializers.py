@@ -4613,6 +4613,24 @@ class TasksTeamConfigResponseSerializer(serializers.Serializer):
     )
 
 
+class TasksSlackModelPinSerializer(serializers.Serializer):
+    """A model the requesting user pinned in a connected Slack workspace.
+
+    Runs started from that workspace use the pin instead of the defaults stored here,
+    so the config endpoints report it to explain why a Slack run may not follow them.
+    """
+
+    slack_workspace_id = serializers.CharField(help_text="Slack workspace (team) id the pin applies to.")
+    slack_workspace_name = serializers.CharField(
+        allow_null=True, help_text="Display name of the Slack workspace, when known."
+    )
+    runtime_adapter = serializers.CharField(help_text="Runtime adapter the pin selects.")
+    model = serializers.CharField(help_text="Model identifier the pin selects.")
+    reasoning_effort = serializers.CharField(
+        allow_null=True, help_text="Reasoning effort the pin selects, or null when unset."
+    )
+
+
 @extend_schema_serializer(many=False)
 class TasksUserConfigResponseSerializer(serializers.Serializer):
     """The requesting user's per-project tasks configuration."""
@@ -4622,4 +4640,12 @@ class TasksUserConfigResponseSerializer(serializers.Serializer):
     )
     resolved_ai_run_defaults = TasksResolvedAIRunDefaultsSerializer(
         help_text="The defaults a new run will use when no explicit runtime selection is sent."
+    )
+    slack_model_pins = TasksSlackModelPinSerializer(
+        many=True,
+        help_text=(
+            "Models the requesting user pinned in connected Slack workspaces. A pin overrides the "
+            "defaults above for runs started from that workspace. Clear it from the Slack App Home "
+            "tab to have Slack runs follow these defaults."
+        ),
     )

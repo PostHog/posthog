@@ -639,6 +639,23 @@ def _active_model_blocks(
         {"type": "section", "text": {"type": "mrkdwn", "text": headline}},
         {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source_label}"}]},
     ]
+    if not effective.is_empty and run_defaults.applies:
+        shadowed = "your PostHog default" if run_defaults.source == "user" else "the project default"
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"This overrides {shadowed} "
+                            f"({describe_run_model(run_defaults.model, run_defaults.reasoning_effort)}). "
+                            'Use "Reset to default" below to switch back to it.'
+                        ),
+                    }
+                ],
+            }
+        )
     if run_defaults.settings_url:
         blocks.append(
             {

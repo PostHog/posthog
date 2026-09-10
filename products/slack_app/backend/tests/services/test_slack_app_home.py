@@ -58,6 +58,7 @@ from products.slack_app.backend.services.slack_app_home import (
     PreferenceSource,
     ProjectChoice,
     ProjectState,
+    RunDefaultsState,
     StatsState,
     TaskItem,
     TasksState,
@@ -438,6 +439,41 @@ class TestRenderHomeView:
         # Friendly label rather than raw model id; source attribution visible.
         assert "Claude Opus 4.7" in text_blob
         assert "Your personal override" in _all_text(view)
+
+    @pytest.mark.parametrize(
+        "source,expected",
+        [
+            pytest.param("user", "This overrides your PostHog default", id="user-default"),
+            pytest.param("team", "This overrides the project default", id="team-default"),
+        ],
+    )
+    def test_pin_names_the_shadowed_posthog_default(self, source, expected):
+        view = render_home_view(
+            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
+            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
+            is_admin=False,
+            run_defaults=RunDefaultsState(model="gpt-5.5", runtime_adapter="codex", source=source),
+        )
+        assert expected in _all_text(view)
+
+    def test_no_shadow_callout_without_a_pin_or_without_a_default(self):
+        # Default applies but nothing pinned: the default is what runs, nothing shadowed.
+        view = render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            run_defaults=RunDefaultsState(model="gpt-5.5", runtime_adapter="codex", source="user"),
+        )
+        assert "This overrides" not in _all_text(view)
+
+        # Pin without any central default underneath: nothing to name either.
+        view = render_home_view(
+            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
+            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7"),
+            is_admin=False,
+            run_defaults=RunDefaultsState(),
+        )
+        assert "This overrides" not in _all_text(view)
 
     def test_every_control_the_tab_renders_is_routable(self):
         # The interactivity endpoint claims region ownership and dispatches off

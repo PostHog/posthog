@@ -87906,6 +87906,31 @@ export namespace Schemas {
     }
 
     /**
+     * A model the requesting user pinned in a connected Slack workspace.
+     *
+     * Runs started from that workspace use the pin instead of the defaults stored here,
+     * so the config endpoints report it to explain why a Slack run may not follow them.
+     */
+    export interface TasksSlackModelPin {
+      /** Slack workspace (team) id the pin applies to. */
+      slack_workspace_id: string;
+      /**
+         * Display name of the Slack workspace, when known.
+         * @nullable
+         */
+      slack_workspace_name: string | null;
+      /** Runtime adapter the pin selects. */
+      runtime_adapter: string;
+      /** Model identifier the pin selects. */
+      model: string;
+      /**
+         * Reasoning effort the pin selects, or null when unset.
+         * @nullable
+         */
+      reasoning_effort: string | null;
+    }
+
+    /**
      * Team-level tasks configuration.
      */
     export interface TasksTeamConfigResponse {
@@ -87921,6 +87946,8 @@ export namespace Schemas {
       ai_run_preferences: TasksAIRunPreferences;
       /** The defaults a new run will use when no explicit runtime selection is sent. */
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+      /** Models the requesting user pinned in connected Slack workspaces. A pin overrides the defaults above for runs started from that workspace. Clear it from the Slack App Home tab to have Slack runs follow these defaults. */
+      slack_model_pins: TasksSlackModelPin[];
     }
 
     export interface TeachingCanvas {

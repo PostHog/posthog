@@ -18,7 +18,16 @@ from posthog.models.integration import Integration
 
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
+from products.slack_app.backend.services.slack_settings import SlackModelPin, slack_model_pins_for_user
 from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
+
+__all__ = [
+    "SlackModelPin",
+    "invalidate_slack_integration_auth_state",
+    "slack_artifact_delivery_state_updates",
+    "slack_channel_is_approved",
+    "slack_model_pins_for_user",
+]
 
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
 

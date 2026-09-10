@@ -1,8 +1,9 @@
 from dataclasses import asdict
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 
+import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -24,12 +25,34 @@ from products.tasks.backend.presentation.serializers import (
     TasksUserConfigResponseSerializer,
 )
 
+if TYPE_CHECKING:
+    from products.slack_app.backend.facade.api import SlackModelPin
+
+logger = structlog.get_logger(__name__)
+
 _AUTH_CLASSES = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
 
 
 def _user_id(request: Request) -> int:
     """The requesting user's id; `IsAuthenticated` guarantees a real user on these views."""
     return cast(User, request.user).id
+
+
+def _slack_model_pins(team_id: int, request: Request) -> "list[SlackModelPin]":
+    """The caller's Slack model pins in workspaces connected to this project.
+
+    Informational only: a failed lookup logs and yields an empty list rather than
+    failing the config read or write it decorates.
+    """
+    from products.slack_app.backend.facade.api import (  # noqa: PLC0415 — keeps slack_app deps off the tasks import path
+        slack_model_pins_for_user,
+    )
+
+    try:
+        return list(slack_model_pins_for_user(team_id, cast(User, request.user)))
+    except Exception:
+        logger.exception("tasks_config_slack_model_pins_lookup_failed", team_id=team_id)
+        return []
 
 
 def _validated_triple(request: Request) -> dict:
@@ -103,7 +126,11 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(
             TasksUserConfigResponseSerializer(
-                {"ai_run_preferences": preferences, "resolved_ai_run_defaults": asdict(resolved)}
+                {
+                    "ai_run_preferences": preferences,
+                    "resolved_ai_run_defaults": asdict(resolved),
+                    "slack_model_pins": _slack_model_pins(self.team_id, request),
+                }
             ).data
         )
 

@@ -7,12 +7,16 @@ from django.core.exceptions import ValidationError
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
+    SlackModelPin,
     resolve_ai_preferences,
     resolve_untagged_followup_mode,
+    slack_model_pins_for_user,
     validate_ai_preferences,
 )
 
@@ -314,3 +318,82 @@ class TestValidateAIPreferences:
     def test_effort_unsupported_by_model_rejected(self):
         with pytest.raises(ValidationError, match="not supported"):
             validate_ai_preferences("claude", "claude-sonnet-4-6", "xhigh")
+
+
+class TestSlackModelPinsForUser:
+    PIN = {"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"}
+
+    @pytest.fixture
+    def user(self, db):
+        return User.objects.create_user("pin-owner@example.com", None, "Pin")
+
+    def _link(self, user, slack_user_id="U001", slack_team_id="T_WS"):
+        UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            integration_id=slack_user_id,
+            config={"slack_team_id": slack_team_id},
+        )
+
+    def _pin_row(self, integration, slack_user_id: str | None = "U001", ai_preferences: Any = "use-pin"):
+        SlackSettings.objects.create(
+            default_integration=integration,
+            slack_workspace_id=integration.integration_id,
+            slack_user_id=slack_user_id,
+            ai_preferences=self.PIN if ai_preferences == "use-pin" else ai_preferences,
+        )
+
+    def test_pin_found_via_explicit_account_link(self, slack_setup, user):
+        integration = slack_setup
+        integration.config = {"team": {"id": "T_WS", "name": "Acme"}}
+        integration.save()
+        self._link(user)
+        self._pin_row(integration)
+
+        assert slack_model_pins_for_user(integration.team_id, user) == [
+            SlackModelPin(
+                slack_workspace_id="T_WS",
+                slack_workspace_name="Acme",
+                runtime_adapter="claude",
+                model="claude-opus-4-7",
+                reasoning_effort="high",
+            )
+        ]
+
+    def test_pin_found_via_profile_cache_email_match(self, slack_setup, user):
+        integration = slack_setup
+        SlackUserProfileCache.objects.create(
+            integration=integration,
+            slack_user_id="U001",
+            email="PIN-OWNER@example.com",
+        )
+        self._pin_row(integration)
+
+        pins = slack_model_pins_for_user(integration.team_id, user)
+        assert [pin.model for pin in pins] == ["claude-opus-4-7"]
+        assert pins[0].slack_workspace_name is None
+
+    @pytest.mark.parametrize(
+        "ai_preferences",
+        [
+            pytest.param(None, id="no-preferences-at-all"),
+            pytest.param({"reasoning_effort": "high"}, id="half-set-row-is-not-a-pin"),
+        ],
+    )
+    def test_row_without_the_atomic_pair_reports_nothing(self, slack_setup, user, ai_preferences):
+        integration = slack_setup
+        self._link(user)
+        self._pin_row(integration, ai_preferences=ai_preferences)
+
+        assert slack_model_pins_for_user(integration.team_id, user) == []
+
+    def test_workspace_row_and_other_identities_do_not_leak(self, slack_setup, user):
+        integration = slack_setup
+        self._link(user)
+        # Workspace-wide default row, another Slack user's pin, and a
+        # different-workspace pin: none belong to this user's identity here.
+        self._pin_row(integration, slack_user_id=None)
+        self._pin_row(integration, slack_user_id="U_OTHER")
+        self._link(user, slack_user_id="U9", slack_team_id="T_ELSEWHERE")
+
+        assert slack_model_pins_for_user(integration.team_id, user) == []

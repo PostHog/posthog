@@ -26,11 +26,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from django.db.models import Q
+
+from posthog.dataclasses import frozen
+
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.model_catalogue import filter_unsupported_effort
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
+    from posthog.models.user import User
 
 
 @dataclass(frozen=True)
@@ -74,13 +79,20 @@ def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) 
         .values("ai_preferences")
         .first()
     )
+    return _stored_preferences(row["ai_preferences"] if row else None)
+
+
+def _stored_preferences(raw: Any) -> AIPreferences:
+    """Parse a stored `ai_preferences` JSON value into the resolved triple.
+
+    `validate_ai_preferences` enforces that `runtime_adapter` and `model` are
+    set together, so a value missing either half was never explicitly
+    configured and contributes nothing.
+    """
     # Pulled into a local dict so mypy can give it a definite type — the
     # JSONField reads back as `Any | None`.
-    prefs: dict[str, Any] = (row["ai_preferences"] if row else None) or {}
+    prefs: dict[str, Any] = raw or {}
 
-    # `validate_ai_preferences` enforces that `runtime_adapter` and `model` are
-    # set together, so a row missing either half was never explicitly
-    # configured and contributes nothing.
     runtime_adapter = prefs.get("runtime_adapter") or None
     model = prefs.get("model") or None
     if not runtime_adapter or not model:
@@ -95,6 +107,84 @@ def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) 
         model=model,
         reasoning_effort=reasoning_effort,
     )
+
+
+@frozen
+class SlackModelPin:
+    """A personal Slack settings row that pins a model for one workspace.
+
+    For runs started from that workspace, the pin shadows whatever the central
+    tasks defaults say — that is the fact callers surface to the user.
+    """
+
+    slack_workspace_id: str
+    slack_workspace_name: str | None
+    runtime_adapter: str
+    model: str
+    reasoning_effort: str | None
+
+
+def slack_model_pins_for_user(team_id: int, user: User) -> list[SlackModelPin]:
+    """Model pins this PostHog user holds in Slack workspaces connected to `team_id`.
+
+    The user's Slack identities are found the same two ways the inbound event
+    resolver maps them back: an explicit account link first, then a profile-cache
+    email match. So a pin reported here is one a mention of theirs would actually
+    resolve against. DB-only and best-effort — no Slack API calls, and an
+    identity we can't map simply contributes nothing.
+    """
+    from posthog.models.integration import Integration
+    from posthog.models.user_integration import UserIntegration
+
+    from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+
+    integrations = [i for i in Integration.objects.filter(team_id=team_id, kind="slack") if i.integration_id]
+    if not integrations:
+        return []
+    by_workspace = {i.integration_id: i for i in integrations}
+
+    identities: set[tuple[str, str]] = set()
+    links = UserIntegration.objects.filter(kind=UserIntegration.IntegrationKind.SLACK, user_id=user.id).values_list(
+        "integration_id", "config"
+    )
+    for slack_user_id, config in links:
+        workspace = (config or {}).get("slack_team_id")
+        if isinstance(workspace, str) and workspace in by_workspace:
+            identities.add((workspace, slack_user_id))
+
+    if user.email:
+        cached = SlackUserProfileCache.objects.filter(
+            integration__in=integrations, email__iexact=user.email
+        ).values_list("integration__integration_id", "slack_user_id")
+        identities.update((workspace, slack_user_id) for workspace, slack_user_id in cached if workspace)
+
+    if not identities:
+        return []
+
+    pair_filter = Q()
+    for workspace, slack_user_id in identities:
+        pair_filter |= Q(slack_workspace_id=workspace, slack_user_id=slack_user_id)
+
+    pins = []
+    for settings_row in SlackSettings.objects.filter(pair_filter):
+        stored = _stored_preferences(settings_row.ai_preferences)
+        if stored.runtime_adapter is None or stored.model is None:
+            continue
+        workspace_integration = by_workspace[settings_row.slack_workspace_id]
+        # Straight off the stored OAuth response rather than `Integration.display_name`,
+        # which raises on instances without Slack app credentials configured.
+        team_config = workspace_integration.config.get("team") or {}
+        workspace_name = team_config.get("name") if isinstance(team_config, dict) else None
+        pins.append(
+            SlackModelPin(
+                slack_workspace_id=settings_row.slack_workspace_id,
+                slack_workspace_name=workspace_name,
+                runtime_adapter=stored.runtime_adapter,
+                model=stored.model,
+                reasoning_effort=stored.reasoning_effort,
+            )
+        )
+    return sorted(pins, key=lambda pin: pin.slack_workspace_id)
 
 
 def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str | None) -> UntaggedFollowupMode:
@@ -177,8 +267,10 @@ def validate_ai_preferences(
 
 __all__ = [
     "AIPreferences",
+    "SlackModelPin",
     "build_ai_preferences_payload",
     "resolve_ai_preferences",
     "resolve_untagged_followup_mode",
+    "slack_model_pins_for_user",
     "validate_ai_preferences",
 ]
