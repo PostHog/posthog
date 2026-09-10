@@ -4672,9 +4672,16 @@ class HogFlowViewSet(
     @action(detail=True, methods=["GET"], filter_backends=[])
     def revisions(self, request: Request, *args, **kwargs):
         # Version history: one snapshot per live-content change, newest first. Content is fetched
-        # per-version via the detail endpoint — the list stays light.
+        # per-version via the detail endpoint — the list stays light. defer(content) keeps it that
+        # way in Postgres too: each row holds a full snapshot in a JSONB column, and a plain read
+        # detoasts a whole page of them for three small fields.
         instance = self.get_object()
-        queryset = HogFlowRevision.objects.filter(hog_flow=instance).order_by("-version").select_related("created_by")
+        queryset = (
+            HogFlowRevision.objects.filter(hog_flow=instance)
+            .defer("content")
+            .order_by("-version")
+            .select_related("created_by")
+        )
         page = self.paginate_queryset(queryset)
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
 
