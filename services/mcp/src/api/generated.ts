@@ -33731,21 +33731,6 @@ export namespace Schemas {
       release: ErrorTrackingRelease | null;
     }
 
-    export interface ErrorTrackingSymbolSetBulkDelete {
-      /** Symbol set IDs to delete. */
-      ids: string[];
-    }
-
-    /**
-     * Map of symbol set ID to uploaded content hash.
-     */
-    export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
-
-    export interface ErrorTrackingSymbolSetBulkFinishUpload {
-      /** Map of symbol set ID to uploaded content hash. */
-      content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
-    }
-
     export interface ErrorTrackingSymbolSetUpload {
       /** Symbol set reference to upload. */
       chunk_id: string;
@@ -33761,7 +33746,42 @@ export namespace Schemas {
       content_hash?: string | null;
     }
 
+    export interface ErrorTrackingSymbolSetBulkCheckUpload {
+      /** Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. */
+      symbol_sets: ErrorTrackingSymbolSetUpload[];
+      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+      force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkCheckUploadResponse {
+      /** Chunk IDs to send to `bulk_start_upload`: the symbol set is missing, its upload never completed, its content differs, or it still needs the release bound. The other chunks are already uploaded with identical content and were marked as still in use. */
+      chunk_ids_to_upload: string[];
+    }
+
+    export interface ErrorTrackingSymbolSetBulkDelete {
+      /** Symbol set IDs to delete. */
+      ids: string[];
+    }
+
+    /**
+     * Map of symbol set ID to uploaded content hash.
+     */
+    export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
+
+    export interface ErrorTrackingSymbolSetBulkFinishUpload {
+      /** Map of symbol set ID to uploaded content hash. */
+      content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
+    }
+
     export interface ErrorTrackingSymbolSetBulkStartUpload {
+      /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+      symbol_sets?: ErrorTrackingSymbolSetUpload[];
+      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+      force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
       /** Legacy list of symbol set references to upload, all associated with `release_id`. */
       chunk_ids?: string[];
       /**
@@ -33769,12 +33789,6 @@ export namespace Schemas {
          * @nullable
          */
       release_id?: string | null;
-      /** Symbol sets to upload with per-symbol release IDs and content hashes. */
-      symbol_sets?: ErrorTrackingSymbolSetUpload[];
-      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
-      force?: boolean;
-      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
-      skip_on_conflict?: boolean;
     }
 
     /**
