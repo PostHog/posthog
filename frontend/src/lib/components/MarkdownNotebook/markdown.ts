@@ -267,9 +267,12 @@ function serializeNodeUncached(node: NotebookBlockNode): string {
         return [serializeRawTableRow(headerCells), serializeRawTableRow(separatorCells), ...bodyRows].join('\n')
     }
     if (node.type === 'code') {
+        // A code node can reach the serializer without a string `text`. Serialization runs over the
+        // whole document during render, so one such block must not throw and blank the notebook
+        const text = typeof node.text === 'string' ? node.text : ''
         // The fence must be longer than any backtick run in the content, so the content can't close it
-        const fence = getCodeBlockFence(node.text)
-        return `${fence}${serializeCodeBlockInfo(node)}\n${node.text}\n${fence}`
+        const fence = getCodeBlockFence(text)
+        return `${fence}${serializeCodeBlockInfo(node)}\n${text}\n${fence}`
     }
     if (node.type === 'component' && node.errors?.length && node.raw) {
         // Props that failed to parse exist only in `raw` — re-emitting from `props` would
