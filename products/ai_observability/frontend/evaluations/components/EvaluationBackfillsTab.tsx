@@ -306,7 +306,9 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                             key: 'conditions',
                             header: 'Conditions',
                             dataAttr: 'llma-eval-backfill-conditions',
-                            content: <EvaluationTriggers conditions={conditions} onChange={setConditions} />,
+                            content: (
+                                <EvaluationTriggers conditions={conditions} onChange={setConditions} unit={unit} />
+                            ),
                         },
                     ]}
                 />
