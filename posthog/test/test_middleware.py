@@ -2543,6 +2543,8 @@ class TestAppCspHeaderName(SimpleTestCase):
         # staff-only rollout would enforce nothing.
         app_csp_header_name(self._request("/", email="staff@posthog.com"))
         assert mock_flag.call_args.kwargs["person_properties"] == {"email": "staff@posthog.com"}
+        # Local evaluation keeps a flag network call out of every HTML response.
+        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
 
     @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
     def test_anonymous_request_stays_report_only(self, mock_flag):

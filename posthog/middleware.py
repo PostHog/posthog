@@ -1209,6 +1209,9 @@ def csp_enforcement_enabled(request: HttpRequest) -> bool:
             )
         )
     except Exception:
+        # A failed lookup and a deliberate opt-out both leave the policy report-only. The rollout
+        # needs to tell them apart.
+        logger.warning("csp.enforcement_flag_check_failed_defaulting_off", exc_info=True)
         return False
 
 
