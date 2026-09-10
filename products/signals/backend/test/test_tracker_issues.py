@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.models import Team
 from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
@@ -223,11 +224,28 @@ def test_serializer_rejects_a_tracker_with_no_target(team):
     serializer = SignalTeamConfigSerializer(
         data={"issue_tracking_integration": integration.id, "issue_tracking_config": {}},
         partial=True,
-        context={"get_team": lambda: team},
+        context={"team_id": team.id},
     )
 
     assert not serializer.is_valid()
     assert "issue_tracking_config" in serializer.errors
+
+
+@pytest.mark.django_db
+def test_serializer_rejects_an_integration_from_another_project(team):
+    # The field is team-scoped, so a project cannot point self-driving at a tracker it does not own.
+    other_team = Team.objects.create(organization=team.organization, name="Other")
+    integration = Integration.objects.create(
+        team=other_team, kind="linear", integration_id="linear-1", config=INTEGRATION_CONFIGS["linear"]
+    )
+    serializer = SignalTeamConfigSerializer(
+        data={"issue_tracking_integration": integration.id, "issue_tracking_config": {"team_id": "t"}},
+        partial=True,
+        context={"team_id": team.id},
+    )
+
+    assert not serializer.is_valid()
+    assert "issue_tracking_integration" in serializer.errors
 
 
 @pytest.mark.django_db
@@ -236,7 +254,7 @@ def test_serializer_rejects_a_provider_that_cannot_hold_issues(team):
     serializer = SignalTeamConfigSerializer(
         data={"issue_tracking_integration": integration.id},
         partial=True,
-        context={"get_team": lambda: team},
+        context={"team_id": team.id},
     )
 
     assert not serializer.is_valid()

@@ -38,9 +38,9 @@ export interface signalTeamConfigLogicValues {
     issueTrackerIntegrationId: number | null
     maxReportsPerDay: number | null
     patchesInFlight: number
-    selectedIssueTrackerIntegrationId: number | null
     reportsGeneratedToday: number
     saveMaxReportsPerDayDisabledReason: string | null
+    selectedIssueTrackerIntegrationId: number | null
     teamConfig: SignalTeamConfig | null
     teamConfigLoading: boolean
     teamConfigUpdating: boolean
