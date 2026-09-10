@@ -9,9 +9,11 @@ and keep liveness a living signal.
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import field
 from typing import Any
 
+from django.db.models import F
 from django.utils import timezone
 
 import requests
@@ -22,6 +24,7 @@ from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
 
 from products.mcp_registry.backend.constants import (
     PROBE_BATCH_SIZE,
+    PROBE_CONCURRENCY,
     PROBE_TIMEOUT_SECONDS,
     PROBE_TOOL_DESCRIPTION_MAX_CHARS,
     PROBE_TOOL_LIMIT,
@@ -162,21 +165,46 @@ def apply_probe_outcome(server: MCPRegistryServer, outcome: ProbeOutcome) -> Non
         )
 
 
-def probe_stalest_servers(batch_size: int = PROBE_BATCH_SIZE) -> int:
+def probeable_server_count() -> int:
+    """How many servers the probe can reach at all. Package-only entries have no URL."""
+    return MCPRegistryServer.objects.exclude(canonical_url="").count()
+
+
+def probe_stalest_servers(batch_size: int = PROBE_BATCH_SIZE, concurrency: int = PROBE_CONCURRENCY) -> int:
     """Probe the servers with the oldest (or missing) probe results. Returns count probed.
 
     Measured servers first, because their liveness backs real rankings, then the long tail,
     so the whole index converges over successive scheduled runs.
+
+    Each probe waits on a remote server for up to PROBE_TIMEOUT_SECONDS, so the batch runs
+    concurrently: serially, a sweep of the whole index would take days and liveness would
+    stay stale enough to distort ranking. Only the HTTP call is threaded. Django opens a
+    connection per thread, so the row writes stay on this thread instead of leaving a
+    connection per worker behind.
     """
-    queryset = (
+    servers = list(
         MCPRegistryServer.objects.exclude(canonical_url="")
-        .order_by("-is_measured", "last_probed_at")
-        .values_list("id", flat=True)[:batch_size]
+        # nulls_first, or the sweep never converges: Postgres sorts NULL last on an
+        # ascending column, so never-probed servers would queue behind every server that
+        # already has a timestamp, and each run would re-probe the same batch forever.
+        .order_by("-is_measured", F("last_probed_at").asc(nulls_first=True))
+        .only("id", "canonical_url", "auth_method")[:batch_size]
     )
+    if not servers:
+        return 0
+
     probed = 0
-    for server_id in list(queryset):
-        server = MCPRegistryServer.objects.get(pk=server_id)
-        apply_probe_outcome(server, shallow_probe(server.canonical_url))
-        probed += 1
-    logger.info("mcp_registry.probe.batch_done", probed=probed)
+    with ThreadPoolExecutor(max_workers=min(concurrency, len(servers))) as pool:
+        pending = {pool.submit(shallow_probe, server.canonical_url): server for server in servers}
+        for future in as_completed(pending):
+            server = pending[future]
+            try:
+                outcome = future.result()
+            except Exception:
+                # One pathological server must not abandon the rest of the sweep.
+                logger.exception("mcp_registry.probe.server_failed", server_id=str(server.id))
+                continue
+            apply_probe_outcome(server, outcome)
+            probed += 1
+    logger.info("mcp_registry.probe.batch_done", probed=probed, selected=len(servers))
     return probed
