@@ -10,6 +10,16 @@ from django.core.cache import cache
 from rest_framework import status
 from rest_framework.response import Response
 
+from .serializers import (
+    LocalTrinoResponseSerializer,
+    LocalWarehouseMonitoringSeriesSerializer,
+    LocalWarehouseMonitoringSnapshotSerializer,
+    LocalWarehouseNameAvailabilitySerializer,
+    LocalWarehousePasswordSerializer,
+    LocalWarehouseStatusSerializer,
+    LocalWarehouseTeamsSerializer,
+)
+
 _STATE_KEY_PREFIX = "managed-warehouse:local-dev:org:"
 _ORG_INDEX_KEY = "managed-warehouse:local-dev:org-index"
 _LOCAL_PASSWORD = "posthog"
@@ -73,51 +83,57 @@ def _warehouse_status(organization_id: str, state: dict[str, object]) -> Respons
         }
     now = datetime.now(UTC).isoformat()
     return Response(
-        {
-            "org_id": organization_id,
-            "state": lifecycle_state,
-            "status_message": "Local managed warehouse is ready" if ready else "Local managed warehouse was deleted",
-            "s3_state": "ready" if ready else "deleted",
-            "metadata_store_state": "ready" if ready else "deleted",
-            "identity_state": "ready" if ready else "deleted",
-            "secrets_state": "ready" if ready else "deleted",
-            "ready_at": state.get("ready_at") if ready else None,
-            "failed_at": None,
-            "connection": connection,
-            "bucket": "ducklake-dev" if ready else None,
-            "bucket_region": "us-east-1" if ready else None,
-            "updated_at": now,
-        },
+        LocalWarehouseStatusSerializer(
+            instance={
+                "org_id": organization_id,
+                "state": lifecycle_state,
+                "status_message": "Local managed warehouse is ready"
+                if ready
+                else "Local managed warehouse was deleted",
+                "s3_state": "ready" if ready else "deleted",
+                "metadata_store_state": "ready" if ready else "deleted",
+                "identity_state": "ready" if ready else "deleted",
+                "secrets_state": "ready" if ready else "deleted",
+                "ready_at": state.get("ready_at") if ready else None,
+                "failed_at": None,
+                "connection": connection,
+                "bucket": "ducklake-dev" if ready else None,
+                "bucket_region": "us-east-1" if ready else None,
+                "updated_at": now,
+            }
+        ).data,
         status=status.HTTP_200_OK,
     )
 
 
 def _monitoring_snapshot(organization_id: str, state: dict[str, object]) -> Response:
     return Response(
-        {
-            "schema_version": 1,
-            "org_id": organization_id,
-            "as_of": datetime.now(UTC).isoformat(),
-            "warehouse": {"state": state.get("state", "ready")},
-            "limits": {
-                "max_workers": 1,
-                "max_vcpus": 1,
-                "default_worker_cpu": "1",
-                "default_worker_memory": "1Gi",
-                "default_worker_ttl_seconds": 300,
-                "default_worker_min_hot_idle": 0,
-            },
-            "totals": {
-                "workers": 0,
-                "allocated_cpu_cores": 0,
-                "allocated_memory_bytes": 0,
-                "active_sessions": 0,
-                "running_queries": 0,
-                "queued_connections": 0,
-            },
-            "workers": [],
-            "coverage": {"cp_responders": 1, "cp_total": 1, "partial": False},
-        },
+        LocalWarehouseMonitoringSnapshotSerializer(
+            instance={
+                "schema_version": 1,
+                "org_id": organization_id,
+                "as_of": datetime.now(UTC).isoformat(),
+                "warehouse": {"state": state.get("state", "ready")},
+                "limits": {
+                    "max_workers": 1,
+                    "max_vcpus": 1,
+                    "default_worker_cpu": "1",
+                    "default_worker_memory": "1Gi",
+                    "default_worker_ttl_seconds": 300,
+                    "default_worker_min_hot_idle": 0,
+                },
+                "totals": {
+                    "workers": 0,
+                    "allocated_cpu_cores": 0,
+                    "allocated_memory_bytes": 0,
+                    "active_sessions": 0,
+                    "running_queries": 0,
+                    "queued_connections": 0,
+                },
+                "workers": [],
+                "coverage": {"cp_responders": 1, "cp_total": 1, "partial": False},
+            }
+        ).data,
         status=status.HTTP_200_OK,
     )
 
@@ -127,16 +143,18 @@ def _monitoring_series(organization_id: str, params: dict | None) -> Response:
     start = now - timedelta(hours=1)
     metric = str((params or {}).get("metric", "query_rate"))
     return Response(
-        {
-            "schema_version": 1,
-            "org_id": organization_id,
-            "metric": metric,
-            "unit": _METRIC_UNITS.get(metric, "count"),
-            "start": start.isoformat(),
-            "end": now.isoformat(),
-            "step_seconds": 60,
-            "series": [],
-        },
+        LocalWarehouseMonitoringSeriesSerializer(
+            instance={
+                "schema_version": 1,
+                "org_id": organization_id,
+                "metric": metric,
+                "unit": _METRIC_UNITS.get(metric, "count"),
+                "start": start.isoformat(),
+                "end": now.isoformat(),
+                "step_seconds": 60,
+                "series": [],
+            }
+        ).data,
         status=status.HTTP_200_OK,
     )
 
@@ -182,7 +200,10 @@ def request(
         taken = any(
             (_get_state(str(org_id)) or {}).get("database_name") == name for org_id in cache.get(_ORG_INDEX_KEY) or []
         )
-        return Response({"name": name, "available": not taken}, status=status.HTTP_200_OK)
+        return Response(
+            LocalWarehouseNameAvailabilitySerializer(instance={"name": name, "available": not taken}).data,
+            status=status.HTTP_200_OK,
+        )
 
     state = _get_state(organization_id)
     if path == "/provision" and method == "POST":
@@ -226,7 +247,9 @@ def request(
         return _monitoring_series(organization_id, params)
     if path == "/teams" and method == "GET":
         return Response(
-            {"teams": _teams(state), "data_imports_table_naming_version": "legacy"},
+            LocalWarehouseTeamsSerializer(
+                instance={"teams": _teams(state), "data_imports_table_naming_version": "legacy"}
+            ).data,
             status=status.HTTP_200_OK,
         )
     if path == "/teams" and method == "POST":
@@ -253,23 +276,28 @@ def request(
     if path == "/trino" and method == "GET":
         ready = state.get("state") == "ready"
         return Response(
-            {
-                "enabled": ready,
-                "status": {
-                    "org": organization_id,
-                    "state": "ready" if ready else "deleted",
-                    "trino_catalog_name": getattr(settings, "MANAGED_WAREHOUSE_LOCAL_TRINO_CATALOG", "ducklake"),
-                    "connection": {
-                        "host": getattr(settings, "MANAGED_WAREHOUSE_LOCAL_TRINO_HOST", "127.0.0.1"),
-                        "port": getattr(settings, "MANAGED_WAREHOUSE_LOCAL_TRINO_PORT", 38080),
-                        "username": "posthog",
+            LocalTrinoResponseSerializer(
+                instance={
+                    "enabled": ready,
+                    "status": {
+                        "org": organization_id,
+                        "state": "ready" if ready else "deleted",
+                        "trino_catalog_name": getattr(settings, "MANAGED_WAREHOUSE_LOCAL_TRINO_CATALOG", "ducklake"),
+                        "connection": {
+                            "host": getattr(settings, "MANAGED_WAREHOUSE_LOCAL_TRINO_HOST", "127.0.0.1"),
+                            "port": getattr(settings, "MANAGED_WAREHOUSE_LOCAL_TRINO_PORT", 38080),
+                            "username": "posthog",
+                        },
                     },
-                },
-            },
+                }
+            ).data,
             status=status.HTTP_200_OK,
         )
     if path == "/reset-password" and method == "POST":
-        return Response({"password": _LOCAL_PASSWORD}, status=status.HTTP_200_OK)
+        return Response(
+            LocalWarehousePasswordSerializer(instance={"password": _LOCAL_PASSWORD}).data,
+            status=status.HTTP_200_OK,
+        )
     if path == "/deprovision" and method == "POST":
         state.update({"state": "deleted", "teams": []})
         _set_state(organization_id, state)
