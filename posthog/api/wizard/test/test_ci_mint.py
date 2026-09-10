@@ -1,6 +1,7 @@
 import time
 import uuid
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -27,7 +28,7 @@ MINTED = {"token": "phe_ci_token", "expires_at": "2026-08-22T00:00:00Z", "cap_us
 
 def _claims(**overrides) -> GitHubOidcClaims:
     """A fresh identity per call: each CI run presents its own single-use token."""
-    fields = {
+    fields: dict[str, Any] = {
         "repository": "PostHog/wizard",
         "repository_id": "938775588",
         "repository_owner_id": "60330232",

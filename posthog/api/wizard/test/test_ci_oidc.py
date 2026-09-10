@@ -9,6 +9,7 @@ import importlib
 import threading
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -379,8 +380,9 @@ class TestVerifyGitHubOidc:
 
     @pytest.mark.parametrize("claim", ["exp", "iat", "aud", "sub", "jti"])
     def test_a_missing_required_claim_is_refused(self, claim):
+        overrides: dict[str, Any] = {claim: None}
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(token(**{claim: None}))
+            verify_github_oidc(token(**overrides))
 
     def test_a_token_signed_with_another_key_is_refused(self):
         other = rsa.generate_private_key(public_exponent=65537, key_size=2048)

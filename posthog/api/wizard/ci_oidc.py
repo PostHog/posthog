@@ -246,6 +246,7 @@ def looks_like_jwt(token: str) -> bool:
 def _envelope_could_match(raw: str) -> bool:
     """Whether a key lookup is worth spending; never a trust decision, since verification re-checks both."""
     try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode (pre-filter only, not a trust decision)
         claims = jwt.decode(raw, options={"verify_signature": False})
     except jwt.PyJWTError:
         return False
