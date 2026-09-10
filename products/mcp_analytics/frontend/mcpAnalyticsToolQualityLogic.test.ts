@@ -349,5 +349,35 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(reloads.length).toBe(4)
             expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
         })
+
+        // Regression: loadAvailableCategories now depends on the shared filters, so it can be
+        // re-triggered while a previous request from before the filter change is still in flight.
+        // Without a breakpoint, that stale response could resolve last and overwrite the scope
+        // selector with categories that no longer match the current filters.
+        it('discards a superseded available-categories response so a slow earlier request cannot overwrite it', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            let resolveSlow: (value: unknown) => void = () => {}
+            const slow = new Promise((resolve) => {
+                resolveSlow = resolve
+            })
+            jest.spyOn(mockApi, 'query')
+                .mockImplementationOnce(() => slow as any)
+                .mockImplementationOnce(() => Promise.resolve({ results: [{ category: 'fresh' }] }))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAvailableCategories()
+                logic.actions.loadAvailableCategories()
+            }).toDispatchActions(['loadAvailableCategoriesSuccess'])
+
+            expect(logic.values.availableCategories).toEqual(['fresh'])
+
+            // The stale first request resolving late must not overwrite the fresher result.
+            resolveSlow({ results: [{ category: 'stale' }] })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.availableCategories).toEqual(['fresh'])
+        })
     })
 })
