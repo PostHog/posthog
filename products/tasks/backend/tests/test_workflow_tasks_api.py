@@ -641,6 +641,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert Task.objects.filter(team=self.team).filter(task_visibility_q(teammate.id)).filter(id=task_id).exists()
         assert Task.objects.filter(team=self.team).filter(task_control_q(teammate.id)).filter(id=task_id).exists()
 
+    def test_a_teammate_cannot_finish_a_workflow_run_on_the_workflows_behalf(self) -> None:
+        task = self._seed_workflow_task(TaskRun.Status.IN_PROGRESS)
+        run = task.latest_run
+        assert run is not None
+        self.client.force_login(self._create_user("teammate@posthog.com"))
+
+        with patch("products.tasks.backend.facade.api.resume_workflow_step_for_run") as resume:
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"status": "completed", "output": {"final_message": "forged"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        resume.assert_not_called()
+
     def test_a_request_without_a_prompt_is_rejected(self) -> None:
         response = self.client.post(
             self.url,
