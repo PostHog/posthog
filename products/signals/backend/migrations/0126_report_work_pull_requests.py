@@ -5,12 +5,9 @@ from django.conf import settings
 from django.db import migrations, models
 
 import posthog.uuidt
-from posthog.migration_helpers import SafeAddIndexConcurrently
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("posthog", "1347_drop_activitylog_detail_jsonb_ops_gin"),
         ("signals", "0125_signalreport_scout_idem_key_index"),
@@ -100,14 +97,6 @@ class Migration(migrations.Migration):
                 related_name="report_links",
                 to="signals.signalreportpullrequest",
             ),
-        ),
-        SafeAddIndexConcurrently(
-            model_name="signalreportartefact",
-            index=models.Index(fields=["pull_request", "report"], name="signals_artefact_pr_report_idx"),
-        ),
-        SafeAddIndexConcurrently(
-            model_name="signalreportartefact",
-            index=models.Index(fields=["claim"], name="signals_artefact_claim_idx"),
         ),
         migrations.AddConstraint(
             model_name="signalreportpullrequest",
