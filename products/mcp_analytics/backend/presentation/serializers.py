@@ -1,9 +1,49 @@
+import json
 from datetime import datetime
 from typing import Any
 
+import pydantic
 from rest_framework import serializers
 
+from posthog.schema import AnyPropertyFilterDiscriminated
+
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+
+_PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
+    list[AnyPropertyFilterDiscriminated]
+)
+
+PROPERTIES_HELP_TEXT = (
+    "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of "
+    "PostHog property filters, each with key, value, operator and type - the same shape the "
+    "/query/ endpoint takes. Example: "
+    '[{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", '
+    '"type": "event"}]'
+)
+
+FILTER_TEST_ACCOUNTS_HELP_TEXT = (
+    "Whether to also apply the project's internal and test user filters (its test_account_filters "
+    "setting) on top of `properties`."
+)
+
+
+class PropertyFiltersField(serializers.CharField):
+    """A JSON-encoded list of property filters in a query string, validated into schema types.
+
+    Follows the `properties` query-param convention of the person and cohort actor endpoints.
+    Subclasses CharField so drf-spectacular keeps advertising the plain string a query string can
+    carry, while the view receives the parsed filters.
+    """
+
+    def run_validation(self, data: Any = serializers.empty) -> list[AnyPropertyFilterDiscriminated]:
+        raw = super().run_validation(data)
+        if not raw:
+            return []
+        try:
+            return _PROPERTY_FILTERS_ADAPTER.validate_python(json.loads(raw))
+        except (json.JSONDecodeError, ValueError, pydantic.ValidationError) as error:
+            raise serializers.ValidationError(f"Properties are unparsable: {error}")
+
 
 MAX_GOAL_LENGTH = 500
 MAX_SUMMARY_LENGTH = 5_000
@@ -185,6 +225,17 @@ class MCPSessionListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
     )
+    properties = PropertyFiltersField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=PROPERTIES_HELP_TEXT,
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
+    )
     limit = serializers.IntegerField(
         required=False,
         default=MCP_SESSION_LIST_DEFAULT_LIMIT,
@@ -228,6 +279,17 @@ class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
             "Absolute ISO timestamp lower bound for the event scan — pass the session's start so "
             "older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
         ),
+    )
+    properties = PropertyFiltersField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=PROPERTIES_HELP_TEXT,
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
     )
     limit = serializers.IntegerField(
         required=False,
@@ -412,6 +474,20 @@ class MCPActivityRecentCallSerializer(serializers.Serializer):
     )
     client_name = serializers.CharField(
         read_only=True, allow_null=True, help_text="Agent client name ($mcp_client_name) when captured."
+    )
+
+
+class MCPActivityOverviewQuerySerializer(serializers.Serializer):
+    properties = PropertyFiltersField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=PROPERTIES_HELP_TEXT,
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
     )
 
 

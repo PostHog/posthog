@@ -12,6 +12,19 @@ import type { TeamPublicType } from '../../../frontend/src/types'
 
 export type MCPSharedQueryFilters = Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>
 
+export interface MCPSharedFilterParams {
+    properties?: string
+    filter_test_accounts?: boolean
+}
+
+/** The shared filters as REST query params. `properties` is JSON-encoded, as the REST endpoints expect. */
+export function sharedFilterParams(filters: MCPSharedQueryFilters): MCPSharedFilterParams {
+    return {
+        properties: filters.properties.length > 0 ? JSON.stringify(filters.properties) : undefined,
+        filter_test_accounts: filters.filterTestAccounts || undefined,
+    }
+}
+
 // Every MCP analytics page hydrates the shared filters from its URL, so a deep link into any tab
 // and a tab switch (the scene forwards search params between tabs) land on the same filters.
 export const MCP_ANALYTICS_FILTER_ROUTES = [
