@@ -324,12 +324,13 @@ def score_pool(
     """One row per (report, model, head) in SCORE_COLUMNS order, where a model is a
     (model_name, model_version, model_role).
 
-    Features are built exactly as `build_examples` builds them, so a report scored here sees the
-    same vector it would have seen as a training example. One matrix is built per feature set the
+    Features are built exactly as `build_examples` builds them, as of the end of the pool's day, so
+    a report scored here sees the same vector it would have seen as a training example. One matrix is built per feature set the
     models declare, and every model on that set scores against it. `label_at_scoring` records
     whether the head's outcome had already happened on the scoring day; the grader drops those
     rows, the same way the example builder drops a scoring moment whose label is already 1.
     """
+    _, as_of = snapshot_bounds(snapshot_date.isoformat())
     aligned_labels = labels.reindex(pool.index)
     team_id = pool["report_team_id"] if "report_team_id" in pool else pd.Series(None, index=pool.index, dtype=object)
     report_ids = pool.index.to_numpy()
@@ -342,7 +343,7 @@ def score_pool(
         feature_set = model.feature_set
         if feature_set.name not in matrices:
             matrices[feature_set.name] = xgb.DMatrix(
-                feature_set.build_matrix(state_rows(pool, feature_set), extras),
+                feature_set.build_matrix(state_rows(pool, feature_set), extras, as_of=as_of),
                 feature_names=list(feature_set.feature_names),
             )
         matrix = matrices[feature_set.name]

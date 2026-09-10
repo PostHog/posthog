@@ -47,6 +47,7 @@ from posthog import settings
 
 from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
+    EMBEDDING_INSERTED_AT_COLUMN,
     FEATURE_SETS,
     NO_EXTRAS,
     REPORT_EMBEDDINGS_EXTRA,
@@ -63,10 +64,10 @@ from products.signals.dags.inbox_ranking.common import (
     owner_tags,
     partition_def,
     partition_object_key,
-    read_parquet,
     read_parquet_if_exists,
     s3_client,
     skip_unconfigured,
+    snapshot_bounds,
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE, STATE_TABLE
@@ -241,21 +242,22 @@ def report_embeddings_extras(
 ) -> Extras:
     """The dt=D report vectors, indexed by report_id: the side input the report-embeddings set reads.
 
-    One snapshot serves every scoring moment of the run. A report is embedded once, when it is
-    promoted, so the vector dt=D carries is the vector an earlier snapshot of the lookback carried
-    too; what dt=D does not carry is a report whose vector aged out of the source table's TTL, and
-    such a report is simply not an example for that set. Reading one snapshot per day of the
-    lookback instead would pull a fleet-wide vector table across the network once per day for that
-    difference.
+    One snapshot serves every moment of the run, and each vector carries the moment it landed, so a
+    moment can only take a vector that already existed for it. A report is re-embedded whenever its
+    text changes, so the latest vector is often newer than an earlier moment; the set drops those
+    rather than dressing later text as earlier state. Reading one snapshot per day of the lookback
+    would recover the superseded vectors, at the cost of pulling a fleet-wide vector table across
+    the network once per day of the window.
 
-    A missing snapshot is not a failure: the sets that read no side input still build their
-    examples, and the ones that do write an empty object for the day.
+    A missing snapshot is not a failure, and not an empty side input either: the caller skips the
+    sets that read it, because rebuilding one of those from nothing would strip the family's
+    partition.
     """
     table = read_parquet_if_exists(
         client,
         bucket,
         partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key),
-        columns=["report_id", EMBEDDING_COLUMN],
+        columns=["report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN],
     )
     if table is None:
         context.log.warning(f"no {EMBEDDINGS_TABLE} snapshot for dt={partition_key}; report vectors are unavailable")
@@ -308,6 +310,17 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
         "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
     }
     for feature_set in FEATURE_SETS.values():
+        missing = feature_set.missing_extras(extras)
+        # Rebuilding a set from a missing side input would write an empty examples object, which
+        # makes the next candidate run train nothing, write metadata with no heads, and delete the
+        # boosters this partition already holds. A champion pointer can name that version, so the
+        # partition keeps what it has instead.
+        if missing:
+            context.log.warning(
+                f"{feature_set.name} examples not rebuilt for dt={partition_key}: no {', '.join(missing)}"
+            )
+            metadata[f"{feature_set.name}_skipped"] = dagster.MetadataValue.bool(True)
+            continue
         metadata |= _write_examples(
             context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, extras
         )
@@ -467,7 +480,16 @@ def _train_candidate(
     the widest thing this asset touches.
     """
     feature_set = family.feature_set
-    examples = read_parquet(client, bucket, examples_object_key(prefix, feature_set.name, partition_key)).to_pandas()
+    table = read_parquet_if_exists(client, bucket, examples_object_key(prefix, feature_set.name, partition_key))
+    # The examples asset skips a set whose side input was unavailable, so its object can be absent.
+    # Training on nothing would replace this partition's boosters with an empty candidate and leave
+    # a champion pointer naming deleted files, so the family keeps this partition as it stands.
+    if table is None:
+        context.log.warning(
+            f"no {feature_set.name} examples for dt={partition_key}; {family.name} keeps this partition as it stands"
+        )
+        return {f"{family.name}_skipped": dagster.MetadataValue.bool(True)}
+    examples = table.to_pandas()
     trained: list[TrainedHead] = []
     skipped: list[str] = []
     for head in HEADS:
@@ -574,20 +596,27 @@ def _decide_champion(
             )
         else:
             # The champion is graded on the examples of its own feature set, the set the candidate
-            # shares: promotion stays inside a family.
-            examples = read_parquet(
+            # shares: promotion stays inside a family. Without that object there is no shared
+            # holdout, so the rule falls back to the champion's stored AUC.
+            examples = read_parquet_if_exists(
                 client, bucket, examples_object_key(prefix, champion_feature_set.name, partition_key)
-            ).to_pandas()
-            champion_aucs = paired_champion_aucs(
-                client,
-                bucket,
-                prefix,
-                champion,
-                examples,
-                feature_set=champion_feature_set,
-                holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
             )
-            context.log.info(f"{family.name} champion {champion['model_version']} on this holdout: {champion_aucs}")
+            if examples is None:
+                context.log.warning(
+                    f"no {champion_feature_set.name} examples for dt={partition_key}; "
+                    f"the {family.name} champion is compared on its stored AUC"
+                )
+            else:
+                champion_aucs = paired_champion_aucs(
+                    client,
+                    bucket,
+                    prefix,
+                    champion,
+                    examples.to_pandas(),
+                    feature_set=champion_feature_set,
+                    holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
+                )
+                context.log.info(f"{family.name} champion {champion['model_version']} on this holdout: {champion_aucs}")
     decision = decide_promotion(
         candidate,
         champion,
@@ -717,14 +746,38 @@ def load_unseen_models(
     ]
 
 
+def models_with_extras(
+    context: dagster.AssetExecutionContext, models: Sequence[UnseenModel], extras: Extras
+) -> list[UnseenModel]:
+    """The models whose feature set has the side inputs it reads.
+
+    A model scored without its side input would score every report off the booster's missing
+    branch. That is a line on the chart that says nothing about the model, so the family takes a
+    gap for the day instead.
+    """
+    kept: list[UnseenModel] = []
+    for model in models:
+        missing = model.feature_set.missing_extras(extras)
+        if missing:
+            context.log.warning(
+                f"{model.model_name} {model.model_role} {model.model_version} not scored: "
+                f"no {', '.join(missing)} for this partition"
+            )
+            continue
+        kept.append(model)
+    return kept
+
+
 def pool_feature_coverage(
-    pool: pd.DataFrame, models: Sequence[UnseenModel], extras: Extras
+    pool: pd.DataFrame, models: Sequence[UnseenModel], extras: Extras, as_of: datetime.datetime
 ) -> dict[str, dagster.MetadataValue]:
     """The share of the pool each scored feature set can build a real vector for, by set name."""
     feature_sets = {model.feature_set.name: model.feature_set for model in models}
     return {
         f"{name}_pool_coverage": dagster.MetadataValue.float(
-            float(feature_set.buildable(state_rows(pool, feature_set), extras).mean()) if len(pool) else 0.0
+            float(feature_set.buildable(state_rows(pool, feature_set), extras, as_of=as_of).mean())
+            if len(pool)
+            else 0.0
         )
         for name, feature_set in feature_sets.items()
     }
@@ -747,10 +800,12 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
     # head) over the lookback, and a report is leaked if any set trained on it.
     example_ids: set[object] = set()
     for feature_set in FEATURE_SETS.values():
-        ids = read_parquet(
+        # A set the examples asset skipped has no object, and so no example to leak.
+        ids = read_parquet_if_exists(
             client, bucket, examples_object_key(prefix, feature_set.name, partition_key), columns=["report_id"]
         )
-        example_ids.update(ids.column("report_id").unique().to_pylist())
+        if ids is not None:
+            example_ids.update(ids.column("report_id").unique().to_pylist())
     pool = unseen_pool(snapshot.state, day)
     leaked = leaked_report_ids(pool, example_ids)
     if leaked:
@@ -758,8 +813,8 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
             f"{len(leaked)} reports created on {partition_key} already appear in that day's training examples, "
             f"so the unseen read would grade a model on its own data: {leaked[:10]}"
         )
-    models = load_unseen_models(context, client, bucket, prefix, partition_key)
     extras = report_embeddings_extras(context, client, bucket, prefix, partition_key)
+    models = models_with_extras(context, load_unseen_models(context, client, bucket, prefix, partition_key), extras)
     scores = score_pool(pool, snapshot.labels, models, snapshot_date=day, extras=extras)
     key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
     if scores.empty:
@@ -785,7 +840,7 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
             # Every family scores the whole pool, so the grades stay paired even where a set's side
             # input is thin. That makes coverage the number to watch: a family reading a side input
             # that covers few of the day's newborns is graded mostly on its missing branch.
-            **pool_feature_coverage(pool, models, extras),
+            **pool_feature_coverage(pool, models, extras, snapshot_bounds(partition_key)[1]),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )

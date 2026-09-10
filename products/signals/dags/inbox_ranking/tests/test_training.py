@@ -19,6 +19,7 @@ from posthog import settings
 from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
     EMBEDDING_DIMENSIONS,
+    EMBEDDING_INSERTED_AT_COLUMN,
     FEATURE_NAMES,
     FEATURE_SCHEMA_VERSION,
     NO_EXTRAS,
@@ -35,6 +36,7 @@ from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_
 from products.signals.dags.inbox_ranking.training.dag import (
     METADATA_FILE,
     _delete_other_objects,
+    _train_candidate,
     candidate_metadata,
     champion_object_key,
     examples_object_key,
@@ -43,6 +45,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     load_snapshots,
     load_unseen_models,
     model_object_key,
+    models_with_extras,
     pool_feature_coverage,
     snapshot_dates,
 )
@@ -1043,7 +1046,9 @@ class _AgeOnlyFeatureSet(FeatureSet):
     feature_names = ("age_hours",)
     state_columns = ()
 
-    def build_matrix(self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS) -> pd.DataFrame:
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
         return rows[["age_hours"]].astype(float)
 
 
@@ -1056,11 +1061,14 @@ class _CountingFeatureSet(FeatureSet):
         self.schema_version = inner.schema_version
         self.feature_names = inner.feature_names
         self.state_columns = inner.state_columns
+        self.extras_keys = inner.extras_keys
         self.builds = 0
 
-    def build_matrix(self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS) -> pd.DataFrame:
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
         self.builds += 1
-        return self.inner.build_matrix(rows, extras)
+        return self.inner.build_matrix(rows, extras, as_of=as_of)
 
 
 def _booster_ubj(feature_names: tuple[str, ...]) -> bytes:
@@ -1187,9 +1195,18 @@ def test_examples_key_layout_is_per_feature_set():
     )
 
 
-def _report_vectors(vectors: dict[str, object]) -> Extras:
+# Before every snapshot the tests build, so a vector counts as present unless a test says otherwise.
+LANDED_EARLY = pd.Timestamp("2026-08-01T00:00:00Z")
+# The end of D0, the moment a D0 example or a D0 score is built as of.
+SNAPSHOT_END = pd.Timestamp("2026-08-11T00:00:00Z")
+
+
+def _report_vectors(vectors: dict[str, object], landed: pd.Timestamp = LANDED_EARLY) -> Extras:
     """The report-vector side input, shaped like the dt=D `inbox_report_embeddings` snapshot."""
-    frame = pd.DataFrame({EMBEDDING_COLUMN: list(vectors.values())}, index=pd.Index(list(vectors), name="report_id"))
+    frame = pd.DataFrame(
+        {EMBEDDING_COLUMN: list(vectors.values()), EMBEDDING_INSERTED_AT_COLUMN: [landed] * len(vectors)},
+        index=pd.Index(list(vectors), name="report_id"),
+    )
     return {REPORT_EMBEDDINGS_EXTRA: frame}
 
 
@@ -1277,5 +1294,84 @@ def test_score_pool_scores_every_newborn_even_without_a_vector():
 
     assert scores["report_id"].tolist() == ["a", "b"]
     assert scores["score"].notna().all()
-    coverage = pool_feature_coverage(pool, [model], extras)
+    coverage = pool_feature_coverage(pool, [model], extras, SNAPSHOT_END)
     assert coverage[f"{REPORT_EMBEDDINGS_FEATURE_SET.name}_pool_coverage"].value == 0.5
+
+
+def test_a_vector_that_landed_after_the_moment_is_not_that_moments_feature():
+    # The snapshot holds the latest vector per report, and a report is re-embedded whenever its text
+    # changes (the summary workflow and every re-research run rewrite it). Taking the latest vector
+    # for an earlier moment would train the family on text that did not exist when the report was
+    # scored, which is the one defect that would invalidate the comparison it exists for.
+    rows = _state(["a"])
+    extras = _report_vectors({"a": _embedding()}, landed=SNAPSHOT_END + datetime.timedelta(days=1))
+
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, extras, as_of=SNAPSHOT_END).tolist() == [False]
+    assert REPORT_EMBEDDINGS_FEATURE_SET.build_matrix(rows, extras, as_of=SNAPSHOT_END).isna().to_numpy().all()
+    later = SNAPSHOT_END + datetime.timedelta(days=2)
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, extras, as_of=later).tolist() == [True]
+
+
+def test_report_grain_moves_the_example_to_the_first_moment_its_vector_existed_for():
+    # A report whose vector landed after its first snapshot must not be dropped outright: its
+    # example belongs on the first snapshot where that vector was already the report's own.
+    head = HEADS_BY_NAME["open"]
+    ids = ["a"]
+    snapshots: dict[datetime.date, Snapshot] = {}
+    for offset in (0, 1):
+        day = D0 + datetime.timedelta(days=offset)
+        later = day + datetime.timedelta(days=head.horizon_days)
+        snapshots[day] = Snapshot(date=day, state=_state(ids), labels=_labels(ids, open_count=[0]))
+        snapshots[later] = Snapshot(date=later, state=_state(ids), labels=_labels(ids, open_count=[1]))
+    # Landed during D0 + 1, so D0 cannot have it and D0 + 1 can.
+    extras = _report_vectors({"a": _embedding()}, landed=SNAPSHOT_END + datetime.timedelta(hours=6))
+
+    examples = build_examples(snapshots, head, REPORT_EMBEDDINGS_FEATURE_SET, extras)
+
+    assert examples["snapshot_date"].tolist() == [D0 + datetime.timedelta(days=1)]
+
+
+def test_reading_a_moment_needs_the_vectors_landing_time():
+    # A side input without the landing time cannot answer "did this vector exist yet", and silently
+    # treating it as current is the leak this check exists to stop.
+    vectors = {REPORT_EMBEDDINGS_EXTRA: pd.DataFrame({EMBEDDING_COLUMN: [_embedding()]}, index=["a"])}
+    with pytest.raises(ValueError, match=EMBEDDING_INSERTED_AT_COLUMN):
+        REPORT_EMBEDDINGS_FEATURE_SET.buildable(_state(["a"]), vectors, as_of=SNAPSHOT_END)
+
+
+@pytest.mark.parametrize(
+    "feature_set,extras,expected",
+    [
+        (TABULAR_FEATURE_SET, NO_EXTRAS, ()),
+        (REPORT_EMBEDDINGS_FEATURE_SET, _report_vectors({"a": _embedding()}), ()),
+        (REPORT_EMBEDDINGS_FEATURE_SET, NO_EXTRAS, (REPORT_EMBEDDINGS_EXTRA,)),
+    ],
+)
+def test_a_set_declares_the_side_inputs_it_needs(feature_set, extras, expected):
+    # The examples asset skips a set with a missing side input instead of rebuilding it from
+    # nothing, and the scorer skips its models, so both need to ask the set what it reads.
+    assert feature_set.missing_extras(extras) == expected
+
+
+def test_a_family_without_examples_keeps_the_partition_it_already_has():
+    # Rebuilding from a missing examples object would write an empty candidate and delete this
+    # partition's boosters, which a champion pointer can name. _EmptyS3 has no put_object or
+    # delete_objects, so any write here raises instead of passing silently.
+    family = ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET)
+
+    metadata = _train_candidate(
+        dagster.build_asset_context(), _EmptyS3(), "bucket", "inbox_ranking", "2026-08-19", family
+    )
+
+    assert metadata[f"{EMBEDDINGS_MODEL_NAME}_skipped"].value is True
+
+
+def test_a_model_is_not_scored_without_the_side_input_its_set_reads():
+    # Scoring every report off the booster's missing branch would put a line on the chart that says
+    # nothing about the model, and the day's grade would read as the family's performance.
+    tabular = _unseen_model(TABULAR_MODEL_NAME, TABULAR_FEATURE_SET)
+    embeddings = _unseen_model(EMBEDDINGS_MODEL_NAME, REPORT_EMBEDDINGS_FEATURE_SET)
+
+    kept = models_with_extras(dagster.build_asset_context(), [tabular, embeddings], NO_EXTRAS)
+
+    assert [model.model_name for model in kept] == [TABULAR_MODEL_NAME]

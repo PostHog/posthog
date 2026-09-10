@@ -184,6 +184,7 @@ def example_moments(
         if len(ids) == 0:
             continue
         state, labels_now, labels_later = now.state.loc[ids], now.labels.loc[ids], later.labels.loc[ids]
+        _, snapshot_end = snapshot_bounds(date.isoformat())
         # The cohort reads the later snapshot on purpose. The sweep scores a report before users see
         # it, so the impression that puts a report in the cohort usually lands after `now`. A cohort
         # read at `now` would drop those pre-impression scoring moments, which are the serving case.
@@ -193,9 +194,10 @@ def example_moments(
             keep &= _flag_or_true(labels_now, "label_provenance_ok") & _flag_or_true(
                 labels_later, "label_provenance_ok"
             )
-        # A set whose side input has no row for a report cannot build its vector, so that report is
-        # not a moment for this set.
-        keep &= feature_set.buildable(state, extras)
+        # A set whose side input has no row for a report, or only a value that landed after this
+        # snapshot, cannot build the vector this moment had, so the report is not a moment here. At
+        # the report grain the report then takes its example on the first snapshot where it can.
+        keep &= feature_set.buildable(state, extras, as_of=snapshot_end)
         if feature_set.example_grain == REPORT_GRAIN:
             keep &= ~state.index.isin(covered)
         if not keep.any():
@@ -240,14 +242,15 @@ def _with_features(
     moments: pd.DataFrame, snapshots: Mapping[datetime.date, Snapshot], feature_set: FeatureSet, extras: Extras
 ) -> pd.DataFrame:
     """`moments` with `feature_set`'s columns, built from the state of the snapshot each moment
-    belongs to, so a moment carries the vector that snapshot would have scored it with."""
+    belongs to, so a moment carries the features that snapshot would have scored it with."""
     columns = list(example_columns(feature_set))
     if moments.empty:
         return pd.DataFrame(columns=columns)
     frames: list[pd.DataFrame] = []
     for date, group in moments.groupby("snapshot_date", sort=True):
+        _, snapshot_end = snapshot_bounds(date.isoformat())
         rows = state_rows(snapshots[date].state.loc[group["report_id"]], feature_set)
-        features = feature_set.build_matrix(rows, extras)
+        features = feature_set.build_matrix(rows, extras, as_of=snapshot_end)
         examples = group.reset_index(drop=True)
         for name in feature_set.feature_names:
             examples[name] = features[name].to_numpy()
