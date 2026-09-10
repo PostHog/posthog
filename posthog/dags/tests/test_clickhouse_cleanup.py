@@ -1088,6 +1088,15 @@ def test_the_sweep_sensor_launches_a_real_run_after_deletes():
     assert request.run_key == "11111111-1111-1111-1111-111111111111"
 
 
+def test_the_job_carries_the_operational_tags():
+    # The concurrency tag is what the charts run-queue limit matches, and the janitor's
+    # unconditional reap is only safe while no sibling run can be live. max_runtime is the only
+    # bound on total runtime: the per-wait timeouts can each fire without the run ever ending.
+    tags = clickhouse_deletion_sweep_job.tags
+    assert tags["clickhouse_deletion_sweep_concurrency"] == "v1"
+    assert int(tags["dagster/max_runtime"]) == 43200
+
+
 def test_the_scheduled_config_pins_every_setting_the_sweep_reads():
     # A field added to CleanupConfig without a scheduled value would run production on whatever
     # the code default happens to be, which is exactly what pinning this config prevents.

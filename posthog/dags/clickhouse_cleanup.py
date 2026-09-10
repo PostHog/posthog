@@ -1355,6 +1355,12 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
         # Matched by a run-queue limit of 1 in charts (argocd/dagster/deployment_settings), so a
         # second sweep run queues instead of running concurrently. The janitor depends on this.
         "clickhouse_deletion_sweep_concurrency": "v1",
+        # A runaway catcher, not a target. The scheduled config runs ~40 min in prod-EU and ~2 h in
+        # prod-US, and the slowest live run so far was 5 h 51 m at a cohort cap 20x the scheduled
+        # one. Nothing else bounds total runtime: the per-wait timeouts can each fire without the
+        # run ever ending. A killed run is safe to lose, since every op is idempotent and the
+        # failure hook drops its assets.
+        "dagster/max_runtime": 43200,
     },
 )
 def clickhouse_deletion_sweep_job():
