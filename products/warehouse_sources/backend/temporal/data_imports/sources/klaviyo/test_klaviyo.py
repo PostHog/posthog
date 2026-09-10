@@ -28,8 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
     klaviyo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
+    FORM_REPORT_STATISTICS,
     KLAVIYO_ENDPOINTS,
     SERIES_REPORT_TIMEFRAME_KEY,
+    VALUES_REPORT_TIMEFRAME_KEY,
     KlaviyoEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
@@ -1133,7 +1135,9 @@ class TestReportVariants:
             fetched_urls.append(url)
             if json_body is not None:
                 captured["body"] = json_body
-            return {"data": {"attributes": {"results": []}}, "links": {}}
+                return {"data": {"attributes": {"results": []}}, "links": {}}
+            # A collection GET (the form report's /forms zero-fill listing) pages a list.
+            return {"data": [], "links": {}}
 
         with patch.object(klaviyo, "_fetch_page", fake_fetch):
             list(
@@ -1148,11 +1152,88 @@ class TestReportVariants:
         attributes = captured["body"]["data"]["attributes"]
         assert captured["body"]["data"]["type"] == report_type
         assert "conversion_metric_id" not in attributes
-        assert fetched_urls == [f"https://a.klaviyo.com/api{path}"]
+        # No /metrics walk. The form report also lists /forms to zero-fill the groupings it omits.
+        assert fetched_urls[0] == f"https://a.klaviyo.com/api{path}"
+        assert all("/metrics" not in url for url in fetched_urls)
         if expected_group_by is None:
             assert "group_by" not in attributes
         else:
             assert attributes["group_by"] == expected_group_by
+
+    def test_form_values_report_lists_every_form_and_zero_fills_the_quiet_ones(self) -> None:
+        # Klaviyo returns a grouping only for a form with activity in the window. An account whose
+        # forms had none got an empty report, no table, and an initial sync that never completed.
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            if json_body is not None:
+                return {
+                    "data": {
+                        "attributes": {
+                            "results": [
+                                {
+                                    "groupings": {"form_id": "FORM_ACTIVE"},
+                                    "statistics": {"viewed_form": 40, "submits": 4, "submit_rate": 0.1},
+                                }
+                            ]
+                        }
+                    },
+                    "links": {},
+                }
+            assert url.startswith("https://a.klaviyo.com/api/forms?")
+            return {"data": [{"id": "FORM_ACTIVE"}, {"id": "FORM_QUIET"}], "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            rows = [
+                row
+                for table in get_rows(
+                    api_key="pk_test",
+                    endpoint="form_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+                for row in table.to_pylist()
+            ]
+
+        by_form = {row["form_id"]: row for row in rows}
+        assert set(by_form) == {"FORM_ACTIVE", "FORM_QUIET"}
+        # Klaviyo's own statistics are kept as returned.
+        assert (by_form["FORM_ACTIVE"]["viewed_form"], by_form["FORM_ACTIVE"]["submits"]) == (40, 4)
+        assert by_form["FORM_ACTIVE"]["submit_rate"] == 0.1
+        # The omitted form carries zero counts and no rate, tagged with the same window.
+        quiet = by_form["FORM_QUIET"]
+        assert quiet["timeframe_key"] == VALUES_REPORT_TIMEFRAME_KEY
+        assert quiet["submit_rate"] is None
+        assert all(quiet[statistic] == 0 for statistic in FORM_REPORT_STATISTICS if statistic != "submit_rate")
+        # One report POST, then one page of /forms; nothing else.
+        assert len(fetched_urls) == 2
+
+    def test_only_reports_that_opt_in_zero_fill_omitted_groupings(self) -> None:
+        # A segment report returns nothing and must stay empty: listing /segments would invent rows
+        # for a report whose callers have not asked for that.
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            return {"data": {"attributes": {"results": []}}, "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            tables = list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="segment_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        assert tables == []
+        assert fetched_urls == ["https://a.klaviyo.com/api/segment-values-reports"]
 
     @parameterized.expand(
         [

@@ -478,6 +478,15 @@ def _series_rows(
             yield row
 
 
+def _zero_statistics(statistics: list[str]) -> dict[str, Any]:
+    """The statistics of an entity Klaviyo left out of a values report: no activity in the window.
+
+    Counts are zero. A rate is a ratio over those counts, so it has no value and stays null rather
+    than reading as a measured 0%.
+    """
+    return {statistic: None if statistic.endswith("_rate") else 0 for statistic in statistics}
+
+
 def _get_values_report_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -530,6 +539,11 @@ def _get_values_report_rows(
     if metric_id:
         common["conversion_metric_id"] = metric_id
 
+    zero_fill_key = (
+        report.group_by[0] if report.zero_fill_path and not report.interval and len(report.group_by) == 1 else None
+    )
+    reported_ids: set[str] = set()
+
     try:
         while True:
             data = _fetch_page(session, url, post_headers, logger, json_body=body)
@@ -542,6 +556,8 @@ def _get_values_report_rows(
                 rows = ({**r.get("groupings", {}), **r.get("statistics", {}), **common} for r in results)
 
             for row in rows:
+                if zero_fill_key is not None and row.get(zero_fill_key) is not None:
+                    reported_ids.add(str(row[zero_fill_key]))
                 batcher.batch(row)
                 if batcher.should_yield():
                     yield batcher.get_table()
@@ -550,6 +566,22 @@ def _get_values_report_rows(
             if not next_url:
                 break
             url = next_url
+
+        if zero_fill_key is not None:
+            assert report.zero_fill_path is not None
+            zero_filled = 0
+            for entity_id in _iter_resource_ids(session, headers, logger, report.zero_fill_path, page_size=100):
+                if entity_id in reported_ids:
+                    continue
+                zero_filled += 1
+                batcher.batch({zero_fill_key: entity_id, **_zero_statistics(report.statistics), **common})
+                if batcher.should_yield():
+                    yield batcher.get_table()
+            if zero_filled:
+                logger.info(
+                    f"Klaviyo: {config.name} omitted {zero_filled} {zero_fill_key} values with no activity in "
+                    f"{report.timeframe_key}; wrote zero-statistic rows for them"
+                )
     except requests.HTTPError as exc:
         if (
             exc.response is not None
