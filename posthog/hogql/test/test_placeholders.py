@@ -1,3 +1,5 @@
+import time
+from datetime import timedelta
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -6,6 +8,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -76,6 +79,22 @@ class TestParser(BaseTest):
         over_cap = ast.Array(exprs=[ast.Placeholder(expr=ast.Constant(value=1)) for _ in range(4)])
         with self.assertRaises(QueryError):
             replace_placeholders(over_cap, {})
+
+    @patch("posthog.hogql.placeholders.PLACEHOLDER_EXPANSION_BUDGET", timedelta(seconds=0.01))
+    def test_replace_placeholders_charges_compilation_to_the_time_budget(self):
+        # The VM starts its own clock when it is called, so a budget measured before compilation
+        # would hand it a full allowance on top of what compilation already spent.
+        real_create_bytecode = create_bytecode
+
+        def slow_create_bytecode(*args, **kwargs):
+            time.sleep(0.05)
+            return real_create_bytecode(*args, **kwargs)
+
+        expr = ast.Placeholder(expr=ast.Constant(value=1))
+        with patch("posthog.hogql.compiler.bytecode.create_bytecode", slow_create_bytecode):
+            with self.assertRaises(QueryError) as context:
+                replace_placeholders(expr, {})
+        self.assertIn("took too long", str(context.exception))
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))

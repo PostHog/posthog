@@ -86,10 +86,6 @@ class ReplacePlaceholders(CloningVisitor):
         if self._expansions > MAX_PLACEHOLDER_EXPANSIONS:
             raise QueryError("This query has too many placeholder expressions to expand. Simplify it and try again.")
 
-        remaining = self._deadline - time.monotonic()
-        if remaining <= 0:
-            raise QueryError("Expanding this query's placeholders took too long. Simplify it and try again.")
-
         # This bytecode runs on the request thread before access control, so refuse blocking calls.
         # The static check gives a clear early error for the common `fn(...)` form; passing
         # disallowed_functions to the VM is the real guard, catching every indirect call path too.
@@ -100,6 +96,13 @@ class ReplacePlaceholders(CloningVisitor):
             raise QueryError(f"Query placeholders can't use {disallowed}. Remove it and try again.")
 
         bytecode = create_bytecode(node.expr)
+
+        # Measure after compiling: the traversal and compilation above run on the request thread
+        # too, and the VM starts its own clock when called, so a stale value adds their cost on top.
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise QueryError("Expanding this query's placeholders took too long. Simplify it and try again.")
+
         response = execute_bytecode(
             bytecode.bytecode,
             self.placeholders,
