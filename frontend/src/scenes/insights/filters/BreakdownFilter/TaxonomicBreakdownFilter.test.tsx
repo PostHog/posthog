@@ -174,7 +174,7 @@ describe('TaxonomicBreakdownFilter', () => {
             expect(screen.getByText(/SQL expression/i)).toBeInTheDocument()
         })
 
-        it('keeps joined table columns out of a funnel, which cannot resolve a dotted path', async () => {
+        it('offers a warehouse funnel only its own columns, without joined paths or SQL expressions', async () => {
             renderInsightPage({
                 query: buildFunnelsQuery({ series: [warehouseStep, warehouseStep] }),
                 mocks: { additionalMockResponses: schemaMocks },
@@ -185,6 +185,7 @@ describe('TaxonomicBreakdownFilter', () => {
                 expect(screen.getAllByText('campaign_id').length).toBeGreaterThan(0)
             })
             expect(screen.queryByText('campaign.campaign_name')).not.toBeInTheDocument()
+            expect(screen.queryByText(/SQL expression/i)).not.toBeInTheDocument()
         })
     })
 
