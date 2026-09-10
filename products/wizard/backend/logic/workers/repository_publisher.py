@@ -13,6 +13,7 @@ from products.wizard.backend.logic.workers.publishable_paths import literal_git_
 GIT_COMMAND_TIMEOUT_SECONDS = 60
 GITHUB_MUTATION_TIMEOUT_SECONDS = 60
 MAX_COMMIT_PAYLOAD_BYTES = 35 * 1024 * 1024
+_PRIVATE_KEY_HEADER_PATTERN = "-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----"
 
 _CREATE_COMMIT_MUTATION = """mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) { commit { oid url } }
@@ -93,7 +94,28 @@ def stage_publishable_changes(sandbox: SandboxBase, repository_path: str) -> tup
     paths = select_publishable_paths(tracked.split("\0"), untracked.split("\0"))
     if paths:
         _run_git(sandbox, repository_path, f"add --all -- {literal_git_pathspec(paths)}", "staging")
+        private_keys = _staged_private_key_paths(sandbox, repository_path, paths)
+        if private_keys:
+            _run_git(
+                sandbox,
+                repository_path,
+                f"reset --quiet HEAD -- {literal_git_pathspec(sorted(private_keys))}",
+                "private key removal",
+            )
+            paths = tuple(path for path in paths if path not in private_keys)
     return paths
+
+
+def _staged_private_key_paths(sandbox: SandboxBase, repository_path: str, paths: tuple[str, ...]) -> frozenset[str]:
+    pattern = shlex.quote(_PRIVATE_KEY_HEADER_PATTERN)
+    pathspec = literal_git_pathspec(paths)
+    output = _run_git(
+        sandbox,
+        repository_path,
+        f"grep --cached --name-only -z -I -E -e {pattern} -- {pathspec} || test $? -eq 1",
+        "private key detection",
+    )
+    return frozenset(output.split("\0")) - {""}
 
 
 def _head_sha(sandbox: SandboxBase, repository_path: str) -> str:

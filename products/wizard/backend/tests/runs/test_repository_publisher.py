@@ -66,6 +66,11 @@ def test_publishable_paths_keep_framework_source_and_exclude_workspace_files() -
         "apps/web/.env.production.local",
         "production.env",
         ".streamlit/secrets.toml",
+        ".docker/config.json",
+        ".gnupg/private-keys-v1.d/key",
+        ".kube/config",
+        ".m2/settings.xml",
+        ".config/gcloud/application_default_credentials.json",
         ".agents/skills/posthog/SKILL.md",
         ".claude/skills/posthog/setup.py",
         ".github/skills/posthog/SKILL.md",
@@ -75,6 +80,8 @@ def test_publishable_paths_keep_framework_source_and_exclude_workspace_files() -
         "backend/.venv/lib/posthog.py",
         "dist/index.js",
         "build/output.txt",
+        "id_dsa",
+        "id_ecdsa.pub",
     )
 
     assert select_publishable_paths(tracked_paths, untracked_paths) == (
@@ -105,6 +112,7 @@ def test_stage_publishable_changes_replaces_existing_staging(tmp_path: Path) -> 
 
     paths = (
         "src/component's name.tsx",
+        "src/private-key.txt",
         ".env",
         ".agents/skills/posthog/SKILL.md",
     )
@@ -112,6 +120,7 @@ def test_stage_publishable_changes_replaces_existing_staging(tmp_path: Path) -> 
         path = repository / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("changed\n")
+    (repository / "src/private-key.txt").write_text("-----BEGIN PRIVATE KEY-----\nprivate\n")
     _git(repository, "add", "--all")
 
     def execute(command: str, *, timeout_seconds: int) -> SimpleNamespace:

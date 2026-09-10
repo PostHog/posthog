@@ -10,8 +10,12 @@ _EXCLUDED_DIRECTORIES = {
     ".azure",
     ".claude",
     ".codex",
+    ".docker",
     ".cursor",
     ".gemini",
+    ".gnupg",
+    ".kube",
+    ".m2",
     ".opencode",
     ".skills",
     ".ssh",
@@ -51,6 +55,10 @@ _EXCLUDED_FILES = {
     "skills-lock.json",
     "secrets.toml",
 }
+_EXCLUDED_CHILDREN = {
+    ".config": {"gcloud"},
+    ".github": {"copilot-instructions.md", "instructions", "prompts", "skills"},
+}
 _EXCLUDED_FILE_PATTERNS = (
     "*.env.local",
     "*.env.*.local",
@@ -65,6 +73,8 @@ _EXCLUDED_FILE_PATTERNS = (
     "*.tfstate",
     "*.tfstate.*",
     "id_ed25519*",
+    "id_dsa*",
+    "id_ecdsa*",
     "id_rsa*",
     "service*account*.json",
 )
@@ -90,10 +100,7 @@ def _is_publishable_path(path: str, *, untracked: bool) -> bool:
         return False
     if untracked and any(part in _EXCLUDED_UNTRACKED_DIRECTORIES for part in parts[:-1]):
         return False
-    if any(
-        parent == ".github" and child in {"skills", "instructions", "prompts", "copilot-instructions.md"}
-        for parent, child in zip(parts, parts[1:])
-    ):
+    if any(child in _EXCLUDED_CHILDREN.get(parent, ()) for parent, child in zip(parts, parts[1:])):
         return False
 
     name = parts[-1]

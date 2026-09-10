@@ -88,7 +88,7 @@ The Worker:
 6. Creates a signed commit and opens or reuses a pull request when the workspace changed.
 7. Destroys the sandbox.
 
-The publish step excludes ignored files, private environment files, agent instruction files, skills, credentials, and new generated directories.
+The publish step excludes ignored files, private environment files, agent instruction files, skills, common credentials, private keys, and new generated directories.
 It includes generated directories that the repository already tracks.
 
 Tokens do not enter Temporal inputs, workflow history, run metadata, or logs.
