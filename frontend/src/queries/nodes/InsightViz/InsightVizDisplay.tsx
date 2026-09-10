@@ -54,6 +54,7 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
+import { ChartPreviews } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartPreviews'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -535,13 +536,18 @@ export function InsightVizDisplay({
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
-                {disableHeader ? null : <InsightDisplayConfig hideChartFilter={showChartAlternatives} />}
-                {showChartAlternatives && (
-                    <ChartAlternatives
-                        insightProps={insightProps}
-                        editMode={editMode}
-                        embedded={embedded}
-                        inSharedMode={inSharedMode}
+                {disableHeader ? null : (
+                    <InsightDisplayConfig
+                        chartTypeControl={
+                            showChartAlternatives ? (
+                                <ChartAlternatives
+                                    insightProps={insightProps}
+                                    editMode={editMode}
+                                    embedded={embedded}
+                                    inSharedMode={inSharedMode}
+                                />
+                            ) : undefined
+                        }
                     />
                 )}
                 {showingResults && (
@@ -589,6 +595,14 @@ export function InsightVizDisplay({
                     </>
                 )}
             </div>
+            {showChartAlternatives && (
+                <ChartPreviews
+                    insightProps={insightProps}
+                    editMode={editMode}
+                    embedded={embedded}
+                    inSharedMode={inSharedMode}
+                />
+            )}
             <ResultCustomizationsModal />
             {renderAIAnalysisSection()}
             {renderTable()}

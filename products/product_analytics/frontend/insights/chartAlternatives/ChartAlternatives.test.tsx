@@ -14,11 +14,12 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayCategory, ChartDisplayType, InsightShortId } from '~/types'
 
 import { ChartAlternatives } from './ChartAlternatives'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { getChartAlternatives, getChartDisplayChangeWarning, getChartDisplayOptions } from './chartDisplayOptions'
+import { chartPreviewsLogic } from './chartPreviewsLogic'
 
 const insightProps = { dashboardItemId: 'chart-alternatives' as InsightShortId }
 
@@ -102,7 +103,7 @@ describe('ChartAlternatives', () => {
         return query.source
     }
 
-    it('preserves the complete query across a destructive chart selection and return', async () => {
+    it('applies a destructive chart selection only after confirmation', () => {
         setQuery(
             makeTrendsQuery({
                 breakdownFilter: { breakdown: 'browser', breakdown_type: 'event' },
@@ -110,10 +111,10 @@ describe('ChartAlternatives', () => {
             })
         )
         const logic = alternativesLogic()
-        const originalQuery = builtInsightDataLogic.values.query
 
         logic.actions.selectChart(ChartDisplayType.BoxPlot, 'gallery')
         expect(logic.values.pendingSelection).not.toBeNull()
+        expect(currentTrendsQuery().trendsFilter?.display).toBe(ChartDisplayType.ActionsLineGraph)
         logic.actions.confirmSelection()
 
         expect(currentTrendsQuery().trendsFilter).toMatchObject({
@@ -122,13 +123,6 @@ describe('ChartAlternatives', () => {
             formulaNodes: [],
         })
         expect(currentTrendsQuery().breakdownFilter).toBeUndefined()
-
-        builtInsightVizDataLogic.actions.loadData()
-        await waitFor(() => expect(builtInsightVizDataLogic.values.insightDataLoading).toBe(true))
-        expect(logic.values.canReturn).toBe(true)
-        logic.actions.returnToOriginal()
-        expect(builtInsightDataLogic.values.query).toEqual(originalQuery)
-        resolveQueryResponse?.()
     })
 
     it('does not apply a confirmation after the query changes during loading', async () => {
@@ -139,8 +133,7 @@ describe('ChartAlternatives', () => {
             })
         )
         const logic = alternativesLogic()
-        logic.actions.selectChart(ChartDisplayType.ActionsAreaGraph, 'strip')
-        expect(logic.values.canReturn).toBe(true)
+        logic.actions.selectChart(ChartDisplayType.ActionsAreaGraph, 'recommended')
         logic.actions.selectChart(ChartDisplayType.BoxPlot, 'gallery')
         expect(logic.values.pendingSelection).not.toBeNull()
 
@@ -150,7 +143,6 @@ describe('ChartAlternatives', () => {
 
         logic.actions.confirmSelection()
         expect(logic.values.pendingSelection).toBeNull()
-        expect(logic.values.canReturn).toBe(false)
         expect(currentTrendsQuery().trendsFilter?.display).toBe(ChartDisplayType.ActionsAreaGraph)
         resolveQueryResponse?.()
     })
@@ -164,9 +156,16 @@ describe('ChartAlternatives', () => {
         )
         const logic = alternativesLogic()
         const originalQuery = builtInsightDataLogic.values.query
-        logic.actions.selectChart(ChartDisplayType.WorldMap, 'strip')
+        logic.actions.selectChart(ChartDisplayType.WorldMap, 'recommended')
         expect(builtInsightDataLogic.values.query).toEqual(originalQuery)
 
+        logic.actions.openGallery()
+        const recommendedGroup = await waitFor(() => {
+            const group = document.querySelector('[data-attr="chart-alternatives-group-recommended"]')
+            expect(group).toBeInTheDocument()
+            return group
+        })
+        expect(recommendedGroup?.querySelector('[data-attr="chart-alternative-WorldMap"]')).toBeNull()
         expect(document.querySelector('[data-attr="chart-alternative-WorldMap"]')).toHaveAttribute(
             'aria-pressed',
             'true'
@@ -181,6 +180,47 @@ describe('ChartAlternatives', () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         await waitFor(() => expect(document.querySelector('[data-attr="chart-alternatives"]')).not.toBeInTheDocument())
         resolveQueryResponse?.()
+    })
+
+    it('fetches the other chart category once the main result is in and again after a category flip', async () => {
+        let queryRequests = 0
+        const countQuery = (): { results: never[] } => {
+            queryRequests += 1
+            return { results: [] }
+        }
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': countQuery,
+                '/api/projects/:team_id/query/:kind/': countQuery,
+            },
+        })
+        setQuery(makeTrendsQuery())
+        alternativesLogic()
+        const previews = chartPreviewsLogic({ editMode: true, embedded: false, ...insightProps })
+        previews.mount()
+
+        expect(
+            previews.values.orderedPreviews.slice(0, 3).map(({ option, needsMore }) => [option.display, needsMore])
+        ).toEqual([
+            [ChartDisplayType.BoldNumber, true],
+            [ChartDisplayType.ActionsTable, true],
+            [ChartDisplayType.ActionsAreaGraph, false],
+        ])
+        expect(previews.values.otherRequestSource?.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
+        expect(queryRequests).toBe(0)
+
+        builtInsightDataLogic.actions.setInsightData({ results: [] })
+        await waitFor(() => expect(previews.values.moreResponse).not.toBeNull())
+        expect(queryRequests).toBe(1)
+
+        builtInsightVizDataLogic.actions.updateQuerySource({
+            trendsFilter: { display: ChartDisplayType.ActionsTable },
+        })
+        expect(previews.values.moreCategory).toBe(ChartDisplayCategory.TimeSeries)
+        expect(previews.values.moreResponse).toBeNull()
+        await waitFor(() => expect(previews.values.moreResponse).not.toBeNull())
+        expect(queryRequests).toBe(2)
+        previews.unmount()
     })
 
     it('uses the same eligibility metadata as the chart dropdown', () => {
@@ -241,19 +281,9 @@ describe('ChartAlternatives', () => {
             getChartAlternatives(compatibleOptions, ChartDisplayType.ActionsLineGraph, {
                 breakdown: '$geoip_country_code',
             }).map((option) => option.display)
-        ).toEqual([
-            ChartDisplayType.ActionsLineGraph,
-            ChartDisplayType.BoxPlot,
-            ChartDisplayType.WorldMap,
-            ChartDisplayType.Metric,
-        ])
+        ).toEqual([ChartDisplayType.BoxPlot, ChartDisplayType.WorldMap, ChartDisplayType.Metric])
         expect(
             getChartAlternatives(compatibleOptions, ChartDisplayType.ActionsLineGraph).map((option) => option.display)
-        ).toEqual([
-            ChartDisplayType.ActionsLineGraph,
-            ChartDisplayType.BoxPlot,
-            ChartDisplayType.Metric,
-            ChartDisplayType.ActionsTable,
-        ])
+        ).toEqual([ChartDisplayType.BoxPlot, ChartDisplayType.Metric, ChartDisplayType.ActionsTable])
     })
 })
