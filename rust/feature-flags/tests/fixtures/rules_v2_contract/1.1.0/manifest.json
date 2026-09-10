@@ -190,6 +190,119 @@
       }
     },
     {
+      "path": "fixtures/config/invalid/variant_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.variant_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/variants/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/null_experiment_id.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.null_experiment_id",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/experiment_id",
+        "message_contains": "integer"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/object_value_max_depth.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.object_value_max_depth",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/object_value_too_deep.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.object_value_too_deep",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "oneOf",
+        "instance_path": "/rules/0/value/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/rollout_percentage_above_maximum.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.rollout_percentage_above_maximum",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maximum",
+        "instance_path": "/rules/0/rollout_percentage"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/variant_key_invalid_characters.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.variant_key_invalid_characters",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "pattern",
+        "instance_path": "/rules/0/variants/0/key"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/too_few_variants.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.too_few_variants",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minItems",
+        "instance_path": "/rules/0/variants"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/too_many_variants.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.too_many_variants",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maxItems",
+        "instance_path": "/rules/0/variants"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/seed_too_long.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.seed_too_long",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maxLength",
+        "instance_path": "/rules/0/seed"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/group_percentage_rollout_with_assign_by.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.group_percentage_rollout_with_assign_by",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "not",
+        "instance_path": "/rules/0"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/group_experiment_with_assign_by.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.group_experiment_with_assign_by",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "not",
+        "instance_path": "/rules/0"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/group_all_rule_types.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.group_all_rule_types",
+      "expected": "valid"
+    },
+    {
       "path": "schemas/hash_sha1_60_v1.schema.json",
       "kind": "schema",
       "version": "1.0.0"
