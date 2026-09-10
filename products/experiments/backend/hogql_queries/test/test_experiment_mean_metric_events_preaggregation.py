@@ -171,10 +171,8 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
 
         assert first_result.ready is True
         assert second_result.ready is True
-        # The stable hash makes the complete day-aligned jobs shared across as_of
-        # values. The final partial day is claimed only up to each as_of, so the
-        # second read rebuilds just that job instead of reusing one that stores
-        # nothing between the two as_of values.
+        # The stable hash shares the complete day-aligned jobs across as_of values;
+        # only the final partial day, claimed up to each as_of, is rebuilt.
         first_jobs = set(first_result.job_ids)
         second_jobs = set(second_result.job_ids)
         assert len(second_jobs) == len(first_jobs)

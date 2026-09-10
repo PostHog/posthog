@@ -732,11 +732,10 @@ def find_missing_contiguous_windows(
     # Step 2: Find missing daily windows
     missing = []
     for window_start, window_end in daily_windows:
-        # The final window is rounded up to a full day, but the query only reads
-        # data up to end_timestamp. Requiring coverage past end_timestamp would
-        # reject a job whose claim was clamped to the data horizon (see the
-        # claimed_end clamp in execute()) and rebuild the same window on every
-        # read at the same `end`.
+        # The final window is rounded up to a full day, but the query reads only
+        # up to end_timestamp. A claim clamped to the data horizon (see
+        # clamp_ranges_to_data_horizon) must count as covering, or every read at
+        # the same `end` would rebuild the same window.
         required_end = min(window_end, end_timestamp)
         # Check if this window is covered by any READY or PENDING job
         is_covered = False
@@ -791,26 +790,22 @@ def clamp_ranges_to_data_horizon(
 ) -> list[BuildRange]:
     """
     Clamp build ranges so no created job claims time past `horizon`, the point
-    up to which the INSERT actually stores data. A None horizon only wraps the
-    ranges unchanged.
+    up to which the INSERT stores data. A None horizon only wraps the ranges.
 
-    Daily windows round the final day up to midnight, so a build whose data
-    horizon (the caller's `end`, derived from a historical as_of) falls mid-day
-    would otherwise create a job that claims hours it never stored. Coverage
-    checks key on the job row, so every later read would treat the unstored
-    tail as covered until the job expires (up to 60 days in the frozen band).
+    Daily windows round the final day up to midnight, so a historical mid-day
+    horizon would otherwise create a job that claims hours it never stored, and
+    every later read would treat the unstored tail as covered until the job
+    expires (up to 60 days in the frozen band).
 
-    A range that crosses the horizon splits at the horizon's day boundary
-    instead of only shrinking: the day-aligned part keeps a full-day claim, and
-    the partial tail becomes its own job claiming `[day_start, horizon)`. This
-    keeps jobs tiled. A later read with a later `end` rebuilds the partial day
-    in full, and `filter_overlapping_jobs` then evicts only the tail job. A
-    single clamped multi-day job would partially overlap that rebuild and be
-    evicted whole, dropping its complete days from reads.
+    A range that crosses the horizon splits at the horizon's day boundary: the
+    complete days keep a full-day claim and the partial tail becomes its own
+    job. Split jobs tile, so a later full-day rebuild replaces only the tail.
+    A single clamped multi-day job would partially overlap that rebuild and be
+    evicted whole by `filter_overlapping_jobs`, dropping its complete days.
 
-    Callers must not pass a horizon on the current UTC day: today's data is
-    still arriving, the same-day TTL already refreshes it, and a clamped claim
-    would force a rebuild on every read.
+    Callers must not pass a horizon on the current UTC day: the same-day TTL
+    already refreshes today's window, and a clamped claim would force a
+    rebuild on every read.
     """
     if horizon is None:
         return [BuildRange(start=s, end=e, ttl_seconds=ttl) for s, e, ttl in ttl_ranges]
@@ -821,13 +816,11 @@ def clamp_ranges_to_data_horizon(
         if range_end <= horizon:
             clamped.append(BuildRange(start=range_start, end=range_end, ttl_seconds=ttl))
             continue
-        if range_start > horizon_day_start:
-            clamped.append(BuildRange(start=range_start, end=horizon, ttl_seconds=ttl))
-            continue
-        if horizon_day_start > range_start:
-            clamped.append(BuildRange(start=range_start, end=horizon_day_start, ttl_seconds=ttl))
-        if horizon > horizon_day_start:
-            clamped.append(BuildRange(start=horizon_day_start, end=horizon, ttl_seconds=ttl))
+        split = max(range_start, horizon_day_start)
+        if split > range_start:
+            clamped.append(BuildRange(start=range_start, end=split, ttl_seconds=ttl))
+        if horizon > split:
+            clamped.append(BuildRange(start=split, end=horizon, ttl_seconds=ttl))
     return clamped
 
 
@@ -1078,11 +1071,11 @@ class LazyComputationExecutor:
                         number of rows it wrote, or None when it can't report one — see the
                         empty-insert branch below for what a 0 buys.
             end_is_data_horizon: True when the caller's INSERT stores no rows past
-                        `end` (it bakes `end` into its own filters), so a job for the
-                        final day must not claim past it. Leave False when the INSERT
-                        fills whole daily windows regardless of `end` — there the
-                        full-day claim is truthful, and clamping would create a new
-                        partial-tail job for every distinct `end` a user submits.
+                        `end` (it bakes `end` into its own filters), so the final
+                        day's job must not claim past it. Leave False when the
+                        INSERT fills whole daily windows regardless of `end`,
+                        because clamping those would create a new partial-tail job
+                        for every distinct `end` a user submits.
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
@@ -1625,10 +1618,10 @@ def ensure_precomputed(
                       hash covers only the substituted AST — so modifiers must never
                       change what the query computes, only how it executes (e.g.
                       `sessionIdPushdown`, which is semantics-preserving by design).
-        end_is_data_horizon: Set True when the insert query bakes `time_range_end` into
-                      its own filters (usually as a sentinel placeholder), so it stores
-                      no rows past it. Job claims then clamp to a historical end instead
-                      of claiming the full final day. See LazyComputationExecutor.execute.
+        end_is_data_horizon: Set True when the insert query bakes `time_range_end`
+                      into its own filters, so it stores no rows past it. Job claims
+                      then clamp to a historical end instead of claiming the full
+                      final day. See LazyComputationExecutor.execute.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data

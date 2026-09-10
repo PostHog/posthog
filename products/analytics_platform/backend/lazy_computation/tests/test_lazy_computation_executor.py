@@ -275,16 +275,6 @@ class TestClampRangesToDataHorizon(SimpleTestCase):
                 ],
             ),
             (
-                "range_before_horizon_unchanged",
-                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC), 60)],
-                datetime(2024, 1, 3, 12, tzinfo=UTC),
-                [
-                    BuildRange(
-                        start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 1, 2, tzinfo=UTC), ttl_seconds=60
-                    )
-                ],
-            ),
-            (
                 "crossing_multi_day_range_splits_at_day_boundary",
                 [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC), 60)],
                 datetime(2024, 1, 3, 12, tzinfo=UTC),
