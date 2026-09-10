@@ -8,7 +8,7 @@ lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduli
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Final, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -16,12 +16,14 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend.facade.contracts import DestinationType
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
@@ -32,6 +34,15 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
+
+# The event an insight alert check emits, named legacy where it is defined because it predates the
+# managed-alert event boundary. Do not take it from `posthog.tasks.alerts.utils` instead, because
+# that module imports this product's facade.
+INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
+
+# Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
+# destination an admin chose, while every other transport takes a URL the caller supplies.
+INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:

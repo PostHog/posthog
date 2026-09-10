@@ -128,6 +128,7 @@ def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) 
         deleted=False,
         filters__contains={"properties": [{"key": "alert_id", "value": str(instance.id)}]},
     ):
+        # nosemgrep: insight-alert-state-direct-mutation (writes HogFunction.enabled, not the alert's state)
         hog_function.enabled = False
         hog_function.deleted = True
         hog_function.save()

@@ -124,7 +124,7 @@ def destination_groups_for_alerts(
     if not team_ids or not alert_ids:
         return {}
 
-    rows = [
+    rows = (
         row
         for team_id in team_ids
         for row in list_owned_alert_destinations(
@@ -134,7 +134,7 @@ def destination_groups_for_alerts(
             template_ids=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
             enabled=True,
         )
-    ]
+    )
 
     groups: dict[str, dict[str, dict[str, str]]] = {}
     for row in rows:

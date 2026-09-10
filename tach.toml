@@ -177,12 +177,12 @@ layer = "modules"
 # destination and delivery types, facade.destinations for destination configuration and
 # dispatch, facade.email for alert mail, facade.lifecycle for the shared state machine,
 # facade.scheduling for the scheduling math, facade.delivery_slo for delivery SLOs, and
-# facade.api for the insight-alert reads and writes. presentation carries the DRF surface
-# adopter products mount or reuse in process, which a facade may not hold.
+# facade.api for the insight-alert reads and writes. presentation.views carries the DRF
+# surface adopter products mount or reuse in process, which a facade may not hold.
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
-    "backend\\.presentation.*",
+    "backend\\.presentation\\.views.*",
     "backend\\.routes.*",
 ]
 from = [

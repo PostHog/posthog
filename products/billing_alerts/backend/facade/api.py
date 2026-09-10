@@ -14,11 +14,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.alerts.backend.facade.contracts import (
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-)
+from products.alerts.backend.facade.contracts import AlertDestinationData, DestinationType
 from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     create_alert_destination_hog_functions,
@@ -161,9 +157,9 @@ def delete_alert_and_destinations(alert: BillingAlertConfiguration) -> None:
         alert.delete()
 
 
-def soft_delete_destinations_for_alerts(*, team_id: int, alert_ids: list[str]) -> int:
+def soft_delete_destinations_for_alerts(*, team_id: int, alert_ids: list[str]) -> None:
     """Remove the destinations of several billing alerts at once."""
-    return soft_delete_alert_destinations_for_alerts(
+    soft_delete_alert_destinations_for_alerts(
         team_id=team_id, alert_ids=alert_ids, allowed_event_ids=BILLING_ALERT_EVENT_IDS
     )
 
@@ -234,18 +230,13 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
             )
             for kind in EVENT_KINDS
         ]
-        try:
-            hog_function_ids = create_alert_destination_hog_functions(
-                configs,
-                team_id=locked_alert.execution_team_id,
-                created_by_id=request.user.id,
-                alert_id=str(locked_alert.id),
-                allowed_event_ids=BILLING_ALERT_EVENT_IDS,
-            )
-        except AlertDestinationValidationError as error:
-            if error.field:
-                raise DRFValidationError({error.field: [error.message]})
-            raise DRFValidationError(error.message)
+        hog_function_ids = create_alert_destination_hog_functions(
+            configs,
+            team_id=locked_alert.execution_team_id,
+            created_by_id=request.user.id,
+            alert_id=str(locked_alert.id),
+            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+        )
         return list(hog_function_ids)
 
 
@@ -259,17 +250,12 @@ def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[
             # An alert with no execution team has no destinations to remove. Skip rather than let
             # execution_team_id raise, matching delete_alert_and_destinations.
             return
-        try:
-            soft_delete_alert_destinations(
-                team_id=locked_alert.execution_team_id,
-                alert_id=str(locked_alert.id),
-                allowed_event_ids=BILLING_ALERT_EVENT_IDS,
-                hog_function_ids=hog_function_ids,
-            )
-        except AlertDestinationValidationError as error:
-            if error.field:
-                raise DRFValidationError({error.field: [error.message]})
-            raise DRFValidationError(error.message)
+        soft_delete_alert_destinations(
+            team_id=locked_alert.execution_team_id,
+            alert_id=str(locked_alert.id),
+            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+            hog_function_ids=hog_function_ids,
+        )
 
 
 def apply_destination_changes(alert: BillingAlertConfiguration, *, request: Any, changes: dict[str, Any]) -> None:

@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Collection
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -36,6 +35,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions import as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
@@ -67,14 +67,13 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
+from products.alerts.backend.facade.api import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
 )
 from products.alerts.backend.facade.destinations import (
-    INSIGHT_ALERT_DESTINATION_TYPES,
-    INSIGHT_ALERT_EVENT_IDS,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
     build_insight_alert_slack_config,
@@ -92,7 +91,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.presentation.schema import AlertScheduleRestriction, as_drf_validation_error
+from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 
@@ -927,32 +926,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError({"calculation_interval": [msg]})
 
         return attrs
-
-
-def insight_alerts_prefetch(to_attr: str) -> Prefetch:
-    """A ``Prefetch`` loading an insight's alerts in the shape ``serialize_insight_alerts`` needs.
-
-    Callers add it to their insight queryset and read the alerts back off ``to_attr``. The
-    select_related/prefetch_related shape belongs here because it follows AlertSerializer:
-    that serializer emits threshold and subscribed_users per alert, so without them every
-    alert in the response costs two extra queries.
-    """
-    # Sets no team filter of its own: the prefetch is scoped by the insight queryset it is
-    # attached to, and an alert always belongs to its insight's team.
-    # nosemgrep: idor-lookup-without-team
-    queryset = AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related("subscribed_users")
-    return Prefetch("alertconfiguration_set", queryset=queryset, to_attr=to_attr)
-
-
-def serialize_insight_alerts(alerts: Collection[AlertConfiguration], context: dict[str, Any]) -> list[dict[str, Any]]:
-    """Render an insight's alerts for the insight API response.
-
-    The insight API prefetches the alerts so the render costs no extra query, then hands them
-    back here — the alert JSON shape is this product's to define, not product_analytics'.
-    ``context`` is the calling serializer's DRF context.
-    """
-    # `many=True` yields a ReturnList; the DRF stubs type `.data` as ReturnDict either way.
-    return cast(list[dict[str, Any]], AlertSerializer(alerts, many=True, context=context).data)
 
 
 class AlertSimulateSerializer(serializers.Serializer):

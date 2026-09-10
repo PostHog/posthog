@@ -11,6 +11,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from posthog.exceptions import as_drf_validation_error
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
 
 from products.alerts.backend.facade.contracts import (
@@ -130,9 +131,7 @@ class BillingAlertDestinationCreateDataSerializer(serializers.Serializer):
         try:
             validate_destination_data(data, allowed_destination_types=billing_alerts_api.BILLING_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
-            if error.field:
-                raise ValidationError({error.field: error.message})
-            raise ValidationError(error.message)
+            raise as_drf_validation_error(error)
 
         # URL-shape checks beyond the shared required-field validation.
         webhook_url = attrs.get("webhook_url")
@@ -364,9 +363,12 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             alert = super().create(validated_data)
             billing_alerts_api.initialize_billing_alert_lifecycle(alert)
             if destination_changes:
-                billing_alerts_api.apply_destination_changes(
-                    alert, request=self.context["request"], changes=destination_changes
-                )
+                try:
+                    billing_alerts_api.apply_destination_changes(
+                        alert, request=self.context["request"], changes=destination_changes
+                    )
+                except AlertDestinationValidationError as error:
+                    raise as_drf_validation_error(error)
             return alert
 
     def update(
@@ -418,9 +420,12 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
                 configuration_changed=configuration_changed,
             )
             if destination_changes:
-                billing_alerts_api.apply_destination_changes(
-                    updated, request=self.context["request"], changes=destination_changes
-                )
+                try:
+                    billing_alerts_api.apply_destination_changes(
+                        updated, request=self.context["request"], changes=destination_changes
+                    )
+                except AlertDestinationValidationError as error:
+                    raise as_drf_validation_error(error)
             return updated
 
 

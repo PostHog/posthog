@@ -8,11 +8,11 @@ objects stay inside the product.
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
 
-from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.kafka_client.client import ProduceResult
 
 from ..logic import destination_configs, destinations, insight_alert_destinations
@@ -28,15 +28,6 @@ from .contracts import (
 )
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
-
-# The event an insight alert check emits, named legacy where it is defined because it predates the
-# managed-alert event boundary. Do not take it from `posthog.tasks.alerts.utils` instead, because
-# that module imports this one.
-INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
-
-# Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
-# destination an admin chose, while every other transport takes a URL the caller supplies.
-INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
 
 # Each destination is another message every time the alert fires, so a caller in a loop is capped.
 MAX_DESTINATIONS_PER_ALERT: Final = 5
@@ -56,7 +47,6 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
 
 
 def redact_urls_in_name(name: str) -> str:
-    """Replace every URL in a free-text name with its host."""
     return destinations.redact_urls_in_name(name)
 
 
@@ -145,10 +135,9 @@ def list_owned_alert_destinations(
     team_id: int,
     alert_ids: Collection[str],
     allowed_event_ids: Collection[str],
-    template_ids: Collection[str] | None = None,
-    enabled: bool | None = None,
+    template_ids: Collection[str],
+    enabled: bool,
 ) -> tuple[OwnedAlertDestination, ...]:
-    """Alert-owned destination rows, without their stored inputs."""
     return destinations.list_owned_alert_destinations(
         team_id=team_id,
         alert_ids=alert_ids,
@@ -161,7 +150,6 @@ def list_owned_alert_destinations(
 def configured_destination_template_ids(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> frozenset[str]:
-    """The distinct HogFunction templates one alert has a destination for."""
     return destinations.configured_destination_template_ids(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
@@ -183,7 +171,7 @@ def list_active_alert_destinations(
 
 def serialize_deliveries(deliveries: Sequence[AlertDelivery]) -> list[dict[str, Any]]:
     """Delivery receipts in the shape an alert check stores them in."""
-    return destinations.serialize_deliveries(deliveries)
+    return [asdict(delivery) for delivery in deliveries]
 
 
 def produce_alert_internal_event(

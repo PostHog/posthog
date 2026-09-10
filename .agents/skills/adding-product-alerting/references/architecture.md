@@ -23,7 +23,7 @@ Logs and insight alerts both adapt their product state to the shared lifecycle e
 
 ## Boundary
 
-Consumers import `products.alerts.backend.facade.*`. The tach interface also exposes `presentation.*` and `routes.*`, which carry the DRF surface other products mount or reuse in process.
+Consumers import `products.alerts.backend.facade.*`. The tach interface also exposes `presentation.views.*` and `routes.*`, which carry the DRF surface other products mount or reuse in process.
 
 - Models, querysets and DRF objects never cross the facade in either direction.
 - Facade functions take and return contracts, ids, and plain values.
@@ -71,26 +71,14 @@ Error behavior is load-bearing:
 
 ## Destination contract
 
-Product-facing destination setup lives in `products.alerts.backend.facade.destinations`. Read that module for the full surface. The functions an adopter uses most are:
+Product-facing destination setup lives in `products.alerts.backend.facade.destinations`. Read that module for the full surface. An adopter starts from:
 
 - `validate_destination_data`
 - `build_alert_destination_config`
-- `build_insight_alert_slack_config`
 - `create_alert_destination_hog_functions`
 - `soft_delete_alert_destinations`
-- `soft_delete_all_alert_destinations`
-- `soft_delete_alert_destinations_for_alerts`
-- `list_alert_destination_groups`
-- `list_owned_alert_destinations`
-- `list_active_alert_destinations`
-- `configured_destination_template_ids`
-- `count_active_alert_destinations`
-- `destination_template_id`
-- `redact_destination_data`
-- `redact_urls_in_name`
-- `serialize_deliveries`
 
-The module also holds the destination limits and the insight-alert event and destination-type constants.
+The module also holds the destination limits. The insight-alert event and destination-type constants live in `products.alerts.backend.facade.api`.
 
 `send_alert_email` lives in `products.alerts.backend.facade.email`. The data types the
 functions above take and return live in `products.alerts.backend.facade.contracts`.
@@ -101,7 +89,7 @@ another facade read.
 
 `EventKindSpec` describes destination-neutral content for one event kind. The shared builder converts it into a HogFunction payload through an internal registry where each destination type owns its template ID, required fields, input building, read-back, and read redaction. Adding a destination type means adding one entry there. Products own event IDs, event properties, wording, actions, and their allowed destination list.
 
-Validation failures raise `AlertDestinationValidationError`, a plain exception with a message and an optional field name. The adopter's view translates it into its own framework's validation error, because the facade has no HTTP layer of its own.
+Validation failures raise `AlertDestinationValidationError`, a plain exception with a message and an optional field name. The adopter's view translates it into its own framework's validation error, because the facade has no HTTP layer of its own. `as_drf_validation_error` in `posthog.exceptions` does that translation for a DRF view.
 
 Deletion is fail-closed. Always scope it with `team_id`, `alert_id`, and the product's allowed event IDs.
 `create_alert_destination_hog_functions` refuses any destination in the call that the alert already has, so call it with the alert row locked.

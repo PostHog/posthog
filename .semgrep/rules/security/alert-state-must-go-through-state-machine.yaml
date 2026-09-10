@@ -114,9 +114,8 @@ rules:
               - '/.semgrep/rules/security/tests/insight-alert-state-must-go-through-state-machine.py'
           exclude:
               - '/products/alerts/backend/insight_alert_state_machine.py'
-              # Both write HogFunction.enabled (destination plumbing), not an alert.
+              # Writes HogFunction.enabled (destination plumbing), not an alert.
               - '/products/alerts/backend/logic/destinations.py'
-              - '/products/alerts/backend/activity_logging.py'
               - '/products/alerts/backend/test/**'
               - '/products/alerts/backend/tests/**'
               - '/products/alerts/backend/**/test_*.py'

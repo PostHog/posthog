@@ -7,6 +7,7 @@ keep the DRF/serializer import chain off config-only import paths.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -17,21 +18,21 @@ _B = "products.cdp.backend."
 
 _LAZY = {"HogFunctionSerializer": "api.hog_function"}
 
-__all__ = [*sorted(_LAZY), "create_hog_function"]
+__all__ = [*sorted(_LAZY), "create_hog_functions"]
 
 
-def create_hog_function(
+def create_hog_functions(
+    payloads: Sequence[dict[str, Any]],
     *,
     team_id: int,
-    payload: dict[str, Any],
     created_by_id: int,
-    allow_managed_alert_destination: bool = False,
-) -> UUID:
-    """Create one hog function from an already-built payload and return its id.
+    allow_managed_alert_destination: bool,
+) -> list[UUID]:
+    """Create one hog function per payload and return their ids in the order given.
 
     Callers outside this product have no DRF request to take an acting user from, so the
-    acting user comes in as an id. Both rows are resolved here so no model crosses the
-    boundary; the call already writes a row, so two more point lookups do not change its cost.
+    acting user comes in as an id. The team and the acting user are resolved once for the
+    whole batch, so a caller writing several functions still pays two point lookups.
     """
     # Same reason as _LAZY below: the serializer drags DRF, so it stays off this module's
     # import path.
@@ -39,18 +40,19 @@ def create_hog_function(
 
     team = Team.objects.get(id=team_id)
     created_by = User.objects.get(id=created_by_id)
-    serializer = HogFunctionSerializer(
-        data=payload,
-        context={
-            "get_team": lambda: team,
-            "is_create": True,
-            "created_by": created_by,
-            "allow_managed_alert_destination": allow_managed_alert_destination,
-        },
-    )
-    serializer.is_valid(raise_exception=True)
-    hog_function = serializer.save(team=team)
-    return hog_function.id
+    created_ids: list[UUID] = []
+    for payload in payloads:
+        serializer = HogFunctionSerializer(
+            data=payload,
+            context={
+                "get_team": lambda: team,
+                "is_create": True,
+                "allow_managed_alert_destination": allow_managed_alert_destination,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        created_ids.append(serializer.save(team=team, created_by=created_by).id)
+    return created_ids
 
 
 def __getattr__(name: str):

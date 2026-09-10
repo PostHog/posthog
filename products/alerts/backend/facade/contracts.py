@@ -33,6 +33,11 @@ _DESTINATION_TYPE_LABELS: Final[dict[DestinationType, str]] = {
     DestinationType.TEAMS: "Microsoft Teams",
 }
 
+# A type without a label would only surface as a KeyError inside a validation message a
+# person reads, so a new member without one fails the import instead.
+if _DESTINATION_TYPE_LABELS.keys() != set(DestinationType):
+    raise RuntimeError("Every DestinationType needs an entry in _DESTINATION_TYPE_LABELS.")
+
 
 class AlertDestinationData(TypedDict):
     type: DestinationType

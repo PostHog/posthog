@@ -1,16 +1,13 @@
-"""Presentation shapes and helpers that adopter products' own DRF views reuse.
+"""Pydantic OpenAPI types for alert quiet hours (schedule_restriction JSONField).
 
-The schedule-restriction models describe one JSON field in the generated OpenAPI spec, and
-`as_drf_validation_error` turns the facade's framework-free destination error into a DRF one.
-Neither is a contract: both carry DRF or drf-spectacular meaning, so they sit above the facade.
+Adopter products reuse them to describe the same JSON field on their own alert APIs.
+They carry drf-spectacular meaning rather than data a consumer reads, so they sit on the
+presentation surface, not in the facade.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
-from rest_framework.exceptions import ValidationError
-
-from products.alerts.backend.facade.contracts import AlertDestinationValidationError
 
 
 class AlertScheduleRestrictionWindow(BaseModel):
@@ -42,10 +39,3 @@ class AlertScheduleRestriction(BaseModel):
             "At most five windows before normalization; empty array clears quiet hours."
         ),
     )
-
-
-def as_drf_validation_error(error: AlertDestinationValidationError) -> ValidationError:
-    """The DRF equivalent of a destination validation error, keyed by field when it names one."""
-    if error.field:
-        return ValidationError({error.field: [error.message]})
-    return ValidationError(error.message)

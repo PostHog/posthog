@@ -19,6 +19,7 @@ from products.alerts.backend.facade.contracts import (
     DestinationType,
     EventKindSpec,
 )
+from products.alerts.backend.facade.destinations import serialize_deliveries
 from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
 from products.alerts.backend.logic.destinations import (
     SPEC_BY_TEMPLATE_ID,
@@ -30,8 +31,8 @@ from products.alerts.backend.logic.destinations import (
     flush_alert_internal_events,
     group_alert_destination_rows,
     list_active_alert_destinations,
+    produce_alert_internal_event,
     redact_urls_in_name,
-    serialize_deliveries,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
@@ -651,6 +652,23 @@ class TestAlertInternalEventDelivery(APIBaseTest):
         capture_exception.assert_not_called()
         delivery_failures.labels.assert_called_once_with(event_name="$logs_alert_firing")
         delivery_failures.labels.return_value.inc.assert_called_once_with()
+
+
+class TestProduceAlertInternalEvent(SimpleTestCase):
+    @patch("products.alerts.backend.logic.destinations.capture_exception")
+    @patch(
+        "products.alerts.backend.logic.destinations.produce_internal_event",
+        side_effect=RuntimeError("broker down"),
+    )
+    def test_a_producer_failure_is_swallowed_so_a_batch_caller_still_saves(
+        self, _produce_internal_event, capture_exception
+    ) -> None:
+        result = produce_alert_internal_event(
+            team_id=1, event_name="$logs_alert_firing", properties={"alert_id": "alert-1"}
+        )
+
+        assert result is None
+        capture_exception.assert_called_once()
 
 
 class TestFlushAlertInternalEvents(SimpleTestCase):

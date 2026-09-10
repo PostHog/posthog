@@ -832,6 +832,7 @@ jobs:
                       logsAlerting:
                         - 'posthog/temporal/logs_alerting/**'
                         - 'products/alerts/backend/facade/**'
+                        - 'products/alerts/backend/logic/**'
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Sequence
-from dataclasses import asdict
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any, NamedTuple, cast
 from urllib.parse import urlsplit
@@ -24,7 +23,6 @@ from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.facade.contracts import (
     ActiveAlertDestination,
-    AlertDelivery,
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationGroup,
@@ -32,7 +30,7 @@ from products.alerts.backend.facade.contracts import (
     OwnedAlertDestination,
 )
 from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID
-from products.cdp.backend.facade.api import create_hog_function
+from products.cdp.backend.facade.api import create_hog_functions
 from products.cdp.backend.facade.models import HogFunction
 
 logger = structlog.get_logger(__name__)
@@ -42,10 +40,6 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "Number of alert internal events that failed delivery",
     labelnames=["event_name"],
 )
-
-
-def serialize_deliveries(deliveries: Sequence[AlertDelivery]) -> list[dict[str, Any]]:
-    return [asdict(delivery) for delivery in deliveries]
 
 
 class AlertDestinationGroupKey(NamedTuple):
@@ -138,8 +132,8 @@ def list_owned_alert_destinations(
     team_id: int,
     alert_ids: Collection[str],
     allowed_event_ids: Collection[str],
-    template_ids: Collection[str] | None = None,
-    enabled: bool | None = None,
+    template_ids: Collection[str],
+    enabled: bool,
 ) -> tuple[OwnedAlertDestination, ...]:
     """Alert-owned destination rows, without their stored inputs.
 
@@ -147,11 +141,9 @@ def list_owned_alert_destinations(
     for, so this read stops at the columns a caller needs to tell one destination from
     another.
     """
-    queryset = owned_alert_destinations_qs(team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids)
-    if template_ids is not None:
-        queryset = queryset.filter(template_id__in=list(template_ids))
-    if enabled is not None:
-        queryset = queryset.filter(enabled=enabled)
+    queryset = owned_alert_destinations_qs(
+        team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
+    ).filter(template_id__in=list(template_ids), enabled=enabled)
     return tuple(
         OwnedAlertDestination(
             hog_function_id=hog_function_id,
@@ -228,7 +220,6 @@ def create_alert_destination_hog_functions(
     """
     if not configs:
         return ()
-    created_ids: list[UUID] = []
     with transaction.atomic():
         _raise_if_alert_already_has_these_destination_configs(
             team_id=team_id,
@@ -236,15 +227,12 @@ def create_alert_destination_hog_functions(
             allowed_event_ids=allowed_event_ids,
             configs=configs,
         )
-        for config in configs:
-            created_ids.append(
-                create_hog_function(
-                    team_id=team_id,
-                    payload=config.payload,
-                    created_by_id=created_by_id,
-                    allow_managed_alert_destination=True,
-                )
-            )
+        created_ids = create_hog_functions(
+            [config.payload for config in configs],
+            team_id=team_id,
+            created_by_id=created_by_id,
+            allow_managed_alert_destination=True,
+        )
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=created_ids)
     return tuple(created_ids)
 

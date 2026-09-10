@@ -5,7 +5,7 @@ from django.template.loader import render_to_string
 from products.alerts.backend.facade.email import send_alert_email
 
 
-@patch("products.alerts.backend.logic.email_notifications.EmailMessage")
+@patch("products.alerts.backend.facade.email.EmailMessage")
 def test_send_alert_email_delivers_to_every_recipient(MockEmailMessage: MagicMock) -> None:
     send_alert_email(
         recipients=("first@example.com", "second@example.com"),
@@ -59,6 +59,23 @@ def test_alert_firing_email_labels_test_delivery_without_claiming_the_alert_is_f
 
     assert "This is a test delivery" in html
     assert "alert is firing" not in html
+
+
+def test_alert_firing_email_lists_every_breach_description() -> None:
+    html = render_to_string(
+        "email/alert_check_firing.html",
+        {
+            "match_descriptions": ["Signups dropped below 100", "Signups dropped below 50"],
+            "insight_url": "/project/1/insights/example",
+            "insight_name": "Example insight",
+            "alert_url": "/project/1/insights/example?alert_id=1",
+            "alert_name": "Example alert",
+            "project_name": "Example project",
+        },
+    )
+
+    assert "Signups dropped below 100" in html
+    assert "Signups dropped below 50" in html
 
 
 def test_alert_evaluation_failure_email_includes_the_reason_and_next_check_timing() -> None:

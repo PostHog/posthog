@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from ..logic import email_notifications
+from posthog.email import EmailMessage
 
 
 def send_alert_email(
@@ -16,10 +16,12 @@ def send_alert_email(
     template_context: dict[str, object],
 ) -> None:
     """Send one alert email to every recipient."""
-    email_notifications.send_alert_email(
-        recipients=recipients,
+    message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
         template_name=template_name,
         template_context=template_context,
     )
+    for recipient in recipients:
+        message.add_recipient(email=recipient)
+    message.send()
