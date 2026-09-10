@@ -2,6 +2,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -79,6 +80,9 @@ class TestEmailReputationAPI(APIBaseTest):
         assert allowance["enforced"] is False
         assert allowance["emails_sent_last_hour"] == 0
         assert allowance["emails_sent_last_day"] == 0
+        # The cap a run is truncated at, not tier 0's. Until the tiers are enforced a batch still
+        # stops at the flat pre-tier ceiling, and the card would name a limit nothing applies.
+        assert allowance["max_batch_audience"] == settings.HOGFLOW_BATCH_TRIGGER_LIMIT
         assert data == {
             "aws": None,
             "reputation": None,

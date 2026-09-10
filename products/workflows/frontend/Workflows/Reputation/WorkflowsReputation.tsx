@@ -406,36 +406,46 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 </Tooltip>
             </div>
             <p className="text-secondary mt-2 mb-0">
-                Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
-                above the allowance are not dropped, they are sent later.
+                Your allowance grows as your workflows keep sending with low bounce and spam complaint rates.
+                {allowance.enforced
+                    ? ' Emails above the hourly and daily allowance are not dropped, they are sent later.'
+                    : ''}{' '}
+                A batch run sends up to the batch audience limit and stops. Anyone above the limit does not receive the
+                workflow.
             </p>
             <div className="flex flex-wrap gap-8 mt-3">
-                <div className="min-w-48">
-                    <MetricLabel
-                        label="Emails this hour"
-                        tooltip="Emails your workflows sent in the last hour, against what this tier allows per hour."
-                    />
-                    <div className="text-lg font-semibold">
-                        {humanFriendlyNumber(allowance.emails_sent_last_hour)} of{' '}
-                        {humanFriendlyNumber(allowance.emails_per_hour)}
-                    </div>
-                    <LemonProgress percent={hourlyPercent} className="mt-1" />
-                </div>
-                <div className="min-w-48">
-                    <MetricLabel
-                        label="Emails today"
-                        tooltip="Emails your workflows sent in the last 24 hours, against what this tier allows per day."
-                    />
-                    <div className="text-lg font-semibold">
-                        {humanFriendlyNumber(allowance.emails_sent_last_day)} of{' '}
-                        {humanFriendlyNumber(allowance.emails_per_day)}
-                    </div>
-                    <LemonProgress percent={dailyPercent} className="mt-1" />
-                </div>
+                {/* The hourly and daily allowance only shapes sends once the tier is enforced, so the
+                    meters would read as limits that are not applied. The batch audience limit always is. */}
+                {allowance.enforced && (
+                    <>
+                        <div className="min-w-48">
+                            <MetricLabel
+                                label="Emails this hour"
+                                tooltip="Emails your workflows sent in the last hour, against what this tier allows per hour."
+                            />
+                            <div className="text-lg font-semibold">
+                                {humanFriendlyNumber(allowance.emails_sent_last_hour)} of{' '}
+                                {humanFriendlyNumber(allowance.emails_per_hour)}
+                            </div>
+                            <LemonProgress percent={hourlyPercent} className="mt-1" />
+                        </div>
+                        <div className="min-w-48">
+                            <MetricLabel
+                                label="Emails today"
+                                tooltip="Emails your workflows sent in the last 24 hours, against what this tier allows per day."
+                            />
+                            <div className="text-lg font-semibold">
+                                {humanFriendlyNumber(allowance.emails_sent_last_day)} of{' '}
+                                {humanFriendlyNumber(allowance.emails_per_day)}
+                            </div>
+                            <LemonProgress percent={dailyPercent} className="mt-1" />
+                        </div>
+                    </>
+                )}
                 <div>
                     <MetricLabel
                         label="Largest batch audience"
-                        tooltip="The biggest audience this tier allows for a single batch send."
+                        tooltip="A batch run sends to at most this many people. Anyone above the limit does not receive the workflow."
                     />
                     <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
                 </div>
@@ -471,7 +481,7 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
-            {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
+            {sendingAllowance && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}

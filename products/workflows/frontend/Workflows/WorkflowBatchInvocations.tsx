@@ -19,6 +19,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { HogInvocations } from 'scenes/hog-functions/invocations/HogInvocations'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
@@ -122,6 +123,25 @@ function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlow
                 <PropertyFiltersDisplay
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
                 />
+            </div>
+            {/* Run-level resolver entries: audience truncation, a stop, a resolver failure. They
+                carry this job id as the instance, and no other view lists them. */}
+            <div className="flex flex-col gap-2">
+                <span className="text-muted">Run log</span>
+                <div className="border rounded bg-surface-primary p-3">
+                    <LogsViewer
+                        logicKey={`batch-run-${job.id}`}
+                        instanceLabel="batch run"
+                        sourceType="hog_flow"
+                        sourceId={hogFlowId}
+                        groupByInstanceId={false}
+                        hideDateFilter
+                        hideInstanceIdColumn
+                        defaultAscending
+                        defaultFilters={{ instanceId: job.id, dateFrom: defaultDateFrom }}
+                        renderMessage={workflow ? (m) => renderWorkflowLogMessage(workflow, m) : undefined}
+                    />
+                </div>
             </div>
             <div className="flex flex-col gap-2">
                 <HogInvocations

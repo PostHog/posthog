@@ -97,8 +97,8 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
     private async processResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
         // Checked before state deserialization so a cancel lands even on a job whose state
-        // this deploy can no longer parse. `parentRunId` carries the batch job id
-        // independently of state, so the log still keys to the run.
+        // this deploy can no longer parse. `functionId` and `parentRunId` carry the workflow id
+        // and the batch job id independently of state, so the log still keys to the run.
         if (job.cancelRequestedAt) {
             await this.cancelResolverJob(job)
             return
@@ -185,9 +185,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
      * Terminate a cancel-flagged resolver job: no further pages, and no terminal status
      * PUT — Django flips the batch job's status itself as part of the cancel request, and
      * the internal status endpoint absorbs terminal states, so a racing completion still
-     * resolves consistently. The log lands on the batch run's log stream so the stop is
-     * visible next to its runs. Flushes monitoring itself because the cancel paths return
-     * before processResolverJob's finally-flush.
+     * resolves consistently. The log keys to the workflow with the batch job id as its
+     * instance, which is what the batch run's log panel reads. Flushes monitoring itself
+     * because the cancel paths return before processResolverJob's finally-flush.
      */
     private async cancelResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
         counterBatchHogFlowResolverJobs.labels({ outcome: 'canceled' }).inc()
@@ -196,7 +196,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 {
                     team_id: job.teamId,
                     log_source: 'hog_flow',
-                    log_source_id: job.parentRunId ?? job.functionId ?? '',
+                    log_source_id: job.functionId ?? '',
                     instance_id: job.parentRunId ?? job.id,
                     ...logEntry('info', 'Batch run canceled. The remaining audience will not receive this workflow.'),
                 },
@@ -441,9 +441,17 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
     }
 
+    /**
+     * Run-level resolver logs key to the workflow, with the batch job id as the instance. A child
+     * invocation's logs key to the batch job id instead, so an entry filed there needs an
+     * invocation id to reach a viewer, and a run-level entry has none.
+     */
     private emitTruncationLog(state: BatchResolverState): void {
         counterBatchHogFlowAudienceTruncated.labels({ hog_flow_id: state.hogFlowId }).inc()
-        const message = `Audience reached the max cap of ${state.maxAudienceSize}, ${state.totalEnqueued} persons enqueued; the remainder did not receive this workflow.`
+        const message =
+            `Audience limit reached. This project allows at most ${state.maxAudienceSize} recipients in one batch run, ` +
+            `so ${state.totalEnqueued} were enrolled and the rest did not receive this workflow. ` +
+            `Narrow the audience with filters to reach everyone you intend to.`
         logger.warn('⚠️', `${this.name} - audience truncated`, {
             batchJobId: state.batchJobId,
             totalEnqueued: state.totalEnqueued,
@@ -454,7 +462,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 {
                     team_id: state.teamId,
                     log_source: 'hog_flow',
-                    log_source_id: state.batchJobId,
+                    log_source_id: state.hogFlowId,
                     instance_id: state.batchJobId,
                     ...logEntry('warn', message),
                 },
@@ -483,7 +491,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 {
                     team_id: state.teamId,
                     log_source: 'hog_flow',
-                    log_source_id: state.batchJobId,
+                    log_source_id: state.hogFlowId,
                     instance_id: state.batchJobId,
                     ...logEntry('error', `Batch resolver failed: ${reasonMessage}`),
                 },
