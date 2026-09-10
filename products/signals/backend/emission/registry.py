@@ -25,6 +25,8 @@ class SignalEmitterOutput:
     description: str
     weight: float
     extra: dict[str, Any]
+    signal_id: str | None = None
+    costs_started_at: str | None = None
 
 
 # Type for signal emitter functions (None if the source has not enough meaningful data)

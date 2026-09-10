@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -176,6 +177,43 @@ class TestTaskRunArtefacts(BaseTest):
         # Idempotent on the gate row for the same task — re-recording doesn't duplicate the link.
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
         assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
+
+    def test_task_created_with_attribution_schedules_costs_after_commit(self):
+        with (
+            patch("products.signals.backend.tasks.refresh_signal_costs.apply_async") as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            Task.objects.create(
+                team=self.team,
+                title="Research",
+                description="",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                state={"triggering_signal_id": "11111111-1111-1111-1111-111111111111"},
+            )
+            enqueue.assert_not_called()
+        enqueue.assert_called_once_with(
+            kwargs={"team_id": self.team.id, "signal_id": "11111111-1111-1111-1111-111111111111"}, countdown=300
+        )
+
+    def test_terminal_save_retries_cost_update_after_a_task_lookup_failure(self):
+        report = self._report()
+        task = self._task()
+        task.state = {"triggering_signal_id": str(report.id)}
+        task.save(update_fields=["state"])
+
+        with (
+            patch(
+                "products.signals.backend.receivers.get_task_triggering_signal_id",
+                side_effect=[RuntimeError("database unavailable"), str(report.id)],
+            ) as task_signal_id,
+            patch("products.signals.backend.receivers._schedule_signal_cost_update") as schedule,
+        ):
+            run = TaskRun.objects.create(team=self.team, task=task)
+            run.status = TaskRun.Status.FAILED
+            run.save(update_fields=["status"])
+
+        assert task_signal_id.call_count == 2
+        schedule.assert_called_once_with(team_id=self.team.id, signal_id=str(report.id))
 
     def test_task_run_pr_is_copied_to_the_assignment(self):
         report = self._report()

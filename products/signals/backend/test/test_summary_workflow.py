@@ -23,17 +23,24 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
-from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
+from products.signals.backend.temporal.report_safety_judge import (
+    SafetyJudgeInput,
+    SafetyJudgeOutput,
+    SafetyJudgeResponse,
+    judge_report_safety,
+)
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
     EMPTY_FETCH_RETRY_ATTEMPTS,
     CheckReportQuotaGateInput,
     MarkReportFailedInput,
     MarkReportInProgressInput,
+    MarkReportReadyInput,
     ReportHasAssignedSignalsInput,
     ResetReportToPotentialInput,
     RevertReportToCandidateInput,
     SignalReportSummaryWorkflow,
+    _triggering_signal_for_reresearch,
     check_report_quota_gate_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
@@ -176,10 +183,18 @@ class _Recorder:
         # Signals returned by successive fetches; the last entry repeats once exhausted.
         fetch_results: list[list[SignalData]] | None = None,
         has_assigned_signals: bool = True,
+        triggering_signal_id: str | None = None,
+        research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
+        mark_ready_answers: list[bool] | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
         self.has_assigned_signals = has_assigned_signals
+        self.triggering_signal_id = triggering_signal_id
+        self.research_choice = research_choice
+        self.mark_ready_answers = mark_ready_answers or [False]
+        self.mark_ready_checks = 0
+        self.stage_triggering_signal_ids: list[str | None] = []
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
@@ -203,6 +218,53 @@ def _signal_data() -> SignalData:
         weight=1.0,
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
     )
+
+
+@pytest.mark.asyncio
+async def test_safety_judge_passes_triggering_signal_to_llm():
+    captured: dict[str, str | None] = {}
+
+    async def fake_call_llm(**kwargs):
+        captured["triggering_signal_id"] = kwargs["triggering_signal_id"]
+        return SafetyJudgeResponse(choice=True)
+
+    with patch("products.signals.backend.temporal.report_safety_judge.call_llm", new=fake_call_llm):
+        await judge_report_safety(
+            team_id=1,
+            signals=[_signal_data()],
+            triggering_signal_id="causing-signal",
+        )
+
+    assert captured["triggering_signal_id"] == "causing-signal"
+
+
+def test_reresearch_trigger_uses_first_eligible_assigned_count():
+    causing_signal_id = "causing-signal"
+    later_debounced_signal_id = "later-debounced-signal"
+    signals = [
+        SignalData(
+            signal_id=later_debounced_signal_id,
+            content="later signal",
+            source_product="error_tracking",
+            source_type="issue",
+            source_id="later",
+            weight=1.0,
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+            metadata={"report_signal_count": 3},
+        ),
+        SignalData(
+            signal_id=causing_signal_id,
+            content="causing signal",
+            source_product="error_tracking",
+            source_type="issue",
+            source_id="causing",
+            weight=1.0,
+            timestamp=datetime(2026, 1, 2, tzinfo=UTC),
+            metadata={"report_signal_count": 2},
+        ),
+    ]
+
+    assert _triggering_signal_for_reresearch(signals, previous_processed_signal_count=1) == causing_signal_id
 
 
 async def _run_summary_workflow(recorder: _Recorder) -> None:
@@ -229,26 +291,35 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
         recorder.safety_checks += 1
+        recorder.stage_triggering_signal_ids.append(input.triggering_signal_id)
         return SafetyJudgeOutput(safe=True, explanation="ok")
 
     @activity.defn(name="select_repository_activity")
     async def fake_select_repo(input: SelectRepositoryInput) -> RepoSelectionResult:
         recorder.repo_selections += 1
+        recorder.stage_triggering_signal_ids.append(input.triggering_signal_id)
         return RepoSelectionResult(repository="owner/repo", reason="selected")
 
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.researches += 1
+        recorder.stage_triggering_signal_ids.append(input.triggering_signal_id)
         # NOT_ACTIONABLE terminates the workflow via the reset path, keeping the fake surface small.
         return RunAgenticReportOutput(
             title="t",
             summary="s",
-            choice=ActionabilityChoice.NOT_ACTIONABLE,
+            choice=recorder.research_choice,
             priority=None,
             explanation="e",
             already_addressed=False,
             repository="owner/repo",
         )
+
+    @activity.defn(name="mark_report_ready_activity")
+    async def fake_mark_ready(input: MarkReportReadyInput) -> bool:
+        answer = recorder.mark_ready_answers[min(recorder.mark_ready_checks, len(recorder.mark_ready_answers) - 1)]
+        recorder.mark_ready_checks += 1
+        return answer
 
     @activity.defn(name="revert_report_to_candidate_activity")
     async def fake_revert(input: RevertReportToCandidateInput) -> None:
@@ -279,6 +350,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_safety,
                 fake_select_repo,
                 fake_research,
+                fake_mark_ready,
                 fake_revert,
                 fake_reset,
                 fake_failed,
@@ -288,12 +360,57 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             await asyncio.wait_for(
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
-                    SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4())),
+                    SignalReportSummaryWorkflowInputs(
+                        team_id=1,
+                        report_id=str(uuid.uuid4()),
+                        triggering_signal_id=recorder.triggering_signal_id,
+                    ),
                     id=f"summary-workflow-{uuid.uuid4()}",
                     task_queue=TASK_QUEUE,
                 ),
                 timeout=30,
             )
+
+
+@pytest.mark.asyncio
+async def test_initial_trigger_reaches_all_direct_report_stages():
+    causing_signal_id = "causing-signal"
+    recorder = _Recorder(
+        fetch_results=[[_signal_data(), _signal_data()]],
+        triggering_signal_id=causing_signal_id,
+    )
+
+    await _run_summary_workflow(recorder)
+
+    assert recorder.stage_triggering_signal_ids == [causing_signal_id] * 3
+
+
+@pytest.mark.asyncio
+async def test_reresearch_uses_the_signal_that_crossed_the_next_bucket():
+    initial_signal_id = "initial-signal"
+    causing_signal_id = "causing-signal"
+    sibling_signal_id = "sibling-signal"
+    initial_signal = _signal_data()
+    initial_signal.signal_id = initial_signal_id
+    initial_signal.metadata = {"report_signal_count": 1}
+    causing_signal = _signal_data()
+    causing_signal.signal_id = causing_signal_id
+    causing_signal.metadata = {"report_signal_count": 2}
+    sibling_signal = _signal_data()
+    sibling_signal.signal_id = sibling_signal_id
+    sibling_signal.metadata = {"report_signal_count": 3}
+    recorder = _Recorder(
+        fetch_results=[[initial_signal], [initial_signal, causing_signal, sibling_signal]],
+        triggering_signal_id=initial_signal_id,
+        research_choice=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+        mark_ready_answers=[True],
+    )
+
+    await _run_summary_workflow(recorder)
+
+    assert recorder.stage_triggering_signal_ids[:3] == [initial_signal_id] * 3
+    assert recorder.stage_triggering_signal_ids[3:6] == [causing_signal_id] * 3
+    assert sibling_signal_id not in recorder.stage_triggering_signal_ids[3:6]
 
 
 @pytest.mark.asyncio
@@ -326,6 +443,7 @@ async def test_open_gates_let_the_run_flow_through():
     recorder = _Recorder(gate_answers={})
     await _run_summary_workflow(recorder)
     assert recorder.gate_checks == ["summary_entry", "pre_repo_selection", "pre_research"]
+    assert recorder.stage_triggering_signal_ids == [None] * 3
     assert recorder.researches == 1
     assert recorder.reverts == 0
     assert recorder.failures == 0

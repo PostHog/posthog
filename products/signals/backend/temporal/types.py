@@ -74,6 +74,10 @@ class EmitSignalInputs:
     # the Temporal/S3 JSON round-trip. Surfaced to the research agent as authoritative direction when
     # present; not required by any source.
     remediation: Optional[dict] = None
+    signal_id: str | None = None
+    costs_started_at: str | None = None
+    timestamp: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -193,6 +197,7 @@ class SignalReportSummaryWorkflowInputs:
     # Seconds to wait before the first cycle, so a burst of signals is researched in one run rather
     # than one run each. Defaults to 0 so histories written before this field replay unchanged.
     debounce_seconds: int = 0
+    triggering_signal_id: str | None = None
 
 
 @dataclass

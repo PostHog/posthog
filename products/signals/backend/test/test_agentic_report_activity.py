@@ -47,6 +47,7 @@ from products.signals.backend.temporal.agentic.select_repository import (
 )
 from products.signals.backend.temporal.summary import MarkReportReadyInput, mark_report_ready_activity
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.tasks.backend.models import Task  # tach-ignore
 
 
@@ -218,6 +219,43 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
     assert result.repository == "posthog/posthog"
     assert "Single repository" in result.reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_select_repository_activity_passes_triggering_signal_to_task_creation(monkeypatch, ateam):
+    signals = _build_signals()
+    causing_signal_id = signals[0].signal_id
+    later_debounced_signal_id = signals[1].signal_id
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+        lambda report_id: None,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: 1,
+    )
+
+    async def fake_select_repo(*args, **kwargs):
+        assert kwargs["triggering_signal_id"] == causing_signal_id
+        assert kwargs["triggering_signal_id"] != later_debounced_signal_id
+        return RepoSelectionResult(repository="posthog/posthog", reason="selected")
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+        fake_select_repo,
+    )
+
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        await select_repository_activity(
+            SelectRepositoryInput(
+                team_id=ateam.id,
+                report_id="test-report-id",
+                signals=signals,
+                triggering_signal_id=causing_signal_id,
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -770,12 +808,41 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
     with patch(
         "products.tasks.backend.facade.agents.MultiTurnSession.start",
         AsyncMock(return_value=(session, first_finding)),
-    ):
+    ) as start:
         with pytest.raises(RuntimeError, match="poll_for_turn"):
             await run_multi_turn_research(signals, Mock())
 
+    start_call = start.await_args
+    assert start_call is not None
+    assert "on_task_run_created" not in start_call.kwargs
     session.end.assert_awaited_once()
-    assert session.end.await_args.kwargs["status"] == "failed"
+    end_call = session.end.await_args
+    assert end_call is not None
+    assert end_call.kwargs["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_run_multi_turn_research_passes_triggering_signal_before_initial_turn_failure():
+    signals = _build_signals()
+    causing_signal_id = signals[0].signal_id
+    sibling_signal_id = signals[1].signal_id
+
+    async def failed_start(*args, on_task_run_created=None, **kwargs):
+        context = kwargs["context"]
+        assert context.triggering_signal_id == causing_signal_id
+        assert context.triggering_signal_id != sibling_signal_id
+        assert on_task_run_created is None
+        raise RuntimeError("initial turn failed")
+
+    with (
+        patch("products.tasks.backend.facade.agents.MultiTurnSession.start", new=failed_start),
+        pytest.raises(RuntimeError, match="initial turn failed"),
+    ):
+        await run_multi_turn_research(
+            signals,
+            CustomPromptSandboxContext(team_id=1, user_id=1),
+            triggering_signal_id=causing_signal_id,
+        )
 
 
 def test_parse_artefact_content_parses_valid_content():

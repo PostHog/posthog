@@ -113,6 +113,7 @@ def _parse_signal_row(row: tuple) -> SignalData:
         timestamp=timestamp_raw,
         inserted_at=_ensure_tz_aware(inserted_at_raw),
         extra=metadata.get("extra", {}),
+        metadata=dict(metadata),
         remediation=metadata.get("remediation"),
     )
 

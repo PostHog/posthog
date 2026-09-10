@@ -45,6 +45,7 @@ class SelectRepositoryInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
+    triggering_signal_id: str | None = None
 
 
 def _resolve_sandbox_user_id(team_id: int) -> int | None:
@@ -153,12 +154,14 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
                 allowed_domains=GITHUB_ONLY_DOMAINS,
             )
+
             result = await select_repository_for_report(
                 team_id=input.team_id,
                 user_id=user_id,
                 signals=input.signals,
                 signal_report_id=input.report_id,
                 sandbox_environment_id=sandbox_env_id,
+                triggering_signal_id=input.triggering_signal_id,
             )
             logger.info(
                 "signals repo selection completed",

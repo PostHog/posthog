@@ -950,6 +950,7 @@ class Task(DeletedMetaFields, models.Model):
         slack_thread_url: str | None = None,
         branch: str | None = None,
         signal_report_id: str | None = None,
+        triggering_signal_id: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         ai_stage: str | None = None,
@@ -1068,6 +1069,8 @@ class Task(DeletedMetaFields, models.Model):
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
 
         initial_state: dict[str, Any] = {}
+        if triggering_signal_id is not None:
+            initial_state["triggering_signal_id"] = triggering_signal_id
         if mcp_builtin_agent_key:
             initial_state[MCP_BUILT_IN_AGENT_STATE_KEY] = mcp_builtin_agent_key
             # Only ever recorded alongside the agent marker: without one there is no agent
@@ -1295,6 +1298,7 @@ class Task(DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        triggering_signal_id: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
@@ -1345,6 +1349,7 @@ class Task(DeletedMetaFields, models.Model):
             slack_thread_url=slack_thread_url,
             branch=branch,
             signal_report_id=signal_report_id,
+            triggering_signal_id=triggering_signal_id,
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
             sandbox_environment_id=sandbox_environment_id,

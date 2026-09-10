@@ -41,6 +41,7 @@ from products.signals.backend.emission.steering import (
 
 logger = structlog.get_logger(__name__)
 
+
 # The whole verdict, retries included, has to fit inside the budget its caller already has, and some
 # callers emit many signals in one activity. `check_actionability` alone can spend three attempts of
 # up to 120 seconds, which overruns the tightest of those budgets (the 2-minute activity in
@@ -73,6 +74,8 @@ async def steering_filters_signal(
     description: str,
     weight: float,
     extra: dict[str, Any],
+    signal_id: str | None = None,
+    costs_started_at: str | None = None,
 ) -> bool:
     """Whether this team's steering says to drop the signal.
 
@@ -94,6 +97,8 @@ async def steering_filters_signal(
         description=description,
         weight=weight,
         extra=extra,
+        signal_id=signal_id,
+        costs_started_at=costs_started_at,
     )
     try:
         # Closed on the way out: unlike the batch pipeline, which builds one client for a whole run,
@@ -122,7 +127,6 @@ async def steering_filters_signal(
             signal_source_id=source_id,
         )
         return False
-
     if actionable:
         return False
 

@@ -60,6 +60,7 @@ def patch_side_effects():
         patch(f"{GROUPING_MODULE_PATH}.emit_embedding_request") as emit_mock,
         patch(f"{GROUPING_MODULE_PATH}.posthoganalytics.capture") as capture_mock,
         patch(f"{GROUPING_MODULE_PATH}.soft_delete_report_signals") as soft_delete_mock,
+        patch("products.signals.backend.tasks.refresh_signal_costs.apply_async"),
     ):
         yield {"emit": emit_mock, "capture": capture_mock, "soft_delete": soft_delete_mock}
 
@@ -126,7 +127,7 @@ async def test_new_match_creates_potential_report_below_threshold(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_new_match_creates_and_immediately_promotes_when_above_threshold(ateam):
+async def test_new_match_creates_and_immediately_promotes_when_above_threshold(ateam, patch_side_effects):
     """A first signal at/above threshold creates a POTENTIAL report and promotes it in one shot."""
     input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)
 
@@ -136,6 +137,30 @@ async def test_new_match_creates_and_immediately_promotes_when_above_threshold(a
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
     assert report.status == SignalReport.Status.CANDIDATE
     assert report.promoted_at is not None
+    metadata = patch_side_effects["emit"].call_args.kwargs["metadata"]
+    assert metadata["token_cost"] == {"research": 0, "implementation": 0}
+    assert metadata["compute_cost"] == {"research": 0, "implementation": 0}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emitted_signal_preserves_cost_metadata(ateam, patch_side_effects):
+    input_ = _build_input(ateam.id, _new_match())
+    input_.costs_started_at = "2026-01-01T00:00:00+00:00"
+    input_.metadata = {
+        "retained": "value",
+        "token_cost": {"research": 12, "implementation": 3},
+        "compute_cost": {"research": 5, "implementation": 0},
+    }
+
+    await assign_and_emit_signal_activity(input_)
+
+    metadata = patch_side_effects["emit"].call_args.kwargs["metadata"]
+    assert metadata["retained"] == "value"
+    assert metadata["costs_started_at"] == "2026-01-01T00:00:00+00:00"
+    assert metadata["token_cost"] == {"research": 12, "implementation": 3}
+    assert metadata["compute_cost"] == {"research": 5, "implementation": 0}
+    assert metadata["report_signal_count"] == 1
 
 
 # ---------------------------------------------------------------------------

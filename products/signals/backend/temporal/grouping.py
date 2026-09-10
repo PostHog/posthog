@@ -36,6 +36,7 @@ from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.signal_costs import schedule_signal_cost_update
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -80,6 +81,7 @@ from products.signals.backend.temporal.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
 
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
@@ -174,6 +176,7 @@ class GenerateSearchQueriesInput:
     # Optional with a default so workflows mid-flight across a deploy (whose activity input was
     # serialized before this field existed) still deserialize; missing => gateway key owner's team.
     team_id: int | None = None
+    triggering_signal_id: str | None = None
 
 
 async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str]:
@@ -201,6 +204,7 @@ async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str
         temperature=0.7,
         stage="query_generation",
         ai_product="signals_grouping",
+        triggering_signal_id=input.triggering_signal_id,
     )
 
 
@@ -434,6 +438,7 @@ class MatchSignalToReportInput:
     report_contexts: dict[str, ReportContext]
     # Optional with a default for deploy-time backward compatibility (see GenerateSearchQueriesInput).
     team_id: int | None = None
+    triggering_signal_id: str | None = None
 
 
 async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult:
@@ -493,6 +498,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
         temperature=0.2,
         stage="match",
         ai_product="signals_grouping",
+        triggering_signal_id=input.triggering_signal_id,
     )
 
 
@@ -570,6 +576,7 @@ class VerifyMatchSpecificityInput:
     new_signal_source_product: str
     new_signal_source_type: str
     group_signals: list[SignalData]
+    triggering_signal_id: str | None = None
 
 
 @dataclass
@@ -586,6 +593,7 @@ async def verify_match_specificity(
     new_signal_source_type: str,
     report_title: str,
     group_signals: list[SignalData],
+    triggering_signal_id: str | None = None,
 ) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     specificity_prompt = _build_specificity_prompt(
@@ -604,6 +612,7 @@ async def verify_match_specificity(
         temperature=0.2,
         stage="specificity",
         ai_product="signals_grouping",
+        triggering_signal_id=triggering_signal_id,
     )
 
     return VerifyMatchSpecificityOutput(
@@ -626,6 +635,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
             new_signal_source_type=input.new_signal_source_type,
             report_title=input.report_title,
             group_signals=input.group_signals,
+            triggering_signal_id=input.triggering_signal_id,
         )
 
         logger.debug(
@@ -662,6 +672,8 @@ class AssignAndEmitSignalInput:
     timestamp: Optional[datetime] = None
     updated_title: Optional[str] = None
     remediation: Optional[dict] = None
+    costs_started_at: str | None = None
+    metadata: dict | None = None
 
 
 @dataclass
@@ -697,6 +709,14 @@ class AssignAndEmitDbResult:
 @close_db_connections
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
+    costs_started_at = input.costs_started_at or timezone.now().isoformat()
+    existing_metadata = input.metadata if isinstance(input.metadata, dict) else {}
+    token_cost = existing_metadata.get("token_cost", {})
+    if not isinstance(token_cost, dict):
+        token_cost = {}
+    compute_cost = existing_metadata.get("compute_cost", {})
+    if not isinstance(compute_cost, dict):
+        compute_cost = {}
 
     def do_assign_and_emit(suppress_promotion: bool) -> AssignAndEmitDbResult:
         with transaction.atomic():
@@ -719,13 +739,19 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     report_id = str(report.id)
                     ts = input.timestamp or timezone.now()
                     metadata = {
+                        **existing_metadata,
                         "source_product": input.source_product,
                         "source_type": input.source_type,
                         "source_id": input.source_id,
                         "weight": input.weight,
                         "report_id": report_id,
+                        "report_signal_count": report.signal_count,
                         "extra": input.extra,
                         "remediation": input.remediation,
+                        "costs_started_at": costs_started_at,
+                        "costs_pending": True,
+                        "token_cost": {"research": 0, "implementation": 0, **token_cost},
+                        "compute_cost": {"research": 0, "implementation": 0, **compute_cost},
                         "deleted": True,
                     }
                     metadata["match_metadata"] = asdict(match_result.match_metadata)
@@ -844,13 +870,19 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             report_id = str(report.id)
 
             metadata = {
+                **existing_metadata,
                 "source_product": input.source_product,
                 "source_type": input.source_type,
                 "source_id": input.source_id,
                 "weight": input.weight,
                 "report_id": report_id,
+                "report_signal_count": report.signal_count,
                 "extra": input.extra,
                 "remediation": input.remediation,
+                "costs_started_at": costs_started_at,
+                "costs_pending": True,
+                "token_cost": {"research": 0, "implementation": 0, **token_cost},
+                "compute_cost": {"research": 0, "implementation": 0, **compute_cost},
             }
 
             metadata["match_metadata"] = asdict(match_result.match_metadata)
@@ -889,6 +921,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
         daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
 
+        # Enqueue before the writes so an enqueue failure retries without assigning the signal twice.
+        await database_sync_to_async(schedule_signal_cost_update, thread_sensitive=False)(
+            team_id=input.team_id, signal_id=input.signal_id, raise_on_error=True
+        )
         db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
             quota_gate.enforced or daily_gate.limited
         )
@@ -1104,6 +1140,7 @@ async def _process_signal_batch(
     within a batch.
     """
     team_id = batch[0].team_id
+    signal_ids = [signal.signal_id or str(uuid.uuid4()) for signal in batch]
     # Purely defensive
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
@@ -1144,11 +1181,12 @@ async def _process_signal_batch(
                         source_product=s.source_product,
                         source_type=s.source_type,
                         signal_type_examples=type_examples_result.examples,
+                        triggering_signal_id=signal_id,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=5),
                 )
-                for s in batch
+                for s, signal_id in zip(batch, signal_ids)
             ],
         )
         signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
@@ -1242,6 +1280,7 @@ async def _process_signal_batch(
         _par = await process_sequential_phase_parallel(
             batch=batch,
             team_id=team_id,
+            signal_ids=signal_ids,
             per_signal_queries=per_signal_queries,
             per_signal_query_embeddings=per_signal_query_embeddings,
             per_signal_ch_results=per_signal_ch_results,
@@ -1253,7 +1292,7 @@ async def _process_signal_batch(
         emitted_signals = _par.emitted_signals
 
     for i, signal in enumerate(batch if not _use_parallel_sequential else []):
-        signal_id = str(uuid.uuid4())
+        signal_id = signal_ids[i]
         try:
             # Augment CH candidates with earlier-in-batch signals
             augmented_results = _augment_candidates_with_batch(
@@ -1274,6 +1313,7 @@ async def _process_signal_batch(
                     queries=per_signal_queries[i],
                     query_results=augmented_results,
                     report_contexts=report_contexts,
+                    triggering_signal_id=signal_id,
                 ),
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=5),
@@ -1303,6 +1343,7 @@ async def _process_signal_batch(
                         new_signal_source_product=signal.source_product,
                         new_signal_source_type=signal.source_type,
                         group_signals=group_signals_result.signals,
+                        triggering_signal_id=signal_id,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=5),
@@ -1343,6 +1384,9 @@ async def _process_signal_batch(
                     match_result=match_result,
                     updated_title=updated_title,
                     remediation=signal.remediation,
+                    costs_started_at=signal.costs_started_at,
+                    metadata=signal.metadata,
+                    timestamp=datetime.fromisoformat(signal.timestamp) if signal.timestamp else None,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1377,13 +1421,17 @@ async def _process_signal_batch(
                 )
 
             if assign_result.promoted:
-                promoted_reports[assign_result.report_id] = (
-                    SignalReportSummaryWorkflowInputs(
-                        team_id=signal.team_id,
-                        report_id=assign_result.report_id,
-                        debounce_seconds=assign_result.research_debounce_seconds,
+                promoted_reports.setdefault(
+                    assign_result.report_id,
+                    (
+                        SignalReportSummaryWorkflowInputs(
+                            team_id=signal.team_id,
+                            report_id=assign_result.report_id,
+                            debounce_seconds=assign_result.research_debounce_seconds,
+                            triggering_signal_id=signal_id,
+                        ),
+                        assign_result.run_count,
                     ),
-                    assign_result.run_count,
                 )
 
         except Exception as e:

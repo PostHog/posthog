@@ -1,7 +1,6 @@
-import uuid
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 import structlog
@@ -175,6 +174,7 @@ async def _process_signal(
             queries=queries,
             query_results=augmented_results,
             report_contexts=report_contexts,
+            triggering_signal_id=signal_id,
         ),
         start_to_close_timeout=timedelta(minutes=10),
         retry_policy=RetryPolicy(maximum_attempts=5),
@@ -204,6 +204,7 @@ async def _process_signal(
                 new_signal_source_product=signal.source_product,
                 new_signal_source_type=signal.source_type,
                 group_signals=group_signals_result.signals,
+                triggering_signal_id=signal_id,
             ),
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=5),
@@ -244,6 +245,9 @@ async def _process_signal(
             match_result=match_result,
             updated_title=updated_title,
             remediation=signal.remediation,
+            costs_started_at=signal.costs_started_at,
+            metadata=signal.metadata,
+            timestamp=datetime.fromisoformat(signal.timestamp) if signal.timestamp else None,
         ),
         start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -305,6 +309,7 @@ async def _process_parallel_batch(
     batch_indices: list[int],
     batch: list[EmitSignalInputs],
     team_id: int,
+    signal_ids: list[str],
     per_signal_queries: list[list[str]],
     per_signal_query_embeddings: list[list[list[float]]],
     per_signal_ch_results: list[list[list[SignalCandidate]]],
@@ -328,7 +333,7 @@ async def _process_parallel_batch(
     coroutines = []
     for idx in batch_indices:
         signal = batch[idx]
-        signal_id = str(uuid.uuid4())
+        signal_id = signal_ids[idx]
 
         # Augment CH candidates with all previously processed signals (from earlier batches)
         augmented_results = _augment_candidates_with_batch(
@@ -392,13 +397,17 @@ async def _process_parallel_batch(
             )
 
         if result.assign_result.promoted:
-            promoted_reports[result.assign_result.report_id] = (
-                SignalReportSummaryWorkflowInputs(
-                    team_id=signal.team_id,
-                    report_id=result.assign_result.report_id,
-                    debounce_seconds=result.assign_result.research_debounce_seconds,
+            promoted_reports.setdefault(
+                result.assign_result.report_id,
+                (
+                    SignalReportSummaryWorkflowInputs(
+                        team_id=signal.team_id,
+                        report_id=result.assign_result.report_id,
+                        debounce_seconds=result.assign_result.research_debounce_seconds,
+                        triggering_signal_id=result.signal_id,
+                    ),
+                    result.assign_result.run_count,
                 ),
-                result.assign_result.run_count,
             )
 
     return ParallelBatchResult(
@@ -413,6 +422,7 @@ async def _process_parallel_batch(
 async def process_sequential_phase_parallel(
     batch: list[EmitSignalInputs],
     team_id: int,
+    signal_ids: list[str],
     per_signal_queries: list[list[str]],
     per_signal_query_embeddings: list[list[list[float]]],
     per_signal_ch_results: list[list[list[SignalCandidate]]],
@@ -461,6 +471,7 @@ async def process_sequential_phase_parallel(
             batch_indices=batch_indices,
             batch=batch,
             team_id=team_id,
+            signal_ids=signal_ids,
             per_signal_queries=per_signal_queries,
             per_signal_query_embeddings=per_signal_query_embeddings,
             per_signal_ch_results=per_signal_ch_results,
@@ -472,7 +483,8 @@ async def process_sequential_phase_parallel(
         report_contexts = result.report_contexts
         all_processed_signals.extend(result.processed_signals)
         all_emitted_signals.extend(result.emitted_signals)
-        all_promoted_reports.update(result.promoted_reports)
+        for report_id, promoted_report in result.promoted_reports.items():
+            all_promoted_reports.setdefault(report_id, promoted_report)
         total_dropped += result.dropped_count
 
     return SequentialPhaseResult(

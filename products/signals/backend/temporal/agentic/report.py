@@ -69,6 +69,7 @@ class RunAgenticReportInput:
     # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
     # older workflow history that predates this field replays cleanly (guard off).
     repo_selection_as_of: datetime | None = None
+    triggering_signal_id: str | None = None
 
 
 @dataclass
@@ -656,6 +657,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_summary=resolved_report_summary,
                 charts_enabled=charts_enabled,
                 steering_section=steering.section,
+                triggering_signal_id=input.triggering_signal_id,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

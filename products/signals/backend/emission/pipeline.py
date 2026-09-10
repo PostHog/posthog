@@ -1,8 +1,9 @@
 import os
 import json
+import uuid
 import asyncio
 import dataclasses
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -81,6 +82,8 @@ def _signals_extra_headers(
         "source_product": output.source_product,
         "source_type": output.source_type,
     }
+    if output.signal_id is not None:
+        labels["triggering_signal_id"] = output.signal_id
     if gateway_mode:
         blob = {"ai_product": EMISSION_AI_PRODUCT, **labels}
         if team_id is not None:
@@ -159,7 +162,13 @@ def build_emitter_outputs(
                     output,
                     extra={k: v.isoformat() if isinstance(v, datetime) else v for k, v in output.extra.items()},
                 )
-            outputs.append(output)
+            outputs.append(
+                dataclasses.replace(
+                    output,
+                    signal_id=output.signal_id or str(uuid.uuid4()),
+                    costs_started_at=output.costs_started_at or datetime.now(UTC).isoformat(),
+                )
+            )
     return outputs, error_count
 
 
@@ -425,6 +434,8 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
                 "description": output.description,
                 "weight": output.weight,
                 "extra": output.extra,
+                "signal_id": output.signal_id,
+                "costs_started_at": output.costs_started_at,
             },
         ).encode("utf-8")
     )
@@ -471,6 +482,8 @@ async def _emit_signals(
                     description=output.description,
                     weight=output.weight,
                     extra=output.extra,
+                    signal_id=output.signal_id,
+                    costs_started_at=output.costs_started_at,
                 )
                 return True
             except Exception as e:

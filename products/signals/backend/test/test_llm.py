@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,7 +32,7 @@ def _mock_anthropic_client() -> MagicMock:
 
 @pytest.mark.asyncio
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
-async def test_gateway_mode_omits_legacy_stage_header():
+async def test_gateway_mode_sends_signal_attribution_in_properties_blob():
     client = _mock_anthropic_client()
     with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
         await call_llm(
@@ -40,11 +42,17 @@ async def test_gateway_mode_omits_legacy_stage_header():
             validate=lambda text: text,
             stage="match",
             ai_product="signals_grouping",
+            triggering_signal_id="signal-1",
         )
 
-    # In gateway mode the labels ride on the builder's X-PostHog-Properties blob; the per-key
-    # ai_stage header (which the Go gateway drops) must not be sent.
-    assert "extra_headers" not in client.messages.create.call_args.kwargs
+    headers = client.messages.create.call_args.kwargs["extra_headers"]
+    assert "x-posthog-property-ai_stage" not in headers
+    assert json.loads(headers["X-PostHog-Properties"]) == {
+        "ai_product": "signals_grouping",
+        "ai_stage": "match",
+        "team_id": "1",
+        "triggering_signal_id": "signal-1",
+    }
 
 
 @pytest.mark.asyncio
@@ -59,10 +67,13 @@ async def test_fallback_mode_sends_legacy_stage_header():
             validate=lambda text: text,
             stage="match",
             ai_product="signals_grouping",
+            triggering_signal_id="signal-1",
         )
 
-    # On the Python-gateway fallback the stage still rides as a per-key header the route reads.
-    assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
+    assert client.messages.create.call_args.kwargs["extra_headers"] == {
+        "x-posthog-property-ai_stage": "match",
+        "x-posthog-property-triggering_signal_id": "signal-1",
+    }
 
 
 @pytest.mark.asyncio

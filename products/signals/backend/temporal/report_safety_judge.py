@@ -87,6 +87,7 @@ def _build_report_safety_judge_prompt(
 async def judge_report_safety(
     team_id: int,
     signals: list[SignalData],
+    triggering_signal_id: str | None = None,
 ) -> SafetyJudgeResponse:
     """
     Assess whether a signal report contains prompt injection or manipulation attempts.
@@ -108,6 +109,7 @@ async def judge_report_safety(
         thinking=True,
         stage="report_safety_judge",
         ai_product="signals_safety",
+        triggering_signal_id=triggering_signal_id,
     )
 
 
@@ -116,6 +118,7 @@ class SafetyJudgeInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
+    triggering_signal_id: str | None = None
 
 
 @dataclass
@@ -133,6 +136,7 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
         result = await judge_report_safety(
             team_id=input.team_id,
             signals=input.signals,
+            triggering_signal_id=input.triggering_signal_id,
         )
 
         # Append-only: each safety assessment is a point-in-time entry in the report log. The

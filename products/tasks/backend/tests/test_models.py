@@ -107,6 +107,7 @@ class TestTask(TestCase):
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.id,
                 repository="posthog/posthog",
+                triggering_signal_id="signal-123",
             )
 
         self.assertIsNotNone(task.id)
@@ -116,6 +117,7 @@ class TestTask(TestCase):
         self.assertEqual(task.team, self.team)
         self.assertEqual(task.created_by, user)
         self.assertEqual(task.repository, "posthog/posthog")
+        self.assertEqual(task.state, {"triggering_signal_id": "signal-123"})
 
         mock_execute_workflow.assert_called_once()
         call_args = mock_execute_workflow.call_args

@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
@@ -19,6 +19,7 @@ from posthog.models import Team
 from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
+from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.billing import current_billing_period_bounds
@@ -78,6 +79,25 @@ _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync
 _SCOUT_SLACK_MAX_RETRIES = 5
 _SCOUT_SLACK_RETRY_BASE_SECONDS = 60
 _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
+
+
+@shared_task(ignore_result=True, bind=True, max_retries=12, soft_time_limit=120, time_limit=150)
+@with_team_scope()
+def refresh_signal_costs(self: Task, team_id: int, signal_id: str) -> None:
+    from products.signals.backend.signal_costs import (
+        COST_INGESTION_GRACE_SECONDS,  # noqa: PLC0415 - avoids an import cycle
+    )
+    from products.signals.backend.signal_costs_query import (
+        update_signal_costs,  # noqa: PLC0415 - keeps HogQL off startup
+    )
+
+    try:
+        with get_client().lock(f"signal-cost-write:{team_id}:{signal_id}", timeout=180, blocking_timeout=1):
+            pending = update_signal_costs(team_id, signal_id)
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=COST_INGESTION_GRACE_SECONDS)
+    if pending:
+        raise self.retry(countdown=COST_INGESTION_GRACE_SECONDS)
 
 
 @shared_task(

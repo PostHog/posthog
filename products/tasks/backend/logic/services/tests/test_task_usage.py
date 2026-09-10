@@ -13,6 +13,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+from posthog.models import Team
 
 from products.tasks.backend.logic.services import task_usage
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
@@ -140,6 +141,59 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         assert usage.token_cost_usd == Decimal("2.5")
         assert usage.compute_cost_usd == 0
         assert usage.total_cost_usd == Decimal("2.5")
+
+    def test_signal_task_runs_are_scoped_and_classified(self) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            state={"triggering_signal_id": "11111111-1111-1111-1111-111111111111"},
+        )
+        research_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state={"ai_stage": "research"},
+            created_at=self.task.created_at + timedelta(seconds=1),
+        )
+        implementation_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state={"ai_stage": "implementation"},
+            created_at=self.task.created_at + timedelta(seconds=2),
+        )
+        repo_selection_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state={"ai_stage": "repo_selection"},
+            created_at=self.task.created_at + timedelta(seconds=3),
+        )
+        resumed_run = TaskRun.objects.create(
+            task=task, team=self.team, state={}, created_at=self.task.created_at + timedelta(seconds=4)
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_task = Task.objects.create(
+            team=other_team,
+            created_by=self.user,
+            title="Other signal task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            state={"triggering_signal_id": "11111111-1111-1111-1111-111111111111"},
+        )
+        TaskRun.objects.create(task=other_task, team=other_team, state={"ai_stage": "implementation"})
+
+        runs = task_usage.get_signal_task_runs(
+            team_id=self.team.id,
+            signal_id="11111111-1111-1111-1111-111111111111",
+        )
+
+        assert [(run.run_id, run.task_id, run.ai_stage) for run in runs] == [
+            (research_run.id, task.id, "research"),
+            (implementation_run.id, task.id, "implementation"),
+            (repo_selection_run.id, task.id, "research"),
+            (resumed_run.id, task.id, "implementation"),
+        ]
 
     def test_run_token_costs_group_by_run_and_key_on_the_origin_product(self) -> None:
         # `ai_product` can't stand in for `task_origin_product`: a scout run reports
@@ -287,6 +341,79 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert costs == {priced_run: Decimal("1.25")}
+
+    def test_task_run_compute_costs_include_nonbillable_signal_report_sessions(self) -> None:
+        rate_start = datetime(2026, 8, 1, tzinfo=UTC)
+        rate_card = ComputeRateCard(
+            version="test",
+            effective_at=rate_start,
+            expires_at=None,
+            cpu_core_second_usd=Decimal("0.01"),
+            memory_gib_second_usd=Decimal("0.01"),
+        )
+        signal_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        signal_run = TaskRun.objects.create(task=signal_task, team=self.team)
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=signal_run,
+            sandbox_id="signal-sandbox",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            cpu_cores=1,
+            memory_gb=1,
+            ttl_seconds=3600,
+            burstable=False,
+            created_at=rate_start,
+            ttl_expires_at=rate_start + timedelta(hours=1),
+            user_attributed_at=rate_start,
+            ended_at=rate_start + timedelta(seconds=10),
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_task = Task.objects.create(
+            team=other_team,
+            created_by=self.user,
+            title="Other signal task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        other_run = TaskRun.objects.create(task=other_task, team=other_team)
+        SandboxSession.objects.unscoped().create(
+            team=other_team,
+            task_run=other_run,
+            sandbox_id="other-signal-sandbox",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            cpu_cores=1,
+            memory_gb=1,
+            ttl_seconds=3600,
+            burstable=False,
+            created_at=rate_start,
+            ttl_expires_at=rate_start + timedelta(hours=1),
+            user_attributed_at=rate_start,
+            ended_at=rate_start + timedelta(seconds=10),
+        )
+
+        with (
+            patch.object(task_usage, "COMPUTE_RATE_CARDS", (rate_card,)),
+            patch.object(task_usage, "_get_task_token_cost", return_value=Decimal(0)),
+            patch.object(task_usage.timezone, "now", return_value=rate_start + timedelta(minutes=1)),
+        ):
+            costs = task_usage.get_task_run_compute_costs(
+                team_id=self.team.id,
+                task_run_ids=[signal_run.id, other_run.id],
+            )
+            usage = task_usage.get_task_usage(
+                team_id=self.team.id,
+                task_id=signal_task.id,
+                task_created_at=signal_task.created_at,
+            )
+
+        assert costs == {str(signal_run.id): Decimal("0.20")}
+        assert usage.compute_cost_usd == 0
 
     def test_compute_cost_only_includes_billable_desktop_sessions(self) -> None:
         rate_start = datetime(2026, 8, 1, tzinfo=UTC)

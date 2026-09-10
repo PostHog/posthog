@@ -178,6 +178,7 @@ class SafetyFilterInput:
     source_id: str | None = None
     weight: float | None = None
     extra: dict = field(default_factory=dict)
+    triggering_signal_id: str | None = None
 
 
 @dataclass
@@ -188,7 +189,10 @@ class SafetyFilterOutput:
 
 
 async def safety_filter(
-    team_id: int | None, description: str, source_product: str | None = None
+    team_id: int | None,
+    description: str,
+    source_product: str | None = None,
+    triggering_signal_id: str | None = None,
 ) -> SafetyFilterJudgeResponse:
     def validate(text: str) -> SafetyFilterJudgeResponse:
         data = json.loads(text)
@@ -202,6 +206,7 @@ async def safety_filter(
             validate=validate,
             stage="safety_filter",
             ai_product="signals_safety",
+            triggering_signal_id=triggering_signal_id,
         )
     except EmptyLLMResponseError:
         return SafetyFilterJudgeResponse(
@@ -246,7 +251,12 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:
-        result = await safety_filter(input.team_id, input.description, input.source_product)
+        result = await safety_filter(
+            input.team_id,
+            input.description,
+            input.source_product,
+            triggering_signal_id=input.triggering_signal_id,
+        )
     except Exception:
         logger.exception("Failed to run safety filter")
         raise

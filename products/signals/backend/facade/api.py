@@ -529,6 +529,10 @@ async def emit_signal(
     extra: dict | None = None,
     remediation: SignalRemediation | None = None,
     idempotency_key: str | None = None,
+    signal_id: str | None = None,
+    costs_started_at: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    timestamp: datetime | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -575,6 +579,15 @@ async def emit_signal(
     """
     if idempotency_key is not None and not idempotency_key.strip():
         raise ValueError("idempotency_key must not be empty")
+
+    if signal_id is None:
+        signal_id = (
+            str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals:{team.id}:{source_product}:{source_type}:{idempotency_key}"))
+            if idempotency_key is not None
+            else str(uuid.uuid4())
+        )
+    if costs_started_at is None:
+        costs_started_at = datetime.now(UTC).isoformat()
 
     # Deferred: the temporal package imports the facade back (reingestion -> emit_signal), so
     # importing these workflows at module scope forms a circular import and drags the whole
@@ -659,6 +672,8 @@ async def emit_signal(
             description=description,
             weight=weight,
             extra=extra or {},
+            signal_id=signal_id,
+            costs_started_at=costs_started_at,
         ):
             return
 
@@ -673,6 +688,10 @@ async def emit_signal(
         weight=weight,
         extra=extra or {},
         remediation=remediation_dict,
+        signal_id=signal_id,
+        costs_started_at=costs_started_at,
+        timestamp=timestamp.isoformat() if timestamp is not None else None,
+        metadata=metadata or {},
     )
 
     # Ensure the buffer workflow is running (idempotent)

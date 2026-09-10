@@ -269,6 +269,7 @@ class BufferSignalsWorkflow:
                             source_id=s.source_id,
                             weight=s.weight,
                             extra=s.extra,
+                            triggering_signal_id=s.signal_id,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),

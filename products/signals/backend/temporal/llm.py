@@ -6,15 +6,18 @@ from django.conf import settings
 
 import structlog
 from anthropic.types import Message, MessageParam, OutputConfigParam
+from asgiref.sync import sync_to_async
 
 from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.llm.gateway_client import (
+    ai_gateway_headers,
     build_async_anthropic_client,
     get_async_anthropic_gateway_client,
     resolve_ai_gateway_config,
 )
 
+from products.signals.backend.signal_costs import schedule_signal_cost_update
 from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
@@ -141,6 +144,7 @@ async def call_llm(
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
     ai_product: Optional[str] = None,
+    triggering_signal_id: str | None = None,
 ) -> T:
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     capabilities = get_model_capabilities(MATCHING_MODEL)
@@ -188,8 +192,24 @@ async def call_llm(
     # only when an opted call site actually reaches the Go gateway, which reads ai_stage from the
     # X-PostHog-Properties blob instead.
     on_go_gateway = ai_product is not None and resolve_ai_gateway_config() is not None
-    if stage and not on_go_gateway:
-        create_kwargs["extra_headers"] = {"x-posthog-property-ai_stage": stage}
+    if on_go_gateway:
+        create_kwargs["extra_headers"] = ai_gateway_headers(
+            ai_product=ai_product,
+            properties={
+                "ai_stage": stage or "",
+                "team_id": str(team_id) if team_id is not None else "",
+                "triggering_signal_id": triggering_signal_id or "",
+            },
+        )
+    elif stage or triggering_signal_id:
+        create_kwargs["extra_headers"] = {
+            **({"x-posthog-property-ai_stage": stage} if stage else {}),
+            **(
+                {"x-posthog-property-triggering_signal_id": triggering_signal_id}
+                if triggering_signal_id is not None
+                else {}
+            ),
+        }
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
     if thinking:
@@ -212,6 +232,9 @@ async def call_llm(
         except Exception:
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
             raise
+        finally:
+            if stage == "report_safety_judge" and triggering_signal_id is not None and team_id is not None:
+                await sync_to_async(schedule_signal_cost_update, thread_sensitive=False)(team_id, triggering_signal_id)
         text_content = _strip_markdown_json_fences(text_content)
         if prefill:
             # Prepend the `{` we pre-filled

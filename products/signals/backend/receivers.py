@@ -29,7 +29,8 @@ from products.signals.backend.report_embeddings import (
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
 from products.signals.backend.tasks import close_dismissed_report_pr
-from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
+from products.tasks.backend.facade.billing import get_task_triggering_signal_id
+from products.tasks.backend.facade.task_run_signals import connect_task_post_save, connect_task_run_post_save
 
 logger = structlog.get_logger(__name__)
 
@@ -41,10 +42,55 @@ _DOCUMENT_FIELDS = frozenset({"title", "summary"})
 
 
 def connect_task_run_assignment_sync() -> None:
+    connect_task_post_save(schedule_signal_cost_update_for_task, dispatch_uid="signals_schedule_task_cost_update")
     connect_task_run_post_save(
         sync_task_run_pr_to_assignments,
         dispatch_uid="signals_sync_task_run_pr_to_assignments",
     )
+    connect_task_run_post_save(
+        schedule_signal_cost_update_for_task_run,
+        dispatch_uid="signals_schedule_task_run_cost_update",
+    )
+
+
+def _schedule_signal_cost_update(*, team_id: int, signal_id: str) -> None:
+    def schedule() -> None:
+        try:
+            from products.signals.backend.signal_costs import (  # noqa: PLC0415 - keeps the cost projection off the Django startup path
+                schedule_signal_cost_update,
+            )
+
+            schedule_signal_cost_update(team_id=team_id, signal_id=signal_id)
+        except Exception:
+            logger.exception("signals.task_run_cost_update_schedule_failed", team_id=team_id, signal_id=signal_id)
+
+    transaction.on_commit(schedule)
+
+
+def schedule_signal_cost_update_for_task(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if instance.origin_product != "signal_report" or (update_fields is not None and "state" not in update_fields):
+        return
+    signal_id = (instance.state or {}).get("triggering_signal_id")
+    if isinstance(signal_id, str) and signal_id:
+        _schedule_signal_cost_update(team_id=instance.team_id, signal_id=signal_id)
+
+
+def schedule_signal_cost_update_for_task_run(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    try:
+        if instance.origin_product != "signal_report":
+            return
+
+        update_fields = kwargs.get("update_fields")
+        if not created and update_fields is not None and not {"status", "completed_at"}.intersection(update_fields):
+            return
+
+        signal_id = get_task_triggering_signal_id(team_id=instance.team_id, task_id=instance.task_id)
+        if signal_id is None:
+            return
+        _schedule_signal_cost_update(team_id=instance.team_id, signal_id=signal_id)
+    except Exception:
+        logger.exception("signals.task_run_cost_update_registration_failed", task_run_id=str(instance.id))
 
 
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:

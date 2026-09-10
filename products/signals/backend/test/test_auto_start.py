@@ -378,7 +378,8 @@ def test_generate_self_driving_head_branch_is_readable_and_valid(title, expected
 
 
 @pytest.mark.django_db
-def test_create_implementation_task_if_absent_is_idempotent(organization, team):
+@pytest.mark.parametrize("deferred", [False, True])
+def test_create_implementation_task_if_absent_is_idempotent(organization, team, deferred):
     # The locked create guards against duplicate auto-start tasks: a second evaluation that
     # observes the link row must no-op rather than spawn another Task / draft PR. It also asserts
     # the facade is invoked with the SIGNAL_REPORT origin and ai_stage="implementation" so the
@@ -404,6 +405,17 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         created_tasks.append(task)
         return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
 
+    causing_signal_id = "11111111-1111-1111-1111-111111111111"
+    sibling_signal_id = "22222222-2222-2222-2222-222222222222"
+    if deferred:
+        Task.objects.create(
+            team=team,
+            title="Research",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+            state={"triggering_signal_id": causing_signal_id},
+        )
     kwargs = {
         "team_id": team.id,
         "report_id": str(report.id),
@@ -412,6 +424,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         "user_id": user.id,
         "repository": "owner/repo",
         "base_branch": None,
+        "triggering_signal_id": None if deferred else causing_signal_id,
     }
     with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
         first = _create_implementation_task_if_absent(**kwargs)
@@ -422,6 +435,8 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     assert mock_create.call_count == 1
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+    assert call_kwargs["triggering_signal_id"] == causing_signal_id
+    assert call_kwargs["triggering_signal_id"] != sibling_signal_id
     assert call_kwargs["ai_stage"] == "implementation"
     assert call_kwargs["internal"] is True
     # The description's memory protocol is rendered from this same posture, so a posture that stops

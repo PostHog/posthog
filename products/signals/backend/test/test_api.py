@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -226,6 +227,37 @@ class TestEmitSignalValidation:
             team_stub.id, "github:issue:notification-1"
         )
         assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        signal = emitter_call.args[1].signal
+        assert signal.signal_id == str(uuid.uuid5(uuid.NAMESPACE_URL, "signals:1:github:issue:notification-1"))
+        assert signal.costs_started_at is not None
+
+    async def test_emit_signal_preserves_a_pipeline_identity(self, team_stub):
+        client = AsyncMock()
+        client.start_workflow.side_effect = [
+            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
+            AsyncMock(),
+        ]
+
+        with (
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="github",
+                source_type="issue",
+                source_id="test-id-1",
+                description="A valid signal",
+                extra=GITHUB_ISSUE_EXTRA,
+                signal_id="signal-from-pipeline",
+                costs_started_at="2026-01-01T00:00:00+00:00",
+                timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+
+        signal = client.start_workflow.call_args_list[1].args[1].signal
+        assert signal.signal_id == "signal-from-pipeline"
+        assert signal.costs_started_at == "2026-01-01T00:00:00+00:00"
+        assert signal.timestamp == "2026-01-01T00:00:00+00:00"
 
     @pytest.mark.parametrize("idempotency_key", ["", "   "])
     async def test_emit_signal_rejects_empty_idempotency_keys(self, team_stub, idempotency_key):

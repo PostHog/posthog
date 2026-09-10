@@ -124,6 +124,10 @@ async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
             description=signal.content,
             weight=signal.weight,
             extra=signal.extra,
+            signal_id=signal.signal_id,
+            costs_started_at=signal.metadata.get("costs_started_at"),
+            metadata=signal.metadata,
+            timestamp=signal.timestamp,
         )
 
     logger.info(
@@ -248,6 +252,10 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 description=signal.content,
                 weight=signal.weight,
                 extra=signal.extra,
+                signal_id=signal.signal_id,
+                costs_started_at=signal.metadata.get("costs_started_at"),
+                metadata=signal.metadata,
+                timestamp=signal.timestamp,
             )
 
     await wait_for_signal_in_clickhouse_activity(
