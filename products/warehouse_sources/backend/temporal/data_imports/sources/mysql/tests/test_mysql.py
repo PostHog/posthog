@@ -8,10 +8,18 @@ from unittest.mock import MagicMock
 import pymysql
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+    MissingIncrementalFieldError,
+    Table,
+    TableStats,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    missing_incremental_field_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
@@ -871,6 +879,18 @@ class TestUnavoidableFilesortFallback:
         )
         # ...and the incremental field has no index to force, so the sort can't be avoided.
         mocker.patch.object(MySQLImplementation, "find_index_for_cursor", return_value=None)
+        mocker.patch.object(
+            MySQLImplementation,
+            "get_table_metadata",
+            return_value=Table(
+                name="messages",
+                parents=("mydb",),
+                columns=[
+                    MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                    MySQLColumn(name="created_at", data_type="datetime", column_type="datetime", nullable=True),
+                ],
+            ),
+        )
 
         source = MySQLImplementation().build_pipeline(
             _make_config(),
@@ -886,6 +906,49 @@ class TestUnavoidableFilesortFallback:
         # The raised marker is classified non-retryable, so the schema is paused, not looped.
         non_retryable = MySQLSource().get_non_retryable_errors()
         assert any(pattern in UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR for pattern in non_retryable.keys())
+
+
+class TestStaleColumnSelection:
+    """A saved column selection is only reconciled when the source is reloaded, so a column
+    dropped at the source stays in the SELECT list and every run fails on it identically."""
+
+    def _wide_table(self) -> Table:
+        return Table(
+            name="messages",
+            parents=("mydb",),
+            columns=[
+                MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                MySQLColumn(name="text", data_type="text", column_type="text", nullable=True),
+            ],
+        )
+
+    def test_dropped_column_is_left_out_of_the_streaming_query(self, build_pipeline_mocks, mocker):
+        _, _, ss_cursor = build_pipeline_mocks
+        mocker.patch.object(MySQLImplementation, "get_table_metadata", return_value=self._wide_table())
+
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), _make_inputs(enabled_columns=["id", "text", "ghost"])
+        )
+        list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
+
+        query = ss_cursor.execute.call_args.args[0]
+        assert "`ghost`" not in query
+        assert "`text`" in query
+
+    def test_dropped_incremental_field_fails_before_any_query(self, build_pipeline_mocks, mocker):
+        _, _, ss_cursor = build_pipeline_mocks
+        mocker.patch.object(MySQLImplementation, "get_table_metadata", return_value=self._wide_table())
+
+        with pytest.raises(MissingIncrementalFieldError):
+            MySQLImplementation().build_pipeline(
+                _make_config(),
+                _make_inputs(
+                    should_use_incremental_field=True,
+                    incremental_field="gone",
+                    incremental_field_type=IncrementalFieldType.DateTime,
+                ),
+            )
+        ss_cursor.execute.assert_not_called()
 
 
 class TestStreamingSchemaDrift:
@@ -2079,10 +2142,26 @@ class TestMySQLSourceNonRetryableErrors:
             ),
         ],
     )
-    def test_unknown_column_is_non_retryable(self, source, error_msg):
+    def test_unknown_column_does_not_disable_the_schema(self, source, error_msg):
+        # The stale column selection is dropped against the catalog at the start of every run, so
+        # a column error that still reaches here recovers on the next run. Disabling the schema
+        # would stop the table until a person re-enables it by hand.
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Unknown-column error should be non-retryable: {error_msg}"
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+        assert any(pattern in error_msg for pattern in source.get_retryable_errors()), error_msg
+        assert any(pattern in error_msg for pattern in source.get_retry_exhausted_errors()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            missing_incremental_field_message("updated_at", "mydb.messages"),
+            f"MissingIncrementalFieldError: {missing_incremental_field_message('updated_at', 'mydb.messages')}",
+        ],
+    )
+    def test_missing_incremental_field_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert friendly == [MISSING_INCREMENTAL_FIELD_MESSAGE]
 
     @pytest.mark.parametrize(
         "error_msg",

@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     compute_projected_columns,
     format_projected_select_clause,
     project_arrow_columns,
+    reconcile_enabled_columns,
     render_named_conditions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
@@ -908,6 +909,15 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 # Resolve PKs before projection so SELECT and Arrow schema agree.
                 if primary_keys is None and "id" in full_table:
                     primary_keys = ["id"]
+
+                enabled_columns = reconcile_enabled_columns(
+                    enabled_columns,
+                    {column.name for column in full_table.columns},
+                    incremental_field=incremental_field,
+                    should_use_incremental_field=should_use_incremental_field,
+                    table=f"{schema}.{table_name}",
+                    logger=logger,
+                )
 
                 projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
                 table = project_arrow_columns(full_table, projected)

@@ -42,6 +42,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+    MISSING_PROJECTED_COLUMN_MESSAGE,
+    missing_incremental_field_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
     XminUnsupportedError,
@@ -633,6 +638,25 @@ class TestPostgresSourceNonRetryableErrors:
         assert message is not None, f"Exhausted retryable error must surface a message: {error_msg}"
         assert expected_phrase in message.lower()
         assert "db.example.com" not in message and "10.0.0.1" not in message
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            MISSING_PROJECTED_COLUMN_MESSAGE,
+            f"ProjectedColumnMissingError: {MISSING_PROJECTED_COLUMN_MESSAGE}",
+        ],
+    )
+    def test_a_dropped_projection_column_does_not_disable_the_schema(self, source, error_msg):
+        # psycopg words SQLSTATE 42703 "column ... does not exist", which the non-retryable rules
+        # match on to catch a dropped relation. `source_for_pipeline` re-raises it clear of that
+        # substring, because the catalog read at the start of the next run recovers on its own.
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+
+    def test_incremental_field_dropped_at_source_is_non_retryable(self, source):
+        error_msg = missing_incremental_field_message("updated_at", "public.orders")
+        friendly = [message for pattern, message in source.get_non_retryable_errors().items() if pattern in error_msg]
+        assert friendly == [MISSING_INCREMENTAL_FIELD_MESSAGE]
 
     def test_every_retryable_error_has_an_exhaustion_message(self, source):
         # A transient substring added to postgres.py flows into get_retryable_errors automatically,

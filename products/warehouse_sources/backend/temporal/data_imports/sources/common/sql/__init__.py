@@ -41,12 +41,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    MISSING_INCREMENTAL_FIELD_MATCH,
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+    MISSING_PROJECTED_COLUMN_MATCH,
+    MISSING_PROJECTED_COLUMN_MESSAGE,
+    MissingIncrementalFieldError,
+    ProjectedColumnMissingError,
     compute_projected_columns,
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     format_projected_select_clause,
     project_arrow_columns,
     prune_enabled_columns,
+    reconcile_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
     ParamStyle,
@@ -64,6 +71,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 
 __all__ = [
+    "MISSING_INCREMENTAL_FIELD_MATCH",
+    "MISSING_INCREMENTAL_FIELD_MESSAGE",
+    "MISSING_PROJECTED_COLUMN_MATCH",
+    "MISSING_PROJECTED_COLUMN_MESSAGE",
     "AnsiIdentifierQuoter",
     "BacktickIdentifierQuoter",
     "BracketIdentifierQuoter",
@@ -72,8 +83,10 @@ __all__ = [
     "ColumnTypeCategory",
     "IdentifierQuoter",
     "IncrementalFieldFilter",
+    "MissingIncrementalFieldError",
     "InvalidIdentifierError",
     "ParamStyle",
+    "ProjectedColumnMissingError",
     "RowFilter",
     "RowFilterValidationError",
     "SafeSQL",
@@ -96,6 +109,7 @@ __all__ = [
     "normalize_operator",
     "project_arrow_columns",
     "prune_enabled_columns",
+    "reconcile_enabled_columns",
     "render_named_conditions",
     "render_positional_conditions",
     "resolve_detected_primary_keys",

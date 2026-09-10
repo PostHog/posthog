@@ -20,6 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_INCREMENTAL_FIELD_MATCH,
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+    MISSING_PROJECTED_COLUMN_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
@@ -68,6 +73,16 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # A fresh connection from the next Temporal retry resolves it; keep it out of
             # error tracking so it doesn't surface as noise.
             "Unexpected EOF from the server",
+            # A column the query names is gone from the table. The stale column selection is
+            # dropped at the start of every run, so this only survives when the column disappears
+            # between that read and the streaming query, or when a view's definition still names
+            # it. The next run reads the catalog again and recovers.
+            "Invalid column name",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Invalid column name": MISSING_PROJECTED_COLUMN_MESSAGE,
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -104,11 +119,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # not the volatile object name / procedure / line number in the rest of the message.
             "Invalid object name": "One of the tables or views you're syncing references a database object that no longer exists or that this login can't access (SQL Server error 208). Check that the object still exists and that the connection user has permission to read it (including any tables a view depends on), then re-sync.",
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
-            # SQL Server error 207, the column-level counterpart of 208: the `SELECT` references a
-            # column that doesn't exist — a column dropped or renamed at the source, or a view
-            # whose definition selects a column that's no longer present. Fixed source-data shape,
-            # so retrying won't help.
-            "Invalid column name": "One of the columns being synced no longer exists in your SQL Server. A column was likely dropped or renamed, or a view's definition references a column that's no longer present. Fix the column or view definition at the source, then re-enable the sync.",
+            # The table's incremental field is gone from the source catalog, raised by
+            # `reconcile_enabled_columns` before the first query runs. Every query puts that field
+            # in its WHERE and ORDER BY, so the sync cannot run until the customer picks another
+            # one. SQL Server's own "Invalid column name" is deliberately not listed here: for any
+            # other column the catalog read at the start of the next run picks up the new column
+            # list, so disabling the schema would stop a sync that recovers on its own.
+            MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
             # SQL Server error 245 — an implicit type conversion fails on a specific row's value
             # (e.g. converting the varchar 'SFDR' to int). Our SELECT does no casts and the
             # incremental predicate only ever compares like types, so this conversion lives in the
