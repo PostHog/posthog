@@ -40,15 +40,16 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     'site_app',
                     'transformation',
                     'transformation_log',
+                    'legacy_destination',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
         ),
     name: zod.string().max(hogFunctionsCreateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -313,15 +314,16 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                     'site_app',
                     'transformation',
                     'transformation_log',
+                    'legacy_destination',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
         ),
     name: zod.string().max(hogFunctionsUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -586,15 +588,16 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'site_app',
                     'transformation',
                     'transformation_log',
+                    'legacy_destination',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
         ),
     name: zod.string().max(hogFunctionsPartialUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -859,15 +862,16 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                     'site_app',
                     'transformation',
                     'transformation_log',
+                    'legacy_destination',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
         ),
     name: zod
         .string()
@@ -1164,15 +1168,16 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             'site_app',
                             'transformation',
                             'transformation_log',
+                            'legacy_destination',
                         ])
                         .describe(
-                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             name: zod
                 .string()
