@@ -278,6 +278,14 @@ async def validate_schema_and_update_table(
                     _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
                 else:
                     table.row_count = row_count
+                updated_fields = ["format", "url_pattern", "queryable_folder", "row_count"]
+                if table.deleted:
+                    # Deleting a schema's data unlinks the table too, so a table this schema still
+                    # points at is not one anybody chose to delete. Repointing it at fresh files while
+                    # leaving it hidden serves nothing and no later run resolves that on its own.
+                    table.deleted = False
+                    table.deleted_at = None
+                    updated_fields += ["deleted", "deleted_at"]
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
                 # enough for the pooled Postgres connection to be recycled underneath us. Retry once
                 # on a fresh connection rather than let this escape as error-tracking noise.
@@ -285,7 +293,7 @@ async def validate_schema_and_update_table(
                 # request input, so this sync is a trusted writer of a credential-less table's URL.
                 retry_on_db_connection_drop(
                     lambda: table.save(
-                        update_fields=["format", "url_pattern", "queryable_folder", "row_count"],
+                        update_fields=updated_fields,
                         internally_computed_url_pattern=True,
                     )
                 )

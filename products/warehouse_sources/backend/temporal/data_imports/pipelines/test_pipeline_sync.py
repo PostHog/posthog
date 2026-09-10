@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError, transaction
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
@@ -379,12 +380,16 @@ class TestValidateSchemaAndUpdateTable:
         schema.save()
         return table
 
-    def test_zero_reported_row_count_still_repoints_existing_table(self, team):
-        # The v3 load consumer can report row_count 0 on a redelivered final batch after a real write.
-        # An existing table must then be repointed at the freshly published files, not stranded on the
-        # previous queryable_folder - stranding it serves stale data under a green sync.
+    # The v3 load consumer can report row_count 0 on a redelivered final batch after a real write.
+    # An existing table must then be repointed at the freshly published files, not stranded on the
+    # previous queryable_folder - stranding it serves stale data under a green sync. A table left
+    # soft-deleted while still linked has to come back too, or the sync maintains a hidden table.
+    @pytest.mark.parametrize("table_soft_deleted", [False, True])
+    def test_zero_reported_row_count_still_repoints_existing_table(self, team, table_soft_deleted: bool):
         schema, job = self._schema_and_job(team)
         table = self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+        if table_soft_deleted:
+            DataWarehouseTable.objects.filter(id=table.id).update(deleted=True, deleted_at=timezone.now())
 
         with (
             patch.object(DataWarehouseTable, "get_columns", return_value={}),
@@ -403,6 +408,8 @@ class TestValidateSchemaAndUpdateTable:
         assert table.queryable_folder == "s3://bucket/orders_v2"
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
+        assert table.deleted is False
+        assert table.deleted_at is None
 
     # Published files at zero rows mean a resumed or redelivered run counted only its own attempt.
     # Trusting row_count there left the data in S3 with no table to query it through.
