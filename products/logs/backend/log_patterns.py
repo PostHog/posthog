@@ -108,20 +108,7 @@ _PLACEHOLDER_PATTERNS = {
     "<host>": _HOST_PATTERN,
     "<hex>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{16,})",
 }
-_PLACEHOLDER_PATTERNS.update(
-    {
-        "<N>": _PLACEHOLDER_PATTERNS["<num>"],
-        "<TIMESTAMP>": _PLACEHOLDER_PATTERNS["<timestamp>"],
-        "<KLOGTIME>": _PLACEHOLDER_PATTERNS["<klogtime>"],
-        "<UUID>": _PLACEHOLDER_PATTERNS["<uuid>"],
-        "<IP>": _PLACEHOLDER_PATTERNS["<ip>"],
-        "<HOST>": _PLACEHOLDER_PATTERNS["<host>"],
-        "<HEX>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{8,})",
-        "<ID>": r"[a-z]{2,10}_[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*",
-        "<EMAIL>": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-    }
-)
-_PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS) + r"|<JSON_ARRAY>")
+_PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
 
 # Templates whose literal content is thinner than this compile to uselessly broad
 # predicates (worst case "<*> <*> <*>" matches everything), so they get no regex.
@@ -150,7 +137,6 @@ class LogSample:
     # Set on the examples the miner keeps, when `body` covers only a prefix of the raw line.
     # compile_match_regex drops its end anchor for those.
     truncated: bool = False
-    pattern: str | None = None
 
 
 @dataclass(frozen=True)
@@ -162,7 +148,7 @@ class MinedPattern:
     first_seen: dt.datetime
     last_seen: dt.datetime
     # Sampled rows that produced this pattern; `body` is the prepared (whitespace-collapsed,
-    # truncated) original message, not the stored pattern or the raw log line.
+    # truncated) form the miner saw, not the raw log line.
     examples: list[LogSample]
     services: list[str]
     # Raw sample counts per caller-supplied time bucket (empty when no buckets given).
@@ -375,10 +361,7 @@ def compile_match_regex(
     pos = 0
     for match in _PLACEHOLDER_RE.finditer(template):
         parts.append(_escape_literal(template[pos : match.start()]))
-        fragment = _PLACEHOLDER_PATTERNS.get(match.group(0))
-        if fragment is None:
-            return None
-        parts.append(fragment)
+        parts.append(_PLACEHOLDER_PATTERNS[match.group(0)])
         pos = match.end()
     parts.append(_escape_literal(template[pos:]))
     core = "".join(parts)
@@ -422,7 +405,7 @@ def mine_patterns(
     max_services: int | None = None,
     buckets: list[tuple[dt.datetime, dt.datetime]] | None = None,
 ) -> list[MinedPattern]:
-    """Cluster stored patterns via Drain3, falling back to bodies when no pattern exists.
+    """Cluster log bodies into templates via Drain3, aggregated per cluster.
 
     Pure function — no ClickHouse or Django. The caller (query runner) is responsible
     for sampling and for the `scanned_count` / `sampled` metadata.
@@ -449,9 +432,7 @@ def mine_patterns(
 
     for sample in samples:
         prepared = _prepare_body(sample.body, truncate)
-        stored_pattern = _WHITESPACE_RE.sub(" ", sample.pattern or "").strip()
-        mining_text = stored_pattern[:truncate] if stored_pattern else masker.mask(prepared.text)
-        cluster, _change_type = drain.add_log_message(mining_text)
+        cluster, _change_type = drain.add_log_message(masker.mask(prepared.text))
         cluster_id = cluster.cluster_id
 
         acc = accumulators.get(cluster_id)
@@ -472,7 +453,7 @@ def mine_patterns(
                 acc.last_seen = sample.timestamp
 
         acc.count += 1
-        acc.truncated = acc.truncated or prepared.truncated or len(stored_pattern) > truncate
+        acc.truncated = acc.truncated or prepared.truncated
         severity = sample.severity_text.lower()
         acc.severity_counts[severity] = acc.severity_counts.get(severity, 0) + 1
         if len(acc.examples) < max_examples and all(e.body != prepared.text for e in acc.examples):

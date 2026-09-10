@@ -45,27 +45,6 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return response.results
 
     @freeze_time(_FROZEN_NOW)
-    def test_mines_stored_patterns_and_retains_body_examples(self) -> None:
-        self._insert(
-            [
-                {**self._log("Archive job run_A7c queued"), "pattern": "Archive job <ID> queued", "pattern_version": 5},
-                {**self._log("Archive job run_B8d queued"), "pattern": "Archive job <ID> queued", "pattern_version": 5},
-                self._log("Processed 12 records"),
-            ]
-        )
-
-        results = self._run()
-        patterns = {pattern["pattern"]: pattern for pattern in results["patterns"]}
-
-        assert results["total_count"] == results["scanned_count"] == 3
-        assert patterns["Archive job <ID> queued"]["count"] == 2
-        assert {example["body"] for example in patterns["Archive job <ID> queued"]["examples"]} == {
-            "Archive job run_A7c queued",
-            "Archive job run_B8d queued",
-        }
-        assert patterns["Processed <num> records"]["count"] == 1
-
-    @freeze_time(_FROZEN_NOW)
     def test_mines_templates_from_clickhouse(self) -> None:
         self._insert(
             [
