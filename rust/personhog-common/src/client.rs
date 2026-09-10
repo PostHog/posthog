@@ -15,7 +15,7 @@ use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Response, Status};
 
-use crate::grpc::CLIENT_NAME_HEADER;
+use crate::grpc::{code_as_str, CLIENT_NAME_HEADER};
 
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
@@ -117,13 +117,12 @@ impl RouterClient {
     {
         let start = Instant::now();
         let result = call.await;
-        let outcome = match &result {
-            Ok(_) => "ok".to_string(),
-            Err(status) => format!("{:?}", status.code()),
+        let outcome: &'static str = match &result {
+            Ok(_) => "ok",
+            Err(status) => code_as_str(status.code()),
         };
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        counter!(ROUTER_CLIENT_CALLS_TOTAL, "method" => method, "outcome" => outcome.clone())
-            .increment(1);
+        counter!(ROUTER_CLIENT_CALLS_TOTAL, "method" => method, "outcome" => outcome).increment(1);
         histogram!(ROUTER_CLIENT_CALL_DURATION_MS, "method" => method, "outcome" => outcome)
             .record(duration_ms);
         result.map(Response::into_inner)
