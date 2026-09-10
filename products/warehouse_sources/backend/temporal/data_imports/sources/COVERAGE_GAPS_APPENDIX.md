@@ -99,10 +99,10 @@ Today (8): `epics`, `features`, `goals`, `ideas`, `initiatives`, `products`, `to
 
 Diffed against: <https://www.aha.io/api>
 
-- [ ] `releases (GET /api/v1/products/{id}/releases)` — core roadmap object that every synced feature belongs to; currently unresolvable (high)
-- [ ] `requirements (GET /api/v1/features/{id}/requirements)` — the child records under features, where most delivery detail lives (high)
+- [x] `releases (GET /api/v1/products/{id}/releases)` — core roadmap object that every synced feature belongs to; currently unresolvable (high)
+- [x] `requirements (GET /api/v1/features/{id}/requirements)` — the child records under features, where most delivery detail lives (high)
 - [ ] `workflow_status_times (GET .../workflow_status_times for features, epics, ideas, releases, requirements, initiatives, key_results)` — state transition history - time in each workflow status, needed for cycle-time analysis (high)
-- [ ] `idea_votes (GET /api/v1/ideas/{id}/endorsements, /api/v1/idea_votes)` — the headline demand metric for ideas we already sync (high)
+- [x] `idea_votes (GET /api/v1/ideas/{id}/endorsements, /api/v1/idea_votes)` — the headline demand metric for ideas we already sync (high)
 - [ ] `workflows (GET /api/v1/workflows)` — lookup table decoding the workflow_status IDs carried on features, epics, ideas and releases (high)
 - [ ] `key_results (GET /api/v1/goals/{id}/key_results)` — the measurable targets under every synced goal (high)
 - [ ] `comments (GET /api/v1/products/{id}/comments and per-record variants) plus idea_comments` — discussion activity across features, releases, goals and ideas (high)
