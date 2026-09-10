@@ -404,14 +404,18 @@ class TestValidateSchemaAndUpdateTable:
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
 
-    def test_zero_row_first_sync_creates_no_table(self, team):
-        # No table yet plus zero rows is a genuinely empty first sync - do not create an empty table.
+    # Published files at zero rows mean a resumed or redelivered run counted only its own attempt.
+    # Trusting row_count there left the data in S3 with no table to query it through.
+    @pytest.mark.parametrize("published_file_count,expect_table", [(0, False), (18, True)])
+    def test_zero_row_sync_creates_a_table_only_when_files_were_published(
+        self, team, published_file_count: int, expect_table: bool
+    ):
         schema, job = self._schema_and_job(team)
         assert schema.table is None
 
         with (
             patch.object(DataWarehouseTable, "get_columns", return_value={}),
-            patch.object(DataWarehouseTable, "get_count", return_value=0),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
         ):
             async_to_sync(validate_schema_and_update_table)(
                 run_id=str(job.id),
@@ -420,11 +424,44 @@ class TestValidateSchemaAndUpdateTable:
                 row_count=0,
                 table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders",
+                published_file_count=published_file_count,
             )
 
         schema.refresh_from_db()
-        assert schema.table is None
-        assert not DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False).exists()
+        tables = DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False)
+        if not expect_table:
+            assert schema.table is None
+            assert not tables.exists()
+        else:
+            assert schema.table_id == tables.get().id
+            # A reported 0 must not register a table full of published files as empty.
+            assert tables.get().row_count == 150
+
+    def test_relinks_a_table_an_earlier_run_left_unlinked(self, team):
+        # An orphan must be adopted and repointed, not left unlinked and not duplicated.
+        schema, job = self._schema_and_job(team)
+        orphan = self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+        ExternalDataSchema.objects.filter(id=schema.id).update(table=None)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=0,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+                published_file_count=18,
+            )
+
+        schema.refresh_from_db()
+        orphan.refresh_from_db()
+        assert schema.table_id == orphan.id
+        assert orphan.queryable_folder == "s3://bucket/orders_v2"
+        assert DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False).count() == 1
 
 
 class TestUpdateLastSyncedAt:
