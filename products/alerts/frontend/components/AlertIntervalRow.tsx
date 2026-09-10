@@ -81,7 +81,10 @@ export function AlertIntervalRow({
                 : 'last'
         evaluatedWindow = (
             <div data-attr="alertForm-trend-interval">
-                {isForecast ? 'and forecast upcoming' : `and check ${period}`}{' '}
+                {/* Wrapped rather than bare, because both parts change with the mode. A
+                    page-translation extension swaps a bare text node for a <font> element, and
+                    removing the suffix then throws removeChild NotFoundError (react#11538). */}
+                <span>{isForecast ? 'and forecast upcoming' : `and check ${period}`}</span>{' '}
                 <Tooltip
                     title={
                         <>
@@ -93,7 +96,7 @@ export function AlertIntervalRow({
                         {trendInterval ?? 'day'}
                     </span>
                 </Tooltip>
-                {isForecast ? ' buckets' : null}
+                {isForecast ? <span> buckets</span> : null}
             </div>
         )
     }
