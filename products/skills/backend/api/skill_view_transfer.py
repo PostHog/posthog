@@ -113,8 +113,7 @@ class SkillTransferActionsMixin(SkillAccessMixin):
     @monitor(feature=None, endpoint="llma_skills_bundle", method="GET")
     def bundle(self, request: Request, **kwargs) -> Response | HttpResponse:
         """One zip of the requesting user's store skills, for unpacking into a skills directory."""
-        query = LLMSkillBundleQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
+        query_params = self._validated_query(LLMSkillBundleQuerySerializer, request)
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,
@@ -142,8 +141,8 @@ class SkillTransferActionsMixin(SkillAccessMixin):
             self.team,
             user,
             readable_skills,
-            content=query.validated_data["content"],
-            limit=query.validated_data["limit"],
+            content=query_params["content"],
+            limit=query_params["limit"],
         )
         response = HttpResponse(bundle.zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = 'attachment; filename="skills-bundle.zip"'

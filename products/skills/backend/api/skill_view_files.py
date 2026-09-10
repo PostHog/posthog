@@ -174,8 +174,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
             return Response({"detail": "Invalid file path."}, status=status.HTTP_400_BAD_REQUEST)
         file_path = safe_path
 
-        query = LLMSkillFileDeleteQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
+        query_params = self._validated_query(LLMSkillFileDeleteQuerySerializer, request)
 
         try:
             published_skill = delete_skill_file(
@@ -183,7 +182,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
                 user=cast(User, request.user),
                 skill_name=skill_name,
                 path=file_path,
-                base_version=query.validated_data.get("base_version"),
+                base_version=query_params.get("base_version"),
             )
         except (
             LLMSkillNotFoundError,
