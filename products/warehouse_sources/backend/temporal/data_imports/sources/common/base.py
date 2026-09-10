@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -504,7 +506,7 @@ class WebhookDeletionResult:
     error: str | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class ExternalWebhookInfo:
     """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
 
