@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import ast
 import json
 import random
 import asyncio
@@ -8,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -41,7 +43,11 @@ from products.signals.backend.report_metrics import (
     MAX_LIVE_METRIC_QUERY_SERIES,
     MAX_REPORT_METRICS,
 )
-from products.signals.backend.scout_harness import run_costs, scout_costs
+from products.signals.backend.scout_harness import (
+    prompt as scout_prompt,
+    run_costs,
+    scout_costs,
+)
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
@@ -428,6 +434,24 @@ class TestPromptCrossReferences(SimpleTestCase):
         referenced = set(re.findall(r"(?<![\w*])\*([A-Z][^*\n]{3,60})\*(?!\*)", prompt))
         assert referenced, "no cross-references found — the extraction pattern has drifted"
         assert referenced <= headings, f"dangling cross-references: {sorted(referenced - headings)}"
+
+
+class TestHarnessPromptVersionInputs(SimpleTestCase):
+    def test_every_imported_value_the_templates_render_is_hashed_into_the_version(self) -> None:
+        # The version hashes this module's source plus `_RENDERED_IMPORTS`. A constant a template
+        # interpolates but the map omits changes what every scout is told while the digest stays
+        # put, so an A/B or eval spanning that change merges two prompt builds under one id.
+        source = Path(scout_prompt.__file__).read_text()
+        imported = {
+            alias.asname or alias.name
+            for node in ast.parse(source).body
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
+        interpolated = set(re.findall(r"{([A-Za-z_][A-Za-z0-9_]*)}", source)) & imported
+        assert interpolated, "no interpolated imports found - the extraction pattern has drifted"
+        missing = sorted(interpolated - set(scout_prompt._RENDERED_IMPORTS))
+        assert not missing, f"interpolated imports missing from _RENDERED_IMPORTS: {missing}"
 
 
 class TestStructuredOutputPromptSection(SimpleTestCase):
