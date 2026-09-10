@@ -3,8 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, renderInsightPage } from '~/test/insight-testing'
+import { FunnelsDataWarehouseNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { buildFunnelsQuery, buildTrendsQuery, MockResponse, renderInsightPage } from '~/test/insight-testing'
 
 // The disabled-reason copy shows through LemonButton's Tooltip, which has a 400ms open
 // delay. On contended CI shards that delay plus jsdom positioning can exceed the default
@@ -144,17 +144,27 @@ describe('TaxonomicBreakdownFilter', () => {
             },
         }
 
+        const schemaMocks: MockResponse[] = [
+            {
+                match: (query) => query.kind === NodeKind.DatabaseSchemaQuery,
+                response: warehouseSchema as any,
+            },
+        ]
+
+        const warehouseStep: FunnelsDataWarehouseNode = {
+            kind: NodeKind.FunnelsDataWarehouseNode,
+            id: 'ad_stats',
+            name: 'ad_stats',
+            table_name: 'ad_stats',
+            id_field: 'id',
+            timestamp_field: 'reported_at',
+            aggregation_target_field: 'account_id',
+        }
+
         it('offers a joined table column and the SQL expression escape hatch', async () => {
             renderInsightPage({
                 query: warehouseQuery,
-                mocks: {
-                    additionalMockResponses: [
-                        {
-                            match: (query) => query.kind === NodeKind.DatabaseSchemaQuery,
-                            response: warehouseSchema as any,
-                        },
-                    ],
-                },
+                mocks: { additionalMockResponses: schemaMocks },
             })
             await userEvent.click(await waitForBreakdownButton())
 
@@ -162,6 +172,19 @@ describe('TaxonomicBreakdownFilter', () => {
                 expect(screen.getAllByText('campaign.campaign_name').length).toBeGreaterThan(0)
             })
             expect(screen.getByText(/SQL expression/i)).toBeInTheDocument()
+        })
+
+        it('keeps joined table columns out of a funnel, which cannot resolve a dotted path', async () => {
+            renderInsightPage({
+                query: buildFunnelsQuery({ series: [warehouseStep, warehouseStep] }),
+                mocks: { additionalMockResponses: schemaMocks },
+            })
+            await userEvent.click(await waitForBreakdownButton())
+
+            await waitFor(() => {
+                expect(screen.getAllByText('campaign_id').length).toBeGreaterThan(0)
+            })
+            expect(screen.queryByText('campaign.campaign_name')).not.toBeInTheDocument()
         })
     })
 

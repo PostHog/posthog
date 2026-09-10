@@ -32,23 +32,28 @@ describe('dataWarehouseColumnsWithJoins', () => {
         ]),
     }
 
-    it('offers a joined column as a dotted path and drops the join placeholder', () => {
-        const columns = dataWarehouseColumnsWithJoins(['ad_stats'], tablesMap)
+    it.each([
+        [true, ['campaign_id', 'impressions', 'campaign.id', 'campaign.name']],
+        [false, ['campaign_id', 'impressions']],
+    ])(
+        'always drops the join placeholder and emits dotted joined columns only when asked (includeJoinedColumns=%s)',
+        (includeJoinedColumns, expected) => {
+            const columns = dataWarehouseColumnsWithJoins(['ad_stats'], tablesMap, includeJoinedColumns)
 
-        expect(columns.map((column) => column.name)).toEqual([
-            'campaign_id',
-            'impressions',
-            'campaign.id',
-            'campaign.name',
-        ])
-    })
+            expect(columns.map((column) => column.name)).toEqual(expected)
+        }
+    )
 
     it('keeps a table without joins unchanged and tolerates an unknown joined table', () => {
-        expect(dataWarehouseColumnsWithJoins(['unknown_table'], tablesMap)).toEqual([])
+        expect(dataWarehouseColumnsWithJoins(['unknown_table'], tablesMap, true)).toEqual([])
         expect(
-            dataWarehouseColumnsWithJoins(['orders'], {
-                orders: table('orders', [field('total', 'integer'), field('customer', 'lazy_table', 'missing')]),
-            }).map((column) => column.name)
+            dataWarehouseColumnsWithJoins(
+                ['orders'],
+                {
+                    orders: table('orders', [field('total', 'integer'), field('customer', 'lazy_table', 'missing')]),
+                },
+                true
+            ).map((column) => column.name)
         ).toEqual(['total'])
     })
 })
