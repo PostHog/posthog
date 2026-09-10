@@ -368,21 +368,6 @@ export interface scoutFleetLogicActions {
         scoutConfigs: SignalScoutConfigApi[] | null
         payload?: void
     }
-    loadScoutMetadata: () => any
-    loadScoutMetadataFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadScoutMetadataSuccess: (
-        scoutMetadata: ScoutMetadataApi | null,
-        payload?: any
-    ) => {
-        scoutMetadata: ScoutMetadataApi | null
-        payload?: any
-    }
     loadScoutCosts: (_: void) => void
     loadScoutCostsFailure: (
         error: string,
@@ -397,6 +382,21 @@ export interface scoutFleetLogicActions {
     ) => {
         scoutCosts: ScoutCostsApi | null
         payload?: void
+    }
+    loadScoutMetadata: () => any
+    loadScoutMetadataFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutMetadataSuccess: (
+        scoutMetadata: ScoutMetadataApi | null,
+        payload?: any
+    ) => {
+        scoutMetadata: ScoutMetadataApi | null
+        payload?: any
     }
     loadScoutRunCosts: (_: void) => void
     loadScoutRunCostsFailure: (
@@ -535,6 +535,7 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
+        scoutCostRollups: (scoutCosts: ScoutCostsApi | null) => Map<string, ScoutCostRollup>
         isStaff: (user: null | import('~/types').UserType) => boolean
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
