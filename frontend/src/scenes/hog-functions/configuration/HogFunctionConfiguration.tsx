@@ -180,6 +180,22 @@ export function HogFunctionConfiguration({
                     </div>
                 ) : null}
 
+                {type === 'legacy_destination' ? (
+                    <div>
+                        <LemonBanner type="warning">
+                            <p>
+                                This destination runs a deprecated plugin. It keeps working, but it does not support
+                                filters, logs, or testing.
+                            </p>
+                            <p className="mb-0">
+                                Metrics from before it was migrated are not shown here, and are still recorded against
+                                the plugin it came from. To move off it, create a new destination for the same service
+                                and turn this one off.
+                            </p>
+                        </LemonBanner>
+                    </div>
+                ) : null}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
