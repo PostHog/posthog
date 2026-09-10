@@ -1,10 +1,21 @@
+import json
 import time
 import random
 import asyncio
 import threading
 from collections import deque
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Generator, Iterable, Iterator
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    AsyncIterator,
+    Callable,
+    Generator,
+    Iterable,
+    Iterator,
+    Mapping,
+)
 from http import HTTPStatus
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import connections
@@ -302,8 +313,13 @@ def streaming_response(
     )
 
 
+def sse_frame(data: Mapping[str, Any], *, event: str, event_id: str | None = None) -> bytes:
+    prefix = f"id: {event_id}\n" if event_id is not None else ""
+    return f"{prefix}event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+
+
 def sse_streaming_response(
-    stream: StreamContent,
+    stream: StreamContent | Callable[[], AsyncGenerator[bytes | str]],
     *,
     endpoint: str = "unknown",
     status: int = HTTPStatus.OK,
@@ -354,6 +370,11 @@ def sse_streaming_response(
     if reservation is None:
         return _stream_cap_rejection(endpoint)
     try:
+        if callable(stream):
+            from ee.hogai.utils.aio import async_to_sync
+
+            make_stream = cast(Callable[[], AsyncGenerator[bytes | str]], stream)
+            stream = make_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(make_stream)
         return streaming_response(
             _instrument_stream(stream, endpoint, reservation),
             content_type="text/event-stream",

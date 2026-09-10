@@ -38,3 +38,19 @@ Sketchpad HTTP views and serializers live in `backend/presentation/sketchpad/`.
 The route registry imports that presentation package. Canvas still uses its legacy
 model-based presentation; the import-linter entries list the Sketchpad dependencies
 explicitly until that presentation moves behind facade contracts.
+
+## Collaboration streams
+
+Sketchpads and notebooks use the Redis stream reader in `posthog/collab_stream.py`.
+Content retains sequence IDs; ephemeral presence has separate Redis timestamp IDs
+and never changes the client's `Last-Event-ID`. Presence backfill uses the Redis
+clock, with the local clock as a fallback when Redis TIME fails.
+
+Sketchpad streams check access before connecting and every 15 seconds while
+reading. Removing access stops subsequent batches at the next check. Operation
+frames use the same serializer as the operations API. A failed publication attempts
+a reload marker at the final batch sequence with suffix `-1`, leaving the next
+operation's `-0` ID available. Clients recover durable operations through the API.
+
+SSE views can pass an async generator factory to `sse_streaming_response`; it
+selects ASGI or WSGI iteration after reserving a stream slot.

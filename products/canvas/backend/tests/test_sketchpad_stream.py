@@ -7,15 +7,17 @@ from unittest.mock import AsyncMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog import redis
+from posthog.collab_stream import PRESENCE_TTL_SECONDS
 
-from products.canvas.backend.sketchpad_presence import (
+from products.canvas.backend.sketchpad.presence import (
     PRESENCE_STREAM_KEY_PATTERN,
-    PRESENCE_TTL_SECONDS,
+    SketchpadPresencePing,
     publish_presence,
 )
-from products.canvas.backend.sketchpad_stream import OPS_STREAM_KEY_PATTERN, publish_ops, stream_sketchpad_sse
+from products.canvas.backend.sketchpad.stream import OPS_STREAM_KEY_PATTERN, publish_ops, stream_sketchpad_sse
 
 
 def op_event(seq: int) -> dict:
@@ -43,7 +45,7 @@ def first_frame(team_id: int, sketchpad_id: str, last_event_id: str | None) -> b
 
 class TestSketchpadStreamAccess(SimpleTestCase):
     @parameterized.expand(
-        [("presence", 20, 100, 0.005, 7, 0.5), ("presence", 100, 500, 0.001, 22, 0.5), ("op", 1, 96, 0.0, 4, 0.0)]
+        [("presence", 20, 100, 0.005, 1, 0.5), ("presence", 100, 500, 0.001, 1, 0.5), ("op", 1, 96, 0.0, 1, 0.0)]
     )
     def test_batches_small_events_and_drains_full_batches(
         self, kind: str, writers: int, event_count: int, interval: float, max_checks: int, max_time: float
@@ -52,6 +54,7 @@ class TestSketchpadStreamAccess(SimpleTestCase):
         position = 0
         client = AsyncMock()
         client.xrevrange.return_value = []
+        client.time.return_value = (1_800_000_000, 0)
         can_read = AsyncMock(return_value=True)
         key = (PRESENCE_STREAM_KEY_PATTERN if kind == "presence" else OPS_STREAM_KEY_PATTERN).format(
             team_id=1, sketchpad_id="sketchpad"
@@ -86,8 +89,9 @@ class TestSketchpadStreamAccess(SimpleTestCase):
 
         client.xread.side_effect = read_batch
         with (
-            patch("products.canvas.backend.sketchpad_stream.redis_module.get_async_client", return_value=client),
-            patch("products.canvas.backend.sketchpad_stream.asyncio.sleep", side_effect=advance),
+            patch("products.canvas.backend.sketchpad.stream.redis_module.get_async_client", return_value=client),
+            patch("posthog.collab_stream.asyncio.sleep", side_effect=advance),
+            patch("products.canvas.backend.sketchpad.stream.time.monotonic", side_effect=lambda: now),
         ):
             frames = asyncio.run(read())
 
@@ -102,6 +106,7 @@ class TestSketchpadStreamAccess(SimpleTestCase):
     def test_access_loss_stops_events(self, _name: str, access: list[bool], expected_frames: int) -> None:
         client = AsyncMock()
         client.xrevrange.return_value = []
+        client.time.return_value = (1_800_000_000, 0)
         client.xread.return_value = [
             (b"ops", [(b"1-0", {b"data": json.dumps({"type": "op", **op_event(1)}).encode()})])
         ]
@@ -112,8 +117,9 @@ class TestSketchpadStreamAccess(SimpleTestCase):
             ]
 
         with (
-            patch("products.canvas.backend.sketchpad_stream.redis_module.get_async_client", return_value=client),
-            patch("products.canvas.backend.sketchpad_stream.asyncio.sleep", new_callable=AsyncMock),
+            patch("products.canvas.backend.sketchpad.stream.redis_module.get_async_client", return_value=client),
+            patch("posthog.collab_stream.asyncio.sleep", new_callable=AsyncMock),
+            patch("products.canvas.backend.sketchpad.stream.ACCESS_RECHECK_SECONDS", 0),
         ):
             frames = asyncio.run(read())
 
@@ -127,15 +133,19 @@ class TestSketchpadStream(BaseTest):
         publish_presence(
             self.team.pk,
             "board1",
-            client_id="client1",
-            user_id=7,
-            user_name="Grace Hopper",
-            user_uuid="0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
-            user_email="grace@example.com",
-            cursor={"x": 120.5, "y": -40.0},
-            viewport={"x": 0.0, "y": 0.0, "zoom": 1.0},
-            selected_ids=["kpi"],
-            carets=[{"key": "note", "anchor": "a-1", "focus": "a-1"}],
+            SketchpadPresencePing(
+                client_id="client1",
+                actor={
+                    "user_id": 7,
+                    "user_name": "Grace Hopper",
+                    "user_uuid": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+                    "user_email": "grace@example.com",
+                },
+                cursor={"x": 120.5, "y": -40.0},
+                viewport={"x": 0.0, "y": 0.0, "zoom": 1.0},
+                selected_ids=["kpi"],
+                carets=[{"key": "note", "anchor": "a-1", "focus": "a-1"}],
+            ),
         )
 
         client = redis.get_client()
@@ -185,3 +195,22 @@ class TestSketchpadStream(BaseTest):
             + json.dumps({"type": "op", **op_event(13)}, separators=(",", ":")).encode()
             + b"\n\n"
         )
+
+    def test_publish_failure_marks_reload_without_blocking_future_ops(self) -> None:
+        client = redis.get_client()
+        xadd = client.xadd
+        attempts = 0
+
+        def fail_second(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 2:
+                raise RedisError("temporary failure")
+            return xadd(*args, **kwargs)
+
+        with patch.object(client, "xadd", side_effect=fail_second):
+            publish_ops(self.team.pk, "publish-recovery", [op_event(1), op_event(2), op_event(3)])
+        publish_ops(self.team.pk, "publish-recovery", [op_event(4)])
+        entries = client.xrange(OPS_STREAM_KEY_PATTERN.format(team_id=self.team.pk, sketchpad_id="publish-recovery"))
+        assert [entry[0] for entry in entries] == [b"1-0", b"3-1", b"4-0"]
+        assert json.loads(entries[1][1][b"data"]) == {"type": "reload", "since": 0}
