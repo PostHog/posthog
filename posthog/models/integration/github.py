@@ -37,6 +37,7 @@ _GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
+_MAX_FILE_CONTENTS_BYTES = 10 * 1024 * 1024
 
 
 def _is_safe_github_repo_path(repo_path: str) -> bool:
@@ -839,7 +840,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         exist — a missing file is a normal state, not an error. The SHA lets a caller
         pass it straight to ``update_file`` for a conflict-safe write. Counterpart to
         ``update_file``, kept here so URL and token handling stay inside the client.
-        Raises ``GitHubIntegrationError`` instead of returning a partial file.
+        Raises ``GitHubIntegrationError`` rather than return a partial or oversized file.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
@@ -857,26 +858,38 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
         payload = response.json()
+        size = payload["size"]
+        if size > _MAX_FILE_CONTENTS_BYTES:
+            raise GitHubIntegrationError(
+                f"{file_path} in {repository} is {size} bytes, over the {_MAX_FILE_CONTENTS_BYTES} byte limit"
+            )
+        content: bytes | bytearray
         if payload["encoding"] == "none":
-            # The contents API leaves `content` empty for files over 1 MB. The blob endpoint serves files up to
-            # 100 MB, and reading by SHA guarantees the content matches the SHA this method returns.
+            # The contents API omits content above 1 MB.
             blob_response = self.api_request(
                 "GET",
                 f"/repos/{repo_path}/git/blobs/{payload['sha']}",
                 endpoint="/repos/{owner}/{repo}/git/blobs/{file_sha}",
+                headers={"Accept": "application/vnd.github.raw+json"},
+                stream=True,
             )
-            if blob_response.status_code != 200:
-                raise GitHubIntegrationError(
-                    f"Failed to read {file_path} from {repository}: {blob_response.text}",
-                    status_code=blob_response.status_code,
-                )
-            payload = blob_response.json()
-        content = base64.b64decode(payload["content"])
-        # A short read passed to `update_file` overwrites the file with the truncated text.
-        if len(content) != payload["size"]:
-            raise GitHubIntegrationError(
-                f"Read {len(content)} of {payload['size']} bytes of {file_path} from {repository}"
-            )
+            try:
+                if blob_response.status_code != 200:
+                    raise GitHubIntegrationError(
+                        f"Failed to read {file_path} from {repository}: {blob_response.text}",
+                        status_code=blob_response.status_code,
+                    )
+                content = bytearray()
+                for chunk in blob_response.iter_content(chunk_size=64 * 1024):
+                    content += chunk
+                    if len(content) > size:
+                        break
+            finally:
+                blob_response.close()
+        else:
+            content = base64.b64decode(payload["content"])
+        if len(content) != size:
+            raise GitHubIntegrationError(f"Read {len(content)} of {size} bytes of {file_path} from {repository}")
         return {"content": content.decode("utf-8"), "sha": payload["sha"]}
 
     def create_pull_request(
