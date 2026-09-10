@@ -743,10 +743,28 @@ class TestCountTriggeredReportChecks(BaseTest):
             candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
             rotate_item_cursor=True,
         )
+        _advance_eval_report_cursors(
+            second_page,
+            second_page.rows,
+            scheduler="test_eval_reports_count_item_rotation",
+            region="test",
+            rotate_item_cursor=True,
+        )
+        # The third poll is the one that proves a ring: it has to wrap past the highest id
+        # and pick the last report up, not restart at the lowest one and strand it forever.
+        third_page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler="test_eval_reports_count_item_rotation",
+            region="test",
+            max_reports_per_run=2,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
 
         expected_ids = sorted(str(report.id) for report in reports)
         self.assertEqual([report_id for report_id, _team_id in first_page.rows], expected_ids[:2])
         self.assertEqual([report_id for report_id, _team_id in second_page.rows], expected_ids[2:4])
+        self.assertEqual([report_id for report_id, _team_id in third_page.rows], [expected_ids[4], expected_ids[0]])
 
     def test_item_cursor_advances_only_through_payload_selected_rows(self):
         reports = [self._create_report() for _ in range(5)]

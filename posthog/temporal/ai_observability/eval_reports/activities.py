@@ -129,10 +129,17 @@ _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
         SELECT
             selected_teams.team_id,
             selected_teams.team_order,
-            candidate.id
+            candidate.id,
+            candidate.team_rank
         FROM selected_teams
         CROSS JOIN LATERAL (
-            SELECT report.id
+            SELECT
+                report.id,
+                -- Ranked here, in the same cursor-relative order the rows are taken in, so
+                -- the wrapped-around ids keep their place at the front of the team. Ranking
+                -- the page again by plain id would sort them back to last and drop them at
+                -- the outer LIMIT, which strands the tail of the ring on every poll.
+                ROW_NUMBER() OVER (ORDER BY (report.id <= %s::uuid), report.id) AS team_rank
             FROM llm_analytics_evaluationreport AS report
             INNER JOIN llm_analytics_evaluation AS evaluation ON evaluation.id = report.evaluation_id
             WHERE report.team_id = selected_teams.team_id
@@ -141,20 +148,12 @@ _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
               AND report.frequency = 'every_n'
               AND report.trigger_threshold IS NOT NULL
               AND {_REPORTABLE_EVALUATION_SQL}
-            ORDER BY (report.id <= %s::uuid), report.id
+            ORDER BY team_rank
             LIMIT %s
         ) AS candidate
-    ),
-    ranked_candidates AS (
-        SELECT
-            id,
-            team_id,
-            team_order,
-            ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY id) AS team_rank
-        FROM bounded_candidates
     )
     SELECT id, team_id
-    FROM ranked_candidates
+    FROM bounded_candidates
     ORDER BY team_rank, team_order, id
     LIMIT %s
 """
