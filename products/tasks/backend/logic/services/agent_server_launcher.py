@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
-from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError
+from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError, SandboxTimeoutError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
@@ -50,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+# The whole diagnostics dict rides in the Temporal failure payload, which is capped at about 2 MiB.
+STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
 
 SESSION_INIT_PROBE_HOSTS = (
@@ -240,8 +242,13 @@ class AgentServerLaunchMixin(SandboxBase):
                 return diagnostics
 
             diagnostics["sandbox_terminated"] = "false"
-            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            log_result = self.execute(
+                f"tail -c {STARTUP_LOG_MAX_BYTES} /tmp/agent-server.log 2>/dev/null || echo 'No log file'",
+                timeout_seconds=5,
+            )
             diagnostics["log"] = log_result.stdout
+            if len(log_result.stdout.encode()) >= STARTUP_LOG_MAX_BYTES:
+                diagnostics["log_truncated"] = "true"
             health_result = self.execute(
                 f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
                 timeout_seconds=5,
@@ -396,7 +403,12 @@ class AgentServerLaunchMixin(SandboxBase):
         execute_command = _start_and_wait_command(command, max_attempts) if wait_for_health else command
         timeout_seconds = 30 + health_check_timeout_seconds(max_attempts) if wait_for_health else 30
         start_time = time.perf_counter()
-        launch_result = self.execute(execute_command, timeout_seconds=timeout_seconds)
+        try:
+            launch_result = self.execute(execute_command, timeout_seconds=timeout_seconds)
+        except SandboxTimeoutError as error:
+            if not wait_for_health:
+                raise
+            raise self._startup_timeout_with_diagnostics(allowed_domains, timeout_seconds) from error
         start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
         if launch_result.exit_code != 0:
             health_duration_ms = _health_duration_ms(launch_result.stdout)
@@ -444,7 +456,13 @@ class AgentServerLaunchMixin(SandboxBase):
         self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
     ) -> None:
         max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
-        if self._wait_for_health_check(max_attempts=max_attempts):
+        try:
+            healthy = self._wait_for_health_check(max_attempts=max_attempts)
+        except SandboxTimeoutError as error:
+            raise self._startup_timeout_with_diagnostics(
+                allowed_domains, health_check_timeout_seconds(max_attempts)
+            ) from error
+        if healthy:
             if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
                 raise SandboxExecutionError(
                     "Failed to verify agentsh network enforcement",
@@ -458,6 +476,22 @@ class AgentServerLaunchMixin(SandboxBase):
             "Agent-server failed to start",
             {"sandbox_id": self.id, **diagnostics},
             cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
+        )
+
+    def _startup_timeout_with_diagnostics(
+        self, allowed_domains: list[str] | None, timeout_seconds: int
+    ) -> SandboxTimeoutError:
+        diagnostics = self._diagnose_startup_failure(allowed_domains)
+        logger.warning(
+            "Agent-server health poll timed out in sandbox %s after %ss: %s",
+            self.id,
+            timeout_seconds,
+            diagnostics.get("failure_reason"),
+        )
+        return SandboxTimeoutError(
+            "Agent-server failed to start",
+            {"sandbox_id": self.id, "timeout_seconds": timeout_seconds, **diagnostics},
+            cause=RuntimeError(diagnostics.get("failure_reason", f"health poll exceeded {timeout_seconds}s")),
         )
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:
