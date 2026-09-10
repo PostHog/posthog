@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.presentation.views import (
 def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"external_data_sources",
-        external_data_source.ExternalDataSourceViewSet,
+        external_data_source.viewset.ExternalDataSourceViewSet,
         "project_external_data_sources",
         ["team_id"],
     )
