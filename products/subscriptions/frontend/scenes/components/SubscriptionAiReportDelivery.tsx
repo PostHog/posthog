@@ -12,6 +12,8 @@ import type {
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { SubscriptionQueryPlanStatus } from './SubscriptionQueryPlanStatus'
+
 /** A completed AI delivery whose report couldn't compute some queries still shipped — but with missing
  * metrics — so it reads as "Partial", not a clean "Completed". Derived from the (query:viewer-gated)
  * diagnostics the viewer already has; a query-restricted caller (diagnostics scrubbed) sees "Completed". */
@@ -433,8 +435,9 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
             ) : null}
             {diagnostics.length > 0 ? (
                 <div className="flex flex-col gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                        Generated queries
+                    <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-secondary">
+                        <span>Generated queries</span>
+                        <SubscriptionQueryPlanStatus status={row.ai_query_plan_status} />
                     </div>
                     <GeneratedQueries diagnostics={diagnostics} />
                 </div>

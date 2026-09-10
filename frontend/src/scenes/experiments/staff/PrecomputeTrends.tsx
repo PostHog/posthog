@@ -6,6 +6,7 @@ import type { Series } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { formatDurationMilliseconds } from 'lib/utils/durations'
 import { humanizeBytes } from 'lib/utils/numbers'
 
 import { EXCEPTION_CODE_LABELS, queryPerformanceLogic } from './queryPerformanceLogic'
@@ -47,6 +48,17 @@ export function PrecomputeTrends(): JSX.Element {
 
     const fallbackSeries: Series[] = ts ? [{ key: 'fallback', label: 'Fallback reads', data: ts.reads.fallback }] : []
 
+    const latencySeries: Series[] = ts
+        ? [
+              { key: 'p50', label: 'p50', data: ts.reads.precomputed_p50_duration_ms },
+              { key: 'p90', label: 'p90', data: ts.reads.precomputed_p90_duration_ms },
+          ]
+        : []
+
+    const bytesPerReadSeries: Series[] = ts
+        ? [{ key: 'avg_bytes', label: 'Avg bytes read', data: ts.reads.precomputed_avg_read_bytes }]
+        : []
+
     // One stacked series per exit code, biggest offenders first so the legend leads with them.
     const failureSeries: Series[] = ts
         ? Object.entries(ts.builds.failed_by_code)
@@ -81,7 +93,7 @@ export function PrecomputeTrends(): JSX.Element {
             </div>
             {!ts && precomputeTimeseriesLoading ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {[0, 1, 2, 3].map((i) => (
+                    {[0, 1, 2, 3, 4, 5].map((i) => (
                         <LemonSkeleton key={i} className="h-56 w-full" />
                     ))}
                 </div>
@@ -101,6 +113,33 @@ export function PrecomputeTrends(): JSX.Element {
                             labels={ts.buckets}
                             theme={theme}
                             config={{ xAxis, showGrid: true }}
+                        />
+                    </ChartCard>
+                    <ChartCard title="Precomputed read latency (p50/p90, successful reads only; should stay flat as the cache grows)">
+                        <TimeSeriesLineChart
+                            series={latencySeries}
+                            labels={ts.buckets}
+                            theme={theme}
+                            config={{
+                                xAxis,
+                                yAxis: { tickFormatter: (value: number) => formatDurationMilliseconds(value) },
+                                tooltip: { valueFormatter: (value: number) => formatDurationMilliseconds(value) },
+                                showGrid: true,
+                                legend: { show: true },
+                            }}
+                        />
+                    </ChartCard>
+                    <ChartCard title="Bytes read per precomputed read (average; a rise means reads scan more than their own rows)">
+                        <TimeSeriesLineChart
+                            series={bytesPerReadSeries}
+                            labels={ts.buckets}
+                            theme={theme}
+                            config={{
+                                xAxis,
+                                yAxis: { tickFormatter: (value: number) => humanizeBytes(value) },
+                                tooltip: { valueFormatter: (value: number) => humanizeBytes(value) },
+                                showGrid: true,
+                            }}
                         />
                     </ChartCard>
                     <ChartCard title="Failed builds by exit code">

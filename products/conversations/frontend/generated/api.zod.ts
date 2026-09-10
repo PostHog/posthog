@@ -303,7 +303,10 @@ export const conversationsViewsCreateBodyNameMax = 400
 export const conversationsViewsCreateBodyFiltersOneSearchMax = 200
 
 export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsCreateBodyNameMax),
+    name: zod
+        .string()
+        .max(conversationsViewsCreateBodyNameMax)
+        .describe('Display name of the view, as it appears in the ticket views list.'),
     filters: zod
         .object({
             status: zod
@@ -370,7 +373,7 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list."
+                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter."
                 ),
             tags: zod.array(zod.string()).optional().describe('Tag names to match, combined according to tagsMatch.'),
             tagsMatch: zod
@@ -439,7 +442,11 @@ export const conversationsViewsPartialUpdateBodyNameMax = 400
 export const conversationsViewsPartialUpdateBodyFiltersOneSearchMax = 200
 
 export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsPartialUpdateBodyNameMax).optional(),
+    name: zod
+        .string()
+        .max(conversationsViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the view, as it appears in the ticket views list.'),
     filters: zod
         .object({
             status: zod
@@ -506,7 +513,7 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list."
+                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter."
                 ),
             tags: zod.array(zod.string()).optional().describe('Tag names to match, combined according to tagsMatch.'),
             tagsMatch: zod

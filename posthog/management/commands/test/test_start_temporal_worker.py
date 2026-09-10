@@ -1,5 +1,7 @@
 import pytest
 
+from django.conf import settings
+
 from posthog.management.commands.start_temporal_worker import (
     DATA_SYNC_WORKFLOWS,
     WA_DIGEST_ACTIVITIES,
@@ -9,9 +11,28 @@ from posthog.management.commands.start_temporal_worker import (
     workflows_include_data_import_syncs,
 )
 
+from products.wizard.backend.facade.temporal import (
+    ACTIVITIES as WIZARD_ACTIVITIES,
+    WORKFLOWS as WIZARD_WORKFLOWS,
+)
+
 
 class _NotADataSyncWorkflow:
     pass
+
+
+def test_wizard_queue_registers_workflows_and_activities() -> None:
+    entries = [
+        (workflows, activities)
+        for queue, workflows, activities in _task_queue_specs
+        if queue == settings.WIZARD_TASK_QUEUE
+    ]
+    workflows = {workflow for registered_workflows, _ in entries for workflow in registered_workflows}
+    activities = {activity for _, registered_activities in entries for activity in registered_activities}
+    assert WIZARD_WORKFLOWS
+    assert WIZARD_ACTIVITIES
+    assert set(WIZARD_WORKFLOWS) <= workflows
+    assert set(WIZARD_ACTIVITIES) <= activities
 
 
 # Data-import sources import vendor SDKs (google-ads, etc.) that register protobuf descriptors into a

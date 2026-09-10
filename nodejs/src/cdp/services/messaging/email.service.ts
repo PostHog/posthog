@@ -167,11 +167,14 @@ type TeamEmailCapBucket = {
     label: string
 }
 
-function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number): TeamEmailCapBucket[] {
+// The `{teamId}` hash tag puts both bucket keys in the same cluster slot. Enforce mode claims
+// both keys in one Lua call (claimAllOrNothingPair), and clustered Valkey rejects a multi-key
+// call whose keys hash to different slots with a CROSSSLOT error.
+export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number): TeamEmailCapBucket[] {
     return [
         {
             name: 'hour',
-            key: `@posthog/team-email-rate-hour/${teamId}`,
+            key: `@posthog/team-email-rate-hour/{${teamId}}`,
             capacity: hourlyCap,
             refillPerSecond: hourlyCap / 3600,
             ttlSeconds: TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS,
@@ -179,7 +182,7 @@ function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number
         },
         {
             name: 'day',
-            key: `@posthog/team-email-rate-day/${teamId}`,
+            key: `@posthog/team-email-rate-day/{${teamId}}`,
             capacity: dailyCap,
             refillPerSecond: dailyCap / 86400,
             ttlSeconds: TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS,

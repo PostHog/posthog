@@ -41,7 +41,8 @@ from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
+from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
@@ -413,6 +414,67 @@ class ScoutRunTokenCostsSerializer(serializers.Serializer):
         help_text=(
             "False when this deployment has no internal AI observability project to read the "
             "generations from, so `costs` is empty and every cost is unknown rather than zero."
+        ),
+    )
+
+
+class ScoutCostsQuerySerializer(serializers.Serializer):
+    """Query parameters for the `runs/costs` action."""
+
+    window_days = serializers.IntegerField(
+        required=False,
+        # Bounded to the one supported window rather than left open, so a client that asks for 30
+        # gets a 400 instead of a number silently computed over 7 days.
+        min_value=SCOUT_COST_WINDOW_DAYS,
+        max_value=SCOUT_COST_WINDOW_DAYS,
+        help_text=(
+            f"Window in days over runs' `created_at` (default {SCOUT_COST_WINDOW_DAYS}). Only "
+            f"{SCOUT_COST_WINDOW_DAYS} is accepted today — it matches the window the roster's fleet "
+            "headline spans, so every number on the page describes one span."
+        ),
+    )
+
+
+class ScoutCostSerializer(serializers.Serializer):
+    """What one scout spent in the window, and what it produced for that spend."""
+
+    skill_name = serializers.CharField(help_text="Full skill name of the scout, e.g. `signals-scout-error-tracking`.")
+    spend_usd = serializers.FloatField(
+        help_text=(
+            "Model spend attributed to the scout's runs in the window, in US dollars. Zero when none "
+            "of its runs had spend attributed, which `priced_run_count` tells apart from a scout that "
+            "really spent nothing."
+        ),
+    )
+    run_count = serializers.IntegerField(help_text="Runs the scout started in the window.")
+    priced_run_count = serializers.IntegerField(
+        help_text=(
+            "Runs of the scout that had spend attributed. Lower than `run_count` where a run failed "
+            "before its first model call, or its generations haven't landed yet. Divide `spend_usd` by "
+            "this, not by `run_count`, for cost per run."
+        ),
+    )
+    reports_touched = serializers.IntegerField(
+        help_text=(
+            "Distinct inbox reports the scout filed or added to in the window. A report it authored in "
+            "one run and edited in three counts once. Zero means the scout produced no reports, so "
+            "cost per report has no value rather than a value of zero."
+        ),
+    )
+
+
+class ScoutCostsSerializer(serializers.Serializer):
+    """Model spend and output per scout over a window."""
+
+    window_days = serializers.IntegerField(help_text="Window the rows describe, in days.")
+    scouts = ScoutCostSerializer(
+        many=True,
+        help_text="One row per scout that started at least one run on this project in the window.",
+    )
+    available = serializers.BooleanField(
+        help_text=(
+            "False when this deployment has no internal AI observability project to read the "
+            "generations from, so `scouts` is empty and every spend is unknown rather than zero."
         ),
     )
 
@@ -886,7 +948,7 @@ class ScoutNoteSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         allow_blank=True,
         help_text=(
-            "Who the note is addressed to: a scout skill (`signals-scout-*`), a pipeline audience "
+            "Who the note is addressed to: a configured scout's skill name, a pipeline audience "
             "(`pipeline:*`, e.g. `pipeline:report-research`), or blank for a general note every scout sees."
         ),
     )
@@ -931,7 +993,7 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Return the notes addressed to this target plus the general (blank-target) notes for "
-            "the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience "
+            "the whole fleet. Pass a configured scout's skill name or a pipeline audience "
             "(`pipeline:report-research`). Omit to browse every note on the project."
         ),
     )
@@ -991,8 +1053,8 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=200,
         help_text=(
-            "Address the note to one scout by its skill name (`signals-scout-*`, exact match against "
-            "an existing scout skill on the project — check `scout-config-list` for the roster), or to "
+            "Address the note to one scout by its skill name (exact match against a configured "
+            "scout on the project — check `scout-config-list` for the roster), or to "
             "one stage of the report pipeline by its reserved audience "
             f"({_PIPELINE_AUDIENCE_LIST}). Use a pipeline audience for guidance about how "
             "reports get researched rather than about what the scouts watch, so it reaches that stage "
@@ -1526,7 +1588,7 @@ class EmitEligibilitySerializer(serializers.Serializer):
 class ScoutFleetEntrySerializer(serializers.Serializer):
     """One scout in either bucket of `inventory.scout_fleet`."""
 
-    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill this config schedules.")
+    skill_name = serializers.CharField(help_text="The skill this config schedules as a scout.")
     run_interval_minutes = serializers.IntegerField(
         help_text="Minutes between runs when no cron schedule is set (default 1440, every 24 hours).",
     )
@@ -2519,13 +2581,13 @@ class ScoutOrigin(models.TextChoices):
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
-    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    One row per scout skill on the team. The coordinator auto-creates a row
     when it discovers a scout skill; this serializer lets agents tune the row.
     """
 
     skill_name = serializers.CharField(
         read_only=True,
-        help_text="The `signals-scout-*` skill this config controls. Set at creation, not editable.",
+        help_text="The skill this config controls as a scout. Set at creation, not editable.",
     )
     description = serializers.SerializerMethodField(
         help_text=(
@@ -2712,6 +2774,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
+            "display_name",
             "scout_origin",
             "owners",
             "enabled",
@@ -2784,7 +2847,7 @@ def _capture_auto_pause_reverted(
 
 
 class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
-    """Editable schedule, enablement, and emit posture for one scout config."""
+    """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
     enabled = serializers.BooleanField(
         required=False,
@@ -2941,6 +3004,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalScoutConfig
         fields = [
+            "display_name",
             "enabled",
             "emit",
             "run_interval_minutes",
@@ -3061,16 +3125,20 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     skill_name = serializers.CharField(
         max_length=200,
         help_text=(
-            "The `signals-scout-*` skill to register a config for. The skill must already "
-            "exist on this project — author it via the skills store first."
+            "The skill to register a config for. Any valid skill name works — the config row is "
+            "what makes a skill a scout. The skill must already exist on this project — author it "
+            "via the skills store first."
         ),
     )
 
     def validate_skill_name(self, value: str) -> str:
-        # A config for a non-scout skill would never dispatch (the coordinator only considers
-        # `signals-scout-*` names), so reject it here instead of minting an invisible orphan.
-        if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-            raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
+        # The generic skill-name contract first, like the sibling create serializer. Nothing
+        # downstream re-checks it: the model column carries no validator, `create_skill` skips the
+        # pattern, and the view's existence check only proves a row exists. It is also what keeps
+        # scout names and the `pipeline:` note audiences disjoint (see `note_targets`).
+        value = validate_skill_name_value(value)
+        if error := reserved_scout_name_error(value):
+            raise serializers.ValidationError(error)
         return value
 
 
@@ -3080,8 +3148,8 @@ class SignalScoutCreateSerializer(serializers.Serializer):
     name = serializers.CharField(
         max_length=64,
         help_text=(
-            "Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, "
-            "numbers, and hyphens."
+            "Unique scout name, containing only lowercase letters, numbers, and hyphens. The "
+            "`signals-scout-` prefix is optional."
         ),
     )
     description = serializers.CharField(
@@ -3118,8 +3186,8 @@ class SignalScoutCreateSerializer(serializers.Serializer):
 
     def validate_name(self, value: str) -> str:
         value = validate_skill_name_value(value)
-        if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-            raise serializers.ValidationError(f"Scout names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
+        if error := reserved_scout_name_error(value):
+            raise serializers.ValidationError(error)
         return value
 
     def validate_body(self, value: str) -> str:

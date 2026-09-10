@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconCode, IconCopy, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, lemonToast } from '@posthog/lemon-ui'
+import { IconPlus, IconX } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
@@ -11,6 +12,10 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 export function HogFlowEditorPanelVariables(): JSX.Element | null {
     const { workflow } = useValues(hogFlowEditorLogic)
     const { setWorkflowInfo } = useActions(hogFlowEditorLogic)
+    const [hoveredVariableIndex, setHoveredVariableIndex] = useState<number | null>(null)
+    const [editingVariableIndex, setEditingVariableIndex] = useState<number | null>(null)
+    const [deletingVariableIndex, setDeletingVariableIndex] = useState<number | null>(null)
+    const [variableKeyDraft, setVariableKeyDraft] = useState('')
 
     const addNewVariable = (): void => {
         const newVariableName = `VARIABLE_${(workflow?.variables?.length || 0) + 1}`
@@ -24,130 +29,171 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
     }
 
     const editVariableKey = (idx: number, key: string): void => {
-        const updatedVariables = [...(workflow?.variables || [])]
         const sanitizedKey = key.replace(/\s+/g, '_')
-        updatedVariables[idx].key = sanitizedKey
-        updatedVariables[idx].label = sanitizedKey
         setWorkflowInfo({
-            variables: updatedVariables,
+            variables: (workflow?.variables || []).map((variable, index) =>
+                index === idx ? { ...variable, key: sanitizedKey, label: sanitizedKey } : variable
+            ),
         })
     }
 
     const editVariableDefaultValue = (idx: number, defaultValue: string): void => {
-        const updatedVariables = [...(workflow?.variables || [])]
-        updatedVariables[idx].default = defaultValue
         setWorkflowInfo({
-            variables: updatedVariables,
+            variables: (workflow?.variables || []).map((variable, index) =>
+                index === idx ? { ...variable, default: defaultValue } : variable
+            ),
         })
+    }
+
+    const showVariableKeyInput = (idx: number, key: string): void => {
+        setHoveredVariableIndex(idx)
+        if (editingVariableIndex === null) {
+            setVariableKeyDraft(key)
+        }
+    }
+
+    const finishEditingVariableKey = (idx: number): void => {
+        editVariableKey(idx, variableKeyDraft)
+        setEditingVariableIndex(null)
+        setHoveredVariableIndex(null)
     }
 
     const deleteVariable = (idx: number): void => {
-        LemonDialog.open({
-            title: 'Delete variable',
-            description: `Are you sure you want to delete the variable "${workflow.variables?.[idx]?.key}"?`,
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: () => {
-                    const newVariables = [...(workflow?.variables || [])]
-                    newVariables.splice(idx, 1)
-                    setWorkflowInfo({ variables: newVariables })
-                },
-            },
-            secondaryButton: { children: 'Cancel' },
-        })
+        const newVariables = [...(workflow?.variables || [])]
+        newVariables.splice(idx, 1)
+        setWorkflowInfo({ variables: newVariables })
+        setDeletingVariableIndex(null)
     }
 
     return (
-        <div className="flex flex-col h-full overflow-hidden m-2">
-            <LemonLabel
-                info={
-                    <span>
-                        These variables can be used by actions and conditions in this workflow. Use{' '}
-                        <code>{`{ variable_name }`}</code> to reference a variable in an action or condition. You can
-                        also set variables using the result of an action by selecting a node and configuring the "Output
-                        variable" section.
-                    </span>
-                }
-            >
-                <IconCode className="text-lg" /> Workflow variables
-            </LemonLabel>
-
+        <div className="flex h-full flex-col overflow-hidden">
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"
-                innerClassName="flex flex-col gap-1.5 py-2"
+                innerClassName="flex flex-col"
                 styledScrollbars
             >
-                {workflow.variables && workflow.variables.length > 0 && (
-                    <div className="w-full flex gap-2 px-0.5 text-xs font-medium text-secondary">
-                        <span className="w-1/4 shrink-0">Key</span>
-                        <span className="w-1/4 shrink-0">Default</span>
-                        <span className="flex-1 min-w-0">Usage</span>
-                        <span className="w-5 shrink-0" />
-                    </div>
-                )}
-
                 {workflow.variables?.map((variable, idx) => (
-                    <div key={`${workflow.id}_${idx}`} className="w-full flex items-center gap-2">
-                        <LemonField.Pure className="w-1/4 shrink-0">
-                            <LemonInput
-                                size="small"
-                                type="text"
-                                value={variable.key}
-                                placeholder="Unique name"
-                                onChange={(key) => {
-                                    editVariableKey(idx, key)
-                                }}
-                            />
-                        </LemonField.Pure>
-                        <LemonField.Pure className="w-1/4 shrink-0">
-                            <LemonInput
-                                size="small"
-                                type="text"
-                                value={workflow?.variables?.[idx]?.default || ''}
-                                placeholder="Default value"
-                                onChange={(defaultValue) => {
-                                    editVariableDefaultValue(idx, defaultValue)
-                                }}
-                            />
-                        </LemonField.Pure>
-                        <span className="group relative flex-1 min-w-0">
-                            <code className="w-full py-1 bg-primary-alt-highlight-secondary rounded-sm text-center text-xs truncate block">
-                                {`{ variables.${variable.key} }`}
-                            </code>
-                            <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                    <div key={`${workflow.id}_${idx}`} className="flex items-center gap-2 border-b px-3 py-2">
+                        {deletingVariableIndex === idx ? (
+                            <div className="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm">
+                                <span>
+                                    Delete <code className="font-mono">{variable.key}</code>?
+                                </span>
+                                <div className="flex shrink-0 gap-1">
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={() => deleteVariable(idx)}
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        onClick={() => setDeletingVariableIndex(null)}
+                                    >
+                                        Cancel
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div
+                                    className="min-w-0 flex-1"
+                                    onMouseEnter={() => showVariableKeyInput(idx, variable.key)}
+                                    onMouseLeave={() => {
+                                        if (hoveredVariableIndex === idx && editingVariableIndex !== idx) {
+                                            setHoveredVariableIndex(null)
+                                        }
+                                    }}
+                                >
+                                    {editingVariableIndex === idx ||
+                                    (editingVariableIndex === null && hoveredVariableIndex === idx) ? (
+                                        <LemonInput
+                                            className="font-mono text-xs"
+                                            size="small"
+                                            type="text"
+                                            value={variableKeyDraft}
+                                            placeholder="Unique name"
+                                            aria-label="Variable key"
+                                            autoFocus={editingVariableIndex === idx}
+                                            prefix={<code className="text-xs text-secondary">{'{{ variables.'}</code>}
+                                            suffix={<code className="text-xs text-secondary">{' }}'}</code>}
+                                            onChange={setVariableKeyDraft}
+                                            onFocus={() => setEditingVariableIndex(idx)}
+                                            onBlur={() => finishEditingVariableKey(idx)}
+                                            onPressEnter={(event) => event.currentTarget.blur()}
+                                        />
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            className="block w-full truncate rounded-sm bg-primary-alt-highlight-secondary px-2 py-1.5 text-left text-xs hover:bg-primary-alt-highlight"
+                                            onClick={() => {
+                                                showVariableKeyInput(idx, variable.key)
+                                                setEditingVariableIndex(idx)
+                                            }}
+                                        >
+                                            <code>{`{{ variables.${variable.key} }}`}</code>
+                                        </button>
+                                    )}
+                                </div>
+                                <LemonField.Pure className="w-2/5 shrink-0">
+                                    <LemonInput
+                                        size="small"
+                                        type="text"
+                                        value={String(variable.default ?? '')}
+                                        placeholder="Default value"
+                                        onChange={(defaultValue) => editVariableDefaultValue(idx, defaultValue)}
+                                    />
+                                </LemonField.Pure>
                                 <LemonButton
                                     size="small"
-                                    icon={<IconCopy />}
-                                    className="bg-white/80"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        void navigator.clipboard.writeText(`{{ variables.${variable.key} }}`)
-                                        lemonToast.success('Copied to clipboard')
+                                    type="tertiary"
+                                    icon={<IconX />}
+                                    tooltip="Delete variable"
+                                    aria-label={`Delete ${variable.key || 'variable'}`}
+                                    onClick={() => {
+                                        setHoveredVariableIndex(null)
+                                        setEditingVariableIndex(null)
+                                        setDeletingVariableIndex(idx)
                                     }}
                                 />
-                            </span>
-                        </span>
-                        <LemonButton
-                            size="small"
-                            icon={<IconX />}
-                            onClick={() => {
-                                deleteVariable(idx)
-                            }}
-                        />
+                            </>
+                        )}
                     </div>
                 ))}
-                <LemonButton
-                    icon={<IconPlus />}
-                    type="secondary"
-                    size="small"
-                    className="self-start"
-                    onClick={addNewVariable}
-                >
+            </ScrollableShadows>
+            <div className="shrink-0 px-3 py-2">
+                <LemonButton icon={<IconPlus />} type="secondary" size="small" onClick={addNewVariable}>
                     New variable
                 </LemonButton>
-            </ScrollableShadows>
+            </div>
+
+            <LemonDivider className="my-0 shrink-0" />
+            <LemonCollapse
+                embedded
+                className="shrink-0"
+                panels={[
+                    {
+                        key: 'variable-usage',
+                        header: <span className="flex-1">How to use variables</span>,
+                        content: (
+                            <div className="flex flex-col gap-3 text-sm text-secondary">
+                                <p>
+                                    Use a variable reference in any action input or condition. For example, enter{' '}
+                                    <code>{`{{ variables.account_owner }}`}</code> as an input value.
+                                </p>
+                                <p>
+                                    To save a step result into a variable, select the step and use its{' '}
+                                    <strong>Output variables</strong> section.
+                                </p>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }

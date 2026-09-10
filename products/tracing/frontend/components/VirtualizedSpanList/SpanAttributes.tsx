@@ -9,9 +9,7 @@ import ViewRecordingButton, {
     RecordingPlayerType,
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -52,15 +50,14 @@ export function SpanAttributes({
     propertyType,
 }: SpanAttributesProps): JSX.Element {
     const { addFilter } = useActions(tracingFiltersLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(tracingCorrelationConfigLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys, correlationLinksEnabled } =
+        useValues(tracingCorrelationConfigLogic)
     const [appliedFilter, setAppliedFilter] = useState<{ key: string; direction: FilterDirection } | null>(null)
     const appliedFilterTimeoutRef = useRef<number | null>(null)
 
     // Person/replay links only apply to real OTel attribute tables (propertyType set), because
     // the synthetic "Span details" table repeats span metadata under conventional-looking keys.
-    const correlationLinksEnabled =
-        !!featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS] && propertyType !== undefined
+    const showCorrelationLinks = correlationLinksEnabled && propertyType !== undefined
 
     useEffect(
         () => () => {
@@ -147,7 +144,7 @@ export function SpanAttributes({
                 }
                 // The stopPropagation wrapper keeps a link click from also triggering any
                 // ancestor row handler, matching SpanRowActions' convention.
-                const correlationLink = !correlationLinksEnabled ? null : isDistinctIdKey(
+                const correlationLink = !showCorrelationLinks ? null : isDistinctIdKey(
                       record.key,
                       configuredDistinctIdKeys
                   ) ? (
