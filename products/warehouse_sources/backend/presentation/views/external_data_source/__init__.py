@@ -1,1 +1,1 @@
-"""external_data_source for views. One module per concern."""
+"""External data source API features."""
