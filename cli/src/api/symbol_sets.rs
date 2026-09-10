@@ -458,14 +458,10 @@ fn bulk_upload_request(
 /// How the server answered one check request. A 4xx is deterministic, so it ends the retry
 /// loop without counting as a transport failure.
 enum CheckOutcome {
-    Answered(reqwest::blocking::Response),
+    Answered(BulkUploadCheckResponse),
     Rejected(ClientError),
 }
 
-/// Returns the chunk ids the server still needs, or `None` when it gave no usable answer. The
-/// check only saves round trips over sending every chunk to `bulk_start_upload`, so every
-/// failure degrades to that: a server that predates the endpoint rejects it as an unknown
-/// action, and a conflict the check reports is raised again by the start request.
 fn check_upload(
     batch: &[HashedUpload],
     force: bool,
@@ -473,33 +469,37 @@ fn check_upload(
 ) -> Option<Vec<String>> {
     let client = &context().client;
     let request = bulk_upload_request(batch, force, skip_on_conflict);
-
-    let res = retry(retry_policy(500, 2, 3), |_| {
+    check_upload_with(retry_policy(500, 2, 3), || {
         let url = client.project_url("error_tracking/symbol_sets/bulk_check_upload")?;
-        match client.send_post(url, |req| req.json(&request)) {
-            Ok(response) => Ok(CheckOutcome::Answered(response)),
-            Err(e @ ClientError::ApiError(400..=499, _, _)) => Ok(CheckOutcome::Rejected(e)),
-            Err(e) => Err(e),
-        }
+        let response = client.send_post(url, |req| req.json(&request))?;
+        Ok(response.json()?)
+    })
+}
+
+/// Drives one check request through `send` under the retry policy `delays`. The check only saves
+/// round trips over sending every chunk to `bulk_start_upload`, so every failure degrades to
+/// that: a server that predates the endpoint rejects it as an unknown action, and a conflict
+/// the check reports is raised again by the start request.
+fn check_upload_with<I, F>(delays: I, mut send: F) -> Option<Vec<String>>
+where
+    I: Iterator<Item = Duration>,
+    F: FnMut() -> Result<BulkUploadCheckResponse, ClientError>,
+{
+    let res = retry(delays, |_| match send() {
+        Ok(response) => Ok(CheckOutcome::Answered(response)),
+        Err(e @ ClientError::ApiError(400..=499, _, _)) => Ok(CheckOutcome::Rejected(e)),
+        Err(e) => Err(e),
     });
 
-    let response = match res {
-        Ok(CheckOutcome::Answered(response)) => response,
+    match res {
+        Ok(CheckOutcome::Answered(response)) => Some(response.chunk_ids_to_upload),
         Ok(CheckOutcome::Rejected(ClientError::ApiError(status @ 403..=405, _, body))) => {
             info!("The server does not support upload checks. Sending every chunk.");
             debug!("Upload check rejected with status {status}: {body}");
-            return None;
+            None
         }
         Ok(CheckOutcome::Rejected(e)) | Err(e) => {
             warn!("Upload check failed: {e}. Sending every chunk.");
-            return None;
-        }
-    };
-
-    match response.json::<BulkUploadCheckResponse>() {
-        Ok(parsed) => Some(parsed.chunk_ids_to_upload),
-        Err(e) => {
-            warn!("Failed to parse upload check response: {e}. Sending every chunk.");
             None
         }
     }
@@ -958,6 +958,60 @@ mod tests {
             chunk_ids[chunk_ids.len() - 1],
             format!("chunk-{}", CHECK_BATCH_SIZE * 2)
         );
+    }
+
+    #[test]
+    fn upload_check_retries_server_failures_and_stops_on_rejections() {
+        // `check_upload_with` retries, so it reaches the callsites `RETRY_TRACING_LOCK` protects.
+        let _retry_tracing_lock = lock_retry_tracing();
+
+        fn reply(status: u16) -> Result<BulkUploadCheckResponse, ClientError> {
+            if status == 200 {
+                return Ok(BulkUploadCheckResponse {
+                    chunk_ids_to_upload: vec!["chunk".to_string()],
+                });
+            }
+            Err(ClientError::ApiError(
+                status,
+                Box::new(reqwest::Url::parse("https://example.com/check").unwrap()),
+                "{}".to_string(),
+            ))
+        }
+
+        // (name, status per attempt, expects the answer, expected attempts)
+        let cases: Vec<(&str, Vec<u16>, bool, usize)> = vec![
+            (
+                "answers after two server failures",
+                vec![503, 503, 200],
+                true,
+                3,
+            ),
+            (
+                "gives up after three server failures",
+                vec![503, 503, 503],
+                false,
+                3,
+            ),
+            ("does not retry an unknown action", vec![403, 200], false, 1),
+            ("does not retry a conflict", vec![400, 200], false, 1),
+        ];
+
+        for (name, statuses, expects_answer, expected_attempts) in cases {
+            let mut statuses = statuses.into_iter();
+            let mut attempts = 0;
+            let result = check_upload_with(iter::repeat_n(Duration::ZERO, 3), || {
+                attempts += 1;
+                reply(
+                    statuses
+                        .next()
+                        .expect("more attempts than scripted replies"),
+                )
+            });
+
+            let expected = expects_answer.then(|| vec!["chunk".to_string()]);
+            assert_eq!(result, expected, "{name}");
+            assert_eq!(attempts, expected_attempts, "{name}");
+        }
     }
 
     #[test]
