@@ -6,6 +6,7 @@ without writing anything. Use it to check the alert rate on a project before tur
 
 from __future__ import annotations
 
+from argparse import ArgumentTypeError
 from datetime import datetime, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
@@ -24,15 +25,24 @@ from products.conversations.backend.pattern_detection import (
 from products.conversations.backend.temporal.patterns.constants import BASELINE_SAMPLE_WINDOW_DAYS
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise ArgumentTypeError(f"must be a positive integer, got {value}")
+    return parsed
+
+
 class Command(BaseCommand):
     help = "Run ticket pattern detection or a baseline refresh for one team."
 
     def add_arguments(self, parser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
         parser.add_argument("--refresh-baselines", action="store_true", help="Relearn topic baselines first")
-        parser.add_argument("--backtest", type=int, metavar="DAYS", help="Replay the last DAYS days read-only")
-        parser.add_argument("--min-requesters", type=int, help="Override the team setting for this run")
-        parser.add_argument("--min-tickets", type=int, help="Override the team setting for this run")
+        parser.add_argument(
+            "--backtest", type=_positive_int, metavar="DAYS", help="Replay the last DAYS days read-only"
+        )
+        parser.add_argument("--min-requesters", type=_positive_int, help="Override the team setting for this run")
+        parser.add_argument("--min-tickets", type=_positive_int, help="Override the team setting for this run")
 
     def handle(self, *args, **options) -> None:
         team = Team.objects.select_related("organization").filter(id=options["team_id"]).first()
@@ -40,7 +50,7 @@ class Command(BaseCommand):
             raise CommandError(f"Team {options['team_id']} not found")
         now = timezone.now()
 
-        if options["backtest"]:
+        if options["backtest"] is not None:
             self._backtest(team, now=now, days=options["backtest"], options=options)
             return
 

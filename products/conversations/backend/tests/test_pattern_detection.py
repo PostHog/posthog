@@ -4,6 +4,8 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -181,6 +183,15 @@ class TestRunDetection(BaseTest):
         outcome = run_detection(self.team, now=self.now)
 
         assert outcome.opened == ()
+
+    @parameterized.expand([("zero", "0"), ("negative", "-5")])
+    def test_command_rejects_a_backtest_that_is_not_a_positive_day_count(self, _name, days):
+        self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
+
+        with self.assertRaises(CommandError):
+            call_command("run_ticket_pattern_detection", "--team-id", str(self.team.id), "--backtest", days)
+
+        assert TicketPattern.objects.for_team(self.team.id).count() == 0
 
     def test_quiet_pattern_auto_resolves(self):
         self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
