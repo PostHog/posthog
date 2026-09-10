@@ -293,7 +293,11 @@ const ENTRY_TYPE_TO_RESOURCE_TYPE: Record<string, AccessControlResourceType> = {
     session_recording_playlist: AccessControlResourceType.SessionRecording,
 }
 
-const productHasEffectiveNoneAccess = (resourceType: AccessControlResourceType): boolean => {
+/**
+ * True when the user's effective access to a resource is "none" - the same signal sceneLogic
+ * uses to show "Access denied", so callers can hide an entry point instead of dead-ending on it.
+ */
+export const hasEffectiveNoneAccess = (resourceType: AccessControlResourceType): boolean => {
     return getAppContext()?.effective_resource_access_control?.[resourceType] === AccessControlLevel.None
 }
 
@@ -318,7 +322,7 @@ export const getProductAccessDisabledReason = (item: {
         return undefined
     }
     const resourceType = sceneToAccessControlResourceType[item.sceneKey as Scene]
-    if (!resourceType || !productHasEffectiveNoneAccess(resourceType)) {
+    if (!resourceType || !hasEffectiveNoneAccess(resourceType)) {
         return undefined
     }
     return `You don't have access to ${item.displayLabel || item.path || 'this product'}`
@@ -343,7 +347,7 @@ export const getEntryAccessDisabledReason = (entry: {
     type?: string | null
 }): string | undefined => {
     const resourceType = entry.type ? ENTRY_TYPE_TO_RESOURCE_TYPE[entry.type] : undefined
-    const blockedByProduct = resourceType !== undefined && productHasEffectiveNoneAccess(resourceType)
+    const blockedByProduct = resourceType !== undefined && hasEffectiveNoneAccess(resourceType)
     if (!blockedByProduct && entry.user_access_level !== AccessControlLevel.None) {
         return undefined
     }

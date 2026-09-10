@@ -253,11 +253,21 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
 
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        res = self.client.get("/api/projects/@current/activity_log/")
-        assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403, got {res.status_code}: {res.json()}"
+        for path in [
+            "/api/projects/@current/activity_log/",
+            "/api/projects/@current/advanced_activity_logs/",
+            "/api/projects/@current/activity/",
+            "/api/environments/@current/activity/",
+        ]:
+            res = self.client.get(path)
+            assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403 for {path}, got {res.status_code}"
 
-        res = self.client.get("/api/projects/@current/advanced_activity_logs/")
-        assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403, got {res.status_code}: {res.json()}"
+    def test_activity_log_readable_by_member_with_default_access(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        for path in ["/api/projects/@current/activity/", "/api/environments/@current/activity/"]:
+            res = self.client.get(path)
+            assert res.status_code == status.HTTP_200_OK, f"Expected 200 for {path}, got {res.status_code}"
 
 
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):

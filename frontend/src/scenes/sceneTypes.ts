@@ -379,6 +379,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ReplayVisionScannerEditor]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionObservation]: AccessControlResourceType.ReplayScanner,
 
+    // Activity logs
+    [Scene.AdvancedActivityLogs]: AccessControlResourceType.ActivityLog,
+
     // Toolbar
     [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
 

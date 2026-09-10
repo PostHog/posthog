@@ -44,6 +44,7 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
+    assert_activity_log_access,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     handle_experiments_config,
@@ -1768,6 +1769,8 @@ class ProjectViewSet(
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
         # TODO: This is currently the same as in TeamViewSet - we should rework for the Project scope
+        assert_activity_log_access(self.user_access_control)
+
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 

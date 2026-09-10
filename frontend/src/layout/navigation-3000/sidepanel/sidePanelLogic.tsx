@@ -3,6 +3,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
-import { AvailableFeature, SidePanelTab } from '~/types'
+import { AccessControlResourceType, AvailableFeature, SidePanelTab } from '~/types'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 import { sidePanelContextLogic } from './sidePanelContextLogic'
@@ -180,7 +181,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 // scene that declares none has nothing to show, and the discussion panel can only
                 // render its "not supported here" state.
                 if (sceneSidePanelContext?.activity_scope) {
-                    if (hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
+                    if (
+                        hasAvailableFeature(AvailableFeature.AUDIT_LOGS) &&
+                        !hasEffectiveNoneAccess(AccessControlResourceType.ActivityLog)
+                    ) {
                         tabs.push(SidePanelTab.Activity)
                     }
                     tabs.push(SidePanelTab.Discussion)

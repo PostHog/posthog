@@ -111,6 +111,7 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -130,6 +131,14 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
+
+
+def assert_activity_log_access(user_access_control: UserAccessControl) -> None:
+    """Team-scope activity is activity log data, but these actions sit on a `project` scope object,
+    which carries no resource-level rules. Check the `activity_log` resource directly, so a member
+    denied it cannot read the project's activity through the environment or project route."""
+    if not user_access_control.check_access_level_for_resource("activity_log", "viewer"):
+        raise exceptions.PermissionDenied("You do not have access to the activity log.")
 
 
 def _validate_unique_attribute_keys(value: list[str]) -> list[str]:
@@ -2660,6 +2669,8 @@ class TeamViewSet(
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
+        assert_activity_log_access(self.user_access_control)
+
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
