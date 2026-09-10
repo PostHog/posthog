@@ -210,6 +210,7 @@ def claim_inbound_event(inbound_event_id: str) -> InboundClaim | None:
     lease_until = now + timedelta(seconds=INBOUND_LEASE_SECONDS)
     with transaction.atomic():
         row = (
+            # nosemgrep: idor-lookup-without-team (cross-team worker; ID comes from the committed receipt dispatch)
             ConversationInboundEvent.objects.unscoped()
             .select_for_update(skip_locked=True)
             .filter(id=inbound_event_id)
@@ -349,6 +350,7 @@ def cleanup_inbound_payloads(now: datetime, *, limit: int = INBOUND_SWEEP_BATCH_
         .order_by("terminal_at")
         .values_list("id", flat=True)[:limit]
     )
+    # nosemgrep: idor-lookup-without-team (IDs come from the cross-team retention query above)
     return ConversationInboundEvent.objects.unscoped().filter(id__in=event_ids).update(payload=None, updated_at=now)
 
 
@@ -363,6 +365,7 @@ def delete_inbound_tombstones(now: datetime, *, limit: int = INBOUND_SWEEP_BATCH
         .order_by("terminal_at")
         .values_list("id", flat=True)[:limit]
     )
+    # nosemgrep: idor-lookup-without-team (IDs come from the cross-team retention query above)
     deleted, _ = ConversationInboundEvent.objects.unscoped().filter(id__in=event_ids).delete()
     return deleted
 
