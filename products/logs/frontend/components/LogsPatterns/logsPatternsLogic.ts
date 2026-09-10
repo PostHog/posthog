@@ -78,7 +78,9 @@ export interface logsPatternsLogicValues {
     compareEnabled: boolean // logsViewerConfigLogic
     viewMode: LogsViewerViewMode // logsViewerConfigLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -98,7 +100,9 @@ export interface logsPatternsLogicValues {
             explicitDate: boolean | null | undefined
         }
         filterGroup: _LogPropertyFilterApi[]
+        personId: string | undefined
         searchTerm: string | undefined
+        sessionId: string | undefined
     }
     patternsResponse: _LogsPatternsResponseApi
     patternsResponseLoading: boolean
@@ -116,6 +120,9 @@ export interface logsPatternsLogicActions {
     setViewMode: (viewMode: LogsViewerViewMode) => {
         viewMode: LogsViewerViewMode
     } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -189,7 +196,9 @@ export interface logsPatternsLogicMeta {
                 date_to: string | null | undefined
                 explicitDate: boolean | null | undefined
             },
-            queryFilterGroup: UniversalFiltersGroup
+            queryFilterGroup: UniversalFiltersGroup,
+            personId: string | undefined,
+            sessionId: string | undefined
         ) => {
             dateRange: {
                 date_from: string | null | undefined
@@ -197,7 +206,9 @@ export interface logsPatternsLogicMeta {
                 explicitDate: boolean | null | undefined
             }
             filterGroup: _LogPropertyFilterApi[]
+            personId: string | undefined
             searchTerm: string | undefined
+            sessionId: string | undefined
         }
         patterns: (patternsResponse: _LogsPatternsResponseApi) => _LogPatternApi[]
         sparklineLabels: (patternsResponse: _LogsPatternsResponseApi) => string[]
@@ -224,13 +235,21 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'sessionId'],
             logsViewerConfigLogic({ id: props.id }),
             ['viewMode', 'compareEnabled', 'baselineMode'],
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['setDateRange', 'zoomDateRange', 'setSearchTerm', 'setFilters', 'setFilterGroup', 'setPinnedFilters'],
+            [
+                'setDateRange',
+                'zoomDateRange',
+                'setSearchTerm',
+                'setFilters',
+                'setFilterGroup',
+                'setPinnedFilters',
+                'bumpFacetRefresh',
+            ],
             logsViewerConfigLogic({ id: props.id }),
             ['setViewMode', 'setCompareEnabled', 'setBaselineMode'],
         ],
@@ -309,7 +328,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         // windows with exactly the filters a plain mine would use, or compare mode would
         // silently answer a different question than the table next to it.
         patternsQueryBody: [
-            (s) => [s.filters, s.utcDateRange, s.queryFilterGroup],
+            (s) => [s.filters, s.utcDateRange, s.queryFilterGroup, s.personId, s.sessionId],
             (
                 filters: import('../LogsViewer/config/types').LogsViewerFilters,
                 utcDateRange: {
@@ -317,7 +336,9 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                     date_to: string | null | undefined
                     explicitDate: boolean | null | undefined
                 },
-                queryFilterGroup: UniversalFiltersGroup
+                queryFilterGroup: UniversalFiltersGroup,
+                personId: string | undefined,
+                sessionId: string | undefined
             ) => ({
                 dateRange: utcDateRange,
                 searchTerm: filters.searchTerm || undefined,
@@ -325,6 +346,10 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 // `queryFilterGroup` folds in any pinned filters from an embedded viewer
                 // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
                 filterGroup: queryFilterGroup as unknown as _LogPropertyFilterApi[],
+                // Person and session scoping travel as their own fields, not in the filter
+                // group, so they have to be sent explicitly here too.
+                personId,
+                sessionId,
             }),
         ],
         patterns: [
@@ -370,6 +395,20 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             setFilters: reload,
             setFilterGroup: reload,
             setPinnedFilters: reload,
+
+            // The refresh button fires `bumpFacetRefresh` through the shared filters logic. Re-mine
+            // immediately (no debounce) — it is a deliberate click, not typing — but only while
+            // Patterns is the active lens, and diff or plain to match compare mode.
+            bumpFacetRefresh: () => {
+                if (values.viewMode !== 'patterns') {
+                    return
+                }
+                if (values.compareEnabled) {
+                    actions.loadDiff()
+                } else {
+                    actions.loadPatterns()
+                }
+            },
 
             // Entering compare mode always diffs fresh; leaving it re-mines because the
             // filters may have changed while the plain response sat unused.

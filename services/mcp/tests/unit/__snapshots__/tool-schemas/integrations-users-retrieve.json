@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "force_refresh": {
+            "default": false,
+            "description": "Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A unique integer value identifying this integration.",
+            "type": "number"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum number of members to return per request (max 200).",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of members to skip before returning results.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "search": {
+            "default": "",
+            "description": "Optional case-insensitive member name or ID search query.",
+            "type": "string"
+        },
+        "user_id": {
+            "default": "",
+            "description": "Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

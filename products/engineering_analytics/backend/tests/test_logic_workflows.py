@@ -10,6 +10,7 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.facade.contracts import DeliveryStage
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
@@ -74,7 +75,7 @@ class TestWorkflowEndpointMapping(BaseTest):
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         # Columns: owner, name, workflow, run_count, successful_run_count, conclusive_run_count,
         # percentile_run_count, success_rate, p50, p95, last_failure_at, completed_count, latest_failed,
-        # latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles.
+        # latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles, merge_queue_run_count.
         rows = [
             (
                 "PostHog",
@@ -94,11 +95,12 @@ class TestWorkflowEndpointMapping(BaseTest):
                 4321,
                 1,
                 3,
+                2,
             ),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
             # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
             # despite argMaxIf's '' default.
-            ("PostHog", "posthog", "Deploy", 2, 0, 0, 0, None, float("nan"), float("nan"), None, 0, 0, "", 0, 0, 0),
+            ("PostHog", "posthog", "Deploy", 2, 0, 0, 0, None, float("nan"), float("nan"), None, 0, 0, "", 0, 0, 0, 0),
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
@@ -116,6 +118,7 @@ class TestWorkflowEndpointMapping(BaseTest):
         assert items[0].latest_run_id == 4321 and items[0].latest_run_attempt == 1
         assert items[1].latest_run_id is None and items[1].latest_run_attempt is None
         assert items[0].rerun_cycles == 3
+        assert items[0].merge_queue_run_count == 2
         assert items[0].success_rate_prev == 0.95
         assert items[1].success_rate_prev is None
         # The series spans the whole window, zero-filled except the bucket with runs.
@@ -286,6 +289,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.open_to_merge_series == []
         assert overview.ready_to_merge_series == []
         assert overview.cost_series_granularity == "day"  # the grain the series would have used
+        # No gate runs synced: the gate legs read unobserved, never zero.
+        assert overview.delivery_pipeline.merged_pr_count == 1
+        assert all(leg.median_seconds is None for leg in overview.delivery_pipeline.stages)
 
         with_series = api.get_repo_overview(team=self.team)
         assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
@@ -473,6 +479,67 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.merge_queue_failed_or_cancelled_share is None
         assert overview.merge_queue_skip_the_line_count is None
 
+    def test_repo_overview_delivery_pipeline_legs(self) -> None:
+        # Guards the two pre-merge legs end to end: a gate run that only ran after the merge is a
+        # bisection probe, so it carries no leg rather than a negative one.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(90, "alice", "closed", 0, _ago(10), merged_at=_ago(4), head_sha="sha90"),
+                _pr_row(91, "bob", "closed", 0, _ago(9), merged_at=_ago(3), head_sha="sha91"),
+                _pr_row(92, "carol", "closed", 0, _ago(8), merged_at=_ago(6), head_sha="sha92"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    9800,
+                    "CI",
+                    "g90",
+                    "completed",
+                    "success",
+                    _ago(5),
+                    _ago(5),
+                    head_branch="trunk-merge/pr-90/aaaa",
+                    actor="trunk-io[bot]",
+                ),
+                _run_row(
+                    9801,
+                    "CI",
+                    "g91",
+                    "completed",
+                    "success",
+                    _ago(4),
+                    _ago(4),
+                    head_branch="trunk-merge/pr-91/bbbb",
+                    actor="trunk-io[bot]",
+                ),
+                # PR 92 merged at -6d; this gate run at -2d is the queue bisecting a later failure.
+                _run_row(
+                    9802,
+                    "CI",
+                    "g92",
+                    "completed",
+                    "success",
+                    _ago(2),
+                    _ago(2),
+                    head_branch="trunk-merge/pr-92/cccc",
+                    actor="trunk-io[bot]",
+                ),
+            ],
+        )
+        pipeline = api.get_repo_overview(team=self.team, include_series=False).delivery_pipeline
+        assert pipeline.merged_pr_count == 3
+        legs = {leg.stage: leg for leg in pipeline.stages}
+        # PR 92's only gate run postdates its merge, so the gate legs see 90 and 91 only.
+        assert legs[DeliveryStage.OPEN_TO_GATE].pr_count == 2
+        assert legs[DeliveryStage.OPEN_TO_GATE].median_seconds == pytest.approx(5 * 86400)
+        assert legs[DeliveryStage.GATE_TO_MERGE].pr_count == 2
+        assert legs[DeliveryStage.GATE_TO_MERGE].median_seconds == pytest.approx(86400)
+
     def test_repo_overview_trunk_queue_outcomes(self) -> None:
         # Guards the Trunk-recorded outcomes: only concluded states enter the share's denominator,
         # and windowing keys on each entry's last state change.
@@ -625,37 +692,86 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         guard = next(item for item in health if item.workflow_name == "Guard")
         assert guard.p50_seconds == pytest.approx(4)
 
-    def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
+    # The scenario matrix: PR attribution × head branch, plus one corroborated merge-queue gate run.
+    # No run lands in two narrow scopes, and 9104 (off-default, unattributed) lands in none of them,
+    # so the three narrow counts sum to one below the `all` count.
+    _RUN_SCOPE_MATRIX = [
+        (9101, "sha-pr", 91, "feature/pr", "alice"),
+        (9102, "sha-master", None, "master", "alice"),
+        (9103, "sha-master-pr", 91, "master", "alice"),
+        (9104, "sha-branch", None, "feature/no-pr", "alice"),
+        (9105, "sha-main-pr", 91, "main", "alice"),
+        (9106, "sha-gate", None, "trunk-merge/pr-91/aaaa", "trunk-io[bot]"),
+    ]
+
+    def _seed_run_scope_matrix(self) -> None:
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
             [_pr_row(91, "alice", "open", 0, _ago(1), head_sha="sha91")],
         )
-        # The scenario matrix: PR-attributed × head branch. Only the attributed feature-branch
-        # run belongs in the pull_request scope.
         self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(run_id, "CI", sha, "completed", "success", _ago(1), _ago(1), pr_number=pr, head_branch=head)
-                for run_id, sha, pr, head in [
-                    (9101, "sha-pr", 91, "feature/pr"),
-                    (9102, "sha-master", None, "master"),
-                    (9103, "sha-master-pr", 91, "master"),
-                    (9104, "sha-branch", None, "feature/no-pr"),
-                    (9105, "sha-main-pr", 91, "main"),
-                ]
+                _run_row(
+                    run_id,
+                    "CI",
+                    sha,
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=pr,
+                    head_branch=head,
+                    actor=actor,
+                )
+                for run_id, sha, pr, head, actor in self._RUN_SCOPE_MATRIX
             ],
         )
 
-        pull_request = next(
+    @parameterized.expand(
+        [
+            ("pull_request", 1),
+            ("default_branch", 3),
+            ("merge_queue", 1),
+            ("all", 6),
+        ]
+    )
+    def test_workflow_health_run_scopes_partition_the_run_population(self, scope: str, expected: int) -> None:
+        self._seed_run_scope_matrix()
+
+        ci = next(
             item
-            for item in api.list_workflow_health(team=self.team, date_from="-30d", run_scope="pull_request")
+            for item in api.list_workflow_health(team=self.team, date_from="-30d", run_scope=scope)
             if item.workflow_name == "CI"
         )
 
-        # 1 exactly: over-exclusion drops to 0, a leaked master/main/unattributed row raises it above 1.
-        assert pull_request.run_count == 1
+        assert ci.run_count == expected
+        # The gating count ignores the active scope, so the list can rank queue-gating workflows
+        # under every scope. A scope-filtered count would read 0 here under pull_request.
+        assert ci.merge_queue_run_count == 1
+
+    @parameterized.expand(
+        [
+            ("pull_request", [9101]),
+            ("default_branch", [9102, 9103, 9105]),
+            ("merge_queue", [9106]),
+            ("all", [9101, 9102, 9103, 9104, 9105, 9106]),
+        ]
+    )
+    def test_workflow_runs_honor_run_scope(self, scope: str, expected_ids: list[int]) -> None:
+        self._seed_run_scope_matrix()
+
+        runs = api.list_workflow_runs(
+            team=self.team,
+            repo="PostHog/posthog",
+            workflow_name="CI",
+            date_from="-30d",
+            run_scope=scope,
+        )
+
+        assert sorted(run.id for run in runs) == expected_ids
 
     def test_workflow_health_includes_cost_when_jobs_synced(self) -> None:
         # With the jobs source synced, each workflow carries its windowed billable cost + minutes.
@@ -1001,6 +1117,19 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             for c in api.get_workflow_runner_costs(team=self.team, repo=repo, workflow_name=workflow, branch="main")
         )
         assert (all_jobs, main_jobs) == (3, 2)
+
+        # A run scope narrows the same two job-level surfaces. The jobs source carries no branch
+        # attribution of its own, so job_aggregates scopes through a run-id subquery; this is the one
+        # place that subquery and the runner-cost scope clause run against a warehouse.
+        default_branch_jobs = sum(
+            c.job_count
+            for c in api.get_workflow_runner_costs(
+                team=self.team, repo=repo, workflow_name=workflow, run_scope="default_branch"
+            )
+        )
+        assert default_branch_jobs == 2
+        aggregates = api.list_job_aggregates(team=self.team, workflow_name=workflow, run_scope="default_branch")
+        assert [(a.job_name, a.job_count) for a in aggregates] == [("build", 2)]
 
         # The activity chart honors the same branch scope as the runs list, so it can't plot other
         # branches' runs under an applied branch filter.

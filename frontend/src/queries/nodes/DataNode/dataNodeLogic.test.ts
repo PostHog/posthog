@@ -93,6 +93,38 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
     })
 
+    it('force refreshes account table results when filters change', async () => {
+        const assignedQuery = {
+            kind: NodeKind.AccountsTableQuery,
+            columns: [],
+            filters: [{ kind: 'assigned' as const }],
+        }
+        mockedQuery.mockResolvedValue({ results: [] })
+        logic = dataNodeLogic({ key: testUniqueKey, query: assignedQuery })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        const unassignedQuery = {
+            kind: NodeKind.AccountsTableQuery,
+            columns: [],
+            filters: [{ kind: 'unassigned' as const }],
+        }
+        mockedQuery.mockClear()
+        dataNodeLogic({ key: testUniqueKey, query: unassignedQuery })
+
+        expect(performQuery).toHaveBeenCalledWith(
+            unassignedQuery,
+            expect.anything(),
+            'force_blocking',
+            expect.any(String),
+            expect.any(Function),
+            undefined,
+            undefined,
+            false,
+            undefined
+        )
+    })
+
     it('can load new data if EventsQuery sorted by timestamp', async () => {
         const results = [
             [
@@ -208,6 +240,37 @@ describe('dataNodeLogic', () => {
             response: partial({ results }),
         })
     })
+
+    it.each([{ event: '$mcp_tool_call' }, { events: ['$mcp_tool_call'] }])(
+        'keeps the $event event scope in count queries',
+        (eventScope) => {
+            const properties = [{ key: '$mcp_is_error', type: 'event', value: true, operator: 'exact' as const }]
+            logic = dataNodeLogic({
+                autoLoad: false,
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({
+                    kind: NodeKind.EventsQuery,
+                    select: ['*'],
+                    ...eventScope,
+                    properties,
+                }),
+            })
+            logic.mount()
+
+            expect(logic.values.totalCountQuery).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                ...eventScope,
+                properties: undefined,
+                select: ['count(*)'],
+            })
+            expect(logic.values.filteredCountQuery).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                ...eventScope,
+                properties,
+                select: ['count(*)'],
+            })
+        }
+    )
 
     it('clamps EventsQuery pagination to the maximum accumulated rows', async () => {
         const results = [

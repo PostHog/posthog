@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 from unittest import mock
 
 from django.conf import settings
@@ -59,12 +59,12 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_failure_handling import classify_failure
 from posthog.hogql_queries.query_runner import (
     SHARED_FORCE_BLOCKING_STALENESS_WINDOW,
@@ -83,6 +83,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.models.user import User
+from posthog.query_cache import storage as qc_storage
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
@@ -91,12 +92,14 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
+from posthog.query_cache.storage import entry_redis_key
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
@@ -406,6 +409,7 @@ class TestQueryRunner(BaseTest):
                     "custom_source_mappings": {},
                     "campaign_field_preferences": {},
                     "costs_dedup_v2": False,
+                    "filter_test_accounts": False,
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -491,7 +495,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
+        assert cache_key == "cache_42_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_runner_subclass(self):
@@ -506,7 +510,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
+        assert cache_key == "cache_42_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_different_timezone(self):
@@ -518,7 +522,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_032f9a7be3ea1fc4451f1e5a77841bb79f9b9ef65ad949f251ee0e68e8ee5fb0"
+        assert cache_key == "cache_42_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -687,6 +691,9 @@ class TestQueryRunner(BaseTest):
 
             from ee.clickhouse.materialized_columns.analyze import materialize
 
+            # The column outlives this test otherwise, and every later test on the shard that
+            # filters on $browser then snapshots the materialized form
+            self.addCleanup(cleanup_materialized_columns)
             materialize("events", "$browser")
         except ModuleNotFoundError:
             # EE not available? Assume we're good
@@ -1182,69 +1189,6 @@ class TestApplySeriesCustomNames(BaseTest):
     @parameterized.expand(
         [
             (
-                "patches_all_lifecycle_statuses",
-                [
-                    {"action": {"order": 0, "custom_name": None}, "status": "new", "data": [1]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "returning", "data": [2]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "resurrecting", "data": [3]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "dormant", "data": [4]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "returning", "data": [2]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "resurrecting", "data": [3]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "dormant", "data": [4]},
-                ],
-                True,
-            ),
-            (
-                "not_modified_when_lifecycle_names_match",
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                ],
-                False,
-            ),
-        ]
-    )
-    def test_apply_lifecycle_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
-
-        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-
-        query = LifecycleQuery(
-            series=[
-                EventsNode(event="$pageview", custom_name="My Lifecycle"),
-            ]
-        )
-
-        runner = LifecycleQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedLifecycleQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
-
-    @parameterized.expand(
-        [
-            (
                 "modified_when_name_changes",
                 TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
                 [{"action": {"order": 0, "custom_name": "Old Name"}, "data": [1]}],
@@ -1592,6 +1536,28 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         query = {"kind": "HogQLQuery", "query": "select * from system.surveys"}
         payload = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_payload()
         assert "restricted_objects" not in payload  # notebook object deny doesn't touch a surveys query
+
+    def test_canvas_object_deny_partitions_an_activity_logs_query(self):
+        # `system.activity_logs` limits Canvas rows to the canvases in `system.canvases`, so two users
+        # with identical activity-log access but different canvas grants must land in different cache
+        # entries - otherwise the restricted one replays the other's Canvas activity rows on a hit.
+        other_user = self._create_user("other@posthog.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        canvas_id = "018f0000-0000-0000-0000-0000000000ca"
+        self._ac(
+            resource="canvas",
+            resource_id=canvas_id,
+            access_level="none",
+            organization_member=other_membership,
+        )
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.activity_logs"}
+        unrestricted = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        restricted = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert "restricted_objects" not in unrestricted.get_cache_payload()
+        assert restricted.get_cache_payload()["restricted_objects"] == {"canvas": [canvas_id]}
+        assert restricted.get_cache_key() != unrestricted.get_cache_key()
 
     def test_object_grants_under_a_denied_resource_partition_cache(self):
         # Both users are denied notebooks at the resource level and see only what they were granted,
@@ -1994,3 +1960,26 @@ class TestRunnersBuildDatabaseOnce(ClickhouseTestMixin, APIBaseTest):
             runner.calculate()
         assert create_for.call_count == 1
         assert any("build_shared_database" in key for key in runner.timings.to_dict())
+
+
+class TestQueryRunnerRetentionTtl(BaseTest):
+    def tearDown(self) -> None:
+        super().tearDown()
+        cache.clear()
+
+    def test_run_applies_programmatic_retention_ttl(self) -> None:
+        TestQueryRunner = setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        redis_key = entry_redis_key(runner.get_cache_key())
+
+        try:
+            tag_queries(access_method="personal_api_key")
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        finally:
+            reset_query_tags()
+
+        assert 0 < qc_storage.query_cache_raw_client().ttl(redis_key) <= settings.CACHED_RESULTS_PROGRAMMATIC_TTL
+
+        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, insight_id=1)
+
+        assert qc_storage.query_cache_raw_client().ttl(redis_key) > settings.CACHED_RESULTS_PROGRAMMATIC_TTL

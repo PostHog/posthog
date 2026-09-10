@@ -491,13 +491,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             agent_server_output = await self._start_agent_server(sandbox_output)
-            await self._emit_progress("agent", "completed", "Started agent", "setup")
+            await self._emit_progress("agent", "completed", "Agent ready", "setup")
 
             await self._track_workflow_event(
                 "sandbox_started",
                 {
                     "run_id": run_id,
+                    "task_run_id": run_id,
                     "task_id": self.context.task_id,
+                    "team_id": self.context.team_id,
+                    "origin_product": self.context.origin_product,
                     "sandbox_id": sandbox_id,
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
@@ -1132,7 +1135,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 detail="Resumed from a previous snapshot",
             )
         else:
-            await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
+            await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
 
         if used_snapshot and prepared.snapshot_external_id:
             await workflow.execute_activity(

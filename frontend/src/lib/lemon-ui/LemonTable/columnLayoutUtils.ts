@@ -75,6 +75,17 @@ export function getStickyColumnInfo<T extends Record<string, any>>(
 }
 
 /**
+ * The maximum width for the cells of a resizable column. A `<col>` width is only a hint: when the
+ * table sizes itself intrinsically, the widest cell can make the column wider than that hint. The
+ * cap holds the column at the width a person drags it to, and the content crops instead.
+ */
+export function getColumnWidthCap<T extends Record<string, any>>(
+    column: LemonTableColumn<T, any>
+): string | number | undefined {
+    return column.resizable && column.width ? column.width : undefined
+}
+
+/**
  * Determine the column's key, using `dataIndex` as fallback.
  * If `obligationReason` is specified, will throw an error if the key can't be determined.
  */

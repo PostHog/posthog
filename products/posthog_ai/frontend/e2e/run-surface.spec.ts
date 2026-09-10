@@ -1,8 +1,5 @@
-// End-to-end coverage for the three run-surface connection states that only a real browser can prove:
-// a terminal run's inline error card, the live reconnecting banner on a stream drop, and the terminal
-// "Connection lost" card when the run history keeps failing. The whole tasks/runs API is mocked with
-// `page.route` so each state is deterministic; everything else (login, project, feature flags) rides the
-// real workspace harness, mirroring the surveys e2e precedent.
+// Task and run API responses are mocked so the browser can hold creation, metadata, and stream
+// transitions independently. Login, project, and feature flags use the real workspace harness.
 
 import { mockFeatureFlags } from '@playwright-utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
@@ -158,6 +155,25 @@ async function openRunDeepLink(page: Page, teamId: string): Promise<void> {
         const ph = (window as unknown as { posthog?: { reloadFeatureFlags?: () => void } }).posthog
         ph?.reloadFeatureFlags?.()
     })
+    await expect(page.getByRole('heading', { name: 'Run surface e2e task', exact: true })).toBeVisible({
+        timeout: 40000,
+    })
+}
+
+async function acceptConsentInPage(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+        let appContext: { current_user?: { organization?: { is_ai_data_processing_approved?: boolean } } }
+        Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
+            configurable: true,
+            get: () => appContext,
+            set: (value: typeof appContext) => {
+                if (value.current_user?.organization) {
+                    value.current_user.organization.is_ai_data_processing_approved = true
+                }
+                appContext = value
+            },
+        })
+    })
 }
 
 test.describe('Task run surface', () => {
@@ -190,6 +206,274 @@ test.describe('Task run surface', () => {
         await openRunDeepLink(page, workspace!.team_id)
 
         await expect(page.getByText('Agent error')).toBeVisible({ timeout: 20000 })
+    })
+
+    for (const [surface, path] of [
+        ['task page', 'tasks/new'],
+        ['side panel', 'settings/user#panel=max'],
+    ]) {
+        test(`new tasks start optimistically and recover from failure in the ${surface}`, async ({ page }) => {
+            const message = 'Explain how to compare weekly activity.'
+            let finishCreation!: (succeeded: boolean) => void
+            let creationResponse = new Promise<boolean>((resolve) => {
+                finishCreation = resolve
+            })
+            let revealMetadata!: () => void
+            const metadataReady = new Promise<void>((resolve) => {
+                revealMetadata = resolve
+            })
+            let startAgent!: () => void
+            const agentReady = new Promise<void>((resolve) => {
+                startAgent = resolve
+            })
+            await acceptConsentInPage(page)
+            await mockFeatureFlags(page, {
+                [TASKS_FLAG]: true,
+                [TASKS_STREAM_VIA_PROXY_FLAG]: false,
+                'phai-sandbox-mode': true,
+            })
+            await routeTasksApi(page, {
+                runStatus: 'queued',
+                logs: { status: 200, body: '' },
+                stream: { mode: 'hang' },
+            })
+            await page.route(
+                (url) => url.pathname.endsWith('/tasks/'),
+                async (route) => {
+                    if (route.request().method() === 'GET') {
+                        await fulfillJson({ results: [], count: 0 })(route)
+                        return
+                    }
+                    const succeeded = await creationResponse
+                    await route.fulfill({
+                        status: succeeded ? 201 : 500,
+                        contentType: 'application/json',
+                        body: JSON.stringify(
+                            succeeded ? { ...makeTask('queued'), latest_run: null } : { detail: 'Failed' }
+                        ),
+                    })
+                }
+            )
+            await page.route((url) => url.pathname.endsWith('/tasks/repositories/'), fulfillJson({ repositories: [] }))
+            await page.route(
+                (url) => url.pathname.endsWith('/tasks/warm/'),
+                (route) => route.fulfill({ status: 503 })
+            )
+            await page.route((url) => url.pathname.endsWith(`/tasks/${TASK_ID}/run/`), fulfillJson(makeTask('queued')))
+            await page.route(
+                (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/`),
+                async (route) => {
+                    await metadataReady
+                    await fulfillJson({ ...makeTask('queued'), created_by: null })(route)
+                }
+            )
+            await page.route(
+                (url) => new RegExp(`/runs/${RUN_ID}/stream/?$`).test(url.pathname),
+                async (route) => {
+                    await agentReady
+                    await route.fulfill({
+                        contentType: 'text/event-stream',
+                        body:
+                            toSse([
+                                {
+                                    type: 'notification',
+                                    notification: { method: '_posthog/run_started', params: { runId: RUN_ID } },
+                                },
+                                {
+                                    type: 'notification',
+                                    notification: { method: '_posthog/user_message', params: { content: message } },
+                                },
+                                agentMessageFrame('first-answer', 'Start by grouping activity by week.'),
+                            ]) + 'data: {"type":"task_run_state","status":"completed"}\n\n',
+                    })
+                }
+            )
+
+            await page.goto(`/project/${workspace!.team_id}/${path}`)
+            const composer = page.getByTestId('task-composer-input')
+            await expect(composer).toBeVisible({ timeout: 40000 })
+            await composer.fill(message)
+            await composer.press('Enter')
+            await expect(page.getByText(message, { exact: true })).toBeVisible()
+            await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
+            await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
+
+            finishCreation(false)
+            await expect(composer).toHaveValue(message)
+            await expect(page.getByText('Setting up sandbox', { exact: false })).toHaveCount(0)
+            creationResponse = new Promise<boolean>((resolve) => {
+                finishCreation = resolve
+            })
+            await composer.press('Enter')
+            await expect(page.getByText(message, { exact: true })).toBeVisible()
+            finishCreation(true)
+
+            await expect(page.getByTestId('sandbox-composer-input')).toBeVisible()
+            await expect(page.getByText(message, { exact: true })).toHaveCount(1)
+            await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
+            await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
+            await page.screenshot({ path: test.info().outputPath('new-task-starting.png') })
+
+            startAgent()
+            await expect(page.getByText('Start by grouping activity by week.', { exact: true })).toBeVisible()
+            await expect(page.getByText(message, { exact: true })).toHaveCount(1)
+            revealMetadata()
+            await expect(page.getByTestId('sandbox-composer-input')).toBeVisible()
+            await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
+        })
+    }
+
+    test('resuming a finished sandbox keeps the thread and pending message visible', async ({ page }) => {
+        const successorId = '0190a000-0000-4000-8000-0000000000c3'
+        const successor = { ...makeRun('queued'), id: successorId, state: { resume_from_run_id: RUN_ID } }
+        let acceptRun!: () => void
+        const runAccepted = new Promise<void>((resolve) => {
+            acceptRun = resolve
+        })
+        let startAgent!: () => void
+        const agentStarted = new Promise<void>((resolve) => {
+            startAgent = resolve
+        })
+
+        await routeTasksApi(page, {
+            runStatus: 'completed',
+            logs: {
+                status: 200,
+                body: toJsonl([
+                    {
+                        type: 'notification',
+                        notification: {
+                            method: '_posthog/progress',
+                            params: {
+                                group: `setup:${RUN_ID}`,
+                                step: 'agent',
+                                status: 'completed',
+                                label: 'Started agent',
+                            },
+                        },
+                    },
+                    agentMessageFrame('m1', 'The earlier answer stays here.'),
+                    {
+                        type: 'notification',
+                        notification: {
+                            method: 'session/update',
+                            params: {
+                                update: {
+                                    sessionUpdate: 'usage_update',
+                                    used: 12000,
+                                    size: 1000000,
+                                    cost: { amount: 0.04, currency: 'USD' },
+                                },
+                            },
+                        },
+                    },
+                ]),
+            },
+            stream: { mode: 'hang' },
+        })
+        await acceptConsentInPage(page)
+        await page.route(
+            (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/`),
+            fulfillJson({ ...makeTask('completed'), created_by: null })
+        )
+        await page.route(
+            (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/warm/`),
+            fulfillJson({ run_id: successorId, task_id: TASK_ID })
+        )
+        await page.route(
+            (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/run/`),
+            async (route) => {
+                await runAccepted
+                await fulfillJson({ ...makeTask('queued'), latest_run: successor })(route)
+            }
+        )
+        await page.route((url) => url.pathname.endsWith(`/runs/${successorId}/`), fulfillJson(successor))
+        await page.route(
+            (url) => url.pathname.endsWith(`/runs/${successorId}/stream_token/`),
+            fulfillJson({ token: 'e2e-token', stream_base_url: null })
+        )
+        await page.route(
+            (url) => new RegExp(`/runs/${successorId}/stream/?$`).test(url.pathname),
+            async (route) => {
+                await agentStarted
+                await route.fulfill({
+                    contentType: 'text/event-stream',
+                    body:
+                        toSse([
+                            {
+                                type: 'notification',
+                                notification: {
+                                    method: '_posthog/progress',
+                                    params: {
+                                        group: `setup:${successorId}`,
+                                        step: 'sandbox',
+                                        status: 'completed',
+                                        label: 'Restored sandbox',
+                                    },
+                                },
+                            },
+                            {
+                                type: 'notification',
+                                notification: {
+                                    method: '_posthog/progress',
+                                    params: {
+                                        group: `setup:${successorId}`,
+                                        step: 'agent',
+                                        status: 'completed',
+                                        label: 'Started agent',
+                                    },
+                                },
+                            },
+                            {
+                                type: 'notification',
+                                notification: { method: '_posthog/run_started', params: { runId: successorId } },
+                            },
+                            {
+                                type: 'notification',
+                                notification: {
+                                    method: '_posthog/user_message',
+                                    params: { content: 'Continue with the next step.' },
+                                },
+                            },
+                            agentMessageFrame('m2', 'The next step is ready.'),
+                        ]) + 'data: {"type":"task_run_state","status":"completed"}\n\n',
+                })
+            }
+        )
+
+        await openRunDeepLink(page, workspace!.team_id)
+        await expect(page.getByText('The earlier answer stays here.', { exact: true })).toBeVisible({ timeout: 30000 })
+        await expect(page.getByTestId('max-sandbox-context-usage')).toBeVisible()
+        await expect(page.getByText('Started agent', { exact: true })).toBeVisible()
+        const composer = page.getByTestId('sandbox-composer-input')
+        await composer.fill('Continue with the next step.')
+        await page.getByTestId('sandbox-composer-send').click()
+        await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
+        await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
+        await expect(composer).toHaveValue('')
+        await expect(page.getByTestId('max-sandbox-context-usage')).toHaveCount(0)
+        await expect(page.getByTestId('sandbox-composer-send')).toBeDisabled()
+        await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
+
+        await composer.fill('Keep this newer draft.')
+        acceptRun()
+        await expect(page.getByTestId('sandbox-composer-send')).toBeEnabled()
+        await expect(composer).toHaveValue('Keep this newer draft.')
+        await expect(page.getByTestId('max-sandbox-context-usage')).toHaveCount(0)
+        await expect(page.getByText('The earlier answer stays here.', { exact: true })).toBeVisible()
+        await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
+        await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
+        await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
+
+        startAgent()
+        await expect(page.getByText('The next step is ready.', { exact: true })).toBeVisible()
+        await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
+        await expect(page.getByText('Restored sandbox', { exact: true })).toHaveCount(0)
+        await expect(page.getByText('Started agent', { exact: true })).toHaveCount(2)
+        await page.getByRole('button', { name: 'Expand history', exact: true }).click()
+        await expect(page.getByText('Restored sandbox', { exact: true })).toBeVisible()
+        await page.screenshot({ path: test.info().outputPath('resumed-sandbox-startup-history.png') })
+        await expect(composer).toHaveValue('Keep this newer draft.')
     })
 
     test('live stream drop shows the reconnecting banner', async ({ page }) => {

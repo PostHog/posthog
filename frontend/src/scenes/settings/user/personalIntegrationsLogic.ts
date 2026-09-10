@@ -121,6 +121,7 @@ export interface personalIntegrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -130,6 +131,7 @@ export interface personalIntegrationsLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -180,6 +182,7 @@ export interface personalIntegrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -189,6 +192,7 @@ export interface personalIntegrationsLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'

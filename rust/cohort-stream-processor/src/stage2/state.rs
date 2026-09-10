@@ -6,6 +6,33 @@ use serde::{Deserialize, Serialize};
 /// when that was last evaluated. Single-leaf cohorts write this directly from their leaf state;
 /// composable cohorts write it after Boolean composition.
 ///
+/// # What the bit means, per writer
+///
+/// Absence means **no registered membership**, and composes as `false`; it does not mean the pair
+/// was never evaluated. Flip-based writers can leave an initial non-member absent, while merge
+/// writers register every leaf they put, including non-members. Retractions write an explicit
+/// `false` rather than deleting the row.
+///
+/// The two seed paths ([`handle_seed`](crate::workers::seed_path) and the person-seed apply) hold a
+/// stricter meaning: the bit is **what downstream was last told**. Before every emission they
+/// record, with stage 1, the value that emission retires, so a produce that fails after stage 1
+/// commits leaves the row disagreeing with the truth and the redelivery re-emits. A row that agrees
+/// with the truth never vetoes a transition minted in the same apply: it can be that pre-write, or
+/// the row an apply left behind when it acked and then held before its post-ack commit. A silent
+/// apply leaves an absent row absent, but replaces a corrupt row with a readable `false`.
+///
+/// Every other writer (the live event path, the sweep, the merge apply, the cascade apply,
+/// reconcile) writes the bit as **recomputed stage-1 truth**. A seed apply trusts such a row even
+/// when its writer committed before a failed produce. This also applies to legacy seed writers
+/// that stored truth before producing; reconcile repairs those deliveries. See `handle_sweep` for
+/// why the sweep must derive retractions from transitions even over an agreeing register.
+///
+/// When a row commits is a separate axis from what it records. The live event path and the merge
+/// apply commit with stage 1 and produce after. The single-leaf sweep commits after its produce
+/// acks and reschedules failed keys; its composed leg commits before producing. Cascade apply,
+/// reconcile, and the seed paths' post-ack write commit after acknowledgments, retrying their
+/// respective message, page, or seed apply.
+///
 /// `last_evaluated_at_ms` is write-only for now (nothing reads it). Writers use the timestamp of the
 /// operation that evaluated membership: event time for live/merge work, the sweep cutoff for
 /// evictions, and application time for seed work.

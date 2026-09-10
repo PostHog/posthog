@@ -1,11 +1,10 @@
-import { TASK_COST_VISIBLE_FLAG } from "@posthog/shared";
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 
-const flagState = vi.hoisted(() => ({ cost: false, costVisible: false }));
+const flagState = vi.hoisted(() => ({ costVisible: false }));
 const taskUsageState = vi.hoisted(() => ({
   data: undefined as
     | {
@@ -16,15 +15,13 @@ const taskUsageState = vi.hoisted(() => ({
     | undefined,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: (key: string) =>
-    key === TASK_COST_VISIBLE_FLAG ? flagState.costVisible : flagState.cost,
+  useFeatureFlag: () => flagState.costVisible,
 }));
 vi.mock("@posthog/ui/features/sessions/hooks/useTaskUsage", () => ({
   useTaskUsage: () => taskUsageState,
 }));
 
 function enableCost(costVisible = false) {
-  flagState.cost = true;
   flagState.costVisible = costVisible;
   taskUsageState.data = {
     token_cost_usd: 0.4,
@@ -34,7 +31,6 @@ function enableCost(costVisible = false) {
 }
 
 beforeEach(() => {
-  flagState.cost = false;
   flagState.costVisible = false;
   taskUsageState.data = undefined;
 });
@@ -44,7 +40,6 @@ function usage(overrides?: Partial<ContextUsage>): ContextUsage {
     used: 50_000,
     size: 200_000,
     percentage: 25,
-    cost: null,
     breakdown: null,
     ...overrides,
   };
@@ -57,6 +52,21 @@ describe("ContextUsageIndicator", () => {
         <ContextUsageIndicator usage={null} />
       </Theme>,
     );
+    expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("shows the cost on its own when usage is null", () => {
+    enableCost(true);
+    const { container } = render(
+      <Theme>
+        <ContextUsageIndicator
+          usage={null}
+          taskId="task-1"
+          originProduct="user_created"
+        />
+      </Theme>,
+    );
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
     expect(container.querySelector("button")).toBeNull();
   });
 
@@ -83,6 +93,7 @@ describe("ContextUsageIndicator", () => {
           <ContextUsageIndicator
             usage={usage(overrides as Partial<ContextUsage>)}
             taskId="task-1"
+            originProduct={costEnabled ? "user_created" : undefined}
           />
         </Theme>,
       );
@@ -96,17 +107,42 @@ describe("ContextUsageIndicator", () => {
     enableCost(true);
     render(
       <Theme>
-        <ContextUsageIndicator usage={usage()} taskId="task-1" />
+        <ContextUsageIndicator
+          usage={usage()}
+          taskId="task-1"
+          originProduct="user_created"
+        />
       </Theme>,
     );
     expect(screen.getByText("$0.42")).toBeInTheDocument();
+  });
+
+  it("hides the cost for a task from another product", () => {
+    enableCost(true);
+    const { container } = render(
+      <Theme>
+        <ContextUsageIndicator
+          usage={usage()}
+          taskId="task-1"
+          originProduct="slack"
+        />
+      </Theme>,
+    );
+    expect(screen.queryByText("$0.42")).not.toBeInTheDocument();
+    expect(container.querySelector("button")?.getAttribute("aria-label")).toBe(
+      "Context usage: 25%",
+    );
   });
 
   it("keeps the cost in the popover while the visible flag is off", () => {
     enableCost();
     render(
       <Theme>
-        <ContextUsageIndicator usage={usage()} taskId="task-1" />
+        <ContextUsageIndicator
+          usage={usage()}
+          taskId="task-1"
+          originProduct="user_created"
+        />
       </Theme>,
     );
     expect(screen.queryByText("$0.42")).not.toBeInTheDocument();
