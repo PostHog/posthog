@@ -93,7 +93,6 @@ def test_every_vitals_rate_metric_set_gets_a_device_model_and_an_api_level_table
     assert set(BREAKDOWN_TABLES) == {
         f"{base}_by_{suffix}" for base in BASE_VITALS_TABLES for suffix in ("device_model", "api_level")
     }
-    # Error counts come from the error backend, which serves its own dimensions.
     assert "error_counts_by_device_model" not in METRIC_SETS
 
 

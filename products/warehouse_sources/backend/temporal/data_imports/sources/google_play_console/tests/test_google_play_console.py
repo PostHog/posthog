@@ -434,7 +434,6 @@ def test_a_wider_metric_set_asks_play_for_the_extra_dimension() -> None:
         )
 
     assert bodies[0]["dimensions"] == ["versionCode", "deviceModel"]
-    # The wider table reads the same metrics off the same metric set as the base table.
     assert bodies[0]["metrics"] == list(METRIC_SETS["crash_rate"].metrics)
 
 
@@ -452,7 +451,6 @@ def test_a_wider_metric_set_row_carries_its_extra_dimension_column() -> None:
 
     assert row["deviceModel"] == "Pixel 8"
     assert row["deviceModelLabel"] == "Google Pixel 8"
-    # Play drops slices under its privacy threshold, so the other key column still has to be there.
     assert row["versionCode"] is None
 
 

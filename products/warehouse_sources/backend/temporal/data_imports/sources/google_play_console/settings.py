@@ -40,8 +40,6 @@ class MetricSetEndpoint:
     # daily data, but the error backend serves only about the last two months, and it rejects
     # a query that starts earlier with a bare `400 INVALID_ARGUMENT`.
     history_days: int = METRIC_SET_HISTORY_DAYS
-    # False for a table whose grain costs more rows than most teams want by default. The schema
-    # picker and one-shot source creation both leave such a table off until the user enables it.
     should_sync_default: bool = True
 
 
@@ -66,12 +64,8 @@ class ListEndpoint:
     datetime_fields: tuple[str, ...] = ()
 
 
-# The default vitals tables are sliced by `versionCode` only. Play drops rows whose user counts
-# fall under its privacy threshold, and each extra dimension multiplies the slices, so a wider
-# default breakdown would silently lose data on smaller apps and multiply the rows billed.
 _VERSION_CODE = ("versionCode",)
 
-# Play dimensions offered as separate wider tables, as (table name suffix, Play dimension).
 BREAKDOWN_DIMENSIONS: tuple[tuple[str, str], ...] = (
     ("device_model", "deviceModel"),
     ("api_level", "apiLevel"),
@@ -193,11 +187,8 @@ _BASE_METRIC_SETS: dict[str, MetricSetEndpoint] = {
     ),
 }
 
-# `error_counts` comes from the error backend, which serves its own dimensions, so only the vitals
-# rate metric sets get the wider tables.
 _VITALS_RATE_METRIC_SETS: tuple[str, ...] = tuple(name for name in _BASE_METRIC_SETS if name != "error_counts")
 
-# Each wider vitals table, mapped to the base table it widens and the Play dimension it adds.
 BREAKDOWN_TABLES: dict[str, tuple[str, str]] = {
     f"{base}_by_{suffix}": (base, dimension)
     for base in _VITALS_RATE_METRIC_SETS

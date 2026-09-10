@@ -203,7 +203,6 @@ _BASE_DESCRIPTIONS: CanonicalDescriptions = {
 }
 
 
-# The columns a wider vitals table carries on top of its base table, keyed by the Play dimension.
 _BREAKDOWN_COLUMNS: dict[str, dict[str, str]] = {
     "deviceModel": {
         "deviceModel": "Device model the row is sliced by, as Play's brand and device code.",
