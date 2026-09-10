@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -226,7 +227,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def schedule_materialization(self, reconcile: bool = True, trigger_immediate_run: bool = False):
+    def schedule_materialization(
+        self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None
+    ):
         """
         Put this saved query on the schedule that will materialize it, at the frequency in
         sync_frequency_interval.
@@ -235,6 +238,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         materialization right away instead of waiting for the node's cadence tier to fire.
         Callers merely updating frequency must leave it False. The start is best effort, so a
         failure to start never disables materialization, because the tier still covers the query.
+
+        triggered_by_id is the person who enabled materialization, and is who hears about it if
+        that first run fails.
 
         A rejected frequency propagates to the caller. Any other failure disables
         materialization, because the alternative is a query that reports itself materialized
@@ -303,7 +309,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 if trigger_immediate_run:
                     # Deferred to commit so the run sees the enable's writes (endpoints enable
                     # runs inside an atomic block); immediate under autocommit.
-                    transaction.on_commit(self._start_immediate_materialization)
+                    transaction.on_commit(partial(self._start_immediate_materialization, triggered_by_id))
                 return
 
             raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
@@ -333,11 +339,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.is_materialized = False
             self.save(update_fields=["is_materialized"])
 
-    def _start_immediate_materialization(self) -> None:
+    def _start_immediate_materialization(self, triggered_by_id: int | None = None) -> None:
         from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
 
         try:
-            materialize_saved_query(self)
+            materialize_saved_query(self, triggered_by_id=triggered_by_id)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
