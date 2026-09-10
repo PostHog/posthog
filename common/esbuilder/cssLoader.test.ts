@@ -1,4 +1,4 @@
-import { CSS_ATTEMPT_TIMEOUT_MS, CSS_PROBE_TIMEOUT_MS, cssLoaderScript } from './cssLoader.mjs'
+import { CSS_ATTEMPT_TIMEOUT_MS, cssLoaderScript } from './cssLoader.mjs'
 
 const CSS_FILE = 'index-ABCD1234.css'
 const CSS_FALLBACK = 'index.css?t=99'
@@ -12,8 +12,6 @@ type FakeLink = {
     addEventListener: (type: string, listener: () => void) => void
     dispatch: (type: string) => void
 }
-
-type FakeResponse = { status: number; contentType: string | null }
 
 function makeLink(): FakeLink {
     const listeners: Record<string, (() => void)[]> = {}
@@ -30,23 +28,17 @@ function runLoader({
     cssFileFallback = CSS_FALLBACK,
     apiKey = 'phc_test' as string | null,
     jsUrl = 'https://cdn.example.com',
-    probeResponse = { status: 200, contentType: 'text/css' } as FakeResponse | null,
-    probeHangs = false,
 }: {
     cssFileFallback?: string
     apiKey?: string | null
     jsUrl?: string
-    probeResponse?: FakeResponse | null
-    probeHangs?: boolean
 } = {}): {
     ready: Promise<boolean>
     links: FakeLink[]
     beacons: Record<string, any>[]
-    probes: string[]
 } {
     const links: FakeLink[] = []
     const beacons: Record<string, any>[] = []
-    const probes: string[] = []
     const win: Record<string, any> = {
         JS_URL: jsUrl,
         JS_POSTHOG_API_KEY: apiKey,
@@ -65,52 +57,20 @@ function runLoader({
             return true
         },
     }
-    const fetch = (url: string): Promise<unknown> => {
-        probes.push(url)
-        if (probeHangs) {
-            return new Promise(() => {})
-        }
-        return probeResponse
-            ? Promise.resolve({
-                  status: probeResponse.status,
-                  headers: { get: () => probeResponse.contentType },
-              })
-            : Promise.reject(new Error('network'))
-    }
     // The inline loader runs in the page as a classic script: these are all globals there.
-    new Function(
-        'window',
-        'document',
-        'navigator',
-        'console',
-        'fetch',
-        'AbortController',
-        cssLoaderScript(CSS_FILE, cssFileFallback)
-    )(
+    new Function('window', 'document', 'navigator', 'console', cssLoaderScript(CSS_FILE, cssFileFallback))(
         win,
         doc,
         nav,
-        { error: () => {} },
-        fetch,
-        class {
-            signal = {}
-            abort = (): void => {}
-        }
+        { error: () => {} }
     )
-    return { ready: win.ESBUILD_CSS_READY, links, beacons, probes }
+    return { ready: win.ESBUILD_CSS_READY, links, beacons }
 }
 
 /** A stylesheet that really applied has a sheet with rules in it. */
 function applyStylesheet(link: FakeLink): void {
     link.sheet = { cssRules: { length: 12 } }
     link.dispatch('load')
-}
-
-/** The beacon waits on the probe of the failed URL, so it goes out a few microtasks later. */
-async function flushProbes(): Promise<void> {
-    for (let tick = 0; tick < 5; tick++) {
-        await Promise.resolve()
-    }
 }
 
 describe('css loader script', () => {
@@ -140,10 +100,9 @@ describe('css loader script', () => {
                 link.dispatch('load')
             },
         ],
-    ])('loads the hashless copy and reports when the hashed stylesheet %s', async (_case, reason, fail) => {
+    ])('loads the hashless copy and reports when the hashed stylesheet %s', (_case, reason, fail) => {
         const { links, beacons } = runLoader()
         fail(links[0])
-        await flushProbes()
 
         expect(links).toHaveLength(2)
         expect(links[1].href).toBe(`${STATIC}${CSS_FALLBACK}`)
@@ -162,39 +121,11 @@ describe('css loader script', () => {
         expect(JSON.stringify(beacons[0])).not.toContain('sh4r3-t0k3n')
     })
 
-    it.each([
-        [
-            'names the status and the content type of a response that is not CSS',
-            { status: 200, contentType: 'text/html' } as FakeResponse | null,
-            false,
-            { stylesheet_probe: 'answered', stylesheet_status: 200, stylesheet_content_type: 'text/html' },
-        ],
-        [
-            'says the host is unreachable when the probe gets no response',
-            null,
-            false,
-            { stylesheet_probe: 'unreachable' },
-        ],
-        ['gives up on a probe that hangs, and still sends the beacon', null, true, { stylesheet_probe: 'stalled' }],
-    ])('%s', async (_case, probeResponse, probeHangs, expected) => {
-        const { links, beacons, probes } = runLoader({ probeResponse, probeHangs })
-        links[0].dispatch('load')
-        if (probeHangs) {
-            jest.advanceTimersByTime(CSS_PROBE_TIMEOUT_MS)
-        }
-        await flushProbes()
-
-        expect(probes).toEqual([`${STATIC}${CSS_FILE}`])
-        expect(beacons).toHaveLength(1)
-        expect(beacons[0].properties).toMatchObject(expected)
-    })
-
     it('retries with a fresh query and the app origin, then reports the page unstyled', async () => {
         const { ready, links, beacons } = runLoader()
         for (let attempt = 0; attempt < 4; attempt++) {
             jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS)
         }
-        await flushProbes()
 
         // The third attempt asks for the same file with a query no cache entry and no hung
         // connection has seen. The fourth leaves the static host behind altogether.
@@ -239,21 +170,18 @@ describe('css loader script', () => {
         // The page is styled now, so the rung still in flight must not report a fatal failure
         // over it, and the rungs behind it must not run at all.
         jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS * 3)
-        await flushProbes()
 
         expect(links).toHaveLength(2)
         expect(beacons).toHaveLength(1)
         expect(beacons[0].properties).toMatchObject({ $exception_level: 'error', stylesheet_attempt: 1 })
     })
 
-    it('recovers without a beacon or a probe when capture is opted out', async () => {
-        const { links, beacons, probes } = runLoader({ apiKey: null })
+    it('recovers without a beacon when capture is opted out', () => {
+        const { links, beacons } = runLoader({ apiKey: null })
         links[0].dispatch('error')
-        await flushProbes()
 
         expect(links).toHaveLength(2)
         expect(beacons).toHaveLength(0)
-        expect(probes).toHaveLength(0)
     })
 
     it('still has a retry to fall back on in a dev build with no hashless copy', () => {

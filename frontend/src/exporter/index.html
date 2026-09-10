@@ -24,8 +24,8 @@
         <script nonce="{{ request.csp_nonce }}">
             // Disable tracking for shared dashboards / insights / embeds: those iframes can be
             // embedded on our customers' sites, and tracking there would log their visitors to
-            // app.posthog.com. This runs here, before the stylesheet loader below, because that
-            // loader reports failures with the key and a bundle that clears it runs too late.
+            // app.posthog.com. It must run before the stylesheet loader below, which reports
+            // failures with this key.
             // The `interview` scene is the exception: it's our own hosted public page, opened by an
             // invitee on a link we sent. We want pageviews + replay to measure the invite-to-call
             // funnel. Require the interview payload to be present: the public `force_type=interview`

@@ -16,9 +16,8 @@
         {% include "head.html" %}
         <script nonce="{{ request.csp_nonce }}">
             // Disable tracking inside render-query frames. They are expected to run on third-party
-            // sites. Without this, embeds would send events to app.posthog.com. This runs here,
-            // before the stylesheet loader below, because that loader reports failures with the key
-            // and a bundle that clears it runs too late.
+            // sites. Without this, embeds would send events to app.posthog.com. It must run before
+            // the stylesheet loader below, which reports failures with this key.
             window.JS_POSTHOG_API_KEY = undefined
         </script>
     </head>
