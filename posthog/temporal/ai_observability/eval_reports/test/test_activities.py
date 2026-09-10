@@ -857,6 +857,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         [
             ("cancelled_before_it_ran", CHQueryErrorQueryWasCancelled("killed in pending state")),
             ("connection_dropped", ConnectionResetError()),
+            ("connection_closed_mid_result", EOFError()),
             ("slot_budget_full", ConcurrencyLimitExceeded("no slot")),
             ("cluster_at_capacity", ClickHouseAtCapacity()),
         ]

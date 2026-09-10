@@ -450,7 +450,8 @@ def _count_eval_results_for_reports(
 
 
 # Failures that a narrower time range cannot fix: ClickHouse killed the query before it ran,
-# the socket dropped, or the cluster and the product's own slot budget had nothing free. The
+# the socket dropped (reset, or closed cleanly mid-result, which the driver reads as an
+# `EOFError`), or the cluster and the product's own slot budget had nothing free. The
 # ladder re-attempts the same range for these, and never halves it. A split would send more
 # queries to a cluster that just refused one.
 _TRANSIENT_COUNT_QUERY_ERRORS = (
@@ -459,6 +460,7 @@ _TRANSIENT_COUNT_QUERY_ERRORS = (
     ClickHouseClusterMemoryLimitExceeded,
     ConcurrencyLimitExceeded,
     ConnectionResetError,
+    EOFError,
     NetworkError,
     SocketTimeoutError,
 )
