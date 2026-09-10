@@ -362,6 +362,56 @@ describe("createPiMessageTranslator", () => {
     },
   );
 
+  it("bounds an oversized MCP result on rawOutput (regression)", () => {
+    const translator = createPiMessageTranslator();
+    const content: ToolResultMessage["content"] = [
+      {
+        type: "text",
+        text: "x".repeat(1_100_000),
+      },
+    ];
+
+    expect(
+      translator.translateToolExecutionEnd(
+        "exec-1",
+        "mcp",
+        {
+          content,
+          details: {
+            posthog: {
+              mcp: {
+                server: "posthog",
+                tool: "exec",
+                result: {
+                  structuredContent: { rows: "y".repeat(1_100_000) },
+                  _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+                },
+              },
+            },
+          },
+        },
+        false,
+        false,
+        12,
+      ),
+    ).toMatchObject([
+      {
+        type: "tool_call_updated",
+        toolCall: {
+          rawOutput: {
+            content: [
+              {
+                type: "text",
+                text: expect.stringContaining("too large to store"),
+              },
+            ],
+            _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+          },
+        },
+      },
+    ]);
+  });
+
   it("classifies ls as a directory listing", () => {
     const translator = createPiMessageTranslator();
     const message = makeAssistant([

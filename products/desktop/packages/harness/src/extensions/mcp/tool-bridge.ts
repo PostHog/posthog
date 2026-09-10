@@ -22,6 +22,7 @@ import {
   CallToolResultSchema,
   ListToolsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { boundPersistedMcpResult } from "@posthog/shared";
 import type { McpServerConfig, McpSettings } from "./config";
 import { McpError } from "./errors";
 import { renderMcpToolCall } from "./render";
@@ -305,14 +306,24 @@ export async function invokeTool(
       throw new McpError(text || "Tool reported an error", serverName, "tool");
     }
 
-    return {
-      content,
+    // The structured fields never reach the model, but they do reach the
+    // session transcript through `details`, so bound them at the source: a
+    // server-controlled payload above the limit drops, and only the UI
+    // routing metadata survives.
+    const bounded = boundPersistedMcpResult({
       ...(result.structuredContent !== undefined && {
         structuredContent: result.structuredContent as Record<string, unknown>,
       }),
       ...(result._meta !== undefined && {
         _meta: result._meta as Record<string, unknown>,
       }),
+    });
+    return {
+      content,
+      ...(bounded.structuredContent !== undefined && {
+        structuredContent: bounded.structuredContent,
+      }),
+      ...(bounded._meta !== undefined && { _meta: bounded._meta }),
     };
   } catch (err) {
     if (err instanceof McpError) throw err;

@@ -13,6 +13,7 @@ import {
   type AgentConversationEvent,
   type AgentToolCallContent,
   type AgentToolCallStatus,
+  boundPersistedMcpResult,
   createPiToolCallRecord,
   isPiToolName,
   mcpToolKey,
@@ -286,7 +287,12 @@ export function createPiMessageTranslator(): PiMessageTranslator {
         (resultMeta.structuredContent !== undefined ||
           resultMeta._meta !== undefined)
       ) {
-        toolCall.rawOutput = { content: result.content, ...resultMeta };
+        // The server controls these fields, so bound them before rawOutput
+        // reaches the session transcript and cloud persistence.
+        toolCall.rawOutput = boundPersistedMcpResult({
+          content: result.content,
+          ...resultMeta,
+        });
       }
     }
 

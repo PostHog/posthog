@@ -4,8 +4,8 @@ import type {
   ToolCallLocation,
 } from "@agentclientprotocol/sdk";
 import {
+  boundPersistedMcpResult,
   mcpToolKey,
-  omitNullCallToolResultFields,
   posthogToolMeta,
 } from "@posthog/shared";
 import { APP_SERVER_NOTIFICATIONS } from "./protocol";
@@ -561,13 +561,13 @@ function mapItem(
       status: mapStatus(item.status),
       ...(content ? { content } : {}),
       ...(meta ? { _meta: meta } : {}),
-      // rawOutput lets the desktop MCP Apps host render UI resources, not just text.
-      // The strip is source hygiene, not app validity: `toCallToolResult` owns
-      // the schema-valid result an app receives. Stripping here keeps the nulls
-      // out of stored transcripts and McpAppsService events, so a delivery path
-      // that skips `toCallToolResult` cannot carry them either.
-      ...(item.type === "mcpToolCall" && item.result !== undefined
-        ? { rawOutput: omitNullCallToolResultFields(item.result) }
+      // rawOutput lets the desktop MCP Apps host render UI resources, not just
+      // text. The server controls every field here, so bound-and-strip keeps
+      // oversized and null-padded results out of stored transcripts and
+      // McpAppsService events on every delivery path, including ones that skip
+      // `toCallToolResult` (which stays the owner of app validity).
+      ...(item.type === "mcpToolCall" && item.result != null
+        ? { rawOutput: boundPersistedMcpResult(item.result) }
         : {}),
     },
   };
