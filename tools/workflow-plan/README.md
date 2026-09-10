@@ -11,7 +11,7 @@ hogli ci:plan .github/workflows/ci-backend.yml --steps changes
 ```
 
 The table has one row per job and one column per built-in scenario: `draft`, `ready`, and `fork` pull requests, a `queued` merge-queue run, a `merged` push to master, a `scheduled` run, and a `dispatched` run.
-A cell reads `RUN`, `FAIL`, `CANC`, or `.` for a skipped job; a trailing `0` marks a job whose matrix expands to zero cells. A legend under the table explains the marks it shows.
+A cell reads `▸` for a job that runs, `✗` for one that runs and fails, `⊘` for one cancelled before it starts, and `.` for a skipped job; a trailing `0` marks a job whose matrix expands to zero cells. A legend under the table repeats this.
 Every paths filter is stubbed as if all of its filters matched.
 Outputs that scripts produce at runtime are empty, so a job gated on `needs.x.outputs.matrix != ''` shows as skipped until a scenario stubs that output, and a matrix built from such an output has no cell count.
 The Depot shadow in `.depot/workflows/` is planned as sampled in: every scenario sets `vars.CI_DEPOT_SHADOW_PERCENT` and stubs the `sample` job's `sampled` output to `true`, so the table shows the gates behind the sampling roll.

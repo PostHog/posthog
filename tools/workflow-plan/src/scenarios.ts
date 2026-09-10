@@ -7,8 +7,8 @@ export const REPOSITORY = 'PostHog/posthog'
 export const FORK_REPOSITORY = 'octocat/posthog'
 export const DEFAULT_BRANCH = 'master'
 
-const HEAD_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
-const BASE_SHA = 'f9e8d7c6b5a4938271605f4e3d2c1b0a98765432'
+const FAKE_HEAD_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
+const FAKE_BASE_SHA = 'f9e8d7c6b5a4938271605f4e3d2c1b0a98765432'
 
 export type PullRequestAction =
     | 'opened'
@@ -57,7 +57,7 @@ function baseContext(eventName: string, actor: string): Context {
         server_url: 'https://github.com',
         api_url: 'https://api.github.com',
         token: 'stub-token',
-        sha: HEAD_SHA,
+        sha: FAKE_HEAD_SHA,
     }
 }
 
@@ -85,8 +85,12 @@ export function pullRequest(options: PullRequestOptions = {}): Context {
             title: 'Example change',
             labels: labels.map((name) => ({ name })),
             user: { login: actor },
-            head: { ref: headRef, sha: HEAD_SHA, repo: { ...(repositoryPayload(headRepository) as object), fork } },
-            base: { ref: baseRef, sha: BASE_SHA, repo: repositoryPayload(REPOSITORY) },
+            head: {
+                ref: headRef,
+                sha: FAKE_HEAD_SHA,
+                repo: { ...(repositoryPayload(headRepository) as object), fork },
+            },
+            base: { ref: baseRef, sha: FAKE_BASE_SHA, repo: repositoryPayload(REPOSITORY) },
         },
     }
     if (label !== undefined) {
@@ -116,10 +120,10 @@ export function push(branch = DEFAULT_BRANCH, actor = 'octocat'): Context {
         base_ref: '',
         event: {
             ref: `refs/heads/${branch}`,
-            before: BASE_SHA,
-            after: HEAD_SHA,
+            before: FAKE_BASE_SHA,
+            after: FAKE_HEAD_SHA,
             repository: repositoryPayload(REPOSITORY),
-            head_commit: { id: HEAD_SHA, message: 'feat: example', timestamp: '2026-01-01T00:00:00Z' },
+            head_commit: { id: FAKE_HEAD_SHA, message: 'feat: example', timestamp: '2026-01-01T00:00:00Z' },
         },
     }
 }
