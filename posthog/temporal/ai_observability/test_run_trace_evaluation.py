@@ -1,5 +1,6 @@
 import json
 import uuid
+import tracemalloc
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -158,12 +159,22 @@ class TestFormatTraceForJudge:
 
         assert "search_docs" in transcript
 
-    def test_truncates_long_event_io(self):
-        trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "x" * 50_000})])
+    @pytest.mark.parametrize("content_length,should_truncate", [(50_000, False), (200_000, True)])
+    def test_truncates_long_event_io_only_when_the_trace_exceeds_budget(
+        self, content_length: int, should_truncate: bool
+    ) -> None:
+        content = "start " + "x" * (content_length // 2) + " critical evidence " + "y" * (content_length // 2) + " end"
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{"$ai_input": [{"role": "user", "content": content}]})]
+        )
 
         transcript = format_trace_for_judge(trace)
 
-        assert "chars truncated" in transcript
+        assert ("chars truncated" in transcript) == should_truncate
+        assert ("critical evidence" in transcript) == (not should_truncate)
+        assert "start " in transcript
+        assert " end" in transcript
+        assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
 
     def test_bounds_output_to_max_chars(self):
         # 200 large generations would blow well past the cap without sampling.
@@ -174,6 +185,26 @@ class TestFormatTraceForJudge:
         transcript = format_trace_for_judge(create_trace(events))
 
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
+        assert "SAMPLED VIEW" in transcript
+
+    @pytest.mark.parametrize("event_count,message_count", [(50, 1), (1, 50)])
+    def test_oversized_messages_do_not_allocate_the_full_transcript(self, event_count: int, message_count: int) -> None:
+        content = "start " + "x" * 500_000 + " end"
+        messages = [{"role": "user", "content": content} for _ in range(message_count)]
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{"$ai_input": messages}) for _ in range(event_count)]
+        )
+
+        tracemalloc.start()
+        try:
+            transcript = format_trace_for_judge(trace)
+            _, peak_bytes = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        assert "chars truncated" in transcript
+        assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
+        assert peak_bytes < 10_000_000
 
     def test_marks_errored_events(self):
         trace = create_trace(
