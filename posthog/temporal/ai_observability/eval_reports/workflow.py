@@ -255,8 +255,7 @@ async def _dispatch_report_workflows(
         await _start_report_workflows(kind, workflow_id_prefix, report_ids)
         return
 
-    # Preserve the command sequence for coordinator histories that started before the
-    # fire-and-forget release. New histories record the patch marker and never take this path.
+    # When the patch marker is absent, preserve the command sequence required for replay.
     tasks = [
         temporalio.workflow.execute_child_workflow(
             GenerateAndDeliverEvalReportWorkflow.run,

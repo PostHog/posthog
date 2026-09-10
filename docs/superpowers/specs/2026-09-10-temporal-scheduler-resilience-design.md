@@ -263,9 +263,9 @@ Recovery therefore needs multiple bounded pages behind admission rather than a l
 
 ### Evaluation-report sizing evidence
 
-The scheduled and count-triggered report coordinators have different shapes and use separate envelopes. In the available US worker logs, time-based report discovery found between zero and seven reports in each hourly poll over the latest 24-hour sample. Its first rollout therefore uses a 300-report operating page and a 1,000-report hard ceiling, leaving substantial outage-recovery headroom while retaining the shared 512 KiB wire budget.
+The scheduled and count-triggered report coordinators have different shapes and use separate envelopes. Time-based report discovery is sparse relative to its 300-report operating page and 1,000-report hard ceiling, leaving substantial outage-recovery headroom while retaining the shared 512 KiB wire budget.
 
-Count-triggered discovery checks the full eligible inventory every five minutes. Production samples showed 997 candidates on 27 August, 1,058 on 3 September, 1,065 on 8 September, and 1,068 on 10 September. The default page is 2,000 reports with a 5,000-report hard ceiling, so current traffic has approximately 87% item headroom and can grow within the configured envelope without increasing steady-state work prematurely. The payload selector measures the duplicated legacy ID list and grouped batch representation together, so both compatibility forms must fit the 512 KiB budget.
+Count-triggered discovery checks the full eligible inventory every five minutes. Its 2,000-report default and 5,000-report hard ceiling provide substantial current headroom based on production sampling. The payload selector measures the duplicated legacy ID list and grouped batch representation together, so both compatibility forms must fit the 512 KiB budget.
 
 The count-triggered path reports inventory and page-saturation gauges rather than overdue-age metrics: every configured report is a candidate at every poll, so calling deferred candidates a time-based backlog would be misleading. Saturation is the signal to add capacity or raise the reviewed envelope before a full scan takes more than one schedule cycle.
 

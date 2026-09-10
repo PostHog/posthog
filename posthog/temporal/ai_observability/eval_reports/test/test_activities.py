@@ -19,6 +19,7 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+    _advance_eval_report_cursors,
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
     _count_eval_results_for_report,
@@ -676,6 +677,13 @@ class TestCountTriggeredReportChecks(BaseTest):
             max_reports_per_run=1,
             candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
         )
+        _advance_eval_report_cursors(
+            first_page,
+            first_page.rows,
+            scheduler="test_eval_reports_count_rotation",
+            region="test",
+            rotate_item_cursor=False,
+        )
         second_page = _fetch_eval_report_candidate_page(
             reports,
             scheduler="test_eval_reports_count_rotation",
@@ -707,6 +715,13 @@ class TestCountTriggeredReportChecks(BaseTest):
             candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
             rotate_item_cursor=True,
         )
+        _advance_eval_report_cursors(
+            first_page,
+            first_page.rows,
+            scheduler="test_eval_reports_count_item_rotation",
+            region="test",
+            rotate_item_cursor=True,
+        )
         second_page = _fetch_eval_report_candidate_page(
             queryset,
             scheduler="test_eval_reports_count_item_rotation",
@@ -719,6 +734,46 @@ class TestCountTriggeredReportChecks(BaseTest):
         expected_ids = sorted(str(report.id) for report in reports)
         self.assertEqual([report_id for report_id, _team_id in first_page.rows], expected_ids[:2])
         self.assertEqual([report_id for report_id, _team_id in second_page.rows], expected_ids[2:4])
+
+    def test_item_cursor_advances_only_through_payload_selected_rows(self):
+        reports = [self._create_report() for _ in range(5)]
+        queryset = (
+            EvaluationReport.objects.deliverable()
+            .filter(
+                frequency=EvaluationReport.Frequency.EVERY_N,
+                trigger_threshold__isnull=False,
+            )
+            .order_by()
+        )
+        scheduler = "test_eval_reports_trimmed_item_rotation"
+        first_page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=4,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+        _advance_eval_report_cursors(
+            first_page,
+            first_page.rows[:1],
+            scheduler=scheduler,
+            region="test",
+            rotate_item_cursor=True,
+        )
+
+        second_page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=1,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+
+        expected_ids = sorted(str(report.id) for report in reports)
+        self.assertEqual(first_page.rows[0][0], expected_ids[0])
+        self.assertEqual(second_page.rows[0][0], expected_ids[1])
 
     def test_check_report_returns_due_when_threshold_is_crossed(self):
         report = self._create_report(trigger_threshold=100)

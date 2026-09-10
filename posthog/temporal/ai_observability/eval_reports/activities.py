@@ -11,7 +11,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 import temporalio.activity
 from dateutil.rrule import rrulestr
@@ -164,6 +164,8 @@ class _EvalReportCandidatePage(NamedTuple):
     rows: list[tuple[str, int]]
     items_lower_bound: int
     oldest_due_at: dt.datetime | None
+    team_cursor: str
+    item_cursor: str | None
 
 
 @temporalio.activity.defn
@@ -214,6 +216,14 @@ async def fetch_due_eval_reports_activity(
         max_items=inputs.max_reports_per_run,
     )
     report_ids = [report_id for report_id, _team_id in selection.items]
+    if selection.items:
+        await database_sync_to_async(_advance_eval_report_cursors, thread_sensitive=False)(
+            candidates,
+            selection.items,
+            scheduler=_SCHEDULED_EVAL_REPORTS_SCHEDULER,
+            region=inputs.region,
+            rotate_item_cursor=False,
+        )
     limited_by = _effective_limit(selection.limited_by, candidates.items_lower_bound, len(report_ids))
     oldest_age_seconds = _oldest_age_seconds(candidates.oldest_due_at)
     record_scheduler_metrics_safely(
@@ -293,6 +303,14 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     )
     report_id_groups = _group_count_triggered_report_rows(selection.items)
     report_ids = [report_id for report_id, _team_id in selection.items]
+    if selection.items:
+        await database_sync_to_async(_advance_eval_report_cursors, thread_sensitive=False)(
+            candidates,
+            selection.items,
+            scheduler=_COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER,
+            region=inputs.region,
+            rotate_item_cursor=True,
+        )
     limited_by = _effective_limit(selection.limited_by, candidates.items_lower_bound, len(report_ids))
     await logger.ainfo(
         "llma_eval_reports_coordinator_count_triggered_candidates_poll",
@@ -362,7 +380,7 @@ def _count_triggered_payload(rows: Sequence[tuple[str, int]], items_lower_bound:
 
 
 def _fetch_eval_report_candidate_page(
-    reports: Any,
+    reports: QuerySet["EvaluationReport"],
     *,
     scheduler: str,
     region: str,
@@ -377,12 +395,14 @@ def _fetch_eval_report_candidate_page(
     with transaction.atomic():
         state, _ = TemporalSchedulerState.objects.get_or_create(scheduler=scheduler, region=region)
         state = TemporalSchedulerState.objects.select_for_update().get(pk=state.pk)
+        team_discovery_cursor = state.discovery_cursor
         try:
-            team_cursor = int(state.discovery_cursor or 0)
+            team_cursor = int(team_discovery_cursor or 0)
         except ValueError:
             team_cursor = 0
 
         item_state = None
+        item_discovery_cursor = None
         item_cursor = "00000000-0000-0000-0000-000000000000"
         if rotate_item_cursor:
             item_state, _ = TemporalSchedulerState.objects.get_or_create(
@@ -390,9 +410,10 @@ def _fetch_eval_report_candidate_page(
                 region=region,
             )
             item_state = TemporalSchedulerState.objects.select_for_update().get(pk=item_state.pk)
-            if item_state.discovery_cursor:
+            item_discovery_cursor = item_state.discovery_cursor
+            if item_discovery_cursor:
                 try:
-                    item_cursor = str(UUID(item_state.discovery_cursor))
+                    item_cursor = str(UUID(item_discovery_cursor))
                 except ValueError:
                     item_cursor = "00000000-0000-0000-0000-000000000000"
 
@@ -416,7 +437,7 @@ def _fetch_eval_report_candidate_page(
             deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
 
         if not selected_team_ids:
-            return _EvalReportCandidatePage([], 0, oldest_due_at)
+            return _EvalReportCandidatePage([], 0, oldest_due_at, team_discovery_cursor, item_discovery_cursor)
 
         candidate_limit = max_reports_per_run + 1
         candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
@@ -431,19 +452,50 @@ def _fetch_eval_report_candidate_page(
             cursor.execute(candidate_sql, query_params)
             bounded_rows = [(str(report_id), int(team_id)) for report_id, team_id in cursor.fetchall()]
 
-        # Advancing to the final selected tenant makes each subsequent poll start at a
-        # different point in the tenant ring, even when one tenant owns most reports.
-        state.discovery_cursor = str(selected_team_ids[-1])
-        state.save(update_fields=["discovery_cursor", "updated_at"])
-        if item_state is not None and bounded_rows:
-            last_selected_index = min(max_reports_per_run, len(bounded_rows)) - 1
-            item_state.discovery_cursor = bounded_rows[last_selected_index][0]
-            item_state.save(update_fields=["discovery_cursor", "updated_at"])
-
     deferred_candidates = len(bounded_rows) > max_reports_per_run
     selected_rows = bounded_rows[:max_reports_per_run]
     items_lower_bound = len(selected_rows) + int(deferred_teams or deferred_candidates)
-    return _EvalReportCandidatePage(selected_rows, items_lower_bound, oldest_due_at)
+    return _EvalReportCandidatePage(
+        selected_rows,
+        items_lower_bound,
+        oldest_due_at,
+        team_discovery_cursor,
+        item_discovery_cursor,
+    )
+
+
+def _advance_eval_report_cursors(
+    page: _EvalReportCandidatePage,
+    selected_rows: Sequence[tuple[str, int]],
+    *,
+    scheduler: str,
+    region: str,
+    rotate_item_cursor: bool,
+) -> bool:
+    if not selected_rows:
+        return False
+
+    with transaction.atomic():
+        state = TemporalSchedulerState.objects.select_for_update().get(scheduler=scheduler, region=region)
+        if state.discovery_cursor != page.team_cursor:
+            return False
+
+        item_state = None
+        if rotate_item_cursor:
+            item_state = TemporalSchedulerState.objects.select_for_update().get(
+                scheduler=f"{scheduler}_items",
+                region=region,
+            )
+            if item_state.discovery_cursor != page.item_cursor:
+                return False
+
+        state.discovery_cursor = str(selected_rows[-1][1])
+        state.save(update_fields=["discovery_cursor", "updated_at"])
+        if item_state is not None:
+            item_state.discovery_cursor = selected_rows[-1][0]
+            item_state.save(update_fields=["discovery_cursor", "updated_at"])
+
+    return True
 
 
 @temporalio.activity.defn
