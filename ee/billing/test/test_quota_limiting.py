@@ -3086,10 +3086,8 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
     def test_quota_cron_reconciles_limiter_instead_of_replacing_it(
         self, _name, in_snapshot, score, expect_present, _feature_enabled, _capture
     ) -> None:
-        # The cron runs for minutes between reading the limiter set and writing it back. A PR that
-        # crosses the limit in that window is written to Redis by the push refresh, but the cron's
-        # snapshot predates it, so a wholesale replace wiped the entry and unblocked the org until
-        # the next tick.
+        # A PR that crosses the limit while the cron runs is written to Redis after the cron's
+        # snapshot, so a wholesale replace would wipe it and unblock the org until the next tick.
         self._set_self_driving_usage(1500)
         add_limited_team_tokens(
             QuotaResource.SIGNALS_CREDITS,
