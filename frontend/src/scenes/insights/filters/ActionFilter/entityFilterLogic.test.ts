@@ -417,19 +417,23 @@ describe('entityFilterLogic', () => {
             operator: PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         }
-        const filtersWithSeriesProperties = {
-            ...filtersJson,
-            events: [
-                { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
-                { id: '$pageview', name: '$pageview', type: 'events', order: 1, properties: [browserFilter] },
-            ],
-            actions: [],
-        } as FilterType
+        type SeriesProperties = AnyPropertyFilter[] | Record<string, any>
 
-        function mountWithSeriesProperties(): ReturnType<typeof entityFilterLogic.build> {
+        function filtersWithSeriesProperties(properties: SeriesProperties = [browserFilter]): FilterType {
+            return {
+                ...filtersJson,
+                events: [
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 1, properties },
+                ],
+                actions: [],
+            } as FilterType
+        }
+
+        function mountWithSeriesProperties(properties?: SeriesProperties): ReturnType<typeof entityFilterLogic.build> {
             const visibilityLogic = entityFilterLogic({
                 setFilters: jest.fn(),
-                filters: filtersWithSeriesProperties,
+                filters: filtersWithSeriesProperties(properties),
                 typeKey: 'visibility_test',
             })
             visibilityLogic.mount()
@@ -447,9 +451,19 @@ describe('entityFilterLogic', () => {
 
             await expectLogic(visibilityLogic, () => {
                 visibilityLogic.actions.setEntityFilterVisibility(1, false)
-                visibilityLogic.actions.setLocalFilters(filtersWithSeriesProperties)
+                visibilityLogic.actions.setLocalFilters(filtersWithSeriesProperties())
             }).toMatchValues({
                 entityFilterVisible: { 1: false },
+            })
+        })
+
+        // The seed runs while the logic mounts, so a throw on a legacy shape takes the editor down.
+        it.each([
+            ['an empty legacy object', {}, {}],
+            ['a legacy dictionary', { $browser__icontains: 'Chrome' }, { 1: true }],
+        ])('handles %s', async (_name, properties, expected) => {
+            await expectLogic(mountWithSeriesProperties(properties)).toMatchValues({
+                entityFilterVisible: expected,
             })
         })
     })

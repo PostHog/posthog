@@ -1,7 +1,11 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import {
+    convertPropertyGroupToProperties,
+    isValidPropertyFilter,
+    parseProperties,
+} from 'lib/components/PropertyFilters/utils'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils/dom'
@@ -68,7 +72,8 @@ function seedFilterVisibility(
     const seeded = { ...state }
     let changed = false
     entities.forEach((entity, order) => {
-        if (!(order in state) && convertPropertyGroupToProperties(entity.properties)?.length) {
+        // A saved series can still carry properties as a legacy object, so normalize before the count.
+        if (!(order in state) && parseProperties(entity.properties).some(isValidPropertyFilter)) {
             seeded[order] = true
             changed = true
         }
