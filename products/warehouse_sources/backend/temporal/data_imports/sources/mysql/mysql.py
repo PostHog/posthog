@@ -16,6 +16,7 @@ module-scope primitives.
 
 from __future__ import annotations
 
+import ssl
 import time
 import socket
 import datetime
@@ -701,6 +702,25 @@ def _open_pymysql_connection(kwargs: dict[str, Any], team_id: int | None) -> pym
     return connection
 
 
+def _require_negotiated_tls(connection: pymysql.Connection) -> None:
+    """Fail a connection that asked for a verified certificate and did not get TLS at all.
+
+    pymysql wraps the socket only when the server advertises the TLS capability, and the check has
+    no else branch, so a server that offers no TLS is served in plaintext and raises nothing. The
+    handshake has already sent the credentials by the time we can see this, so the check stops us
+    reading data over an unverified connection rather than protecting that first exchange.
+    """
+    # `_sock` is private, so it is not in the stubs. Reading it defensively also fails closed if a
+    # later pymysql renames it: no socket to inspect is treated as no TLS.
+    if isinstance(getattr(connection, "_sock", None), ssl.SSLSocket):
+        return
+    raise pymysql.err.OperationalError(
+        CR.CR_SSL_CONNECTION_ERROR,
+        "The MySQL server did not offer a TLS connection. Turn off certificate verification for "
+        "this source, or enable TLS on the server.",
+    )
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -1052,9 +1072,17 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         so multi-GB filesorts don't drop on middlebox timeouts before the
         first rows are ready.
         """
+        verify_certificate = config.verify_server_certificate
         ssl_ca: str | None = None
-        if config.using_ssl:
+        # Verification implies TLS, so a user who asks us to check the certificate gets the
+        # encrypted connection that check needs, whatever `using_ssl` says.
+        if config.using_ssl or verify_certificate:
             ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
+        # The tunnel presents the database on a loopback address, so the certificate's hostname
+        # cannot match the address pymysql dials. The chain check still applies there.
+        tunnel = config.ssh_tunnel
+        verify_hostname = verify_certificate and not (tunnel is not None and tunnel.enabled)
 
         with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
             kwargs: dict[str, Any] = {
@@ -1067,12 +1095,18 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "password": config.password,
                 "connect_timeout": 10,
                 "ssl_ca": ssl_ca,
+                # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so only an
+                # explicit True verifies. None leaves that prior behavior untouched.
+                "ssl_verify_cert": True if verify_certificate else None,
+                "ssl_verify_identity": True if verify_hostname else None,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,
             }
             if read_timeout is not None:
                 kwargs["read_timeout"] = read_timeout
             with _connect_with_transient_retry(kwargs, team_id) as conn:
+                if verify_certificate:
+                    _require_negotiated_tls(conn)
                 yield conn
 
     @contextmanager

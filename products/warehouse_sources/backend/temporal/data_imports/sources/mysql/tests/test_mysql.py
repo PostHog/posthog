@@ -1,3 +1,4 @@
+import ssl
 import socket
 import datetime
 from collections.abc import Generator, Iterator
@@ -2798,3 +2799,67 @@ class TestMySQLConnectDialsOnlyValidatedAddresses:
 
         cloud.create_connection.assert_not_called()
         connection.connect.assert_not_called()
+
+
+@contextmanager
+def _loopback_tunnel() -> Iterator[tuple[str, int]]:
+    yield "127.0.0.1", 13306
+
+
+class TestConnectCertificateVerification:
+    @staticmethod
+    def _connect_kwargs(mocker, *, using_ssl: str, verify: str, tunneled: bool) -> dict:
+        connection = MagicMock()
+        connection.__enter__.return_value._sock = MagicMock(spec=ssl.SSLSocket)
+        mock_connect = mocker.patch(f"{_MYSQL_MODULE}.pymysql.connect", return_value=connection)
+        overrides: dict = {"using_ssl": using_ssl, "verify_server_certificate": verify}
+        if tunneled:
+            overrides["ssh_tunnel"] = {"enabled": "true", "host": "bastion.example.com", "port": "22"}
+            mocker.patch(f"{_MYSQL_MODULE}.open_ssh_tunnel", return_value=_loopback_tunnel())
+
+        with MySQLImplementation().connect(_make_config(**overrides)):
+            pass
+
+        return mock_connect.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        "using_ssl,verify,tunneled,expected_ca,expected_cert,expected_identity",
+        [
+            ("true", "false", False, True, None, None),
+            ("false", "false", False, False, None, None),
+            ("true", "true", False, True, True, True),
+            ("true", "true", True, True, True, None),
+            ("false", "true", False, True, True, True),
+        ],
+    )
+    def test_verification_kwargs(
+        self, mocker, using_ssl, verify, tunneled, expected_ca, expected_cert, expected_identity
+    ):
+        # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so these three kwargs
+        # decide whether TLS is verified. A default that stopped being None would start verifying
+        # every existing source, and a private CA or self-signed certificate fails that check.
+        # `ssl_verify_identity` through the tunnel would check the certificate against the
+        # loopback address the forwarder binds, which no certificate carries.
+        kwargs = self._connect_kwargs(mocker, using_ssl=using_ssl, verify=verify, tunneled=tunneled)
+
+        assert (kwargs["ssl_ca"] is not None) is expected_ca
+        assert kwargs["ssl_verify_cert"] is expected_cert
+        assert kwargs["ssl_verify_identity"] is expected_identity
+
+    @pytest.mark.parametrize("verify,expected_error", [("true", True), ("false", False)])
+    def test_a_server_that_offers_no_tls(self, mocker, verify, expected_error):
+        # pymysql wraps the socket only when the server advertises the TLS capability and has no
+        # else branch, so an unverified source keeps reading data over a plaintext connection.
+        connection = MagicMock()
+        connection.__enter__.return_value._sock = MagicMock(spec=socket.socket)
+        mocker.patch(f"{_MYSQL_MODULE}.pymysql.connect", return_value=connection)
+        config = _make_config(using_ssl="true", verify_server_certificate=verify)
+
+        if not expected_error:
+            with MySQLImplementation().connect(config):
+                pass
+            return
+
+        with pytest.raises(pymysql.err.OperationalError, match="did not offer a TLS connection"):
+            with MySQLImplementation().connect(config):
+                pass
