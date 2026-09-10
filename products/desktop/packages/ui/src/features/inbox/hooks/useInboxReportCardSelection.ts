@@ -104,6 +104,10 @@ export function useInboxReportCardSelection(
       ) {
         return;
       }
+      // A touch client gives every contact `button === 0`, so a second finger arrives here while
+      // the first hold runs. Without this the running timer loses its only reference, which means
+      // no lift, no travel and no unmount can stop it from selecting the card.
+      cancelHold();
       holdOriginRef.current = { x: event.clientX, y: event.clientY };
       setIsHolding(true);
       holdTimerRef.current = window.setTimeout(() => {
@@ -114,7 +118,7 @@ export function useInboxReportCardSelection(
         toggle("long_press");
       }, SELECTION_HOLD_MS);
     },
-    [enabled, toggle],
+    [cancelHold, enabled, toggle],
   );
 
   const onPointerMove = useCallback(

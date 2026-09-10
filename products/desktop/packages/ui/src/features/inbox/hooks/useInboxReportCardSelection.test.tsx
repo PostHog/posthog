@@ -98,6 +98,23 @@ describe("useInboxReportCardSelection", () => {
     expect(result.current.isHolding).toBe(false);
   });
 
+  it("drops the running hold when a second contact starts, so no timer outlives the press", () => {
+    const { result } = renderHook(() =>
+      useInboxReportCardSelection("r2", true),
+    );
+
+    act(() => {
+      result.current.cardHandlers.onPointerDown(pointerDownAt(10, 10));
+      result.current.cardHandlers.onPointerDown(pointerDownAt(40, 40));
+      result.current.cardHandlers.onPointerUp();
+      result.current.cardHandlers.onPointerUp();
+      vi.advanceTimersByTime(SELECTION_HOLD_MS * 2);
+    });
+
+    expect(selectedIds()).toEqual([]);
+    expect(result.current.isHolding).toBe(false);
+  });
+
   it("leaves a plain click alone until something is selected", () => {
     const { result } = renderHook(() =>
       useInboxReportCardSelection("r2", true),
