@@ -1,6 +1,6 @@
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 
 from django.test import override_settings
 
@@ -29,7 +29,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
         self.feature_flag = self.create_feature_flag()
         self.experiment = self.create_experiment(feature_flag=self.feature_flag)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_no_missing_variants(self):
         """When all variants are present, should return unchanged."""
         metric = ExperimentMeanMetric(
@@ -49,7 +49,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
         assert len(result) == 2
         assert result == variants
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_missing_variant_without_breakdown(self):
         """Should add missing variant with None breakdown."""
         metric = ExperimentMeanMetric(
@@ -73,7 +73,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
         assert result[1][1].sum == 0
         assert result[1][1].sum_squares == 0
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_multiple_missing_variants_without_breakdown(self):
         """Should add all missing variants when multiple are missing."""
         # Create feature flag with 3 variants
@@ -103,7 +103,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
         assert "test" in keys
         assert "test-2" in keys
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_missing_variant_with_single_breakdown(self):
         """Should add missing variant for each breakdown value."""
         metric = ExperimentMeanMetric(
@@ -133,7 +133,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             assert stats.number_of_samples == 0
             assert stats.sum == 0
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_missing_variant_with_multiple_breakdowns(self):
         """Should add missing variant for each breakdown combination."""
         metric = ExperimentMeanMetric(
@@ -170,7 +170,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             ("with_breakdown", BreakdownFilter(breakdowns=[Breakdown(property="$browser")])),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_empty_variants_list(self, _name, breakdown_filter):
         """Should add all configured variants when input is empty."""
         metric = ExperimentMeanMetric(
@@ -193,7 +193,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             assert breakdown is None
             assert stats.number_of_samples == 0
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_preserves_existing_variants(self):
         """Should not modify existing variant data."""
         metric = ExperimentMeanMetric(
@@ -215,7 +215,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
         assert result[0][1].number_of_samples == 100
         assert result[0][1].sum == 250.0
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_creates_unique_objects_per_breakdown(self):
         """Verifies that each breakdown gets a unique ExperimentStatsBase object (regression test)."""
         metric = ExperimentMeanMetric(
@@ -244,7 +244,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
         assert objects[0] is not objects[2]
         assert objects[1] is not objects[2]
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_with_holdout_variant(self):
         from products.experiments.backend.models.experiment import ExperimentHoldout
 

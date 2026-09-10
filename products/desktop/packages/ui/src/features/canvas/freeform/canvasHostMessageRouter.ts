@@ -12,6 +12,7 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 // a runaway loop must not be able to pile up unbounded concurrent requests,
 // ship oversized payloads, or hold a request slot forever.
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
+const MAX_CONCURRENT_CONNECTOR_REQUESTS = 8;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
 const REPLAYABLE_SHORTCUT_KEYS = new Set([
@@ -90,6 +91,7 @@ export function createCanvasHostMessageRouter(
 ): (message: CanvasToHostMessage) => Promise<void> {
   let lastExternalOpen = 0;
   let activeDataRequests = 0;
+  let activeConnectorRequests = 0;
 
   return async (message) => {
     switch (message.type) {
@@ -113,13 +115,15 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
-        // agentRequest settles on a viewer's decision, not on I/O, so it stays
-        // out of the shared slot pool: an approval dialog left open must not
-        // starve the canvas's ordinary reads/writes. Its own bound is the
-        // host's single-flight guard (one request awaiting approval at a time).
-        const holdsSlot = message.method !== "agentRequest";
+        // Approval waits must not consume ordinary read/write slots.
+        // Connector calls have their own limit; agent requests are single-flight.
+        const isConnectorRequest = message.method === "connectorCall";
+        const holdsSlot =
+          message.method !== "agentRequest" && !isConnectorRequest;
         if (
           (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
+          (isConnectorRequest &&
+            activeConnectorRequests >= MAX_CONCURRENT_CONNECTOR_REQUESTS) ||
           !isBoundedPayload(message.payload)
         ) {
           options.post({
@@ -132,17 +136,16 @@ export function createCanvasHostMessageRouter(
           break;
         }
         if (holdsSlot) activeDataRequests += 1;
+        if (isConnectorRequest) activeConnectorRequests += 1;
         try {
           const call = options
             .callbacks()
             .onDataRequest(message.method, message.payload);
-          // agentRequest settles only when a viewer approves or cancels the
-          // request in a dialog, which can take arbitrarily long. Racing it
-          // against the generic timeout would tell the canvas the request
-          // failed while the dialog is still open and a later approval could
-          // still start the run, so it opts out of the timeout.
+          // Approval dialogs can stay open longer than the I/O timeout.
+          // Do not report a failure while a later approval can still run the call.
           const result =
-            message.method === "agentRequest"
+            message.method === "agentRequest" ||
+            message.method === "connectorCall"
               ? await call
               : await Promise.race([
                   call,
@@ -170,6 +173,7 @@ export function createCanvasHostMessageRouter(
           });
         } finally {
           if (holdsSlot) activeDataRequests -= 1;
+          if (isConnectorRequest) activeConnectorRequests -= 1;
         }
         break;
       }

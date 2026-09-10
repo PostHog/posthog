@@ -170,8 +170,8 @@ FLAG_FILTERS_WRITE_COUNTER = Counter(
 
 FLAG_FILTERS_VIOLATION_COUNTER = Counter(
     "posthog_feature_flag_filters_violation_total",
-    "Filters validation violations, by tier and rule",
-    labelnames=["stage", "rule", "operation"],
+    "Filters validation violations, by tier, rule and write source",
+    labelnames=["stage", "rule", "operation", "source"],
 )
 
 
@@ -179,6 +179,14 @@ def _flag_write_source(request: Any) -> str:
     """Coarse write-source attribution for metrics. Never returns unbounded values."""
     if request is None:
         return "internal"
+    # ServiceRequest declares a system write and carries no authenticator, so the checks
+    # below would read it as an unidentified caller.
+    if getattr(request, "is_system", False):
+        return "internal"
+    # PostHog AI builds its own request shim with no authenticator, so without this it lands
+    # in the same bucket as a caller we failed to identify.
+    if getattr(request, "is_posthog_ai", False):
+        return "posthog_ai"
     headers = getattr(request, "headers", None) or {}
     if headers.get("x-posthog-mcp-user-agent") or "posthog-mcp" in (headers.get("User-Agent") or ""):
         return "mcp"
@@ -199,9 +207,11 @@ def _count_filters_write(operation: str, outcome: str, request: Any) -> None:
     FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source=_flag_write_source(request)).inc()
 
 
-def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str | None]) -> None:
+def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str | None], source: str) -> None:
     for rule_id in rule_ids:
-        FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule_id or "unknown", operation=operation).inc()
+        FLAG_FILTERS_VIOLATION_COUNTER.labels(
+            stage=stage, rule=rule_id or "unknown", operation=operation, source=source
+        ).inc()
 
 
 def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
@@ -1604,6 +1614,7 @@ class FeatureFlagSerializer(
         # `filters` arrives as the raw request dict, so the structural tier runs once below,
         # on the merged state.
         fully_enforced = _all_filters_rules_are_enforced()
+        source = _flag_write_source(self.context.get("request"))
 
         # A rule that only logs must never accept what the pre-enforcement validator rejected,
         # so the cache-poisoning class stays rejected throughout the rollout. Once every rule
@@ -1613,7 +1624,7 @@ class FeatureFlagSerializer(
             try:
                 _reject_serde_unsafe_filters(filters)
             except serializers.ValidationError:
-                _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"])
+                _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"], source)
                 raise
 
         # Updates validate and store the merged final state (#50084): incoming top-level keys
@@ -1668,12 +1679,12 @@ class FeatureFlagSerializer(
                 ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
                 for violation in flatten_structural_errors(structural.errors)
             ]
-            _count_filters_violations("merged_structural", operation, [detail.code for detail in details])
+            _count_filters_violations("merged_structural", operation, [detail.code for detail in details], source)
             # Cross-field collectors trust structurally valid input, so they never run for this
             # write. Record that rather than leaving the stage silent: the flags this rollout is
             # about are mostly cross-field violators whose merged state fails structurally, so a
             # bare zero on the cross_field series would read as "none left to fix".
-            _count_filters_violations("cross_field", operation, ["not_evaluated"])
+            _count_filters_violations("cross_field", operation, ["not_evaluated"], source)
             # Only the enforced rules reject, and only they are reported: a rule still rolling
             # out must not turn into a 400 by sharing a request with one that is enforced.
             enforced_details = [detail for detail in details if _filters_rule_is_enforced(detail.code)]
@@ -1789,7 +1800,7 @@ class FeatureFlagSerializer(
             cross_field_violations = collect_cross_field_violations(merged)
             if cross_field_violations:
                 _count_filters_violations(
-                    "cross_field", operation, [violation.rule_id for violation in cross_field_violations]
+                    "cross_field", operation, [violation.rule_id for violation in cross_field_violations], source
                 )
                 enforced_violations = [
                     violation for violation in cross_field_violations if _filters_rule_is_enforced(violation.rule_id)

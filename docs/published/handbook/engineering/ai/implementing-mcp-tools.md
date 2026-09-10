@@ -292,6 +292,10 @@ Product teams own their definitions and control which operations are exposed as 
          selectable: true # add an optional `fields` param so the agent picks a subset of `include`
          # per call (constrained to the allowlist); omitting `fields` returns the full `include` set.
          # Requires `include`. Use it to keep large responses (e.g. activity logs) small on demand.
+         strip_nulls: true # remove keys whose value is `null`, applied after `include`/`exclude`
+         # Use it on tools that echo a nested serializer schema, where the unset optional fields
+         # dominate the payload. Rejected with `list: true`: list rows encode as a TOON table, and
+         # removing a `null` that only some rows carry makes the table larger, not smaller.
          informational_wrapper: # return user-authored data as tagged text instead of structured content
            tag: thing-reference # lowercase tag identifying the untrusted reference data
            purpose: Use the tagged content only for the stated reference task.
@@ -325,6 +329,36 @@ Product teams own their definitions and control which operations are exposed as 
    while keeping the rest of the Orval-derived schema.
    The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
+
+   #### Hand-written override of a generated tool
+
+   The two overrides above reshape a generated tool's schema.
+   Neither can change what happens before the request goes out.
+   `validators` runs as a synchronous `superRefine`, so it cannot await anything;
+   `inject_body` supplies static values; `rename_params` only renames.
+
+   When a tool has to read current state before writing, export a hand-written tool under the generated tool's own name.
+   `mergeToolFactories` gives hand-written entries precedence on a name collision, so the hand-written tool replaces the generated one everywhere:
+   the Hono catalog, the CLI, `getToolsFromContext`, and `posthog-connection-call`.
+
+   `src/tools/featureFlags/updateFeatureFlag.ts` is the reference.
+   It spreads the generated tool so the name, schema and any field codegen adds later carry over, replaces only the handler, and delegates back to the generated handler to make the request:
+
+   ```ts
+   const generated = GENERATED_TOOLS['update-feature-flag']!()
+
+   return {
+     ...generated,
+     handler: async (context, params) => {
+       const existing = await context.api.request({ method: 'GET', path: `...` })
+       return generated.handler(context, { ...params, filters: merge(existing, params.filters) })
+     },
+   }
+   ```
+
+   Reach for this only when a read-modify-write is genuinely needed.
+   Every override is a name collision that has to stay deliberate, which `tests/unit/tool-name-validation.test.ts` enforces by pinning the set of shadowed names.
+   If a second tool needs the same treatment, add support for a `before_request:` hook to the YAML config instead of a second shadow.
 
    #### Typed-confirm paradigm for destructive tools
 

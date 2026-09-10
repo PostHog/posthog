@@ -10,6 +10,7 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import {
   type InboxBackTarget,
   useInboxBackTarget,
@@ -80,6 +81,7 @@ export function DismissedReportDetailContent({
       backLabel={back.label}
       fallbackTitle="Untitled report"
       showDismiss={false}
+      metaSuffix={<ReportTrackerIssueLink report={report} />}
       primaryAction={
         <>
           {canRestore && <RestoreReportButton report={report} />}

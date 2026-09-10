@@ -373,6 +373,7 @@ export {
   readMcpToolName,
   readParentToolCallId,
 } from "./tool-meta";
+export { isTranscriptNeutralNotificationMethod } from "./transcript-neutral-notifications";
 export { TypedEventEmitter } from "./typed-event-emitter";
 export { isSafeExternalUrl, isSafePostHogUrl } from "./url";
 export { getCloudUrlFromRegion } from "./urls";
