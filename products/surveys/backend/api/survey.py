@@ -1162,18 +1162,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
-        intro_screen_header = value.get("introScreenHeader")
-        if intro_screen_header and nh3.is_html(intro_screen_header):
-            value["introScreenHeader"] = nh3_clean_with_allow_list(intro_screen_header)
-
-        intro_screen_description = value.get("introScreenDescription")
-        if intro_screen_description and nh3.is_html(intro_screen_description):
-            value["introScreenDescription"] = nh3_clean_with_allow_list(intro_screen_description)
-
-        intro_screen_button_text = value.get("introScreenButtonText")
-        if intro_screen_button_text and nh3.is_html(intro_screen_button_text):
-            value["introScreenButtonText"] = nh3_clean_with_allow_list(intro_screen_button_text)
-
         intro_screen_description_content_type = value.get("introScreenDescriptionContentType")
         if intro_screen_description_content_type and intro_screen_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("introScreenDescriptionContentType must be one of ['text', 'html']")
