@@ -2234,6 +2234,22 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert data["can_edit"] is True
         assert self._find_member(data["results"], user3_membership.id) is None
 
+    def test_paging_holds_when_the_org_hides_members_without_project_access(self):
+        # Rows are dropped after the query here, so a page the database sliced would come back short
+        hidden = self._create_user("hidden@example.com")
+        hidden_membership = hidden.organization_memberships.get(organization=self.organization)
+        self._put_project_access_control({"access_level": "none"})
+        for membership in [self.organization_membership, self.user2_membership]:
+            self._put_project_access_control({"organization_member": str(membership.id), "access_level": "member"})
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        page = self.client.get("/api/projects/@current/access_control_members?limit=1").json()
+        assert page["total_count"] == 2
+        assert len(page["results"]) == 1
+        assert self._find_member(page["results"], hidden_membership.id) is None
+
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""
         from products.access_control.backend.models.access_control import AccessControl
@@ -2331,6 +2347,34 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         res = self.client.get(f"/api/projects/@current/{endpoint}?member_id={other_membership.id}")
         assert res.status_code == status.HTTP_200_OK, res.json()
+
+    @parameterized.expand(
+        [
+            ("members_list", "access_control_members", "organization_membership_id"),
+            ("roles_list", "access_control_roles", "role_id"),
+        ]
+    )
+    def test_limit_and_offset_walk_the_whole_list(self, _name, endpoint, id_key):
+        for i in range(3):
+            User.objects.create_and_join(self.organization, f"paged{i}@posthog.com", None)
+            Role.objects.create(name=f"Role {i}", organization=self.organization)
+
+        full = self.client.get(f"/api/projects/@current/{endpoint}").json()
+        expected = [row[id_key] for row in full["results"]]
+        assert full["total_count"] == len(expected)
+
+        walked = []
+        for offset in range(0, len(expected), 2):
+            page = self.client.get(f"/api/projects/@current/{endpoint}?limit=2&offset={offset}").json()
+            assert page["total_count"] == len(expected)
+            assert len(page["results"]) <= 2
+            walked += [row[id_key] for row in page["results"]]
+        assert walked == expected
+
+    @parameterized.expand([("limit_zero", "limit=0"), ("limit_text", "limit=nope"), ("negative_offset", "offset=-1")])
+    def test_page_bounds_out_of_range_are_rejected(self, _name, query):
+        res = self.client.get(f"/api/projects/@current/access_control_members?{query}")
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
     def test_member_filter_narrows_the_members_list_to_one_row(self):
         User.objects.create_and_join(self.organization, "second-member@posthog.com", None)

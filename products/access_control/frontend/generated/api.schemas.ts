@@ -245,7 +245,9 @@ export interface AccessControlMembersResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
-    /** One entry per organization member. */
+    /** How many members the caller can see in total, so a paged caller knows what is left. */
+    total_count: number
+    /** One entry per organization member on this page, sorted by email. */
     results: AccessControlMemberAccessApi[]
 }
 
@@ -275,7 +277,9 @@ export interface AccessControlRolesResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
-    /** One entry per role in the organization. */
+    /** How many roles the organization has in total, so a paged caller knows what is left. */
+    total_count: number
+    /** One entry per role in the organization on this page, sorted by name. */
     results: AccessControlRoleAccessApi[]
 }
 
@@ -374,9 +378,19 @@ export type OrganizationsProjectsAccessControlMemberPropertiesRetrieveParams = {
 
 export type OrganizationsProjectsAccessControlMembersRetrieveParams = {
     /**
+     * How many entries to return. Every entry is returned when omitted.
+     * @minimum 1
+     */
+    limit?: number
+    /**
      * Narrow the list to one organization membership id.
      */
     member_id?: string
+    /**
+     * How many entries to skip before the first returned entry.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type OrganizationsProjectsAccessControlRoleObjectsRetrieveParams = {
@@ -394,6 +408,16 @@ export type OrganizationsProjectsAccessControlRolePropertiesRetrieveParams = {
 }
 
 export type OrganizationsProjectsAccessControlRolesRetrieveParams = {
+    /**
+     * How many entries to return. Every entry is returned when omitted.
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * How many entries to skip before the first returned entry.
+     * @minimum 0
+     */
+    offset?: number
     /**
      * Narrow the list to one role.
      */

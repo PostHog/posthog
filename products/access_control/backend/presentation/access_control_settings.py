@@ -16,6 +16,7 @@ from django.db.models import Count, Max, Model, Prefetch, Q
 from django.db.models.functions import Coalesce
 
 from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
@@ -24,6 +25,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import OpenApiParameter, extend_schema
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -54,9 +56,11 @@ from products.access_control.backend.models.role import Role, RoleMembership
 from .access_control import AccessControlSerializer, upsert_access_control
 from .serializers import (
     AccessControlDefaultsResponseSerializer,
+    AccessControlMembersQuerySerializer,
     AccessControlMembersResponseSerializer,
     AccessControlObjectRulesResponseSerializer,
     AccessControlPropertyRulesResponseSerializer,
+    AccessControlRolesQuerySerializer,
     AccessControlRolesResponseSerializer,
 )
 
@@ -83,6 +87,11 @@ _ROLE_ID_PARAM = OpenApiParameter(
     required=True,
     description="The role id, as `role_id` in the roles endpoint.",
 )
+
+
+def _page(rows: Any, limit: int | None, offset: int) -> Any:
+    """A limit of None keeps every row after the offset."""
+    return rows[offset : offset + limit] if limit is not None else rows[offset:]
 
 
 def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
@@ -269,30 +278,29 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         }
         return Response(AccessControlDefaultsResponseSerializer(payload).data)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=AccessControlRolesQuerySerializer,
         description="Every role's resolved access to this project and to each resource type in it: the role's own "
-        "rule, the level that is enforced, and the rule the enforced level comes from. Pass `role_id` for one role.",
-        parameters=[
-            OpenApiParameter(
-                name="role_id",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Narrow the list to one role.",
-            )
-        ],
-        responses={200: AccessControlRolesResponseSerializer},
+        "rule, the level that is enforced, and the rule the enforced level comes from. Pass `role_id` for one role. "
+        "The list is sorted by role name, and `limit` and `offset` page through it.",
+        responses={200: OpenApiResponse(response=AccessControlRolesResponseSerializer)},
         extensions=_SCHEMA_EXTENSIONS,
     )
     @action(methods=["GET"], detail=True, url_path="access_control_roles")
-    def access_control_roles(self, request: Request, *args, **kwargs):
+    def access_control_roles(self, request: ValidatedRequest, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
 
-        roles = Role.objects.filter(organization=team.organization)
+        limit, offset = request.validated_query_data.get("limit"), request.validated_query_data["offset"]
+
+        roles = Role.objects.filter(organization=team.organization).order_by("name", "id")
         # An optional role_id narrows the walk to one role, so the detail panel doesn't pay for the whole list
         if request.query_params.get("role_id"):
             roles = roles.filter(id=self._get_role(request, team).id)
+
+        # Paging in the database, so a page costs one rule resolution per role on the page
+        total_count = roles.count()
+        roles = _page(roles, limit, offset)
 
         # The first subject loads the team's rules once; the rest are seeded from its pool
         team_rows = None
@@ -318,36 +326,32 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
             "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "total_count": total_count,
             "results": results,
         }
         return Response(AccessControlRolesResponseSerializer(payload).data)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=AccessControlMembersQuerySerializer,
         description="Every organization member's access in this project. For the project and for each resource type, "
         "the response gives the member's own rule and the level that is enforced. It also says where the enforced "
         "level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass "
-        "`member_id` for one member.",
-        parameters=[
-            OpenApiParameter(
-                name="member_id",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Narrow the list to one organization membership id.",
-            )
-        ],
-        responses={200: AccessControlMembersResponseSerializer},
+        "`member_id` for one member. The list is sorted by email, and `limit` and `offset` page through it.",
+        responses={200: OpenApiResponse(response=AccessControlMembersResponseSerializer)},
         extensions=_SCHEMA_EXTENSIONS,
     )
     @action(methods=["GET"], detail=True, url_path="access_control_members")
-    def access_control_members(self, request: Request, *args, **kwargs):
+    def access_control_members(self, request: ValidatedRequest, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+
+        limit, offset = request.validated_query_data.get("limit"), request.validated_query_data["offset"]
 
         memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
             .select_related("user")
             .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))
+            .order_by("user__email", "id")
         )
         # An optional member_id narrows the walk to one member, so the detail panel doesn't pay for the whole list
         if request.query_params.get("member_id"):
@@ -358,10 +362,16 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
         )
 
+        # The visibility filter below drops members after the query, so the database can only page
+        # when the filter is off; otherwise the walk has to see every member and page afterwards
+        total_count = memberships.count()
+        if not hide_non_project_members:
+            memberships = _page(memberships, limit, offset)
+
         # The first subject loads the team's rules once; the rest are seeded from its pool
         team_rows = None
 
-        results = []
+        visible = []
         for member in memberships:
             # role_memberships is prefetched on the queryset, so seeding from it costs no query
             role_ids = [str(rm.role_id) for rm in member.role_memberships.all()]
@@ -375,29 +385,34 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             if hide_non_project_members and not subject.has_project_scoped_access(team):
                 continue
 
-            user = member.user
-            results.append(
-                {
-                    "organization_membership_id": member.id,
-                    "user": {
-                        "uuid": user.uuid,
-                        "first_name": user.first_name,
-                        "last_name": user.last_name,
-                        "email": user.email,
-                    },
-                    "organization_level": member.level,
-                    "role_ids": role_ids,
-                    "project": _project_entry(subject, team),
-                    "resources": {
-                        resource: _resource_entry(subject, resource) for resource in ACCESS_CONTROL_RESOURCES
-                    },
-                }
-            )
+            visible.append((member, subject, role_ids))
+
+        if hide_non_project_members:
+            total_count = len(visible)
+            visible = _page(visible, limit, offset)
+
+        results = [
+            {
+                "organization_membership_id": member.id,
+                "user": {
+                    "uuid": member.user.uuid,
+                    "first_name": member.user.first_name,
+                    "last_name": member.user.last_name,
+                    "email": member.user.email,
+                },
+                "organization_level": member.level,
+                "role_ids": role_ids,
+                "project": _project_entry(subject, team),
+                "resources": {resource: _resource_entry(subject, resource) for resource in ACCESS_CONTROL_RESOURCES},
+            }
+            for member, subject, role_ids in visible
+        ]
 
         payload = {
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
             "can_edit": can_edit,
+            "total_count": total_count,
             "results": results,
         }
         return Response(AccessControlMembersResponseSerializer(payload).data)

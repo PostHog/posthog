@@ -208,6 +208,16 @@ const AccessControlMembersListSchema = () => {
             member_id: OrganizationsProjectsAccessControlMembersRetrieveQueryParams.shape['member_id'].describe(
                 'Optional. Narrow the result to one member, by organization membership id.'
             ),
+            limit: OrganizationsProjectsAccessControlMembersRetrieveQueryParams.shape['limit']
+                .default(10)
+                .optional()
+                .describe(
+                    'How many members to return. Each entry covers every resource type, so a large page is a large response.'
+                ),
+            offset: OrganizationsProjectsAccessControlMembersRetrieveQueryParams.shape['offset']
+                .default(0)
+                .optional()
+                .describe('How many members to skip. Add the page size to it for the next page.'),
         })
 }
 
@@ -227,7 +237,9 @@ const accessControlMembersList = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_members/`,
             query: {
+                limit: params.limit,
                 member_id: params.member_id,
+                offset: params.offset,
             },
         })
         const filtered = {
@@ -243,7 +255,7 @@ const accessControlMembersList = (): ToolBase<
         } as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, '/settings/environment-access-control'),
-            'For a question about one object, for example a dashboard or a table, call access-control-member-objects-list; for a person or event property, access-control-member-properties-list. Rules a role sets on objects or properties are only on the role-objects and role-properties tools. Level bounds per tool are on access-control-defaults-get.\n'
+            'An entry per member is long, so raise `limit` a little at a time and page with `offset` until the entries you have reach `total_count`. For a question about one object, for example a dashboard or a table, call access-control-member-objects-list; for a person or event property, access-control-member-properties-list. Rules a role sets on objects or properties are only on the role-objects and role-properties tools. Level bounds per tool are on access-control-defaults-get.\n'
         )
     },
 })
@@ -342,6 +354,16 @@ const AccessControlRolesListSchema = () => {
             role_id: OrganizationsProjectsAccessControlRolesRetrieveQueryParams.shape['role_id'].describe(
                 'Optional. Narrow the result to one role, by role id.'
             ),
+            limit: OrganizationsProjectsAccessControlRolesRetrieveQueryParams.shape['limit']
+                .default(10)
+                .optional()
+                .describe(
+                    'How many roles to return. Each entry covers every resource type, so a large page is a large response.'
+                ),
+            offset: OrganizationsProjectsAccessControlRolesRetrieveQueryParams.shape['offset']
+                .default(0)
+                .optional()
+                .describe('How many roles to skip. Add the page size to it for the next page.'),
         })
 }
 
@@ -361,6 +383,8 @@ const accessControlRolesList = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_roles/`,
             query: {
+                limit: params.limit,
+                offset: params.offset,
                 role_id: params.role_id,
             },
         })
@@ -377,7 +401,7 @@ const accessControlRolesList = (): ToolBase<
         } as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, '/settings/environment-access-control'),
-            "A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and role-members-list gives who is in a role.\n"
+            "An entry per role is long, so raise `limit` a little at a time and page with `offset` until the entries you have reach `total_count`. A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and role-members-list gives who is in a role.\n"
         )
     },
 })

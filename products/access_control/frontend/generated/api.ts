@@ -190,7 +190,7 @@ export const getOrganizationsProjectsAccessControlMembersRetrieveUrl = (
 }
 
 /**
- * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass `member_id` for one member.
+ * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass `member_id` for one member. The list is sorted by email, and `limit` and `offset` page through it.
  */
 export const organizationsProjectsAccessControlMembersRetrieve = async (
     organizationId: string,
@@ -304,7 +304,7 @@ export const getOrganizationsProjectsAccessControlRolesRetrieveUrl = (
 }
 
 /**
- * Every role's resolved access to this project and to each resource type in it: the role's own rule, the level that is enforced, and the rule the enforced level comes from. Pass `role_id` for one role.
+ * Every role's resolved access to this project and to each resource type in it: the role's own rule, the level that is enforced, and the rule the enforced level comes from. Pass `role_id` for one role. The list is sorted by role name, and `limit` and `offset` page through it.
  */
 export const organizationsProjectsAccessControlRolesRetrieve = async (
     organizationId: string,

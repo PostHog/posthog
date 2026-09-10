@@ -109,9 +109,10 @@ All access control tools take an optional project id and default to the active p
    on the mode, and do not guess. Property questions work like step 4 with the properties tools, minus
    the creator check, since properties have no creator.
 6. **"Who can ..." questions** are `members-list` without `member_id`, filtered on
-   `resources.<tool>.effective_access_level`. The response is every member times every tool and has no
-   pagination. For a large organization, ask which people the user cares about first, or answer per
-   member.
+   `resources.<tool>.effective_access_level`. The response gives every tool for every member on the page,
+   so it is long. The tool returns one page at a time: `total_count` says how many members the project
+   has, and `offset` walks the rest. For a large organization, tell the user how many pages you would read
+   and ask which people they care about first.
 
 ## Reading one entry
 
@@ -144,6 +145,8 @@ How to phrase the answer:
   access.
 - `can_edit` on the members and roles lists describes the caller, not the subject: whether the person
   running the tool may change rules.
+- The members and roles lists are paged. `total_count` counts every member or role, not the page, so
+  compare it against the entries you have before you say a list is complete.
 - `available_project_levels` and `available_resource_levels` are the vocabulary, lowest first. Use them
   to compare levels instead of assuming an order.
 - `object_rule_resources` on `defaults-get` lists the tools that accept rules on single objects. A tool

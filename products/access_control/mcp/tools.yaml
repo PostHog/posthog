@@ -158,9 +158,11 @@ tools:
             comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is
             `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an
             `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access
-            skill explains how the levels combine.
+            skill explains how the levels combine. The list is sorted by email and returns one page at a time:
+            `total_count` says how many members the project has, and `offset` walks the rest.
         agent_note: >
-            For a question about one object, for example a dashboard or a table, call
+            An entry per member is long, so raise `limit` a little at a time and page with `offset` until the entries
+            you have reach `total_count`. For a question about one object, for example a dashboard or a table, call
             access-control-member-objects-list; for a person or event property, access-control-member-properties-list.
             Rules a role sets on objects or properties are only on the role-objects and role-properties tools. Level
             bounds per tool are on access-control-defaults-get.
@@ -173,6 +175,15 @@ tools:
             member_id:
                 description: |
                     Optional. Narrow the result to one member, by organization membership id.
+            limit:
+                description: |
+                    How many members to return. Each entry covers every resource type, so a large page is a large
+                    response.
+                default: 10
+            offset:
+                description: |
+                    How many members to skip. Add the page size to it for the next page.
+                default: 0
         feature_entitlement: access_control
         response:
             exclude:
@@ -245,12 +256,14 @@ tools:
             For every role in the organization, the access it grants in the project: to the project itself and to each
             tool. Per entry, `access_level` is the role's own stored rule, `effective_access_level` is what the role's
             members get from it, and `inherited_access` says where that level comes from when the role has no rule of
-            its own. Pass `role_id` for one role.
+            its own. Pass `role_id` for one role. The list is sorted by name and returns one page at a time:
+            `total_count` says how many roles the organization has, and `offset` walks the rest.
         agent_note: >
-            A member's enforced level already includes their roles, so for a person use access-control-members-list. For
-            a role's rules on one object or property, call access-control-role-objects-list or
-            access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and
-            role-members-list gives who is in a role.
+            An entry per role is long, so raise `limit` a little at a time and page with `offset` until the entries you
+            have reach `total_count`. A member's enforced level already includes their roles, so for a person use
+            access-control-members-list. For a role's rules on one object or property, call
+            access-control-role-objects-list or access-control-role-properties-list. A member's roles are `role_ids` on
+            access-control-members-list, and role-members-list gives who is in a role.
         param_overrides:
             id:
                 description: |
@@ -260,6 +273,15 @@ tools:
             role_id:
                 description: |
                     Optional. Narrow the result to one role, by role id.
+            limit:
+                description: |
+                    How many roles to return. Each entry covers every resource type, so a large page is a large
+                    response.
+                default: 10
+            offset:
+                description: |
+                    How many roles to skip. Add the page size to it for the next page.
+                default: 0
         feature_entitlement: role_based_access
         response:
             exclude:

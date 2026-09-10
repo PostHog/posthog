@@ -203,12 +203,44 @@ class _AccessControlSettingsResponseSerializer(serializers.Serializer):
     can_edit = serializers.BooleanField(help_text="Whether the caller may change access rules in this project.")
 
 
+class _AccessControlPageQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="How many entries to return. Every entry is returned when omitted.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="How many entries to skip before the first returned entry.",
+    )
+
+
+class AccessControlMembersQuerySerializer(_AccessControlPageQuerySerializer):
+    member_id = serializers.UUIDField(required=False, help_text="Narrow the list to one organization membership id.")
+
+
+class AccessControlRolesQuerySerializer(_AccessControlPageQuerySerializer):
+    role_id = serializers.UUIDField(required=False, help_text="Narrow the list to one role.")
+
+
 class AccessControlMembersResponseSerializer(_AccessControlSettingsResponseSerializer):
-    results = AccessControlMemberAccessSerializer(many=True, help_text="One entry per organization member.")
+    total_count = serializers.IntegerField(
+        help_text="How many members the caller can see in total, so a paged caller knows what is left.",
+    )
+    results = AccessControlMemberAccessSerializer(
+        many=True, help_text="One entry per organization member on this page, sorted by email."
+    )
 
 
 class AccessControlRolesResponseSerializer(_AccessControlSettingsResponseSerializer):
-    results = AccessControlRoleAccessSerializer(many=True, help_text="One entry per role in the organization.")
+    total_count = serializers.IntegerField(
+        help_text="How many roles the organization has in total, so a paged caller knows what is left.",
+    )
+    results = AccessControlRoleAccessSerializer(
+        many=True, help_text="One entry per role in the organization on this page, sorted by name."
+    )
 
 
 class AccessControlResourceDefaultSerializer(serializers.Serializer):

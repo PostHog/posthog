@@ -116,7 +116,7 @@ export const OrganizationsProjectsAccessControlMemberPropertiesRetrieveQueryPara
 })
 
 /**
- * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass `member_id` for one member.
+ * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass `member_id` for one member. The list is sorted by email, and `limit` and `offset` page through it.
  */
 export const organizationsProjectsAccessControlMembersRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlMembersRetrievePathIdMax = 2147483647
@@ -134,8 +134,17 @@ export const OrganizationsProjectsAccessControlMembersRetrieveParams = () => zod
         ),
 })
 
+export const organizationsProjectsAccessControlMembersRetrieveQueryOffsetDefault = 0
+export const organizationsProjectsAccessControlMembersRetrieveQueryOffsetMin = 0
+
 export const OrganizationsProjectsAccessControlMembersRetrieveQueryParams = () => zod.object({
+    limit: zod.number().min(1).optional().describe('How many entries to return. Every entry is returned when omitted.'),
     member_id: zod.string().optional().describe('Narrow the list to one organization membership id.'),
+    offset: zod
+        .number()
+        .min(organizationsProjectsAccessControlMembersRetrieveQueryOffsetMin)
+        .default(organizationsProjectsAccessControlMembersRetrieveQueryOffsetDefault)
+        .describe('How many entries to skip before the first returned entry.'),
 })
 
 /**
@@ -185,7 +194,7 @@ export const OrganizationsProjectsAccessControlRolePropertiesRetrieveQueryParams
 })
 
 /**
- * Every role's resolved access to this project and to each resource type in it: the role's own rule, the level that is enforced, and the rule the enforced level comes from. Pass `role_id` for one role.
+ * Every role's resolved access to this project and to each resource type in it: the role's own rule, the level that is enforced, and the rule the enforced level comes from. Pass `role_id` for one role. The list is sorted by role name, and `limit` and `offset` page through it.
  */
 export const organizationsProjectsAccessControlRolesRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlRolesRetrievePathIdMax = 2147483647
@@ -203,6 +212,15 @@ export const OrganizationsProjectsAccessControlRolesRetrieveParams = () => zod.o
         ),
 })
 
+export const organizationsProjectsAccessControlRolesRetrieveQueryOffsetDefault = 0
+export const organizationsProjectsAccessControlRolesRetrieveQueryOffsetMin = 0
+
 export const OrganizationsProjectsAccessControlRolesRetrieveQueryParams = () => zod.object({
+    limit: zod.number().min(1).optional().describe('How many entries to return. Every entry is returned when omitted.'),
+    offset: zod
+        .number()
+        .min(organizationsProjectsAccessControlRolesRetrieveQueryOffsetMin)
+        .default(organizationsProjectsAccessControlRolesRetrieveQueryOffsetDefault)
+        .describe('How many entries to skip before the first returned entry.'),
     role_id: zod.string().optional().describe('Narrow the list to one role.'),
 })

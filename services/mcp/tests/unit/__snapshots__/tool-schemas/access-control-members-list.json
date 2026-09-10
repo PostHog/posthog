@@ -7,9 +7,21 @@
             "minimum": -2147483648,
             "type": "number"
         },
+        "limit": {
+            "default": 10,
+            "description": "How many members to return. Each entry covers every resource type, so a large page is a large response.",
+            "minimum": 1,
+            "type": "number"
+        },
         "member_id": {
             "description": "Optional. Narrow the result to one member, by organization membership id.",
             "type": "string"
+        },
+        "offset": {
+            "default": 0,
+            "description": "How many members to skip. Add the page size to it for the next page.",
+            "minimum": 0,
+            "type": "number"
         }
     },
     "type": "object"
