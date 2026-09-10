@@ -74,7 +74,7 @@ import {
   type AppServerClientHandlers,
   type AppServerRpc,
 } from "./app-server-client";
-import { handleServerRequest } from "./approvals";
+import { handleServerRequest, networkApprovalOptions } from "./approvals";
 import {
   buildSdkSessionParams,
   buildTurnCompleteParams,
@@ -2368,6 +2368,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const availableDecisions = Array.isArray(detail.availableDecisions)
       ? detail.availableDecisions
       : [];
+    const networkOptions = isFileChange
+      ? []
+      : networkApprovalOptions(availableDecisions);
     const offeredRememberDecision =
       availableDecisions.find(
         (d) =>
@@ -2454,6 +2457,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
                 },
               ]
             : []),
+          ...networkOptions.map(({ option }) => option),
           { optionId: "reject", name: "Reject", kind: "reject_once" },
           {
             optionId: "reject_with_feedback",
@@ -2464,6 +2468,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ],
       });
       if (response.outcome.outcome === "selected") {
+        const selectedOptionId = response.outcome.optionId;
+        const networkOption = networkOptions.find(
+          ({ option }) => option.optionId === selectedOptionId,
+        );
+        if (networkOption) {
+          return { decision: networkOption.decision };
+        }
         if (response.outcome.optionId === "allow_always" && rememberDecision) {
           // Echo codex's "approve and remember" decision so it applies the proposed amendment.
           return { decision: rememberDecision };

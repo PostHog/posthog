@@ -135,6 +135,9 @@ export interface ThreadItem {
     /** Stable id — message buffer id, tool call id, or a generated separator/error id. */
     id: string
     type: ThreadItemType
+    /** Recorded activity times in milliseconds; absent for imported or untimed history. */
+    startedAt?: number
+    endedAt?: number
     /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
     /** Whether the assistant message buffer is finalized. */
@@ -171,14 +174,6 @@ export interface ThreadItem {
      * copyable rows carrying a send's attached trusted/untrusted context blocks.
      */
     debugLevel?: string
-}
-
-/** One PostHog product the agent grounded an answer in, accumulated across the whole session. */
-export interface ResourceProduct {
-    /** Wire product id, e.g. 'product_analytics'. The local taxonomy maps it to an icon + label. */
-    id: string
-    /** Wire-supplied label; falls back to the local taxonomy label when absent. */
-    label?: string
 }
 
 /**

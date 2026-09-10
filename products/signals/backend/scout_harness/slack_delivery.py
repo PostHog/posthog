@@ -12,6 +12,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
 
@@ -24,14 +25,12 @@ from products.signals.backend.scout_harness.slack_charts import (
     strip_chart_blocks,
 )
 from products.signals.backend.slack_formatting import (
-    SLACK_MARKDOWN_TEXT_MAX_LEN,
     chunk_slack_text,
     defuse_slack_tokens,
     escape_slack_mrkdwn,
     group_segments_to_limit,
     prepare_slack_markdown,
     slack_channel_id_from_target,
-    slack_markdown_block,
     split_markdown_by_headings,
     strip_chart_references,
 )
