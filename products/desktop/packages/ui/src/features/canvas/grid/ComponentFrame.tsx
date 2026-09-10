@@ -3,10 +3,11 @@ import {
   type GridPlacement,
   pinnedComponentVersion,
 } from "@posthog/core/canvas/gridLayoutSchemas";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import type { CanvasCapabilities } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
@@ -49,8 +50,9 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
     (method: string, payload: unknown) =>
       handleFreeformDataRequest(method, payload, queryClient, {
         dashboardId: componentId,
+        sourceVersionId: renderedBuild?.sourceVersionId,
       }),
-    [queryClient, componentId],
+    [queryClient, componentId, renderedBuild?.sourceVersionId],
   );
 
   const capabilities = renderedBuild?.manifest
@@ -135,11 +137,7 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
         </div>
       );
     }
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
   return (
     <BuiltCanvas

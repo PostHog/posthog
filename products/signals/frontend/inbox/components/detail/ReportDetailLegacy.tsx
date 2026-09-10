@@ -37,9 +37,9 @@ import {
 } from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
-import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
+import { ImplementButton } from './ImplementButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import {
@@ -56,6 +56,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
+import { TrackerIssueNote } from './TrackerIssueNote'
 
 const SIGNALS_TOOLTIP =
     'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
@@ -444,10 +445,7 @@ function InboxDetailFrameLegacy({
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
                         {primaryAction}
-                        {/* The report's main call to action. Same gate and standalone button the redesign pane
-                            uses, so a flag-off reader keeps Create PR. Never shows alongside the "Open in
-                            GitHub" primary action — the gate is false once a PR exists. */}
-                        {canCreateImplementationPr(report) && <CreatePrButton report={report} />}
+                        {canCreateImplementationPr(report) && <ImplementButton report={report} />}
                         {/* Discuss is always available and stays inline as its own dropdown button. */}
                         <DiscussReportButton report={report} reportUrl={reportUrl} />
                         {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
@@ -599,7 +597,14 @@ export function ReportDetailLegacy({ report, tab }: { report: SignalReport; tab:
             }
             // The PR conversation sits under the Summary as primary content; CI checks stay in the
             // sidebar. Both drop themselves when there's nothing to show.
-            summaryFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
+            summaryFooter={
+                hasPr || report.tracker_issue_url || report.tracker_issue_error ? (
+                    <>
+                        <TrackerIssueNote report={report} />
+                        {hasPr && <PrCommentsSection report={report} />}
+                    </>
+                ) : undefined
+            }
         >
             {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrameLegacy>

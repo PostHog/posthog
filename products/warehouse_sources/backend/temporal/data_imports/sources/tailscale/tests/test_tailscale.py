@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale import tailscale as tailscale_module
@@ -189,8 +189,12 @@ class TestGetRows:
         ]
 
 
-@freeze_time("2026-01-30T00:00:00Z")
 class TestAuditLogRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-01-30T00:00:00Z", tick=False):
+            yield
+
     def _run(self, responses: list[Any], manager: Optional[mock.MagicMock] = None, **kwargs: Any):
         if manager is None:
             manager = mock.MagicMock()

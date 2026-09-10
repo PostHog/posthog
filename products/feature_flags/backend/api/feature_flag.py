@@ -9,7 +9,7 @@ import functools
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, NoReturn, Optional, cast
+from typing import Any, Literal, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -150,6 +150,8 @@ scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 # the violations that would have been 400s while the #50084 enforcement kill switch is off.
 filters_enforcement_logger = structlog.get_logger("posthog.feature_flag_filters_enforcement")
 
+FEATURE_FLAG_USAGE_DASHBOARD_SUNSET = "Fri, 25 Sep 2026 00:00:00 GMT"
+
 # DRF error messages echo caller-controlled input (a ChoiceField repeats the rejected value)
 # and bodies up to 20MB reach validation before the filter-size check runs, so an unbounded
 # log line is one PATCH away. The bake depends on these logs staying countable.
@@ -168,14 +170,18 @@ FLAG_FILTERS_WRITE_COUNTER = Counter(
 
 FLAG_FILTERS_VIOLATION_COUNTER = Counter(
     "posthog_feature_flag_filters_violation_total",
-    "Filters validation violations, by tier and rule",
-    labelnames=["stage", "rule", "operation"],
+    "Filters validation violations, by tier, rule and write source",
+    labelnames=["stage", "rule", "operation", "source"],
 )
 
 
 def _flag_write_source(request: Any) -> str:
     """Coarse write-source attribution for metrics. Never returns unbounded values."""
     if request is None:
+        return "internal"
+    # ServiceRequest declares a system write and carries no authenticator, so the checks
+    # below would read it as an unidentified caller.
+    if getattr(request, "is_system", False):
         return "internal"
     headers = getattr(request, "headers", None) or {}
     if headers.get("x-posthog-mcp-user-agent") or "posthog-mcp" in (headers.get("User-Agent") or ""):
@@ -197,9 +203,11 @@ def _count_filters_write(operation: str, outcome: str, request: Any) -> None:
     FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source=_flag_write_source(request)).inc()
 
 
-def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str | None]) -> None:
+def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str | None], source: str) -> None:
     for rule_id in rule_ids:
-        FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule_id or "unknown", operation=operation).inc()
+        FLAG_FILTERS_VIOLATION_COUNTER.labels(
+            stage=stage, rule=rule_id or "unknown", operation=operation, source=source
+        ).inc()
 
 
 def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
@@ -571,27 +579,15 @@ def find_dependent_flags_batch(
 def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
     """Compute rollout state for a flag to include in bulk delete response.
 
-    Thin adapter over ``FeatureFlagStatusChecker.get_rollout_summary`` so the
-    "fully rolled out" determination has a single source of truth. Maps the
-    summary to the bulk-delete vocabulary:
+    Thin adapter over ``rollout_state_and_variant`` so the "fully rolled out"
+    determination has a single source of truth. Maps the summary to the
+    bulk-delete vocabulary:
       - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
       - active_variant: variant key if a multivariate flag is fully rolled out to one variant
     """
     summary = checker.get_rollout_summary(flag)
-
-    if summary.effectively_full_rollout:
-        active_variant = None
-        if summary.is_multivariate:
-            # summary already established full rollout; this only fetches the winning variant key.
-            # Both calls read the same in-memory flag, so they cannot disagree.
-            _, active_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
-        return {"rollout_state": "fully_rolled_out", "active_variant": active_variant}
-
-    # Effectively at 0%: every release condition is at 0 (max across groups is 0).
-    if summary.max_rollout_percentage == 0:
-        return {"rollout_state": "not_rolled_out", "active_variant": None}
-
-    return {"rollout_state": "partial", "active_variant": None}
+    rollout_state, active_variant = checker.rollout_state_and_variant(flag, summary)
+    return {"rollout_state": rollout_state, "active_variant": active_variant}
 
 
 def calculate_filter_size_bytes(filters: dict | None) -> int:
@@ -1204,6 +1200,14 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
+class FeatureFlagUsageDashboardSuccessSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the usage dashboard operation completed successfully.")
+
+
+class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessSerializer):
+    error = serializers.CharField(help_text="Why the usage dashboard operation failed.")
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1234,9 +1238,9 @@ class FeatureFlagSerializer(
         read_only=True,
         allow_null=True,
         help_text=(
-            "Dashboard of saved usage insights for this flag, or null if it has none. "
-            "Flags do not get one on creation; create it with "
-            "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/."
+            "Legacy dashboard of saved usage insights for this flag, or null if it has none. "
+            "New flags show usage charts inline instead. The dashboard creation endpoint is deprecated "
+            "and will be removed after September 25, 2026."
         ),
     )
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
@@ -1606,6 +1610,7 @@ class FeatureFlagSerializer(
         # `filters` arrives as the raw request dict, so the structural tier runs once below,
         # on the merged state.
         fully_enforced = _all_filters_rules_are_enforced()
+        source = _flag_write_source(self.context.get("request"))
 
         # A rule that only logs must never accept what the pre-enforcement validator rejected,
         # so the cache-poisoning class stays rejected throughout the rollout. Once every rule
@@ -1615,7 +1620,7 @@ class FeatureFlagSerializer(
             try:
                 _reject_serde_unsafe_filters(filters)
             except serializers.ValidationError:
-                _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"])
+                _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"], source)
                 raise
 
         # Updates validate and store the merged final state (#50084): incoming top-level keys
@@ -1670,12 +1675,12 @@ class FeatureFlagSerializer(
                 ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
                 for violation in flatten_structural_errors(structural.errors)
             ]
-            _count_filters_violations("merged_structural", operation, [detail.code for detail in details])
+            _count_filters_violations("merged_structural", operation, [detail.code for detail in details], source)
             # Cross-field collectors trust structurally valid input, so they never run for this
             # write. Record that rather than leaving the stage silent: the flags this rollout is
             # about are mostly cross-field violators whose merged state fails structurally, so a
             # bare zero on the cross_field series would read as "none left to fix".
-            _count_filters_violations("cross_field", operation, ["not_evaluated"])
+            _count_filters_violations("cross_field", operation, ["not_evaluated"], source)
             # Only the enforced rules reject, and only they are reported: a rule still rolling
             # out must not turn into a 400 by sharing a request with one that is enforced.
             enforced_details = [detail for detail in details if _filters_rule_is_enforced(detail.code)]
@@ -1791,7 +1796,7 @@ class FeatureFlagSerializer(
             cross_field_violations = collect_cross_field_violations(merged)
             if cross_field_violations:
                 _count_filters_violations(
-                    "cross_field", operation, [violation.rule_id for violation in cross_field_violations]
+                    "cross_field", operation, [violation.rule_id for violation in cross_field_violations], source
                 )
                 enforced_violations = [
                     violation for violation in cross_field_violations if _filters_rule_is_enforced(violation.rule_id)
@@ -3525,17 +3530,56 @@ class FeatureFlagViewSet(
             status=400,
         )
 
-    # No UI surface calls this, since the Usage tab renders its charts inline. It exists for API
-    # users who want a saved usage dashboard.
-    @extend_schema(request=None)
+    @staticmethod
+    def _with_usage_dashboard_deprecation_headers(response: Response, *, include_sunset: bool = True) -> Response:
+        response["Deprecation"] = "true"
+        if include_sunset:
+            response["Sunset"] = FEATURE_FLAG_USAGE_DASHBOARD_SUNSET
+        return response
+
+    def _report_usage_dashboard_endpoint_call(
+        self,
+        request: request.Request,
+        endpoint: Literal["dashboard", "enrich_usage_dashboard"],
+        outcome: Literal["created", "existing", "success", "error"],
+    ) -> None:
+        try:
+            report_user_action(
+                request.user,
+                "deprecated feature flag usage dashboard endpoint called",
+                {"endpoint": endpoint, "outcome": outcome},
+                team=self.team,
+                organization=self.team.organization,
+            )
+        except Exception:
+            logger.exception("Failed to report deprecated feature flag usage dashboard endpoint call")
+
+    # No UI surface calls this, since the Usage tab renders its charts inline.
+    # Without required_scopes, APIScopePermission rejects every personal API key, OAuth, and
+    # project secret key caller, so only a session-authenticated request reaches this action.
+    # It remains functional until the announced sunset.
+    @extend_schema(
+        request=None,
+        responses={
+            status.HTTP_200_OK: FeatureFlagUsageDashboardSuccessSerializer,
+            status.HTTP_400_BAD_REQUEST: FeatureFlagUsageDashboardErrorSerializer,
+        },
+        deprecated=True,
+        description=(
+            "Deprecated. Ensures a saved usage dashboard exists for a feature flag. "
+            "This endpoint will be removed after September 25, 2026; usage charts remain available "
+            "on the feature flag Usage tab."
+        ),
+    )
     @action(methods=["POST"], detail=True)
-    def dashboard(self, request: request.Request, **kwargs):
+    def dashboard(self, request: request.Request, **kwargs: Any) -> Response:
         from products.dashboards.backend.models.dashboard import Dashboard
 
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "generating a usage dashboard")
         if rejection is not None:
-            return rejection
+            self._report_usage_dashboard_endpoint_call(request, "dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(rejection)
         try:
             # The FK on the flag isn't cleared by a dashboard soft-delete, so look the id up
             # through the manager that excludes deleted rows rather than via the FK accessor,
@@ -3549,73 +3593,112 @@ class FeatureFlagViewSet(
             )
             if usage_dashboard is None:
                 usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
+                outcome: Literal["created", "existing"] = "created"
+            else:
+                outcome = "existing"
 
             if feature_flag.has_enriched_analytics and not feature_flag.usage_dashboard_has_enriched_insights:
                 add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
 
         except Exception as e:
             capture_exception(e)
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Unable to generate usage dashboard",
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "Unable to generate usage dashboard",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             )
 
-        return Response({"success": True}, status=200)
+        self._report_usage_dashboard_endpoint_call(request, "dashboard", outcome)
+        return self._with_usage_dashboard_deprecation_headers(Response({"success": True}, status=status.HTTP_200_OK))
 
-    @extend_schema(request=None)
+    # Unlike `dashboard` above, the main app does call this: featureFlagLogic.ts's
+    # enrichUsageDashboard listener calls it automatically once a flag gains enriched
+    # analytics. As with `dashboard`, token callers are rejected before reaching this
+    # action, so nearly every call the telemetry below sees is that automatic one.
+    @extend_schema(
+        request=None,
+        responses={
+            status.HTTP_200_OK: FeatureFlagUsageDashboardSuccessSerializer,
+            status.HTTP_400_BAD_REQUEST: FeatureFlagUsageDashboardErrorSerializer,
+        },
+        deprecated=True,
+        description=(
+            "Deprecated. Adds enriched insights to an existing legacy feature flag usage dashboard. "
+            "No removal date has been set; usage charts remain available on the feature flag Usage tab."
+        ),
+    )
     @action(methods=["POST"], detail=True)
-    def enrich_usage_dashboard(self, request: request.Request, **kwargs):
+    def enrich_usage_dashboard(self, request: request.Request, **kwargs: Any) -> Response:
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "enriching its usage dashboard")
         if rejection is not None:
-            return rejection
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(rejection, include_sunset=False)
         usage_dashboard = feature_flag.usage_dashboard
 
         if not usage_dashboard:
-            return Response(
-                {
-                    "success": False,
-                    "error": (
-                        "Usage dashboard not found. Create one first with "
-                        "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/"
-                    ),
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "Usage dashboard not found. Usage charts are available on the feature flag Usage tab.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                include_sunset=False,
             )
 
         if feature_flag.usage_dashboard_has_enriched_insights:
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Usage dashboard already has enriched data",
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "Usage dashboard already has enriched data",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                include_sunset=False,
             )
 
         if not feature_flag.has_enriched_analytics:
-            return Response(
-                {
-                    "success": False,
-                    "error": f"No enriched analytics available for this feature flag",
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "No enriched analytics available for this feature flag",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                include_sunset=False,
             )
         try:
             add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
         except Exception as e:
             capture_exception(e)
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Unable to enrich usage dashboard",
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "Unable to enrich usage dashboard",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                include_sunset=False,
             )
 
-        return Response({"success": True}, status=200)
+        self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "success")
+        return self._with_usage_dashboard_deprecation_headers(
+            Response({"success": True}, status=status.HTTP_200_OK), include_sunset=False
+        )
 
     @extend_schema(
         responses={200: DependentFlagSerializer(many=True)},
@@ -4113,6 +4196,8 @@ class FeatureFlagViewSet(
         queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
 
         # Exclude internal flags (same as list/matching_ids endpoints)
+        # The stale-flags health check mirrors this guard's reference checks in
+        # products/feature_flags/backend/temporal/health_checks/stale_flags.py. Keep the two in step.
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False

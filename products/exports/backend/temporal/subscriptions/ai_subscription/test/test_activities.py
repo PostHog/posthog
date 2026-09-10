@@ -6,7 +6,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
     DiagnosticCounts,
     _load_snapshot,
@@ -23,6 +23,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -76,12 +77,14 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
                     human_readable_error="Unable to resolve field 'reliability'",
                 ),
             ),
+            query_plan_status=AIQueryPlanStatus.FROZEN,
         ),
         prompt="weekly adoption + reliability report",
     )
 
     snapshot = await _snapshot(delivery.id)
     assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
+    assert snapshot[AI_REPORT_QUERY_PLAN_STATUS_KEY] == AIQueryPlanStatus.FROZEN.value
     assert snapshot[AI_REPORT_DIAGNOSTICS_KEY] == [
         {
             "description": "adoption",

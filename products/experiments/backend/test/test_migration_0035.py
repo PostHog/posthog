@@ -1,9 +1,11 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class StripUnknownExposureCriteriaKeysMigrationTest(TestMigrations):
+# Rewinding to migrate_from unapplies posthog migrations that use index DDL
+# Postgres refuses inside a transaction, so this suite needs the non-atomic base.
+class StripUnknownExposureCriteriaKeysMigrationTest(NonAtomicTestMigrations):
     migrate_from = "0034_backfill_precomputation_enabled_set_by"
     migrate_to = "0035_strip_unknown_exposure_criteria_keys"
 

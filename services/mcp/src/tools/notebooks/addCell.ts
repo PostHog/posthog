@@ -50,7 +50,7 @@ const AddCellInputSchema = z
             .regex(COMPONENT_TAG_REGEX)
             .optional()
             .describe(
-                `Component cells: the notebook component to insert. Object widgets with named views: ${getNotebookWidgetTagNames().join(', ')}. Other components include Query (product analytics charts and event tables via its query prop), Image, Embed, Latex, Person, Recording, and RecordingPlaylist. Executable cells are not allowed here — use cell_type sql/python.`
+                `Component cells: the notebook component to insert. Object widgets with named views: ${getNotebookWidgetTagNames().join(', ')}. Other components include Query (product analytics charts and event tables via its query prop), Image, Embed, Latex, Person, Recording, and RecordingPlaylist. For generated interactive visualizations, search for notebooks-widget-generate to check availability and learn how to insert a Widget tag. Executable cells are not allowed here — use cell_type sql/python.`
             ),
         props: z
             .record(z.string(), z.unknown())

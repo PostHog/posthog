@@ -81,7 +81,6 @@ import {
     ReasoningAnswer,
     RecordingsWidget,
     ReplayVisionScanWidget,
-    ResourcesBar,
     ThreadView,
     TurnFeedbackActions,
     type TurnTrailer,
@@ -407,7 +406,6 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
             props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
         >
             <div className="w-full max-w-180 self-center mx-auto">
-                <ResourcesBar />
                 <ContextUsageBar />
             </div>
         </BindLogic>

@@ -34,6 +34,7 @@ export const INBOX_EVENTS = {
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
+    SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
@@ -56,6 +57,7 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTION_CREATED: 'Scout suggestion created',
     SCOUT_SUGGESTION_DISMISSED: 'Scout suggestion dismissed',
     SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
+    SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
     RUN_OPENED: 'Inbox run opened',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
@@ -70,6 +72,12 @@ export type InboxReportActionSurface =
     | 'bulk_bar'
     | 'triage_mode'
     | 'context_menu'
+
+/**
+ * Affordance that put the first report into a multi-select. Tells us which ones people find, so
+ * the ones nobody uses can go.
+ */
+export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_click' | 'checkbox' | 'context_menu'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
@@ -97,6 +105,7 @@ export type InboxReportActionType =
     | 'discuss'
     | 'restore'
     | 'create_pr'
+    | 'copy_implementation_prompt'
     | 'refund'
     | 'open_pr'
     | 'view_diff'
@@ -470,6 +479,11 @@ export function captureInboxReportAction(params: {
  * ranking work trains against, so it carries the same report classification as the impression and
  * open events. `note` is optional — the thumbs submit on one click, with no note.
  */
+/** Fired once per selection, when an empty selection gains its first report. */
+export function captureInboxSelectionModeEntered(params: { method: InboxSelectionEntryMethod }): void {
+    captureInboxEvent(INBOX_EVENTS.SELECTION_MODE_ENTERED, { entry_method: params.method })
+}
+
 export function captureInboxReportFeedback(params: {
     report: SignalReport
     sentiment: InboxReportFeedbackSentiment
@@ -644,12 +658,16 @@ export function captureInboxSettingsChanged(params: {
     success: boolean
     /** Whether the setting governs the whole team or just the person changing it. */
     scope: 'team' | 'user'
+    /** Which kind of target a Slack notification setting points at. The target itself names the
+     * customer's own channel or teammate, so only its kind travels. */
+    targetKind?: 'direct_message' | 'channel' | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.SETTINGS_CHANGED, {
         setting: params.setting,
         ...settingValueProperties('new_value', params.newValue),
         success: params.success,
         setting_scope: params.scope,
+        ...(params.targetKind === undefined ? {} : { target_kind: params.targetKind }),
     })
 }
 
@@ -815,13 +833,19 @@ export type ScoutSuggestionSurface = 'strip' | 'empty_state'
 export type ScoutSuggestionKind = 'canonical' | 'custom'
 
 /** What the person did with a suggestion card, beyond creating or dismissing it. */
-export type ScoutSuggestionClickTarget = 'expand' | 'collapse' | 'turn_on' | 'create' | 'refine_with_ai'
+export type ScoutSuggestionClickTarget = 'turn_on' | 'create' | 'refine_with_ai'
+
+/** What the person pressed to reach that target: the action row's button, or the card body. */
+export type ScoutSuggestionClickVia = 'button' | 'card'
 
 /** How a suggestion became a scout: the create API in place, or a chat the person drove. */
 export type ScoutSuggestionCreatedVia = 'api' | 'chat'
 
-/** How a refresh request ended, from the endpoint's answer. */
-export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed'
+/** How a refresh ended. All but `resumed` come from the endpoint; a resume sends no request at all. */
+export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed' | 'resumed'
+
+/** What put the scan on screen. Without it, a client resuming a paid scan reads as a refused duplicate. */
+export type ScoutSuggestionsRefreshSource = 'strip' | 'reload'
 
 /**
  * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is
@@ -844,17 +868,19 @@ export function captureScoutSuggestionsShown(params: {
     })
 }
 
-/** A suggestion card was expanded, collapsed, or had one of its actions pressed. */
+/** One of a suggestion card's actions was pressed. `via` separates the card body from the button. */
 export function captureScoutSuggestionClicked(params: {
     kind: ScoutSuggestionKind
     skillName: string
     target: ScoutSuggestionClickTarget
+    via: ScoutSuggestionClickVia
     surface: ScoutSuggestionSurface
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED, {
         suggestion_kind: params.kind,
         skill_name: params.skillName,
         click_target: params.target,
+        via: params.via,
         surface: params.surface,
     })
 }
@@ -888,6 +914,17 @@ export function captureScoutSuggestionDismissed(params: {
 }
 
 /** A refresh was asked for, and what the endpoint said. Refreshes cost a scan, so the cap matters. */
-export function captureScoutSuggestionsRefreshed(params: { outcome: ScoutSuggestionsRefreshOutcome }): void {
-    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_REFRESHED, { outcome: params.outcome })
+export function captureScoutSuggestionsRefreshed(params: {
+    outcome: ScoutSuggestionsRefreshOutcome
+    source: ScoutSuggestionsRefreshSource
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_REFRESHED, {
+        outcome: params.outcome,
+        source: params.source,
+    })
+}
+
+/** "Suggest a scout" opened the chat, having no picks to reopen. Separates cold start from refresh. */
+export function captureScoutSuggestionsChatOpened(params: { batchStatus: string }): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_CHAT_OPENED, { batch_status: params.batchStatus })
 }

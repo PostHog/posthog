@@ -13,7 +13,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   Skeleton,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -27,6 +26,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import type { ReactNode } from "react";
 
 export interface ReportsInboxViewPresentationProps {

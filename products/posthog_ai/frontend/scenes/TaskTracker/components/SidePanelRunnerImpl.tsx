@@ -1,14 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-
-import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { StartupRunChat } from './StartupRunChat'
 import { TaskComposer } from './TaskComposer'
 import { TaskHistoryList, TaskHistoryPreview } from './TaskHistory'
 import { TaskRunChat } from './TaskRunChat'
@@ -35,7 +35,8 @@ export function SidePanelRunnerImpl({ panelId }: SidePanelRunnerImplProps): JSX.
 
 function SidePanelRunnerContent(): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
-    const { toggleHistory, updateActiveCreationRun } = useActions(taskTrackerSceneLogic)
+    const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
+    const startupFocusedRef = useRef(false)
 
     // This compact surface renders only in Max's side panel, so the run it shows is a foreground
     // stream. Register its `streamKey` (cleared when the panel drops back to the composer/history, and
@@ -91,14 +92,14 @@ function SidePanelRunnerContent(): JSX.Element {
                         runId={activeCreation.runId}
                         streamKey={activeCreation.streamKey}
                         onRunStarted={updateActiveCreationRun}
+                        escapeScope="composer"
+                        initialDraft={activeCreation.draft}
+                        onDraftAdopted={() => setStartupDraft('')}
+                        autoFocus={startupFocusedRef.current}
                     />
                 </div>
             ) : (
-                <div className="@container/thread flex flex-col flex-1 min-h-0">
-                    <RunSurface.Root taskId="" runId={null} streamKey={activeCreation.streamKey} interaction="live">
-                        <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
-                    </RunSurface.Root>
-                </div>
+                <StartupRunChat streamKey={activeCreation.streamKey} focusedRef={startupFocusedRef} />
             )}
         </div>
     )

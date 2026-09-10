@@ -68,7 +68,7 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
     Called by the data-modeling Temporal workflow before each materialization run,
     so query-printer changes and bucket overrides are always reflected.
     """
-    version = saved_query.endpoint_versions.first()
+    version = EndpointVersion.objects.filter(saved_query=saved_query).first()
     if version is None:
         raise OrphanedEndpointSavedQueryError(
             f"Saved query {saved_query.id} ({saved_query.name}) has no linked EndpointVersion"
@@ -174,6 +174,9 @@ class EndpointMaterializationService:
         """
         try:
             self._enable_materialization_inner(endpoint, version, data_freshness_seconds, bucket_overrides)
+            # The throttle may hold a not-ready snapshot cached before the enable. Drop it so the
+            # first completed run is picked up on the next request, not when the entry expires.
+            clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
             if version.saved_query:
                 log_activity(
@@ -305,7 +308,7 @@ class EndpointMaterializationService:
             )
 
         is_foreign = existing.origin != DataWarehouseSavedQuery.Origin.ENDPOINT or (
-            existing.endpoint_versions.exclude(pk=version.pk).exists()
+            EndpointVersion.objects.filter(saved_query=existing).exclude(pk=version.pk).exists()
         )
         if is_foreign:
             raise ValidationError(
