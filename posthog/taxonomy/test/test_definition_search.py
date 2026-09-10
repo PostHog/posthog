@@ -9,10 +9,10 @@ from parameterized import parameterized
 
 from posthog.models import EventDefinition, PropertyDefinition
 from posthog.taxonomy import definition_search
-from posthog.taxonomy.definition_search import is_large_project, search_plan
+from posthog.taxonomy.definition_search import is_large_project
 
 
-class TestSearchPlan(BaseTest):
+class TestIsLargeProject(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -21,31 +21,34 @@ class TestSearchPlan(BaseTest):
 
     @parameterized.expand(
         [
-            ("small_project_scans_its_own_rows", 3, "project_scan"),
-            ("huge_project_keeps_the_trigram_index", 2, "trigram"),
+            ("small_project", 3, False),
+            ("large_project", 2, True),
         ]
     )
-    def test_plan_follows_the_definition_count(self, _name: str, max_definitions: int, expected: str) -> None:
+    def test_follows_the_definition_count(self, _name: str, max_definitions: int, expected: bool) -> None:
         with patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", max_definitions):
-            assert search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) == expected
-            assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is (
-                expected == "trigram"
-            )
+            assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is expected
 
-    def test_plan_is_cached_per_table_and_project(self) -> None:
-        search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS)
+    def test_is_cached_per_table_and_project(self) -> None:
+        is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS)
 
         with self.assertNumQueries(0):
-            assert search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) == "project_scan"
+            assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is False
         with self.assertNumQueries(1):
-            search_plan("posthog_propertydefinition", self.team.pk, DEFAULT_DB_ALIAS)
+            is_large_project("posthog_propertydefinition", self.team.pk, DEFAULT_DB_ALIAS)
         with self.assertNumQueries(1):
-            search_plan("posthog_eventdefinition", self.team.pk + 1, DEFAULT_DB_ALIAS)
+            is_large_project("posthog_eventdefinition", self.team.pk + 1, DEFAULT_DB_ALIAS)
+
+    def test_reads_a_plan_name_cached_by_an_earlier_release(self) -> None:
+        cache.set(f"taxonomy_search_plan:posthog_eventdefinition:{self.team.pk}", "trigram")
+
+        with self.assertNumQueries(0):
+            assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is True
 
     @parameterized.expand([("cache_read_fails", "get"), ("cache_write_fails", "set")])
-    def test_plan_survives_a_cache_outage(self, _name: str, failing_method: str) -> None:
+    def test_survives_a_cache_outage(self, _name: str, failing_method: str) -> None:
         with patch.object(cache, failing_method, side_effect=ConnectionError("redis down")):
-            assert search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) == "project_scan"
+            assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is False
 
 
 class TestDefinitionEndpointsUseSearchPlan(APIBaseTest):
