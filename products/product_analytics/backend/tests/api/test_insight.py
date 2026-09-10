@@ -5043,7 +5043,7 @@ class TestInsightQueryScan(APIBaseTest):
         return Insight.objects.create(
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
         )
 
     def _stored_slot(self, *, killed: bool) -> str:
