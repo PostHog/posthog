@@ -9,6 +9,7 @@ import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
 import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import { PrCommentsSection } from "@posthog/ui/features/pr-review/PrCommentsSection";
 import { PrDecisionBlock } from "@posthog/ui/features/pr-review/PrDecisionBlock";
 import { PrFilesChangedSection } from "@posthog/ui/features/pr-review/PrFilesChangedSection";
@@ -42,7 +43,7 @@ export function PullRequestDetail({
  * they're pipeline machinery, and the decision block distills what matters
  * from them into one line.
  */
-function PullRequestDetailContent({ report }: { report: SignalReport }) {
+export function PullRequestDetailContent({ report }: { report: SignalReport }) {
   const prRef = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
     : null;
@@ -54,23 +55,16 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
       backTo="/inbox/pulls"
       backLabel="Back to pull requests"
       fallbackTitle="Untitled pull request"
-      breadcrumb={
-        prRef ? (
-          <>
-            <span className="text-(--gray-8)">/</span>
-            <span className="font-mono text-[13px] text-gray-11">
-              {prRef.repoSlug}#{prRef.number}
-            </span>
-          </>
-        ) : undefined
-      }
       metaSuffix={
         prUrl ? (
           <>
             <InboxMetaSeparator />
             <ReportImplementationPrLink prUrl={prUrl} size="md" />
+            <ReportTrackerIssueLink report={report} />
           </>
-        ) : undefined
+        ) : (
+          <ReportTrackerIssueLink report={report} />
+        )
       }
       primaryAction={<ReportDetailActions report={report} prUrl={prUrl} />}
       summarySection={{ Icon: GitPullRequestIcon, title: "Summary" }}

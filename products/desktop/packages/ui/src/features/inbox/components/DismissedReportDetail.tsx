@@ -9,6 +9,8 @@ import type { SignalReport } from "@posthog/shared/types";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
+import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import {
   type InboxBackTarget,
   useInboxBackTarget,
@@ -62,7 +64,7 @@ export function DismissedReportDetail({
   );
 }
 
-function DismissedReportDetailContent({
+export function DismissedReportDetailContent({
   report,
   back,
 }: {
@@ -79,6 +81,7 @@ function DismissedReportDetailContent({
       backLabel={back.label}
       fallbackTitle="Untitled report"
       showDismiss={false}
+      metaSuffix={<ReportTrackerIssueLink report={report} />}
       primaryAction={
         <>
           {canRestore && <RestoreReportButton report={report} />}
@@ -107,6 +110,7 @@ function DismissedReportDetailContent({
 function RestoreReportButton({ report }: { report: SignalReport }) {
   const restore = useInboxRestoreReport();
   const navigate = useNavigate();
+  const reportPage = useReportPage();
 
   return (
     <Button
@@ -118,7 +122,9 @@ function RestoreReportButton({ report }: { report: SignalReport }) {
       title="Restore this report to Self-driving"
       onClick={() =>
         restore.mutate(report.id, {
-          onSuccess: () => navigate({ to: "/inbox/dismissed" }),
+          onSuccess: () => {
+            if (!reportPage) void navigate({ to: "/inbox/dismissed" });
+          },
         })
       }
     >

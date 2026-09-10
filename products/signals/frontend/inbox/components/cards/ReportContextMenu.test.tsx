@@ -128,43 +128,75 @@ describe('ReportContextMenu', () => {
         expect(menuRowText()).toEqual([])
     })
 
-    // The submenu's whole point: a reason click persists that reason. A miswired option (wrong
-    // state, wrong reason value) would silently record the wrong verdict on every report.
-    it('resolves with the picked reason through the state API', async () => {
+    // The submenu's whole point: a reason click persists that reason, with no dialog in the way.
+    // A miswired option (wrong state, wrong reason value) would silently record the wrong verdict on
+    // every report. The immediate catch-all action uses "Other" without an ellipsis so it does not
+    // imply that a dialog will open.
+    it.each([
+        {
+            submenu: 'Resolve',
+            reason: 'PR was merged',
+            body: { state: 'resolved', dismissal_reason: 'pr_merged' },
+        },
+        {
+            submenu: 'Resolve',
+            reason: 'Other',
+            body: { state: 'resolved', dismissal_reason: 'other' },
+        },
+        {
+            submenu: 'Dismiss',
+            reason: "Won't fix - intentional behavior",
+            body: { state: 'suppressed', dismissal_reason: 'wontfix_intentional' },
+        },
+        {
+            submenu: 'Dismiss',
+            reason: 'Other',
+            body: { state: 'suppressed', dismissal_reason: 'other' },
+        },
+    ])('$submenu > $reason applies through the state API', async ({ submenu, reason, body }) => {
         openMenu(makeReport())
 
-        fireEvent.click(screen.getByText('Resolve'))
-        fireEvent.click(await screen.findByText('PR was merged'))
+        fireEvent.click(screen.getByText(submenu))
+        fireEvent.click(await screen.findByText(reason))
 
         await waitFor(() => {
-            expect(stateRequests).toEqual([
-                { reportId: 'report-1', body: { state: 'resolved', dismissal_reason: 'pr_merged' } },
-            ])
+            expect(stateRequests).toEqual([{ reportId: 'report-1', body }])
         })
     })
 
-    it('dismisses with the picked reason through the state API', async () => {
+    // Two reasons still need the dialog: an instant wrong-repo dismissal would record the mistake
+    // without the corrected repository, which is the half of the feedback the next repo selection
+    // learns from, and the pencil beside "Something else…" is the only way left to write a note.
+    it.each([
+        {
+            name: 'the wrong repository reason',
+            submenu: 'Dismiss',
+            pick: 'Agent picked the wrong repository',
+            byLabel: false,
+            dialog: 'Dismiss report "Report one"?',
+        },
+        {
+            name: "the dismiss submenu's note button",
+            submenu: 'Dismiss',
+            // The pencil carries no label text of its own, so it answers to its tooltip.
+            pick: 'Dismiss and write a note',
+            byLabel: true,
+            dialog: 'Dismiss report "Report one"?',
+        },
+        {
+            name: "the resolve submenu's note button",
+            submenu: 'Resolve',
+            pick: 'Resolve and write a note',
+            byLabel: true,
+            dialog: 'Resolve report "Report one"?',
+        },
+    ])('routes $name through the dialog instead of applying it', async ({ submenu, pick, byLabel, dialog }) => {
         openMenu(makeReport())
 
-        fireEvent.click(screen.getByText('Dismiss'))
-        fireEvent.click(await screen.findByText("Won't fix - intentional behavior"))
+        fireEvent.click(screen.getByText(submenu))
+        fireEvent.click(byLabel ? await screen.findByLabelText(pick) : await screen.findByText(pick))
 
-        await waitFor(() => {
-            expect(stateRequests).toEqual([
-                { reportId: 'report-1', body: { state: 'suppressed', dismissal_reason: 'wontfix_intentional' } },
-            ])
-        })
-    })
-
-    // An instant wrong-repo dismissal would record the mistake without the corrected repository,
-    // which is the half of the feedback the next repo selection learns from.
-    it('routes the wrong repository reason through the dialog instead of applying it', async () => {
-        openMenu(makeReport())
-
-        fireEvent.click(screen.getByText('Dismiss'))
-        fireEvent.click(await screen.findByText('Agent picked the wrong repository'))
-
-        expect(await screen.findByText('Dismiss report "Report one"?')).toBeInTheDocument()
+        expect(await screen.findByText(dialog)).toBeInTheDocument()
         expect(stateRequests).toEqual([])
     })
 })
