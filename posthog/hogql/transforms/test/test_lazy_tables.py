@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, NewEventsSchemaSnapshotExtension, materialized
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -11,6 +12,7 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, PropertyGroupsMode
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.observability import HogQLTypeObservability
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
@@ -318,3 +320,12 @@ class TestLazyWrapPropertyResolution(ClickhouseTestMixin, BaseTest):
         # reference from an unprojected one, so this executes the query rather than reading the SQL.
         with materialized("events", "$os"):
             execute_hogql_query(select, team=self.team)
+
+    def test_read_behind_the_wrap_records_a_json_usage_sample(self) -> None:
+        # The fallback serves the read from the projected blob without going through `_substitute_value_read`, which is
+        # what accounts for every other value read. Pin the `json` sample so the fallback stays visible in the usage
+        # metric. The exact count also catches double-accounting if the read ever records on both paths.
+        stats = HogQLTypeObservability(dialect="clickhouse", source="probe")
+        with patch("posthog.hogql.printer.utils.create_hogql_type_observability", return_value=stats):
+            self._print(f"SELECT e2.properties.foo {self.WRAPPING_JOIN}")
+        assert dict(stats.materialized_property_usage) == {"json": 1}

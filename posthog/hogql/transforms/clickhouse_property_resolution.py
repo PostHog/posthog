@@ -896,6 +896,10 @@ class ClickHousePropertyResolver(CloningVisitor):
             substituted = _substitute_value_read(node, self.context)
             if substituted is not None:
                 return substituted
+        else:
+            # `_substitute_value_read` accounts for every read it serves, and this path bypasses it, so record the
+            # blob read here. Otherwise the usage metric loses the `json` sample for a read behind a wrap.
+            _record_property_usage(self.context, None)
         return super().visit_property_access(node)
 
     # --- comparison / call rewrites ---
