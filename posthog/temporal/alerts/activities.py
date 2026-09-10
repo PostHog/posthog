@@ -35,6 +35,7 @@ from posthog.tasks.alerts.utils import (
     get_alert_error_notification_recipients,
     next_check_time,
     next_scheduled_check_time,
+    notify_alert_disabled,
     record_alert_delivery,
     skip_because_of_weekend,
 )
@@ -383,10 +384,24 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
             # existing path instead of capturing it as an exception, which would pollute error
             # tracking with a config problem that recurs on every check until fixed.
-            alert_check = disable_invalid_alert(alert, str(err))
+            #
+            # Reloaded under the row lock like the other write paths, because a user who fixes or
+            # disables the alert while the query runs must not have it disabled by the failure of
+            # the configuration they replaced. The email goes out after the disable commits, so a
+            # rollback cannot leave subscribers with a disabled notice for an enabled alert.
+            with transaction.atomic():
+                locked = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                if discarded := _discarded_evaluation(locked, evaluated_inputs):
+                    return discarded
+                alert_check = disable_invalid_alert(locked, str(err), notify_subscribers=False)
+            notify_alert_disabled(locked, alert_check, str(err))
             return EvaluateAlertResult(
                 alert_check_id=str(alert_check.id),
-                should_notify=False,  # disable_invalid_alert already emailed subscribers
+                should_notify=False,  # notify_alert_disabled already emailed subscribers
                 new_state=AlertState.ERRORED,
             )
         except TableAccessDeniedError as err:

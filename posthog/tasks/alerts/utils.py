@@ -637,7 +637,6 @@ def disable_invalid_alert(
     alert.last_checked_at = datetime.now(UTC)
     alert.save(update_fields=[*state_fields, "last_checked_at"])
 
-    targets_to_notify = alert.get_subscribed_users_emails()
     error = {"message": reason}
     if error_code:
         error["code"] = error_code
@@ -649,10 +648,24 @@ def disable_invalid_alert(
         state=AlertState.ERRORED,
         error=error,
     )
-    if targets_to_notify and notify_subscribers:
-        deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
-        record_alert_delivery(alert, alert_check, deliveries)
+    if notify_subscribers:
+        notify_alert_disabled(alert, alert_check, reason)
     return alert_check
+
+
+def notify_alert_disabled(alert: AlertConfiguration, alert_check: AlertCheck, reason: str) -> None:
+    """Email an auto-disabled alert's subscribers and record what the transports accepted.
+
+    Separate from disable_invalid_alert so that a caller which disables the alert inside a
+    transaction can send the email after the state change commits. The email queues a Celery task
+    that a rollback cannot take back, so a subscriber would otherwise be told that an alert which
+    is still enabled has been disabled.
+    """
+    targets_to_notify = alert.get_subscribed_users_emails()
+    if not targets_to_notify:
+        return
+    deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
+    record_alert_delivery(alert, alert_check, deliveries)
 
 
 def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> list[AlertDelivery]:

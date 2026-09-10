@@ -724,6 +724,30 @@ class TestEvaluateAlert:
         assert "2 numeric columns" in reason
         assert targets  # the subscribed owner's email
 
+    async def test_evaluate_keeps_alert_enabled_when_config_is_edited_during_the_query(self, alert_with_user) -> None:
+        # A config edit that lands while the query runs makes the extraction failure stale. Disabling
+        # the alert would undo the edit and email subscribers a reason that no longer applies.
+        def _edit_then_fail(alert: AlertConfiguration) -> None:
+            AlertConfiguration.objects.filter(pk=alert_with_user.pk).update(
+                config={"type": "TrendsAlertConfig", "series_index": 1}
+            )
+            raise AlertExtractionError("query returns 2 numeric columns — pick one")
+
+        with (
+            patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_edit_then_fail),
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        assert result.alert_check_id is None
+        assert result.should_notify is False
+        mock_notify.assert_not_called()
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+        assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert_with_user).exists)()
+
     # Transient CH errors bubble up so Temporal's retry policy handles them.
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
     # A server-wide or per-user memory limit is the same kind of cluster pressure: recording it as
