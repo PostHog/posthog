@@ -42,6 +42,7 @@ export interface ComposerModelEffortPickersProps {
     models: ModelChoiceApi[]
     selectedModel: string
     defaultModel?: string | null
+    isDefaultModelLoading?: boolean
     selectedEffort: ReasoningEffortEnumApi
     onModelChange: (model: string) => void
     onEffortChange: (effort: ReasoningEffortEnumApi) => void
@@ -103,6 +104,7 @@ export function ComposerModelEffortPickers({
     models,
     selectedModel,
     defaultModel,
+    isDefaultModelLoading = false,
     selectedEffort,
     onModelChange,
     onEffortChange,
@@ -233,7 +235,10 @@ export function ComposerModelEffortPickers({
                                     <DropdownMenuRadioItem
                                         key={adapter}
                                         value={adapter}
-                                        disabled={!!lockedRuntimeAdapter && adapter !== lockedRuntimeAdapter}
+                                        disabled={
+                                            isDefaultModelLoading ||
+                                            (!!lockedRuntimeAdapter && adapter !== lockedRuntimeAdapter)
+                                        }
                                     >
                                         {getRuntimeAdapterLabel(adapter)}
                                     </DropdownMenuRadioItem>

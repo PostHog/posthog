@@ -83,15 +83,16 @@ export function getDefaultModelForRuntimeAdapter(
     catalogue: ModelChoiceApi[],
     runtimeAdapter: RuntimeAdapterEnumApi,
     configuredModel?: string | null
-): string | undefined {
+): string | null {
     const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
     const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
     return (
         models.find((option) => option.model === preferredModel)?.model ??
         (runtimeAdapter === RuntimeAdapterEnumApi.Codex
             ? models.find((option) => option.model === 'gpt-5.6-sol')?.model
-            : undefined) ??
-        models[0]?.model
+            : null) ??
+        models[0]?.model ??
+        null
     )
 }
 

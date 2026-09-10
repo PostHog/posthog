@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { type RenderResult, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import {
     ModelChoiceApi,
@@ -25,8 +25,8 @@ const CATALOGUE: ModelChoiceApi[] = [
     },
 ]
 
-function renderPickers(overrides: Partial<React.ComponentProps<typeof ComposerModelEffortPickers>> = {}): void {
-    render(
+function renderPickers(overrides: Partial<React.ComponentProps<typeof ComposerModelEffortPickers>> = {}): RenderResult {
+    const result = render(
         <ComposerModelEffortPickers
             models={CATALOGUE}
             selectedModel="claude-opus-5"
@@ -37,6 +37,7 @@ function renderPickers(overrides: Partial<React.ComponentProps<typeof ComposerMo
         />
     )
     fireEvent.click(screen.getByRole('button'))
+    return result
 }
 
 describe('ComposerModelEffortPickers', () => {
@@ -47,13 +48,14 @@ describe('ComposerModelEffortPickers', () => {
     it.each([
         [undefined, 'gpt-5.6-sol'],
         ['gpt-5.6-luna', 'gpt-5.6-luna'],
-    ])('uses the default model %s when switching to Codex', async (defaultModel, expectedModel) => {
+    ])('waits for the default model %s before switching to Codex', async (defaultModel, expectedModel) => {
         const onModelChange = jest.fn()
-        renderPickers({
+        const props: React.ComponentProps<typeof ComposerModelEffortPickers> = {
             selectedModel: 'claude-sonnet-5',
             selectedEffort: ReasoningEffortEnumApi.Low,
             defaultModel,
             onModelChange,
+            onEffortChange: jest.fn(),
             models: [
                 ...CATALOGUE,
                 ...['gpt-5.6-luna', 'gpt-5.6-sol'].map((model) => ({
@@ -63,9 +65,16 @@ describe('ComposerModelEffortPickers', () => {
                     supported_efforts: [ReasoningEffortEnumApi.High],
                 })),
             ],
-        })
+        }
+        const { rerender } = renderPickers({ ...props, defaultModel: null, isDefaultModelLoading: true })
 
         fireEvent.click(screen.getByText('Harness'))
+        const codexOption = await screen.findByText('Codex')
+        expect(codexOption).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(codexOption)
+        expect(onModelChange).not.toHaveBeenCalled()
+
+        rerender(<ComposerModelEffortPickers {...props} isDefaultModelLoading={false} />)
         fireEvent.click(await screen.findByText('Codex'))
 
         expect(onModelChange).toHaveBeenCalledWith(expectedModel)

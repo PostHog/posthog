@@ -58,7 +58,7 @@ describe('composerModels', () => {
     it.each([
         [CATALOGUE, RuntimeAdapterEnumApi.Codex, 'gpt-5.6-luna'],
         [CATALOGUE, RuntimeAdapterEnumApi.Claude, 'claude-opus-4-8'],
-        [[], RuntimeAdapterEnumApi.Codex, undefined],
+        [[], RuntimeAdapterEnumApi.Codex, null],
     ])('uses an available model when no preferred default is available', (catalogue, adapter, expected) => {
         expect(getDefaultModelForRuntimeAdapter(catalogue, adapter, 'retired-model')).toBe(expected)
     })
