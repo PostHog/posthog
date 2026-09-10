@@ -44,6 +44,7 @@ import type {
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
+    ScoutCostsApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
@@ -88,6 +89,7 @@ import type {
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutRunsCostsParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
@@ -491,7 +493,9 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Transition a report to a new state. The model validates allowed transitions.
+ * Transition a report to a new state. The model validates allowed transitions, except that a
+ * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
+ * is a 200 that records the dismissal feedback without touching the status.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
  * fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
@@ -1270,6 +1274,37 @@ export const signalsScoutRecordOutput = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(recordStructuredOutputRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsCostsUrl = (projectId: string, params?: SignalsScoutRunsCostsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/costs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/costs/`
+}
+
+/**
+ * Return what every scout on this project spent on model calls over the last `window_days`, with how many runs it started, how many of those had spend attributed, and how many inbox reports it filed or added to. Cost per day, per run, and per report are derived from those numbers by the caller, so the endpoint stays a fact table and the definitions live in one place. Spend is summed from the `$ai_generation` events the runs' sandboxes produced and joined to the run rows by task run id, because a team-authored scout's generations all carry the same stage tag and so cannot name it. Cached per project for 15 minutes: the window's trailing edge moves and the newest runs may still be settling, so this is a roughly current number, not a live one. `available` is false where the internal AI observability project holding those events can't be read, so an unknown spend never reads as zero. Staff-only, same gate as the per-run cost read. Strictly team-scoped.
+ * @summary Get what each scout spent over a window
+ */
+export const signalsScoutRunsCosts = async (
+    projectId: string,
+    params?: SignalsScoutRunsCostsParams,
+    options?: RequestInit
+): Promise<ScoutCostsApi> => {
+    return apiMutator<ScoutCostsApi>(getSignalsScoutRunsCostsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

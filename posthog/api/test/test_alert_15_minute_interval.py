@@ -105,6 +105,7 @@ class TestAlert15MinuteScheduling:
         alert.next_check_at = datetime(2026, 4, 6, 14, 0, 0, tzinfo=UTC)
         alert.team = MagicMock()
         alert.team.timezone = "UTC"
+        alert.schedule_start_time = None
         alert.schedule_restriction = None
         alert.skip_weekend = False
 

@@ -6,11 +6,11 @@ import { Link } from '@posthog/lemon-ui'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils/objects'
@@ -162,7 +162,7 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
                             </>
                         ),
                     ]}
-                    prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                    prefix={<ActivityLogUserName logItem={logItem} />}
                 />
             ),
         }
@@ -192,12 +192,7 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
 
         if (changes.length) {
             return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
-                    />
-                ),
+                description: <SentenceList listParts={changes} prefix={<ActivityLogUserName logItem={logItem} />} />,
             }
         }
     }

@@ -10254,6 +10254,11 @@ export namespace Schemas {
       readonly last_notified_at: string | null;
       /** @nullable */
       readonly last_checked_at: string | null;
+      /**
+         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * @nullable
+         */
+      schedule_start_time?: string | null;
       /** @nullable */
       readonly next_check_at: string | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
@@ -30809,10 +30814,9 @@ export namespace Schemas {
     /**
      * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
      *
-     * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
-     * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
-     * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
-     * reviewer is never silently dropped.
+     * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+     * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+     * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
      */
     export interface SuggestedReviewer {
       /**
@@ -30820,7 +30824,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       github_login?: string;
-      /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+      /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
       user_uuid?: string;
       /**
          * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
@@ -36625,7 +36629,7 @@ export namespace Schemas {
     export interface ExperimentSessionEventDeltaResponse {
       /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the experiment's results already answer while reading as a finding, so it is withheld. Read empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
       cards: ExperimentWatchCard[];
-      /** Every variant's compared population, in the flag's variant order. */
+      /** Every variant the analysis compares, with its population, in the flag's variant order. A variant the experiment excludes never appears here, because the analysis does not count it either, so read a missing key as excluded rather than as zero people. */
       variants: ExperimentWatchVariant[];
       /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
       multiple_variant_persons: number;
@@ -36636,13 +36640,13 @@ export namespace Schemas {
       multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum;
       /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
       metric_events: string[];
-      /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days (2 when sessions are matched on the stamped flag property, which no event name can prune a scan on), but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
+      /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days, but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
       date_from: string;
       /** End of what was compared: the experiment's end date, or now while it runs. */
       date_to: string;
       /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
       filter_test_accounts: boolean;
-      /** True when the compared sessions were matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', and the variant comes from the flag's value on each event, so a returning user can be counted under a variant they were re-bucketed into later. */
+      /** Always false. The compared population is the exposed population the experiment's results count, matched to sessions by person, so no stamped-property fallback exists any more. The field stays for compatibility with existing readers. */
       used_exposure_fallback: boolean;
       /** True when the experiment had more exposed sessions in the requested window than one comparison covers, so the most recent ones were used and date_from is later than the experiment's own window. Every variant is still covered over the same stretch of time. */
       sessions_truncated: boolean;
@@ -36654,9 +36658,9 @@ export namespace Schemas {
       max_card_recordings: number;
       /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
       dropped_duplicate_cards: number;
-      /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because no exposure in the window carried a session, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
+      /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because the people exposed have no sessions we can see, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
       too_early: boolean;
-      /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': people were exposed between date_from and date_to, and not one exposure carried a session id, so there was nothing to compare. Only that window was checked, so say so. It is how exposure is captured rather than a wait: exposures captured from a client-side SDK carry a session and exposures captured server-side do not, so more of the same capture yields more of the same. Point at capturing exposure from a client-side SDK before telling anyone to check back. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+      /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the experiment has exposed people and none of them has a session we can see between date_from and date_to, so there was nothing to compare. Who counts as exposed is read over the whole run, so the exposures themselves can predate that window: date the claim to the window instead of reporting when anyone was exposed. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people were last active before the window. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
        *
        * * `too_early` - too_early
        * * `no_separation` - no_separation
@@ -36980,6 +36984,63 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    /**
+     * Typed account properties: external-system ids. Role assignments live under `relationships`.
+     */
+    export type ExternalAccountProperties = {[key: string]: unknown};
+
+    export interface ExternalAccountAssignment {
+      /** PostHog user id of the assigned user. */
+      user_id: number;
+      /** Email address of the assigned user. */
+      email: string;
+    }
+
+    /**
+     * Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted.
+     */
+    export type ExternalAccountRelationships = {[key: string]: ExternalAccountAssignment[]};
+
+    /**
+     * Every team custom property definition keyed by name, with the account's active value or null.
+     */
+    export type ExternalAccountCustomProperties = {[key: string]: unknown};
+
+    export interface ExternalAccount {
+      /** Account UUID. */
+      id: string;
+      /**
+         * External account key — the group key the account is linked to.
+         * @nullable
+         */
+      external_id: string | null;
+      /** Human-readable account name. */
+      name: string;
+      /**
+         * When the account churned, or null if it has not churned.
+         * @nullable
+         */
+      churned_at: string | null;
+      /**
+         * When Track Rules ignored the account, or null if it is tracked.
+         * @nullable
+         */
+      ignored_at: string | null;
+      /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
+      properties: ExternalAccountProperties;
+      /** Tag names on the account, sorted alphabetically. */
+      tags: string[];
+      /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
+      relationships: ExternalAccountRelationships;
+      /** Every team custom property definition keyed by name, with the account's active value or null. */
+      custom_properties: ExternalAccountCustomProperties;
+    }
+
+    export interface ExternalAccountError {
+      /** What went wrong with the request. */
+      error: string;
     }
 
     export interface ExternalAccountListAssignment {
@@ -58750,6 +58811,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly dismissal_note: string | null;
+      /**
+         * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+         * @nullable
+         */
+      readonly repo_slug: string | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -60210,13 +60276,81 @@ export namespace Schemas {
       origin_key?: string | null;
     }
 
-    export interface PaginatedTaskDetailDTOList {
+    /**
+     * @nullable
+     */
+    export type TaskBasicJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Basic list response for a task, returned when the list is asked for ``basic=true``.
+     *
+     * A surface that renders only a summary of each task asks for the basic payload and gets this
+     * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+     * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+     * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+     * always returns it. A client uses the ``search`` query parameter to match description text
+     * server-side.
+     */
+    export interface TaskBasic {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      origin_product: string;
+      /** Agent protocol and harness used for this task's runs.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime: TaskRuntimeEnum;
+      /** @nullable */
+      repository: string | null;
+      repositories: string[];
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskBasicJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /** Latest run details for this task */
+      latest_run?: TaskRunDetailDTO | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      /** @nullable */
+      last_activity_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+      /** @nullable */
+      channel?: string | null;
+      readonly slack_thread_references: readonly SlackThreadReferenceDTO[];
+      /**
+         * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+         * @nullable
+         */
+      origin_key?: string | null;
+      /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
+      readonly description_preview: string;
+    }
+
+    export type TaskListItem = TaskDetailDTO | TaskBasic;
+
+    export interface PaginatedTaskListItemList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: TaskDetailDTO[];
+      results: TaskListItem[];
     }
 
     /**
@@ -62239,6 +62373,11 @@ export namespace Schemas {
       readonly last_notified_at?: string | null;
       /** @nullable */
       readonly last_checked_at?: string | null;
+      /**
+         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * @nullable
+         */
+      schedule_start_time?: string | null;
       /** @nullable */
       readonly next_check_at?: string | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
@@ -67986,6 +68125,25 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedRepoRoutingRule {
+      readonly id?: string;
+      /**
+         * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+         * @maxLength 300
+         */
+      rule_text?: string;
+      /**
+         * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+         * @maxLength 255
+         */
+      repository?: string;
+      readonly priority?: number;
+      /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedReviewBlindSpotsConfigSelect {
       /** Set true to make this the single blind-spots skill that runs on the user's PR reviews. Only true is accepted — the blind-spot check is single-active, so you switch by selecting a different skill, not by deactivating the current one. */
       active?: boolean;
@@ -68458,9 +68616,14 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Editable schedule, enablement, and emit posture for one scout config.
+     * Editable display name, schedule, enablement, and emit posture for one scout config.
      */
     export interface PatchedSignalScoutConfigUpdate {
+      /**
+         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * @maxLength 200
+         */
+      display_name?: string;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -76621,6 +76784,25 @@ export namespace Schemas {
       ready_to_merge_series_granularity: string;
     }
 
+    export interface RepoRoutingRule {
+      readonly id: string;
+      /**
+         * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+         * @maxLength 300
+         */
+      rule_text: string;
+      /**
+         * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+         * @maxLength 255
+         */
+      repository: string;
+      readonly priority: number;
+      /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
 
 
@@ -78432,6 +78614,11 @@ export namespace Schemas {
       readonly skill_name: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description: string;
+      /**
+         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * @maxLength 200
+         */
+      display_name?: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
       /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
@@ -78644,6 +78831,34 @@ export namespace Schemas {
     }
 
     /**
+     * What one scout spent in the window, and what it produced for that spend.
+     */
+    export interface ScoutCost {
+      /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
+      skill_name: string;
+      /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
+      spend_usd: number;
+      /** Runs the scout started in the window. */
+      run_count: number;
+      /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
+      priced_run_count: number;
+      /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
+      reports_touched: number;
+    }
+
+    /**
+     * Model spend and output per scout over a window.
+     */
+    export interface ScoutCosts {
+      /** Window the rows describe, in days. */
+      window_days: number;
+      /** One row per scout that started at least one run on this project in the window. */
+      scouts: ScoutCost[];
+      /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
+      available: boolean;
+    }
+
+    /**
      * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
      *
      * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
@@ -78695,7 +78910,7 @@ export namespace Schemas {
       /** The member's last name (may be empty). */
       last_name: string;
       /**
-         * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+         * The member's resolved GitHub login (lowercased), already resolved server-side. Null when the member has no linked GitHub account, which does not stop you routing to them: pass their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only means no draft PR can be opened as that person.
          * @nullable
          */
       github_login: string | null;
@@ -79483,7 +79698,7 @@ export namespace Schemas {
     export interface SignalReportBulkStateResponse {
       /** One result per requested id, in request order (after de-duplication). */
       results: SignalReportBulkStateResult[];
-      /** Number of reports whose state was changed. */
+      /** Number of reports the call accepted. A report that already had the requested state counts here too, because a repeat dismiss or resolve still records its feedback. */
       transitioned_count: number;
       /** Number of reports whose transition was not allowed. */
       skipped_count: number;
@@ -90702,9 +90917,27 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _LogsImpactGroupKey {
+      /** Attribute map the key lives in, in the group-by endpoint's vocabulary: "log" or "resource".
+       *
+       * * `log` - log
+       * * `resource` - resource
+       * * `column` - column */
+      source: LogsGroupBySourceEnum;
+      /** The attribute key that carries the ID on most matching logs. */
+      key: string;
+    }
+
     export interface _LogsImpactRequest {
       /** The impact query to execute. Takes the same filters as the count query. */
       query: _LogsCountBody;
+    }
+
+    export interface _LogsImpactTopValue {
+      /** The session ID or person distinct ID. */
+      value: string;
+      /** Approximate number of matching logs that carry this value (topK estimate). */
+      count: number;
     }
 
     export interface _LogsImpactResponse {
@@ -90718,6 +90951,14 @@ export namespace Schemas {
       logsWithDistinctId: number;
       /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
       users: number;
+      /** Top session IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+      topSessions: _LogsImpactTopValue[];
+      /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+      topUsers: _LogsImpactTopValue[];
+      /** The dimension that carries the session ID on most matching logs. Group by this dimension to drill into the sessions behind the counts. Null when no matching log carries a session ID. */
+      sessionGroupKey: _LogsImpactGroupKey | null;
+      /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to drill into the users behind the counts. Null when no matching log carries a distinct ID. */
+      personGroupKey: _LogsImpactGroupKey | null;
     }
 
     export interface _LogsPatternsBody {
@@ -92310,6 +92551,13 @@ export namespace Schemas {
      * @maxItems 50
      */
     cohort_ids: number[];
+    };
+
+    export type CustomerAnalyticsExternalAccountRetrieveParams = {
+    /**
+     * External account key: the group key the account is linked to.
+     */
+    external_id: string;
     };
 
     export type CustomerAnalyticsExternalAccountsRetrieveParams = {
@@ -94284,6 +94532,10 @@ export namespace Schemas {
      * @minLength 1
      */
     completed?: CommentsListCompleted;
+    /**
+     * Filter by the numeric ID of the user who wrote the comment.
+     */
+    created_by?: number;
     /**
      * The pagination cursor value.
      */
@@ -101658,6 +101910,15 @@ export namespace Schemas {
     text?: string;
     };
 
+    export type SignalsScoutRunsCostsParams = {
+    /**
+     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
+     * @minimum 7
+     * @maximum 7
+     */
+    window_days?: number;
+    };
+
     export type SignalsScoutRunsRecentEmissionsParams = {
     /**
      * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
@@ -102184,7 +102445,7 @@ export namespace Schemas {
      */
     archived?: TasksListArchived;
     /**
-     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     * With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.
      */
     basic?: boolean;
     /**

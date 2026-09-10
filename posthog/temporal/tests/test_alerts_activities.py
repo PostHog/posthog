@@ -96,6 +96,7 @@ async def _create_alert(
     snoozed_until: datetime | None = None,
     skip_weekend: bool = False,
     schedule_restriction: dict | None = None,
+    schedule_start_time: str | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
 ) -> AlertConfiguration:
@@ -125,6 +126,7 @@ async def _create_alert(
             snoozed_until=snoozed_until,
             skip_weekend=skip_weekend,
             schedule_restriction=schedule_restriction,
+            schedule_start_time=schedule_start_time,
             state=state,
         )
         return alert
@@ -244,7 +246,7 @@ class TestPrepareAlert:
             ),
             pytest.param(
                 "2024-12-21T08:00:00Z",  # Saturday
-                {"skip_weekend": True},
+                {"skip_weekend": True, "schedule_start_time": "08:30"},
                 SkipReason.WEEKEND,
                 True,
                 id="weekend",

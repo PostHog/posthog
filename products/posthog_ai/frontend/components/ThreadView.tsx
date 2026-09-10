@@ -158,7 +158,7 @@ export function ThreadView({
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
     // Context usage rides the thread footer, but only between turns (idle) — never while the agent is
     // working, where the thinking line takes the footer. `ContextUsageBar` self-hides without data.
-    const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
+    const showContextUsageFooter = showContextUsage && streamPhase === 'idle' && !!contextUsage
     const footer = useMemo(
         () =>
             showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus || footerExtra ? (
@@ -315,7 +315,12 @@ const ThreadFooter = memo(function ThreadFooter({
     return (
         <div className="flex flex-col gap-1.5">
             {showConnectionStatus && runConnectionState && <RunAlertActivity {...runConnectionState} />}
-            {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
+            {showThinking && (
+                <ThinkingIndicator
+                    progress={thinkingPhase === 'provisioning' ? null : currentProgress}
+                    phase={thinkingPhase}
+                />
+            )}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
             {showContextUsage && <ContextUsageBar />}
             {extra}
