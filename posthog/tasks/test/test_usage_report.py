@@ -4974,7 +4974,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     def test_free_trace_does_not_exempt_a_product_that_emits_no_trace(
         self, ai_product: str, mock_region: MagicMock
     ) -> None:
-        """A docs-only $ai_trace sharing a traceless product's trace id leaves its generation billable."""
         mock_region.return_value = "US"
         self._setup_teams()
         analytics_org = Organization.objects.create(name="PostHog Analytics")
@@ -5002,7 +5001,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_free_trace_exempts_traced_product(self, mock_region: MagicMock) -> None:
-        """A traced product keeps the free-tools policy, while its generation with no trace still bills."""
         mock_region.return_value = "US"
         self._setup_teams()
         analytics_org = Organization.objects.create(name="PostHog Analytics")
@@ -5033,7 +5031,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_billable_trace_row_outranks_a_free_one(self, mock_region: MagicMock) -> None:
-        """A docs-only $ai_trace sharing a billable trace's id leaves the turn billed once."""
         mock_region.return_value = "US"
         self._setup_teams()
         analytics_org = Organization.objects.create(name="PostHog Analytics")
@@ -5064,7 +5061,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_duplicate_billable_trace_rows_bill_generation_once(self, mock_region: MagicMock) -> None:
-        """Repeated $ai_trace rows for one trace id do not multiply its generation's cost."""
         mock_region.return_value = "US"
         self._setup_teams()
         analytics_org = Organization.objects.create(name="PostHog Analytics")
@@ -5094,7 +5090,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result, [(self.org_1_team_1.id, 120)])
 
     def test_traced_products_are_pinned(self) -> None:
-        # Changing this set changes which products a free trace can exempt; update the parametrized tests with it.
+        # Update the parametrized free-trace tests when this set changes.
         self.assertEqual(set(AI_BILLING_TRACED_PRODUCTS), {"posthog_ai"})
 
     def test_has_non_zero_usage_counts_signals_credits(self) -> None:

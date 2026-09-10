@@ -1732,8 +1732,7 @@ AI_COST_MARKUP_PERCENT = 0.2
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
-# ai_product values whose runs emit an $ai_trace. A free-tools verdict comes from a turn's own trace,
-# so it applies only to these products; any other product bills on its generation alone.
+# ai_product values whose runs emit their own $ai_trace, the only products a free-tools verdict exempts.
 AI_BILLING_TRACED_PRODUCTS = ("posthog_ai",)
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
 # Region-to-team mapping for where AI events are stored
@@ -1802,7 +1801,7 @@ def _get_teams_with_ai_credits_for_products(
         - Traces that only contain 'search' tool calls with kind='docs'
 
     Every other product (e.g. slack_app) bills on its generation alone, even when an $ai_trace shares
-    its trace id, because a product that emits no trace has no turn of its own for a verdict to come from.
+    its trace id.
 
     We are also performing additional filtering to maintain current trace tool calls and not all messages
     in the ongoing conversation thread (otherwise we might end up billing for traces we would not want to)
@@ -1974,7 +1973,6 @@ def _get_teams_with_ai_credits_for_products(
                 -- on $ai_billable alone, already enforced in the costs CTE). Use empty(), not
                 -- IS NULL: join_use_nulls=0 yields '' — not NULL — for an unmatched trace_id.
                 t.is_billable = 1 OR empty(t.trace_id)
-                -- a free verdict comes from a turn's own trace, so it applies only to products that emit one
                 OR c.ai_product NOT IN %(traced_ai_products)s
             GROUP BY
                 c.customer_team_id
