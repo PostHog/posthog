@@ -364,12 +364,20 @@ class TestBingAdsSource:
 
         assert not any(pattern in transient_message for pattern in non_retryable_errors)
 
-    def test_transient_bad_request_is_retryable_not_disabling(self):
-        # A bare transport-level HTTP 400 on a Bing SOAP call (no coded WebFault) is a transient edge
-        # rejection: it must be recognised as retryable (kept out of error tracking) and must NOT match
-        # any non-retryable pattern, or a transient blip would disable the schema.
-        error_message = "Failed to generate ad_performance_report report: Exception: (400, 'Bad Request')"
-
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            # A bare transport-level HTTP 400 on a Bing SOAP call (no coded WebFault) is a transient edge
+            # rejection: it must be recognised as retryable (kept out of error tracking) and must NOT match
+            # any non-retryable pattern, or a transient blip would disable the schema.
+            "Failed to generate ad_performance_report report: Exception: (400, 'Bad Request')",
+            # Bing did not finish building the report inside the SDK's polling window. The next attempt
+            # submits a fresh report request, so this must stay retryable rather than disable the schema.
+            "Failed to generate ad_group_performance_report report: ReportingDownloadException: "
+            "Reporting file download tracking status timeout.",
+        ],
+    )
+    def test_transient_failures_are_retryable_not_disabling(self, error_message):
         # Assert through the same case-insensitive matcher production classification uses.
         assert error_message_matches(error_message, self.source.get_retryable_errors())
         assert not error_message_matches(error_message, self.source.get_non_retryable_errors())

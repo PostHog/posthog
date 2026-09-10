@@ -16,6 +16,7 @@ from posthog.schema import EventsNode, TrendsQuery
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
+from posthog.exceptions import APIQueriesBudgetExceeded
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
@@ -197,6 +198,33 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+
+    def test_budget_refusal_does_not_count_as_an_endpoint_error(self):
+        endpoint = create_endpoint_with_version(
+            name="budget_refused",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with (
+            mock.patch(
+                "products.endpoints.backend.logic.execution.process_query_model",
+                side_effect=APIQueriesBudgetExceeded(wait=120),
+            ),
+            mock.patch("products.endpoints.backend.logic.execution.ENDPOINT_EXECUTION_TOTAL") as mock_counter,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        mock_counter.labels.assert_not_called()
+        mock_signal.assert_not_called()
+        mock_capture.assert_not_called()
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(
@@ -2472,6 +2500,42 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         cache_ttl = mock_exec.call_args.kwargs["cache_age_seconds"]
         # data_freshness_seconds=86400, materialized ~5 min ago -> ~86100s remaining
         self.assertGreater(cache_ttl, 80000, f"cache TTL clamped ({cache_ttl}s): freshness read from frozen timestamp")
+
+    def test_materialized_response_transform_receives_the_job_materialization_time(self):
+        from products.endpoints.backend.logic.strategies import HogQLEndpointStrategy
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "v2-transform-now", {"kind": "HogQLQuery", "query": "select 1 as n"}
+        )
+        saved_query = endpoint.versions.first().saved_query
+        saved_query.sync_frequency_interval = None
+        saved_query.last_run_at = None
+        saved_query.status = None
+        saved_query.save()
+        materialized_at = timezone.now() - timedelta(minutes=5)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=materialized_at,
+        )
+
+        flat_response = Response({"results": [[1]], "columns": ["n"]})
+        with (
+            mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=flat_response),
+            mock.patch.object(
+                HogQLEndpointStrategy, "transform_materialized_response", autospec=True
+            ) as mock_transform,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_transform.assert_called_once()
+        _strategy, _data, _saved_query, passed_at = mock_transform.call_args.args
+        self.assertEqual(passed_at, materialized_at)
 
     @parameterized.expand(
         [

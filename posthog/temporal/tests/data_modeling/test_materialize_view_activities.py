@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import contextlib
 from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
@@ -58,7 +59,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
-from products.notifications.backend.facade.api import NotificationType, TargetType
+from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
 from products.warehouse_sources.backend.facade.hooks import (
     AccountPropertySourceProjection,
     PersonPropertySourceProjection,
@@ -200,20 +201,32 @@ class TestFailMaterializationActivity:
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
 
     @pytest.mark.parametrize(
-        "previous_status,expect_notification",
+        "previous_status,parent_workflow_id,expect_email,expect_in_app",
         [
-            (None, True),
-            (DataModelingJob.Status.COMPLETED, True),
-            (DataModelingJob.Status.FAILED, False),
+            (None, None, True, True),
+            (DataModelingJob.Status.COMPLETED, None, True, True),
+            (DataModelingJob.Status.FAILED, None, False, True),
+            (DataModelingJob.Status.FAILED, "execute-dag-workflow", False, False),
         ],
     )
-    async def test_notifies_only_on_first_failure_of_streak(
-        self, activity_environment, ateam, anode, asaved_query, adag, previous_status, expect_notification
+    async def test_emails_at_streak_start_and_notifies_in_app_on_every_manual_run(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        asaved_query,
+        adag,
+        previous_status,
+        parent_workflow_id,
+        expect_email,
+        expect_in_app,
     ):
         if previous_status is not None:
             error = "boom" if previous_status == DataModelingJob.Status.FAILED else None
             await _make_job(ateam, asaved_query, previous_status, error=error)
-        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        current_job = await _make_job(
+            ateam, asaved_query, DataModelingJob.Status.RUNNING, parent_workflow_id=parent_workflow_id
+        )
 
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
@@ -222,15 +235,22 @@ class TestFailMaterializationActivity:
             job_id=str(current_job.id),
             error="Some non-timeout error",
         )
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
-        ) as mock_create:
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+            ) as mock_email,
+        ):
             await activity_environment.run(fail_materialization_activity, inputs)
 
-        if expect_notification:
+        assert mock_email.delay.called == expect_email
+        if expect_in_app:
             mock_create.assert_called_once()
             data = mock_create.call_args.args[0]
             assert data.notification_type == NotificationType.MATERIALIZATION_FAILURE
+            assert data.priority == Priority.CRITICAL
             assert data.target_id == str(ateam.pk)
             assert data.resource_id == str(asaved_query.id)
         else:
@@ -252,11 +272,11 @@ class TestFailMaterializationActivity:
             error="Some non-timeout error",
         )
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
-        ) as mock_create:
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+        ) as mock_email:
             await activity_environment.run(fail_materialization_activity, inputs)
 
-        mock_create.assert_not_called()
+        mock_email.delay.assert_not_called()
 
     async def test_notifies_when_recovery_raises(self, activity_environment, ateam, anode, asaved_query, adag):
         current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
@@ -686,7 +706,7 @@ class TestNodeSuspension:
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 
-        from products.data_modeling.backend.facade.api import resume_nodes
+        from products.data_modeling.backend.facade.api import unsuspend_nodes
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
@@ -702,7 +722,7 @@ class TestNodeSuspension:
         )
 
         await database_sync_to_async(anode.refresh_from_db)()
-        await database_sync_to_async(resume_nodes)([anode], by="query_edit")
+        await database_sync_to_async(unsuspend_nodes)([anode], by="query_edit")
 
         next_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom again")
         jobs.append(next_job)
@@ -853,6 +873,30 @@ class TestSucceedMaterializationActivity:
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
         assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is True
 
+    @pytest.mark.parametrize("edited_after_the_run_started", [False, True])
+    async def test_success_clears_modified_only_when_the_run_started_after_the_edit(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query, edited_after_the_run_started
+    ):
+        # The API stamps Modified on a query edit; a run that started after the edit consumes it,
+        # while an edit landing mid-run must survive until the next run.
+        edited_at = ajob.created_at + dt.timedelta(minutes=1 if edited_after_the_run_started else -1)
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
+            status=DataWarehouseSavedQuery.Status.MODIFIED, updated_at=edited_at
+        )
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        await activity_environment.run(succeed_materialization_activity, inputs)
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        expected = DataWarehouseSavedQuery.Status.MODIFIED if edited_after_the_run_started else None
+        assert asaved_query.status == expected
+
     async def test_flags_enrichment_needed_when_hash_missing(self, activity_environment, ateam, anode, ajob, adag):
         # A view with no stored enrichment hash (never enriched) must signal the workflow to enrich.
         inputs = SucceedMaterializationInputs(
@@ -882,6 +926,29 @@ class TestSucceedMaterializationActivity:
         )
         result = await activity_environment.run(succeed_materialization_activity, inputs)
         assert result.enrichment_needed is False
+
+    async def test_flags_enrichment_needed_once_the_table_is_linked(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query
+    ):
+        # The definition-only pass stored an unsampled hash. The first run links the table before this
+        # activity runs, while its own job is still Running, and that alone must flip the hash.
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
+            semantic_enrichment_hash=compute_enrichment_hash(asaved_query)
+        )
+        table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam, name="test_model", format="Delta"
+        )
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(table=table)
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        result = await activity_environment.run(succeed_materialization_activity, inputs)
+        assert result.enrichment_needed is True
 
 
 class TestPrepareQueryableTableActivity:

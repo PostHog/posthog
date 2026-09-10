@@ -14,8 +14,8 @@
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
 use crate::assets::{
-    is_fetchable_image_attr, is_image_ref_attr, is_media_src_attr, IMAGE_REF_ATTR_PREFIX,
-    INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
+    is_at_most_one_pixel, is_fetchable_image_attr, is_image_ref_attr, is_media_src_attr, px_length,
+    IMAGE_REF_ATTR_PREFIX, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
 };
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
@@ -756,7 +756,17 @@ impl<'c, 'a> Walker<'c, 'a> {
                         return self.redo_node(start, end, parent, node_mark, out);
                     }
                     emit_deferred_key(bytes, key, &mut emitted, out);
-                    self.walk_attrs(v.0, kind, &tag, parent == ParentKind::Picture, out)?;
+                    let hidden_pixel = tag.eq_ignore_ascii_case("img")
+                        && self.ctx.collects_urls()
+                        && self.attrs_hide_pixel(v.0).ok()?;
+                    self.walk_attrs(
+                        v.0,
+                        kind,
+                        &tag,
+                        parent == ParentKind::Picture,
+                        hidden_pixel,
+                        out,
+                    )?;
                 }
                 for (key, v) in [ty_m, tag_m, is_style_m, text_m].into_iter().flatten() {
                     emit_deferred_key(bytes, key, &mut emitted, out);
@@ -842,6 +852,83 @@ impl<'c, 'a> Walker<'c, 'a> {
         Some(end)
     }
 
+    /// One pass over an object for several keys. An escaped key or a repeated wanted key makes the
+    /// tree path decide, because that path sees the decoded key and keeps the last duplicate, and a
+    /// side effect taken here on a different reading could not be rolled back.
+    fn find_members<const N: usize>(
+        &self,
+        obj_start: usize,
+        names: [&[u8]; N],
+    ) -> Result<[Option<Span>; N], Fallback> {
+        const PRESCAN_BUDGET: usize = 4096;
+        let bytes = self.bytes;
+        let budget_end = obj_start.saturating_add(PRESCAN_BUDGET);
+        let mut found: [Option<Span>; N] = [None; N];
+        let mut pos = obj_start + 1;
+        let mut first = true;
+        loop {
+            pos = scan::skip_ws(bytes, pos);
+            if bytes.get(pos) == Some(&b'}') {
+                return Ok(found);
+            }
+            if pos >= budget_end {
+                return Err(Fallback);
+            }
+            if !first {
+                if bytes.get(pos) != Some(&b',') {
+                    return Ok(found);
+                }
+                pos = scan::skip_ws(bytes, pos + 1);
+            }
+            first = false;
+            if bytes.get(pos) != Some(&b'"') {
+                return Ok(found);
+            }
+            let key_end = scan::skip_string(bytes, pos).map_err(|_| Fallback)?;
+            let key = &bytes[pos + 1..key_end - 1];
+            if key.contains(&b'\\') {
+                return Err(Fallback);
+            }
+            pos = scan::skip_ws(bytes, key_end);
+            if bytes.get(pos) != Some(&b':') {
+                return Ok(found);
+            }
+            let vspan = scan::locate_value(bytes, pos + 1).map_err(|_| Fallback)?;
+            if let Some(index) = names.iter().position(|name| *name == key) {
+                if found[index].is_some() {
+                    return Err(Fallback);
+                }
+                found[index] = Some(vspan);
+            }
+            pos = vspan.1;
+        }
+    }
+
+    /// The attribute half of `assets::is_hidden_pixel`. The style half never reaches this walker,
+    /// because `walk_node` sends every element with a `style` attribute to the tree path first.
+    fn attrs_hide_pixel(&self, obj_start: usize) -> Result<bool, Fallback> {
+        let [hidden, width, height] =
+            self.find_members(obj_start, [b"hidden", b"width", b"height"])?;
+        if hidden.is_some() {
+            return Ok(true);
+        }
+        Ok(is_at_most_one_pixel(
+            self.px_length_at(width)?,
+            self.px_length_at(height)?,
+        ))
+    }
+
+    fn px_length_at(&self, span: Option<Span>) -> Result<Option<f64>, Fallback> {
+        let Some(span) = span else {
+            return Ok(None);
+        };
+        if scan::is_string(self.bytes, span) {
+            let text = scan::unescape(self.bytes, span).map_err(|_| Fallback)?;
+            return Ok(px_length(&text));
+        }
+        Ok(scan::parse_number(self.bytes, span))
+    }
+
     /// An element's `attributes` object (mirrors `dom::scrub_attrs`, including the media blur).
     /// Namespaced attrs are appended before the closing brace; the tree path inserts them into the
     /// map instead, which is the same object semantically.
@@ -851,6 +938,7 @@ impl<'c, 'a> Walker<'c, 'a> {
         kind: TagKind,
         tag: &str,
         parent_is_picture: bool,
+        hidden_pixel: bool,
         out: &mut Vec<u8>,
     ) -> Option<usize> {
         if self.bytes.get(start) != Some(&b'{') {
@@ -868,7 +956,15 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return None;
                 }
                 if kind == TagKind::Media && is_media_src_attr(name) {
-                    return w.blur_media_src(name, vstart, tag, parent_is_picture, out, stashes);
+                    return w.blur_media_src(
+                        name,
+                        vstart,
+                        tag,
+                        parent_is_picture,
+                        hidden_pixel,
+                        out,
+                        stashes,
+                    );
                 }
                 if name == INLINE_IMAGE_ATTR {
                     return w.scrub_string_value(vstart, out, |w, s| {
@@ -923,12 +1019,16 @@ impl<'c, 'a> Walker<'c, 'a> {
     /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
     /// blurred; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
     /// host-scrubbed original are stashed alongside.
+    /// `hidden_pixel` is true for an `img` nobody can see. The collector counts that refusal once
+    /// per URL, so `src` and `srcset` naming one URL, and a re-walk after a fallback, count once.
+    #[allow(clippy::too_many_arguments)]
     fn blur_media_src(
         &mut self,
         name: &str,
         vstart: usize,
         tag: &str,
         parent_is_picture: bool,
+        hidden_pixel: bool,
         out: &mut Vec<u8>,
         stashes: &mut Vec<(String, String)>,
     ) -> Option<usize> {
@@ -963,12 +1063,15 @@ impl<'c, 'a> Walker<'c, 'a> {
             );
             scan::write_json_string(&blurred, out);
         } else {
-            let collected = is_fetchable_image_attr(name, tag, parent_is_picture)
-                .then(|| {
-                    self.ctx
-                        .collect_url_from(&selected, ImageSource::HtmlAttribute(property))
-                })
-                .flatten();
+            let collected = if !is_fetchable_image_attr(name, tag, parent_is_picture) {
+                None
+            } else if hidden_pixel {
+                self.ctx.decline_url(&selected, "hidden_pixel");
+                None
+            } else {
+                self.ctx
+                    .collect_url_from(&selected, ImageSource::HtmlAttribute(property))
+            };
             let scrubbed = scrub_url(self.ctx, &selected).unwrap_or_else(|| selected.clone());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             if let Some(url_ref) = collected {
@@ -1027,7 +1130,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         };
                         // Mutation attributes carry no tag, so a `src` here is not known to be
                         // an image. Decline rather than guess.
-                        w.walk_attrs(vstart, kind, "", false, out)
+                        w.walk_attrs(vstart, kind, "", false, false, out)
                     }
                     _ => w.copy_value(vstart, out),
                 },

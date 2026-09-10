@@ -979,6 +979,10 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const propertyDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -990,7 +994,10 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set.'),
 })
 
 /**

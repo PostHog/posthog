@@ -1403,6 +1403,12 @@ class ExternalDataSourceType(models.TextChoices):
     MEDUSA = "Medusa", "Medusa"
     MEMBRAIN = "Membrain", "Membrain"
     RECALLAI = "RecallAI", "RecallAI"
+    TENJIN = "Tenjin", "Tenjin"
+    FOLK = "Folk", "Folk"
+    CYBERSOURCE = "Cybersource", "Cybersource"
+    GOOGLEADSENSE = "GoogleAdSense", "GoogleAdSense"
+    SEQUENZY = "Sequenzy", "Sequenzy"
+    SKIO = "Skio", "Skio"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:

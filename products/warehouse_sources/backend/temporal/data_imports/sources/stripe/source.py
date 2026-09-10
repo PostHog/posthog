@@ -312,6 +312,12 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "Integration not found": "The linked Stripe integration no longer exists. Please reconnect your Stripe account.",
             "Stripe access token not found": "Stripe OAuth access token is missing. Please reconnect your Stripe account.",
             "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.": "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
+            # Stripe's own `invalid_request_error` body with no usable detail, seen when listing a
+            # specific customer's nested resources (e.g. payment methods). It is a 400-class error,
+            # so retrying replays the identical request against the same customer and fails
+            # identically every time. Stripe's own message isn't actionable, so surface a message
+            # that points at the account rather than showing the raw string.
+            "error_details_unknown": "Stripe rejected a request for one of your resources without a specific reason. Check your Stripe account for any restrictions or contact Stripe support, then try again.",
         }
 
     def get_retryable_errors(self) -> set[str]:

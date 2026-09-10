@@ -29,10 +29,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cloud_utils import is_cloud
-from posthog.constants import (
-    SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
-    SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
-)
+from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.dataclasses import frozen
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
@@ -51,6 +48,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
+    AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
     attribute_subscription_saves,
@@ -59,6 +57,7 @@ from products.exports.backend.models.subscription import (
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
+    get_ai_query_plan_status as derive_ai_query_plan_status,
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
@@ -66,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_FAILURE_TYPE,
+    AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -318,6 +318,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
     )
+    ai_query_plan_status = serializers.SerializerMethodField(
+        help_text=(
+            "Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. "
+            "Null for other subscription types."
+        )
+    )
     delivery_config = DeliveryConfigSerializer(
         required=False,
         help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
@@ -347,6 +353,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "dashboard_export_insights",
             "prompt",
             "ai_prompt_config",
+            "ai_query_plan_status",
             "target_type",
             "target_value",
             "frequency",
@@ -451,6 +458,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info
         return info.name if info else None
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=AIQueryPlanStatus.choices,
+            allow_null=True,
+        )
+    )
+    def get_ai_query_plan_status(self, subscription: Subscription) -> Optional[str]:
+        if subscription.resource_type != Subscription.ResourceType.AI_PROMPT:
+            return None
+        return derive_ai_query_plan_status(subscription.ai_query_plan).value
 
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("insight") or (existing and existing.insight_id)):
@@ -656,15 +674,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
             )
 
-        # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
-        # and field-absent PATCHes always pass through so users aren't stuck with a value
-        # they can no longer edit if the flag flips off after they set one.
         prompt_guide = attrs.get("summary_prompt_guide")
-        if prompt_guide:
-            if len(prompt_guide) > 500:
-                raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
-            if not self._prompt_guide_feature_enabled():
-                raise exceptions.PermissionDenied("Setting AI summary context is not enabled for this organization.")
+        if prompt_guide and len(prompt_guide) > 500:
+            raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
 
         if attrs.get("summary_enabled"):
             organization = self.context["get_organization"]()
@@ -756,33 +768,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         except Exception:
             # Telemetry must never poison the validation path.
             pass
-
-    def _evaluate_feature_flag(self, flag_key: str) -> bool:
-        """Evaluate a feature flag for the caller's organization.
-
-        Scoped by organization (not user) so gates are stable across a team's
-        members. `only_evaluate_locally=False` so we respect server-side cohort
-        / property conditions — these checks aren't on a hot path.
-        (`_ai_create_gate_reason` is intentionally person-scoped instead — it
-        backs a per-user early-access opt-in — so don't unify the two.)
-        """
-        request = self.context.get("request")
-        if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
-            return False
-        organization = self.context["get_organization"]()
-        org_id = str(organization.id) if organization else ""
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag_key,
-                str(request.user.distinct_id),
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-            )
-        )
-
-    def _prompt_guide_feature_enabled(self) -> bool:
-        return self._evaluate_feature_flag(SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY)
 
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
@@ -1548,6 +1533,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
     # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
     # subscription, so it is intentionally not scrubbed.
+    # ai_query_plan_status is harmless execution metadata, so it also stays visible without query access.
     # recipient_results is also intentionally not scrubbed: its human_readable_error values are
     # audience-independent delivery failure reasons (auto-disable causes, prompt rejections, Slack
     # thread-failure counts) that carry no query-derived data. New producers of
@@ -1572,6 +1558,12 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     )
     ai_report_prompt = serializers.SerializerMethodField(
         help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."
+    )
+    ai_query_plan_status = serializers.SerializerMethodField(
+        help_text=(
+            "Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. "
+            "Null for older deliveries and non-AI deliveries."
+        )
     )
 
     class Meta:
@@ -1598,6 +1590,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "ai_report_diagnostics",
             "ai_report_charts",
             "ai_report_prompt",
+            "ai_query_plan_status",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1663,6 +1656,14 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         charts = snapshot.get(AI_REPORT_CHARTS_KEY)
         return charts if isinstance(charts, list) else None
 
+    @extend_schema_field(serializers.ChoiceField(choices=AIQueryPlanStatus.choices, allow_null=True))
+    def get_ai_query_plan_status(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        status = snapshot.get(AI_REPORT_QUERY_PLAN_STATUS_KEY)
+        return status if isinstance(status, str) and status in AIQueryPlanStatus.values else None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
@@ -1683,6 +1684,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_DIAGNOSTICS_KEY in snapshot
             or AI_REPORT_CHARTS_KEY in snapshot
+            or AI_REPORT_QUERY_PLAN_STATUS_KEY in snapshot
         ):
             data["content_snapshot"] = {
                 key: value
@@ -1693,6 +1695,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
                     AI_REPORT_PROMPT_SNAPSHOT_KEY,
                     AI_REPORT_DIAGNOSTICS_KEY,
                     AI_REPORT_CHARTS_KEY,
+                    AI_REPORT_QUERY_PLAN_STATUS_KEY,
                 )
             }
         return data

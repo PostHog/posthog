@@ -20,13 +20,10 @@ from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache,
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
-from .tasks import (
-    post_reply_to_github,
-    post_reply_to_slack,
-    post_reply_to_teams,
-    post_reply_to_teams_via_graph,
-    send_email_reply,
-)
+from .tasks.email import send_email_reply
+from .tasks.github import post_reply_to_github
+from .tasks.slack import post_reply_to_slack
+from .tasks.teams import post_reply_to_teams, post_reply_to_teams_via_graph
 from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
 logger = structlog.get_logger(__name__)

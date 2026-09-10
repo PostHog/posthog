@@ -1021,6 +1021,46 @@ groups: PostgresTable = PostgresTable(
     },
 )
 
+autoresearch_pipelines: PostgresTable = PostgresTable(
+    name="autoresearch_pipelines",
+    postgres_table_name="autoresearch_autoresearchpipeline",
+    access_scope="autoresearch",
+    description="Autoresearch pipelines; one row per standing prediction question (a target event, a population, and a horizon).",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Pipeline UUID."),
+        "team_id": IntegerDatabaseField(name="team_id", description="Team the pipeline belongs to."),
+        "name": StringDatabaseField(name="name", description="Human-readable name."),
+        "description": StringDatabaseField(name="description", description="Free-text description; blank when unset."),
+        "target_event": StringDatabaseField(
+            name="target_event", description="Event the pipeline predicts, for example '$pageview'."
+        ),
+        "horizon_days": IntegerDatabaseField(
+            name="horizon_days", description="Number of days ahead the prediction looks for the target event."
+        ),
+        "status": StringDatabaseField(
+            name="status",
+            description="One of draft, bootstrapping, running, converged, paused, archived.",
+        ),
+        "iteration_budget": IntegerDatabaseField(
+            name="iteration_budget", description="Maximum training iterations the agent loop may spend."
+        ),
+        "iteration_budget_remaining": IntegerDatabaseField(
+            name="iteration_budget_remaining",
+            nullable=True,
+            description="Training iterations still available to spend (NULL when unset).",
+        ),
+        "output_person_property": StringDatabaseField(
+            name="output_person_property",
+            description="Person property the champion model's score is written to; blank when unset.",
+        ),
+        "last_scored_at": DateTimeDatabaseField(
+            name="last_scored_at", nullable=True, description="When inference last ran (NULL before the first run)."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the pipeline was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the pipeline was last modified."),
+    },
+)
+
 group_type_mappings: PostgresTable = PostgresTable(
     name="group_type_mappings",
     postgres_table_name="posthog_grouptypemapping",
@@ -2995,6 +3035,7 @@ class SystemTables(TableNode):
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),
+        "autoresearch_pipelines": TableNode(name="autoresearch_pipelines", table=autoresearch_pipelines),
         "teams": TableNode(name="teams", table=teams),
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
         "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),

@@ -129,8 +129,6 @@ def _resolve_effective_query_json(insight: Insight, dashboard: Dashboard | None)
     query_json = insight.get_effective_query(dashboard=dashboard)
     if query_json is None:
         query_json = insight.query
-    if query_json is None:
-        query_json = insight.query_from_filters
     return query_json
 
 
@@ -266,7 +264,7 @@ def build_insight_delivery_snapshot(
         base["cache_key"] = None
         base["query_error"] = {
             "type": "missing_query",
-            "message": "Insight has no query or convertible filters",
+            "message": "Insight has no query",
             "human_readable_error": "This insight has no query to run.",
         }
         base["comparison_enabled"] = False

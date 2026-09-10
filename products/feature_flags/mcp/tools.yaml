@@ -40,7 +40,8 @@ tools:
             own flag. Release conditions, rollout percentages, multivariate variants, and payloads all go in the
             structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for
             variants, `filters.payloads` for JSON-encoded payloads). Use `update-feature-flag` to change an existing
-            flag, and `feature-flag-get-all` first to check whether the key is already taken.
+            flag. Check the key first: `feature-flag-get-definition-by-key` when you already have the exact key it will
+            use, `feature-flag-get-all` when you only know part of the key or the name.
         include_params:
             - key
             - name
@@ -87,12 +88,6 @@ tools:
             id:
                 cast: string-int
         soft_delete: true
-    environments-evaluation-context-suggestions-create:
-        operation: environments_evaluation_context_suggestions_create
-        enabled: false
-    environments-evaluation-context-suggestions-destroy:
-        operation: environments_evaluation_context_suggestions_destroy
-        enabled: false
     feature-flag-archive:
         operation: feature_flags_archive_create
         enabled: true
@@ -287,6 +282,9 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+    feature-flag-request-usage-list:
+        operation: feature_flag_request_usage_list
+        enabled: false
     feature-flag-unarchive:
         operation: feature_flags_unarchive_create
         enabled: true
@@ -384,6 +382,33 @@ tools:
             Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action`
             ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and
             `skipped` (flags missing or without edit permission, with reason).
+    feature-flags-copy-dependencies-check:
+        operation: feature_flags_copy_flags_dependency_requirements_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check whether a flag's dependencies can be copied
+        description: >
+            Preview what a cross-project copy would do to a flag's transitive flag dependencies. Copies nothing and
+            changes nothing. Provide `feature_flag_key`, `from_project` (the source project ID) and
+            `target_project_ids`. Returns `can_copy_dependencies`, `dependency_count`, `copied_dependency_keys`
+            (dependencies missing from a target project, which a copy would create), `reused_dependency_keys`
+            (dependencies that already have an active same-key flag in every target project), plus `warnings` and a
+            human-readable `reason`. A false `can_copy_dependencies` does not always mean the copy is blocked: it is
+            also false when there is nothing to copy, because the flag has no dependencies or every dependency is
+            already satisfied in each target project. Read `warnings` to tell the two apart and report a problem only
+            when it is non-empty. Call this before every `feature-flags-copy-flags-create` copy; it is read-only and
+            returns an empty result when the flag has no dependencies. Set that tool's `copy_dependencies` only when the
+            user approves copying the keys this check reports. Requires write scope because it checks the same copy
+            eligibility and edit permissions the copy itself enforces.
+        include_params:
+            - feature_flag_key
+            - from_project
+            - target_project_ids
     feature-flags-copy-flags-create:
         operation: feature_flags_copy_flags_create
         enabled: true
@@ -401,14 +426,8 @@ tools:
             existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left
             untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of
             successful and failed copies.
-    feature-flags-copy-flags-dependency-requirements-create:
-        operation: feature_flags_copy_flags_dependency_requirements_create
-        enabled: false
     feature-flags-create-static-cohort-for-flag-create:
         operation: feature_flags_create_static_cohort_for_flag_create
-        enabled: false
-    feature-flags-dashboard-create:
-        operation: feature_flags_dashboard_create
         enabled: false
     feature-flags-dependent-flags-retrieve:
         operation: feature_flags_dependent_flags_list
@@ -426,9 +445,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-    feature-flags-enrich-usage-dashboard-create:
-        operation: feature_flags_enrich_usage_dashboard_create
-        enabled: false
     feature-flags-evaluation-reasons-retrieve:
         operation: feature_flags_evaluation_reasons_retrieve
         enabled: true

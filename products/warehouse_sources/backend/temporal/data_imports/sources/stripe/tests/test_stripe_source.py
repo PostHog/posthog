@@ -238,6 +238,10 @@ class TestStripeSource:
             # A publishable key was used where a secret/restricted key is required — matched on the
             # stable message text, ignoring the request id prefix.
             "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
+            # A 400-class InvalidRequestError with no usable Stripe-provided detail, raised when
+            # listing a specific customer's nested resources — every retry replays the same request
+            # against the same customer and fails identically.
+            "Request req_abc123: error_details_unknown",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -1458,17 +1462,32 @@ class TestSchemaWebhookCapability:
 class TestCreateWebhookPermissionErrorCopy:
     # Regression test: a permission-denied webhook creation used to always tell the user to add
     # the "Write" permission to their API key, even when the source was connected via OAuth and
-    # has no API key to edit.
+    # has no API key to edit. Stripe's connected-account refusal also reads as a permission error,
+    # but neither a wider scope nor a reconnect can lift it, and Stripe never grants an app webhook
+    # write, so `unreachable_phrase` guards against advice the user cannot act on.
     @parameterized.expand(
         [
-            ("api_key", "add the 'Write' permission for 'Webhook endpoints' to your API key"),
-            ("oauth", "reconnect your Stripe integration"),
+            (
+                "api_key",
+                "forbidden",
+                "add the 'Write' permission for 'Webhook endpoints' to your API key",
+                None,
+            ),
+            ("oauth", "forbidden", "cannot create webhooks", "reconnect"),
+            (
+                "oauth",
+                "You do not have permission to configure webhook endpoints on connected accounts.",
+                "on your platform account in Stripe",
+                "reconnect",
+            ),
         ]
     )
-    def test_permission_error_message_matches_auth_method(self, auth_method, expected_phrase):
+    def test_permission_error_message_matches_auth_method(
+        self, auth_method, stripe_message, expected_phrase, unreachable_phrase
+    ):
         with patch.object(stripe_module, "StripeClient") as mock_client_cls:
             mock_client = mock_client_cls.return_value
-            mock_client.webhook_endpoints.create.side_effect = stripe_lib.PermissionError("forbidden")
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.PermissionError(stripe_message)
 
             result = create_webhook(
                 api_key="sk_test_123",
@@ -1480,6 +1499,8 @@ class TestCreateWebhookPermissionErrorCopy:
 
         assert result.success is False
         assert expected_phrase in (result.error or "")
+        if unreachable_phrase:
+            assert unreachable_phrase not in (result.error or "")
 
 
 class TestCreateWebhookLimitErrorCopy:
@@ -1510,15 +1531,27 @@ class TestStripeAppManifestCoversSourcePermissions:
     # in April, rak_coupon_read in July), each time leaving OAuth users unable to create a webhook
     # or import coupons while the key path worked. The manifest is the checked-in source of truth
     # for the OAuth grant, so it must cover every scope the source asks a key for.
+    # Stripe rejects an app manifest that requests these, with "requesting <name> permission is
+    # disallowed", so the app can never hold them however much the source wants them. A restricted
+    # key still can, and the key-creation form still asks for them. Listing one here says the OAuth
+    # path goes without it, not that the source stopped needing it.
+    MANIFEST_DISALLOWED = {"webhook_write"}
+
     def test_every_source_permission_is_requested_by_the_app(self):
         manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
         granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
 
         # A restricted-key scope is the app permission name with a `rak_` prefix.
-        required = {permission.removeprefix("rak_") for permission in PERMISSIONS}
+        required = {permission.removeprefix("rak_") for permission in PERMISSIONS} - self.MANIFEST_DISALLOWED
 
         assert required, "PERMISSIONS is empty, so this assertion would pass vacuously"
         assert required - granted == set()
+
+    def test_manifest_omits_every_disallowed_permission(self):
+        manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
+        granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
+
+        assert granted & self.MANIFEST_DISALLOWED == set()
 
 
 class TestStripeWarehouseParentFanout:

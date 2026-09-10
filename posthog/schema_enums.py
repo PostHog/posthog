@@ -2660,6 +2660,12 @@ class ExternalDataSourceType(StrEnum):
     MEDUSA = "Medusa"
     MEMBRAIN = "Membrain"
     RECALL_AI = "RecallAI"
+    TENJIN = "Tenjin"
+    FOLK = "Folk"
+    CYBERSOURCE = "Cybersource"
+    GOOGLE_AD_SENSE = "GoogleAdSense"
+    SEQUENZY = "Sequenzy"
+    SKIO = "Skio"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3301,6 +3307,12 @@ class MetaAdsDefaultSources(StrEnum):
     THREADS = "threads"
 
 
+class Summary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
+
+
 class MetricsAggregation(StrEnum):
     SUM = "sum"
     AVG = "avg"
@@ -3460,7 +3472,6 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
-    NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
@@ -3504,11 +3515,6 @@ class NodeKind(StrEnum):
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
-
-
-class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
-    SOURCE = "Source"
-    CAMPAIGN = "Campaign"
 
 
 class PathType(StrEnum):
@@ -3583,6 +3589,7 @@ class ProductIntentContext(StrEnum):
     FEATURE_FLAG_CREATED = "feature flag created"
     SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = "session_replay_experiment_link_clicked"
+    SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER = "session_replay_save_filters_as_scanner"
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = "error_tracking_exception_autocapture_enabled"
     ERROR_TRACKING_ISSUE_SORTING = "error_tracking_issue_sorting"
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
