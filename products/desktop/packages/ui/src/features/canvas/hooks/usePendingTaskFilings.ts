@@ -1,5 +1,6 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useMutationState } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 export interface PendingTaskFiling {
   channelId: string;
@@ -31,7 +32,7 @@ export function latestPendingTaskFilings(
 
 export function usePendingTaskFilings(): PendingTaskFiling[] {
   const trpc = useHostTRPC();
-  return useMutationState({
+  const filings = useMutationState({
     filters: {
       mutationKey: trpc.channelTasks.file.mutationKey(),
       status: "pending",
@@ -42,5 +43,14 @@ export function usePendingTaskFilings(): PendingTaskFiling[] {
         ? { ...variables, submittedAt: mutation.state.submittedAt }
         : null;
     },
-  }).filter((filing): filing is PendingTaskFiling => filing !== null);
+  });
+  // useMutationState keeps one array while no filing changes, so memoize the
+  // type guard to keep that identity. Callers list this array in useMemo
+  // dependencies, and a fresh array each render would repeat the feed sort and
+  // the sidebar item build on every unrelated render.
+  return useMemo(
+    () =>
+      filings.filter((filing): filing is PendingTaskFiling => filing !== null),
+    [filings],
+  );
 }
