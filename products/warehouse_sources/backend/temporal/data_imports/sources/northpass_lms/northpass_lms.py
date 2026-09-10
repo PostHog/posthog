@@ -60,12 +60,11 @@ class NorthpassPaginator(JSONResponsePaginator):
         super().update_state(response, data)
 
 
-def _require_rows(pages: Iterable[list[dict[str, Any]]], endpoint: str) -> Iterator[list[dict[str, Any]]]:
-    found = False
-    for page in pages:
-        found = found or bool(page)
-        yield page
-    if not found:
+def _require_quiz_attempts(
+    pages: Iterable[list[dict[str, Any]]], endpoint: str, attempts_seen: set[str]
+) -> Iterator[list[dict[str, Any]]]:
+    yield from pages
+    if not attempts_seen:
         raise NorthpassQuizLogEmptyError(f"{QUIZ_LOG_EMPTY_MESSAGE}, so {endpoint} has no rows to sync")
 
 
@@ -159,7 +158,7 @@ def _promote_relationship_ids(row: dict[str, Any], relationship_id_fields: dict[
     return row
 
 
-def _make_quiz_attempt_flattener() -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+def _make_quiz_attempt_flattener(seen: set[str]) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
     """Reshape sent-webhooks log messages into completed-quiz-attempt rows.
 
     The v2 API lists no quiz attempts directly; the quiz-completed event a ``/webhooks`` message
@@ -171,7 +170,6 @@ def _make_quiz_attempt_flattener() -> Callable[[dict[str, Any]], dict[str, Any] 
     attempt UUID, or when the attempt was already seen this run — the log stores one message per
     subscribed webhook endpoint, so the same attempt can appear more than once.
     """
-    seen: set[str] = set()
 
     def _flatten(item: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         message = item.get("attributes")
@@ -225,11 +223,11 @@ def _collection_params(config: NorthpassEndpointConfig) -> dict[str, Any]:
 
 
 def _collection_data_map(
-    endpoint: str,
+    endpoint: str, attempts_seen: set[str]
 ) -> Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]:
     """Bespoke row transform for a collection endpoint, or None when raw JSON:API items are fine."""
     if endpoint == "quiz_attempts":
-        return _make_quiz_attempt_flattener()
+        return _make_quiz_attempt_flattener(attempts_seen)
     return None
 
 
@@ -265,8 +263,9 @@ def _top_level_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[NorthpassResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    attempts_seen: set[str],
 ) -> Resource:
-    data_map = _collection_data_map(endpoint) or (
+    data_map = _collection_data_map(endpoint, attempts_seen) or (
         _make_relationship_flattener(config.relationship_id_fields) if config.relationship_id_fields else _flatten_item
     )
     rest_config: RESTAPIConfig = {
@@ -320,6 +319,7 @@ def _fan_out_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[NorthpassResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    attempts_seen: set[str],
 ) -> Resource:
     if config.fan_out_parent is None or config.parent_id_field is None:
         raise ValueError(f"_fan_out_source called with non-fan-out config: {config.name}")
@@ -342,7 +342,7 @@ def _fan_out_source(
                 },
                 # Parents that aren't plain JSON:API collections (the sent-webhooks log backing
                 # quiz_attempts) are reshaped before the child resolves ids from their rows.
-                "data_map": _collection_data_map(parent_name),
+                "data_map": _collection_data_map(parent_name, attempts_seen),
             },
             {
                 "name": endpoint,
@@ -394,19 +394,34 @@ def northpass_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = NORTHPASS_ENDPOINTS[endpoint]
+    attempts_seen: set[str] = set()
 
     if config.fan_out_parent is not None:
         resource = _fan_out_source(
-            api_key, endpoint, config, team_id, job_id, resumable_source_manager, db_incremental_field_last_value
+            api_key,
+            endpoint,
+            config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            db_incremental_field_last_value,
+            attempts_seen,
         )
     else:
         resource = _top_level_source(
-            api_key, endpoint, config, team_id, job_id, resumable_source_manager, db_incremental_field_last_value
+            api_key,
+            endpoint,
+            config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            db_incremental_field_last_value,
+            attempts_seen,
         )
 
     items: Callable[[], Iterable[list[dict[str, Any]]]]
     if endpoint in QUIZ_LOG_ENDPOINTS:
-        items = lambda: _require_rows(resource, endpoint)
+        items = lambda: _require_quiz_attempts(resource, endpoint, attempts_seen)
     else:
         items = lambda: resource
 

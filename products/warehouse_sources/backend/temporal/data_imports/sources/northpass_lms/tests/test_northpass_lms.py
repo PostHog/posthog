@@ -446,7 +446,7 @@ def _message_without_payload() -> dict[str, Any]:
 
 class TestQuizAttemptFlattener:
     def test_reshapes_webhook_message_into_attempt_row(self):
-        row = _make_quiz_attempt_flattener()(_quiz_message("at1"))
+        row = _make_quiz_attempt_flattener(set())(_quiz_message("at1"))
 
         assert isinstance(row, dict)
         # The attempt UUID must land as `id` — it is the primary key and what the answers fan-out
@@ -470,10 +470,10 @@ class TestQuizAttemptFlattener:
     def test_drops_unusable_messages(self, _name, message):
         # A message that can't yield an attempt row must be dropped, not emitted — a row without an
         # `id` would fail the fan-out's parent resolution and corrupt the primary key.
-        assert _make_quiz_attempt_flattener()(message) == []
+        assert _make_quiz_attempt_flattener(set())(message) == []
 
     def test_dedupes_attempts_across_messages_within_a_run(self):
-        flatten = _make_quiz_attempt_flattener()
+        flatten = _make_quiz_attempt_flattener(set())
 
         first = flatten(_quiz_message("at1", message_id="m1"))
         second = flatten(_quiz_message("at1", message_id="m2"))
@@ -486,11 +486,11 @@ class TestQuizAttemptFlattener:
     def test_seen_state_is_fresh_per_flattener(self):
         # Each sync builds its own flattener; a shared seen-set would make every sync after the
         # first in a long-lived worker yield an empty table.
-        assert isinstance(_make_quiz_attempt_flattener()(_quiz_message("at1")), dict)
-        assert isinstance(_make_quiz_attempt_flattener()(_quiz_message("at1")), dict)
+        assert isinstance(_make_quiz_attempt_flattener(set())(_quiz_message("at1")), dict)
+        assert isinstance(_make_quiz_attempt_flattener(set())(_quiz_message("at1")), dict)
 
     def test_missing_relationships_still_emit_id_columns(self):
-        row = _make_quiz_attempt_flattener()(_quiz_message("at1", relationships={}))
+        row = _make_quiz_attempt_flattener(set())(_quiz_message("at1", relationships={}))
 
         assert isinstance(row, dict)
         # Columns must exist (as None) even when a reference is absent, so the table schema stays
@@ -592,6 +592,24 @@ class TestQuizAttemptsAndAnswers:
             _rows("quiz_attempt_answers", _make_manager())
 
         assert sent == [WEBHOOKS_URL]
+
+    @parameterized.expand(
+        [
+            ("empty_page", _page([])),
+            ("ignored_404", _resp({"errors": []}, status=404)),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_answers_yield_nothing_when_the_log_attempt_has_no_answers(
+        self, _name: str, answers: Response, mock_make_session: mock.MagicMock
+    ) -> None:
+        answers_url = "https://api.northpass.com/v2/quiz_attempts/at1/answers?limit=100"
+        sent = _wire(mock_make_session, {WEBHOOKS_URL: _page([_quiz_message("at1")]), answers_url: answers})
+
+        rows = _rows("quiz_attempt_answers", _make_manager())
+
+        assert rows == []
+        assert sent == [WEBHOOKS_URL, answers_url]
 
 
 class TestNorthpassSource:
