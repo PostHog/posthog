@@ -31,7 +31,6 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Q
 
 import structlog
 import pyarrow.parquet as pq
@@ -453,9 +452,9 @@ def _reconcile_property_definitions(
         definition_type = PropertyDefinition.Type.GROUP
         group_type_index = source.group_type_index
 
-    # Property definitions are unique and read by effective project. Include legacy rows whose
-    # project_id is null so the conflict-safe insert and the final stamp address the same identity.
-    query = PropertyDefinition.objects.filter(Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id))
+    # Property definitions are unique and read by effective project, so the conflict-safe insert and
+    # the final stamp address the same identity.
+    query = PropertyDefinition.objects.for_project(project_id)
     if source.target == _GROUP_TARGET:
         # Group propdefs are keyed per group type, so the index predicate is mandatory.
         query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=source.group_type_index)

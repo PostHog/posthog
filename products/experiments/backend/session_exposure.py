@@ -13,9 +13,6 @@ through ``replay_linkage`` instead, so it is not a reader of this seam beyond
 from dataclasses import dataclass
 from typing import Optional
 
-from django.db import models
-from django.db.models.functions import Coalesce
-
 from posthog.hogql import ast
 
 from posthog.models import EventProperty
@@ -49,10 +46,8 @@ def never_session_linked_events(team: Team, event_names: frozenset[str]) -> froz
     if not event_names:
         return frozenset()
     seen = (
-        EventProperty.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(effective_project_id=team.project_id, event__in=sorted(event_names), property="$session_id")
+        EventProperty.objects.for_project(team.project_id)
+        .filter(event__in=sorted(event_names), property="$session_id")
         .values_list("event", flat=True)
         .distinct()
     )

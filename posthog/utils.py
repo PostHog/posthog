@@ -26,8 +26,8 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
-from django.db import ProgrammingError, models
-from django.db.models.functions import Coalesce, Lower
+from django.db import ProgrammingError
+from django.db.models.functions import Lower
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -1066,12 +1066,8 @@ def get_has_person_email(team: "Team") -> bool:
         return cached
 
     has_person_email = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(
-            effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name=PERSON_EMAIL_PROPERTY_NAME
-        )
+        PropertyDefinition.objects.for_project(team.project_id)
+        .filter(type=PropertyDefinition.Type.PERSON, name=PERSON_EMAIL_PROPERTY_NAME)
         .exists()
     )
 

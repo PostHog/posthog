@@ -7,6 +7,8 @@ from django.utils import timezone
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.utils import invalidate_default_event_info_cache
 
+from products.event_definitions.backend.models.property_definition import TaxonomyQuerySet
+
 DEFAULT_EVENT_INFO_NAMES: frozenset[str] = frozenset({"$pageview", "$screen"})
 
 
@@ -43,6 +45,8 @@ class EventDefinition(UUIDTModel):
 
     # DB column kept as `promoted_property` to avoid a Postgres column rename.
     primary_property = models.CharField(max_length=400, null=True, blank=True, db_column="promoted_property")
+
+    objects = TaxonomyQuerySet.as_manager()
 
     class Meta:
         db_table = "posthog_eventdefinition"

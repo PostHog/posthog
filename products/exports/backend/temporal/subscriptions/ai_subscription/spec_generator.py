@@ -323,7 +323,7 @@ def _no_data_event_names(team: Team, limit: int) -> list[str]:
     # fixed lookback, decoupled from the report window: dormancy is a property of the event, not the run.
     cutoff = datetime.now(tz=UTC) - timedelta(days=NO_DATA_LOOKBACK_DAYS)
     names = (
-        EventDefinition.objects.filter(team_id=team.pk)
+        EventDefinition.objects.for_project(team.project_id)
         .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__lt=cutoff))
         .order_by(F("last_seen_at").desc(nulls_last=True), "name")
         .values_list("name", flat=True)[:limit]
@@ -334,7 +334,8 @@ def _no_data_event_names(team: Team, limit: int) -> list[str]:
 
 def _person_property_names(team: Team, limit: int) -> list[str]:
     names = (
-        PropertyDefinition.objects.filter(team_id=team.pk, type=PropertyDefinition.Type.PERSON)
+        PropertyDefinition.objects.for_project(team.project_id)
+        .filter(type=PropertyDefinition.Type.PERSON)
         .order_by("name")
         .values_list("name", flat=True)[:limit]
     )
@@ -422,7 +423,7 @@ def _pinned_event_names(prompt: str, event_names: Sequence[str]) -> list[str]:
 
 def _recent_event_names(team: Team, limit: int) -> list[str]:
     return list(
-        EventDefinition.objects.filter(team_id=team.pk)
+        EventDefinition.objects.for_project(team.project_id)
         .order_by(F("last_seen_at").desc(nulls_last=True), "name")
         .values_list("name", flat=True)[:limit]
     )

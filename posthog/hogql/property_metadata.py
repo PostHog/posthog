@@ -73,7 +73,6 @@ def load_property_metadata(
     # Deferred: this function is the Django boundary of property-type resolution — keeping the ORM
     # imports behind the call is what lets the module (and its importers) load without django.setup().
     from django.db import models  # noqa: PLC0415
-    from django.db.models.functions.comparison import Coalesce  # noqa: PLC0415
 
     from posthog.clickhouse.materialized_columns import (  # noqa: PLC0415
         DMAT_STRING_COLUMN_NAME_PREFIX,
@@ -94,11 +93,8 @@ def load_property_metadata(
 
     # Load event property definitions with their materialized slots in a single query
     event_property_definitions = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
+        PropertyDefinition.objects.for_project(context.team.project_id)
         .filter(
-            effective_project_id=context.team.project_id,
             name__in=event_property_names,
             type__in=[None, PropertyDefinition.Type.EVENT],
         )
@@ -130,11 +126,8 @@ def load_property_metadata(
         event_properties[prop_def.name] = prop_info
 
     person_property_values = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
+        PropertyDefinition.objects.for_project(context.team.project_id)
         .filter(
-            effective_project_id=context.team.project_id,
             name__in=person_property_names,
             type=PropertyDefinition.Type.PERSON,
         )
@@ -151,11 +144,8 @@ def load_property_metadata(
         if not properties:
             continue
         group_property_values = (
-            PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-            )
+            PropertyDefinition.objects.for_project(context.team.project_id)
             .filter(
-                effective_project_id=context.team.project_id,
                 name__in=properties,
                 type=PropertyDefinition.Type.GROUP,
                 group_type_index=group_id,

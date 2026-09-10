@@ -230,7 +230,8 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         if not self.instance:  # Only for creation, not updates
             view = self.context.get("view")
             if view:
-                existing = EventDefinition.objects.filter(team_id=view.team_id, name=value).exists()
+                # Uniqueness is per project (`event_definition_proj_uniq`), so check the project, not the team.
+                existing = EventDefinition.objects.for_project(view.project_id).filter(name=value).exists()
                 if existing:
                     raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
         return value

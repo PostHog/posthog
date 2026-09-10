@@ -282,7 +282,7 @@ class TaxonomyAgentToolkit:
         question by walking the team's whole definition range, which is the cost the page
         limit is here to avoid.
         """
-        qs = PropertyDefinition.objects.filter(team=self._team, type=property_type)
+        qs = PropertyDefinition.objects.for_project(self._team.project_id).filter(type=property_type)
         if group_type_index is not None:
             qs = qs.filter(group_type_index=group_type_index)
         rows = list(qs.values_list("name", "property_type")[: max_properties + 1])
@@ -427,8 +427,8 @@ class TaxonomyAgentToolkit:
         virtual_definition = get_virtual_property_definition("event_properties", property_name)
         property_definition: PropertyDefinitionOrVirtual
         try:
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
+            property_definition = PropertyDefinition.objects.for_project(self._team.project_id).get(
+                name=property_name, type=PropertyDefinition.Type.EVENT
             )
         except PropertyDefinition.DoesNotExist:
             if virtual_definition is None:
@@ -516,8 +516,7 @@ class TaxonomyAgentToolkit:
             else:
                 prop_type = PropertyDefinition.Type.PERSON
                 group_type_index = None
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team,
+            property_definition = PropertyDefinition.objects.for_project(self._team.project_id).get(
                 name=property_name,
                 type=prop_type,
                 group_type_index=group_type_index,

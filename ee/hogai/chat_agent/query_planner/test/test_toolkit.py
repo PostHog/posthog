@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
+from posthog.schema import (
+    ActorsPropertyTaxonomyResponse,
+    CachedActorsPropertyTaxonomyQueryResponse,
+    CachedEventTaxonomyQueryResponse,
+)
 
 from posthog.models import Team
 from posthog.models.group.util import create_group
@@ -457,6 +461,46 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         resolved = toolkit._fetch_event_property_types(["sibling_prop"])
 
         self.assertEqual(resolved, {"sibling_prop": PropertyType.Numeric})
+
+    def test_retrieve_entity_properties_lists_sibling_environment_definitions(self):
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.PERSON,
+            name="sibling_plan",
+            property_type=PropertyType.String,
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("person")
+
+        self.assertIn("- sibling_plan", result)
+
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_resolves_sibling_environment_definitions(self, mock_runner_class):
+        # The stored definition decides the formatting: found as a String the value is quoted, not found
+        # the toolkit reports the property as missing from the taxonomy.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.PERSON,
+            name="sibling_tier",
+            property_type=PropertyType.String,
+        )
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[ActorsPropertyTaxonomyResponse(sample_count=1, sample_values=["gold"])],
+            timezone="UTC",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        self.assertEqual(toolkit.retrieve_entity_property_values("person", "sibling_tier"), '"gold"')
 
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()

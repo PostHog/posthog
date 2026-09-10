@@ -491,9 +491,17 @@ class TestEventDefinitionAPI(APIBaseTest):
         }
         assert not EventDefinition.objects.filter(name="event_with_unsupported_metadata", team=self.demo_team).exists()
 
-    def test_create_event_definition_duplicate_name(self):
-        """Test that creating an event with a duplicate name fails"""
-        EventDefinition.objects.create(team=self.demo_team, name="existing_event")
+    @parameterized.expand(
+        [
+            ("same_team", False),
+            ("sibling_environment", True),
+        ]
+    )
+    def test_create_event_definition_duplicate_name(self, _name: str, in_sibling_environment: bool):
+        owner = self.demo_team
+        if in_sibling_environment:
+            owner = Team.objects.create(organization=self.organization, project=self.demo_team.project)
+        EventDefinition.objects.create(team=owner, project=self.demo_team.project, name="existing_event")
 
         response = self.client.post(
             "/api/projects/@current/event_definitions/",
