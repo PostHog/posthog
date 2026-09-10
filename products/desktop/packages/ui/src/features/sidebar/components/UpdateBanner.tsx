@@ -1,42 +1,67 @@
 import { ArrowsClockwise, Gift, X } from "@phosphor-icons/react";
+import { updateStore } from "@posthog/core/updates/updateStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useUpdateBannerStore } from "@posthog/ui/features/updates/updateBannerStore";
 import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
 import {
+  useHasActiveUpdate,
   useInstallUpdate,
   useUpdateView,
 } from "@posthog/ui/features/updates/updateStore";
 import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
+import { useStore } from "zustand";
 
 interface UpdateBannerProps {
   variant?: "sidebar" | "compact";
 }
 
-export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
-  const { status, version, availableVersion, downloadPercent, isEnabled } =
-    useUpdateView();
-  const installUpdate = useInstallUpdate();
-  const openModal = useUpdateModalStore((state) => state.open);
+/** What a dismissal is remembered against: the version the banner names, which
+ *  carries from the available state into the ready one. */
+function dismissKeyFor(
+  version: string | null,
+  availableVersion: string | null,
+): string {
+  return version ?? availableVersion ?? "unknown";
+}
+
+/** Whether the banner draws anything. The title bar asks before it opens a
+ *  no-drag slot for it, so an empty slot never steals draggable pixels. Every
+ *  selector here returns a primitive: the app shell calls this hook, and a
+ *  download's progress ticks must not re-render it. */
+export function useUpdateBannerVisible(): boolean {
+  const hasActiveUpdate = useHasActiveUpdate();
+  const isEnabled = useStore(updateStore, (state) => state.isEnabled);
+  const dismissKey = useStore(updateStore, (state) =>
+    dismissKeyFor(state.version, state.availableVersion),
+  );
   const canDismiss = useSettingsStore(
     (state) => state.dismissibleUpdateBanners,
   );
   const dismissedVersion = useUpdateBannerStore(
     (state) => state.dismissedVersion,
   );
+
+  return (
+    isEnabled &&
+    hasActiveUpdate &&
+    !(canDismiss && dismissedVersion === dismissKey)
+  );
+}
+
+export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
+  const { status, version, availableVersion, downloadPercent } =
+    useUpdateView();
+  const installUpdate = useInstallUpdate();
+  const openModal = useUpdateModalStore((state) => state.open);
+  const canDismiss = useSettingsStore(
+    (state) => state.dismissibleUpdateBanners,
+  );
   const dismissBanner = useUpdateBannerStore((state) => state.dismiss);
 
-  const dismissKey = version ?? availableVersion ?? "unknown";
-  const isDismissed = canDismiss && dismissedVersion === dismissKey;
-
-  const isVisible =
-    isEnabled &&
-    !isDismissed &&
-    (status === "available" ||
-      status === "downloading" ||
-      status === "ready" ||
-      status === "installing");
+  const dismissKey = dismissKeyFor(version, availableVersion);
+  const isVisible = useUpdateBannerVisible();
 
   const percent = Math.round(downloadPercent ?? 0);
 

@@ -147,6 +147,8 @@ export interface MenuCheckToast {
 export interface MenuCheckOutcome {
   toast?: MenuCheckToast;
   clearPending: boolean;
+  /** Put the update in front of the user, whatever the banner is doing. */
+  openUpdateModal?: boolean;
 }
 
 export function resolveMenuCheckFromStatus(
@@ -173,6 +175,12 @@ export function resolveMenuCheckFromStatus(
         description: payload.error,
       },
     };
+  }
+
+  // An answer the user asked for: a check that lands on an update opens the
+  // modal, so the install never depends on the banner being on screen.
+  if (payload.available || payload.downloading || payload.updateReady) {
+    return { clearPending: true, openUpdateModal: true };
   }
 
   if (payload.checking === false) {
