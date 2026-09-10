@@ -1733,9 +1733,27 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
-        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave", "slack_nudge_enabled"):
+        for toggle_key in (
+            "slack_notify_on_join",
+            "slack_notify_on_leave",
+            "slack_nudge_enabled",
+            "pattern_detection_enabled",
+        ):
             if toggle_key in value:
                 value[toggle_key] = bool(value[toggle_key])
+        for count_key, floor in (
+            ("pattern_min_requesters", 3),
+            ("pattern_min_tickets", 3),
+            ("pattern_window_minutes", 15),
+        ):
+            if count_key in value:
+                try:
+                    count = int(value[count_key])
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError({count_key: "Must be a whole number."})
+                if count < floor:
+                    raise serializers.ValidationError({count_key: f"Must be at least {floor}."})
+                value[count_key] = count
         if "slack_alert_channel_id" in value:
             alert_channel = value.get("slack_alert_channel_id")
             if alert_channel is None:
