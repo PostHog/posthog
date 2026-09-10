@@ -23,9 +23,10 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
-from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.email_verification import EMAIL_CHANGE_PROOF_SESSION_KEY, email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.constants import AvailableFeature
@@ -59,6 +60,15 @@ def issue_verification_code(user: User, target_email: str | None = None) -> str:
     with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
         email_verification_code_verifier.send_code(user, target_email=target_email)
     return mock_send.call_args[0][1]
+
+
+def set_email_change_proof(client: APIClient, user: User, target_email: str) -> None:
+    session = client.session
+    session[EMAIL_CHANGE_PROOF_SESSION_KEY] = {
+        "user_uuid": str(user.uuid),
+        "target_email": target_email,
+    }
+    session.save()
 
 
 class TestUserAPI(APIBaseTest):
@@ -1315,6 +1325,7 @@ class TestUserAPI(APIBaseTest):
         self.user.is_email_verified = True
         self.user.pending_email = "alice@example.com"
         self.user.save()
+        set_email_change_proof(self.client, self.user, "alice@example.com")
         code = issue_verification_code(self.user)
 
         with patch(
@@ -3374,9 +3385,11 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
 
     @parameterized.expand([("verified", True), ("legacy_never_verified", None)])
     def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self, _name, is_email_verified):
+        self.client.force_login(self.user)
         self.user.is_email_verified = is_email_verified
         self.user.pending_email = "new-address@posthog.com"
         self.user.save()
+        set_email_change_proof(self.client, self.user, "new-address@posthog.com")
 
         with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
