@@ -1732,12 +1732,21 @@ class TestSSOEnforcement(APILicensedTest):
         from ee.api.authentication import social_auth_allowed
 
         # Create domain with SAML enforcement
-        OrganizationDomain.objects.create(
+        domain = OrganizationDomain.objects.create(
             domain="testdomain.com",
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="saml",
         )
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="saml",
+            domain_scope="all",
+            saml_entity_id="https://idp.example.com",
+            saml_acs_url="https://idp.example.com/saml",
+            saml_x509_cert="test-certificate",
+        )
+        LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
 
         # Test that Google OAuth2 is blocked
         with self.assertRaises(AuthFailed) as context:

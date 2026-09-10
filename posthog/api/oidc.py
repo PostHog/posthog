@@ -11,6 +11,7 @@ from prometheus_client import Counter, Histogram
 from requests import HTTPError, RequestException, Response, Timeout
 from social_core.backends.open_id_connect import OpenIdConnectAuth
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
+from urllib3.util import Timeout as Urllib3Timeout
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
@@ -206,7 +207,11 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         started_at = time.monotonic()
         deadline = started_at + OIDC_FETCH_TIMEOUT_SECONDS
         remaining_seconds = deadline - time.monotonic()
-        kwargs["timeout"] = (remaining_seconds, remaining_seconds)
+        kwargs["timeout"] = Urllib3Timeout(
+            total=OIDC_FETCH_TIMEOUT_SECONDS,
+            connect=remaining_seconds,
+            read=remaining_seconds,
+        )
         kwargs["allow_redirects"] = False
         kwargs["stream"] = True
         try:
@@ -231,8 +236,9 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
                         if time.monotonic() > deadline:
                             raise OIDCResponseTimeoutError()
 
-                    response._content = b"".join(chunks)
-                    response._content_consumed = True
+                    response_as_any = cast(Any, response)
+                    response_as_any._content = b"".join(chunks)
+                    response_as_any._content_consumed = True
                     return response
                 finally:
                     response.close()

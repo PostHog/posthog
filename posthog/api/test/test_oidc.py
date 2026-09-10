@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 from unittest.mock import Mock, patch
 
@@ -9,7 +9,7 @@ import requests
 from requests.structures import CaseInsensitiveDict
 from social_core.exceptions import AuthConnectionError
 
-from posthog.api.oidc import OIDC_FETCH_MAX_BYTES, MultitenantOIDCAuth
+from posthog.api.oidc import OIDC_FETCH_MAX_BYTES, OIDC_FETCH_TIMEOUT_SECONDS, MultitenantOIDCAuth
 from posthog.models import IdentityProviderConfig
 
 
@@ -18,8 +18,8 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
         response = requests.Response()
         response.status_code = 200
         response.headers = CaseInsensitiveDict({"Content-Type": "application/json"})
-        response.iter_content = Mock(return_value=iter([b'{"issuer": "https://idp.example.com"}']))
-        response.close = Mock()
+        cast(Any, response).iter_content = Mock(return_value=iter([b'{"issuer": "https://idp.example.com"}']))
+        cast(Any, response).close = Mock()
         session = Mock()
         session.request.return_value = response
         auth = object.__new__(MultitenantOIDCAuth)
@@ -33,17 +33,18 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
         request_kwargs = session.request.call_args.kwargs
         assert request_kwargs["stream"] is True
         assert request_kwargs["allow_redirects"] is False
-        connect_timeout, read_timeout = request_kwargs["timeout"]
-        assert 0 < connect_timeout <= 10
-        assert 0 < read_timeout <= 10
+        timeout = request_kwargs["timeout"]
+        assert timeout.total == OIDC_FETCH_TIMEOUT_SECONDS
+        assert timeout.connect_timeout <= OIDC_FETCH_TIMEOUT_SECONDS
+        assert timeout.read_timeout <= OIDC_FETCH_TIMEOUT_SECONDS
         response.close.assert_called_once()
 
     def test_rejects_response_that_exceeds_byte_limit_while_streaming(self) -> None:
         response = requests.Response()
         response.status_code = 200
         response.headers = CaseInsensitiveDict()
-        response.iter_content = Mock(return_value=iter([b"x" * OIDC_FETCH_MAX_BYTES, b"y"]))
-        response.close = Mock()
+        cast(Any, response).iter_content = Mock(return_value=iter([b"x" * OIDC_FETCH_MAX_BYTES, b"y"]))
+        cast(Any, response).close = Mock()
         session = Mock()
         session.request.return_value = response
         auth = object.__new__(MultitenantOIDCAuth)
