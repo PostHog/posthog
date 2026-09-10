@@ -1,3 +1,5 @@
+import { callCanvasConnector } from "@posthog/core/canvas/callCanvasConnector";
+import type { CanvasConnectorPermission } from "@posthog/core/canvas/canvasConnectorPermissionService";
 import type {
   CanvasCaptureInput,
   CanvasConnectorCallInput,
@@ -50,12 +52,13 @@ function cachedRead<T>(
   queryClient: QueryClient,
   method: string,
   input: unknown,
-  run: () => Promise<T>,
+  run: (signal: AbortSignal) => Promise<T>,
   refreshSeconds?: number,
 ) {
   return queryClient.fetchQuery({
     queryKey: [CANVAS_QUERY_KEY, method, stableStringify(input)] as const,
-    queryFn: run,
+    queryFn: ({ signal }) => run(signal),
+    ...(method === "connectorCall" ? { retry: false } : {}),
     meta: method === "connectorCall" ? { authScoped: true } : undefined,
     staleTime: (refreshSeconds ?? 5 * 60) * 1_000,
     // At least the refresh interval, or GC would evict an inactive entry
@@ -73,6 +76,10 @@ async function requireConnectorConsent(
   dashboardId: string,
   sourceVersionId: string,
   input: CanvasConnectorCallInput,
+  requestPermission: (
+    input: CanvasConnectorPermission,
+    signal?: AbortSignal,
+  ) => Promise<boolean>,
 ): Promise<void> {
   const queryKey = [
     "canvasData/connectorConsent",
@@ -89,10 +96,9 @@ async function requireConnectorConsent(
   }
   const allowed = await queryClient.fetchQuery({
     queryKey,
-    queryFn: async () =>
-      window.confirm(
-        `Allow this canvas to read ${JSON.stringify(input.tool)} from ${JSON.stringify(input.provider)} with your connection?\n\nThe canvas can receive private data and share it through its declared capabilities. Only allow canvases you trust.`,
-      ),
+    queryFn: ({ signal }) =>
+      requestPermission({ ...input, reason: "canvas" }, signal),
+    retry: false,
     staleTime: Infinity,
     gcTime: 10 * 60 * 1_000,
     meta: { authScoped: true },
@@ -128,7 +134,14 @@ export async function handleFreeformDataRequest(
   queryClient: QueryClient,
   // State and actions are canvas-scoped, unlike the content-keyed reads above,
   // so the caller passes the canvas identity in.
-  context?: { dashboardId?: string; sourceVersionId?: string },
+  context?: {
+    dashboardId?: string;
+    sourceVersionId?: string;
+    requestConnectorPermission?: (
+      input: CanvasConnectorPermission,
+      signal?: AbortSignal,
+    ) => Promise<boolean>;
+  },
 ): Promise<unknown> {
   const requireDashboardId = (): string => {
     if (!context?.dashboardId) {
@@ -251,11 +264,15 @@ export async function handleFreeformDataRequest(
       if (!context?.sourceVersionId) {
         throw new Error("Connector calls require a saved canvas version");
       }
+      const requestPermission = context.requestConnectorPermission;
+      if (!requestPermission)
+        throw new Error("Connector permission dialog is not available");
       await requireConnectorConsent(
         queryClient,
         dashboardId,
         context.sourceVersionId,
         input,
+        requestPermission,
       );
       // Keyed by canvas as well as content: the capability check that admitted
       // the call is per canvas, so a result must not leak into a canvas that
@@ -270,7 +287,20 @@ export async function handleFreeformDataRequest(
         queryClient,
         "connectorCall",
         { ...args, sourceVersionId: context.sourceVersionId },
-        () => hostClient().dashboards.callConnector.mutate(args),
+        (signal) =>
+          callCanvasConnector(
+            input,
+            (approvalToken, signal) =>
+              hostClient().dashboards.callConnector.mutate(
+                {
+                  ...args,
+                  ...(approvalToken ? { approval_token: approvalToken } : {}),
+                },
+                { signal },
+              ),
+            requestPermission,
+            signal,
+          ),
         refreshSeconds(input.refresh) ?? CONNECTOR_DEFAULT_REFRESH_SECONDS,
       );
     }

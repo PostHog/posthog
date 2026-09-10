@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -62,7 +62,7 @@ class TestSubscriptionScheduling:
             ),
         ]
     )
-    @freeze_time("2024-01-01 08:00:00")
+    @time_machine.travel("2024-01-01 08:00:00", tick=False)
     def test_selected_weekdays_control_delivery_dates(
         self,
         _name: str,
@@ -81,7 +81,7 @@ class TestSubscriptionScheduling:
 
         assert next_delivery_date == expected_next_delivery
 
-    @freeze_time("2024-01-01 08:00:00")
+    @time_machine.travel("2024-01-01 08:00:00", tick=False)
     def test_daily_interval_without_a_possible_weekday_returns_none(self) -> None:
         next_delivery_date = Subscription._compute_next_delivery_date(
             frequency="daily",
@@ -114,7 +114,7 @@ class TestSubscriptionDeliveryConfig:
 
 
 @patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
-@freeze_time("2022-01-01")
+@time_machine.travel("2022-01-01", tick=False)
 class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
         insight = Insight.objects.create(team=self.team)
@@ -269,7 +269,7 @@ class TestSubscription(BaseTest):
         subscription.refresh_from_db()
         assert subscription.ai_query_plan == (plan if plan_survives else None)
 
-    @freeze_time("2022-01-11 09:55:00")
+    @time_machine.travel("2022-01-11 09:55:00", tick=False)
     def test_set_next_delivery_date_when_in_upcoming_delta(self):
         subscription = Subscription.objects.create(
             id=1,
@@ -286,7 +286,7 @@ class TestSubscription(BaseTest):
 
         assert subscription.next_delivery_date == datetime(2022, 1, 12, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
-    @freeze_time("2022-01-11 09:55:00")
+    @time_machine.travel("2022-01-11 09:55:00", tick=False)
     def test_set_next_delivery_date_when_days_behind(self):
         subscription = Subscription.objects.create(
             id=1,
@@ -341,11 +341,11 @@ class TestSubscription(BaseTest):
 
         token = get_unsubscribe_token(subscription, "test2@posthog.com")
 
-        with freeze_time(datetime(2022, 1, 1) + timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS + 1)):
+        with time_machine.travel(datetime(2022, 1, 1) + timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS + 1), tick=False):
             with pytest.raises(jwt.exceptions.ExpiredSignatureError):
                 unsubscribe_using_token(token)
 
-        with freeze_time(datetime(2022, 1, 1) + timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS - 1)):
+        with time_machine.travel(datetime(2022, 1, 1) + timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS - 1), tick=False):
             subscription = unsubscribe_using_token(token)
             assert "test2@posthog.com" not in subscription.target_value
 
@@ -662,7 +662,7 @@ class TestSubscription(BaseTest):
         ]
     )
     def test_weekday_rrule_edge_cases(self, _name, freeze_date, bysetpos, expected_next):
-        with freeze_time(freeze_date):
+        with time_machine.travel(freeze_date, tick=False):
             subscription = self._create_insight_subscription(
                 interval=1,
                 frequency="monthly",

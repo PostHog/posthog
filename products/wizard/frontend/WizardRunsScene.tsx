@@ -1,7 +1,20 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBook, IconRefresh, IconSearch, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import {
+    Button,
+    Dot,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Text,
+} from '@posthog/quill-primitives'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
@@ -10,7 +23,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { WizardLibraryModal } from './library/WizardLibraryModal'
 import { WizardRunDetailsDrawer } from './runs/WizardRunDetailsDrawer'
@@ -56,7 +68,6 @@ export function WizardRunsScene(): JSX.Element {
         registryFailed,
         registryInitialLoading,
         repository,
-        requiredPrograms,
         selectedProgram,
         selectedProgramCommand,
         wizardCloudRunAvailable,
@@ -64,7 +75,6 @@ export function WizardRunsScene(): JSX.Element {
     const {
         closeLibrary,
         copyCommand,
-        markCommandCopied,
         createRun,
         openLibrary,
         runAgain,
@@ -86,7 +96,6 @@ export function WizardRunsScene(): JSX.Element {
         selectedRunArtifactsInitialLoading,
         selectedRunDiffArtifactId,
         selectedRunDiffContent,
-        selectedRunId,
     } = useValues(wizardRunDetailsLogic)
     const { cancelRun, closeRunDiff, copyRunId, openRunDiff, refreshSelectedRun, selectRun } =
         useActions(wizardRunDetailsLogic)
@@ -97,76 +106,99 @@ export function WizardRunsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name="Wizard"
-                description="Run the setup agent in the cloud, then review the changes it produces."
-                descriptionAlwaysVisible
-                hideProductSetupButton
-                resourceType={{ type: 'default_icon_type', forceIcon: <IconSparkles className="text-ai" /> }}
-                actions={
-                    <LemonButton
-                        type="primary"
-                        icon={<IconBook />}
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex h-8 items-center gap-2">
+                        <span className="flex h-8 items-center" aria-hidden>
+                            <IconSparkles className="-translate-y-1 text-ai" />
+                        </span>
+                        <Text render={<h1 />} size="lg" weight="semibold" className="flex h-8 items-center">
+                            Wizard
+                        </Text>
+                    </div>
+                    <Button
+                        variant="primary"
+                        size="lg"
                         onClick={() => openLibrary()}
-                        disabledReason={
-                            wizardCloudRunAvailable ? undefined : 'Cloud runs are not available on this instance.'
-                        }
+                        disabled={!wizardCloudRunAvailable}
                     >
+                        <IconBook />
                         Open Wizard Library
-                    </LemonButton>
-                }
-            />
+                    </Button>
+                </div>
+                <Text size="sm">Run the setup agent in the cloud, then review the changes it produces.</Text>
+            </div>
 
             <div className="mb-4 flex flex-wrap items-center gap-2">
-                <LemonInput
-                    value={search}
-                    onChange={setSearch}
-                    prefix={<IconSearch />}
-                    placeholder="Search Wizard runs"
-                    className="w-[280px]"
-                />
+                <InputGroup className="w-[280px]">
+                    <InputGroupInput
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Search Wizard runs"
+                    />
+                    <InputGroupAddon align="inline-start">
+                        <IconSearch />
+                    </InputGroupAddon>
+                </InputGroup>
 
                 <div className="flex-1" />
 
                 {!runsInitialLoading && !runsFailed && filteredRuns.length > 0 && runsLastLoadedAt && (
-                    <span className="flex items-center gap-1 whitespace-nowrap text-xs text-success">
-                        <span className="size-2 rounded-full bg-success" />
+                    <Text
+                        size="xs"
+                        className="flex h-8 translate-y-1 items-center gap-1 whitespace-nowrap text-success-foreground leading-[1.625]"
+                    >
+                        <Dot />
                         Updated {dayjs(runsLastLoadedAt).fromNow()}
-                    </span>
+                    </Text>
                 )}
 
-                <LemonSelect
-                    className="min-w-40"
-                    value={environment}
-                    onChange={setEnvironment}
-                    options={[
-                        { value: 'all', label: 'All environments' },
-                        { value: 'cloud', label: 'Cloud' },
-                        { value: 'local', label: 'Local' },
-                    ]}
-                />
-                <LemonSelect
-                    className="min-w-36"
-                    value={status}
-                    onChange={setStatus}
-                    options={[
-                        { value: 'all', label: 'All statuses' },
-                        { value: 'created', label: 'Starting' },
-                        { value: 'running', label: 'Running' },
-                        { value: 'completed', label: 'Completed' },
-                        { value: 'failed', label: 'Failed' },
-                        { value: 'cancelled', label: 'Canceled' },
-                    ]}
-                />
-                <LemonButton icon={<IconRefresh />} onClick={refreshRuns} loading={refreshingRuns}>
+                <Select value={environment} onValueChange={(value) => value && setEnvironment(value)}>
+                    <SelectTrigger className="!h-8 min-w-40" aria-label="Environment">
+                        <SelectValue>
+                            {environment === 'all' ? 'All environments' : environment === 'cloud' ? 'Cloud' : 'Local'}
+                        </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectGroup>
+                            <SelectItem value="all">All environments</SelectItem>
+                            <SelectItem value="cloud">Cloud</SelectItem>
+                            <SelectItem value="local">Local</SelectItem>
+                        </SelectGroup>
+                    </SelectContent>
+                </Select>
+                <Select value={status} onValueChange={(value) => value && setStatus(value)}>
+                    <SelectTrigger className="!h-8 min-w-36" aria-label="Status">
+                        <SelectValue>
+                            {status === 'all'
+                                ? 'All statuses'
+                                : status === 'created'
+                                  ? 'Starting'
+                                  : status === 'cancelled'
+                                    ? 'Canceled'
+                                    : status[0].toUpperCase() + status.slice(1)}
+                        </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectGroup>
+                            <SelectItem value="all">All statuses</SelectItem>
+                            <SelectItem value="created">Starting</SelectItem>
+                            <SelectItem value="running">Running</SelectItem>
+                            <SelectItem value="completed">Completed</SelectItem>
+                            <SelectItem value="failed">Failed</SelectItem>
+                            <SelectItem value="cancelled">Canceled</SelectItem>
+                        </SelectGroup>
+                    </SelectContent>
+                </Select>
+                <Button variant="outline" size="lg" onClick={refreshRuns} loading={refreshingRuns}>
+                    <IconRefresh />
                     Refresh
-                </LemonButton>
+                </Button>
             </div>
 
             <WizardRunTable
                 runs={filteredRuns}
                 totalRuns={runs.length}
-                selectedRunId={selectedRunId}
                 currentUserId={user?.id ?? null}
                 loading={runsInitialLoading}
                 failed={runsFailed}
@@ -188,7 +220,6 @@ export function WizardRunsScene(): JSX.Element {
                 loading={registryInitialLoading}
                 failed={registryFailed}
                 selectedProgram={selectedProgram}
-                requiredPrograms={requiredPrograms}
                 search={librarySearch}
                 command={selectedProgramCommand}
                 environment={libraryEnvironment}
@@ -208,7 +239,6 @@ export function WizardRunsScene(): JSX.Element {
                 onRepositoryChange={setRepository}
                 onCreate={createRun}
                 onCopyCommand={copyCommand}
-                onCommandCopied={markCommandCopied}
             />
 
             <WizardRunDetailsDrawer
