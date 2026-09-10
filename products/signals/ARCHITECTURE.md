@@ -1182,6 +1182,18 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
 
+**Tracker issue per pull request** (`backend/tracker_issues.py`, off by default).
+
+Some teams cannot merge a pull request unless a tracked work item points at it. `SignalTeamConfig.issue_tracking_integration` names the tracker (GitHub, GitLab, Linear, or Jira) and `issue_tracking_config` names the target inside it; a null integration means the team wants no tracker issues, so one field is both the switch and the target.
+
+`_create_implementation_task_if_absent` opens the issue after it creates the implementation task, outside the report lock because the call is network I/O. This order prevents an issue from outliving a task transaction that fails. A `SignalReportTrackerIssue` row per report keeps two evaluations from opening duplicate issues. Linear receives a direct attachment after the pull request opens, and the pull request body also links to the issue.
+
+The create never raises. A provider failure is stored on the row as `status=failed` with a short reason, which the report surfaces next to the pull request, and the run opens its pull request either way.
+
+Once the pull request exists, `link_report_tracker_issues` (scheduled from the task-run PR sync receiver) appends the reference to the pull request body, behind an HTML-comment marker so the append happens once. GitHub gets `Closes #n`; the other providers get the issue link. A Linear issue also gets the pull request as an attachment, best effort, because the scope for it may not be granted.
+
+An irreversible end closes the tracker issue: a resolve asked for through the state API, a merged pull request (closed as done), or a deleted report. A suppressed or snoozed report keeps its issue open, because both come back, and so does a failed run, because its report stays in the inbox and the work item is still real.
+
 **Fleet steering in the task description** (`load_report_steering` in `backend/report_steering.py`).
 
 Scouts read the team's steering notes at the start of every run, and the implementation run that acts on their report did not, so guidance like "this area is frozen" reached the agent that filed the report but never the agent that wrote the code. The description now carries it: the `HUMAN`-origin notes addressed to the whole fleet plus those addressed to the report's authoring scout (`scout_authorship.resolve_report_scout_skill`, the same emit-time resolution the dismissal path uses), newest first, capped at 10 notes and 1,000 characters each.
