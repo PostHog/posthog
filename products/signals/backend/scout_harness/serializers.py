@@ -41,6 +41,7 @@ from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
+from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
 from products.signals.backend.scout_harness.tags import slugify_tag
@@ -413,6 +414,67 @@ class ScoutRunTokenCostsSerializer(serializers.Serializer):
         help_text=(
             "False when this deployment has no internal AI observability project to read the "
             "generations from, so `costs` is empty and every cost is unknown rather than zero."
+        ),
+    )
+
+
+class ScoutCostsQuerySerializer(serializers.Serializer):
+    """Query parameters for the `runs/costs` action."""
+
+    window_days = serializers.IntegerField(
+        required=False,
+        # Bounded to the one supported window rather than left open, so a client that asks for 30
+        # gets a 400 instead of a number silently computed over 7 days.
+        min_value=SCOUT_COST_WINDOW_DAYS,
+        max_value=SCOUT_COST_WINDOW_DAYS,
+        help_text=(
+            f"Window in days over runs' `created_at` (default {SCOUT_COST_WINDOW_DAYS}). Only "
+            f"{SCOUT_COST_WINDOW_DAYS} is accepted today — it matches the window the roster's fleet "
+            "headline spans, so every number on the page describes one span."
+        ),
+    )
+
+
+class ScoutCostSerializer(serializers.Serializer):
+    """What one scout spent in the window, and what it produced for that spend."""
+
+    skill_name = serializers.CharField(help_text="Full skill name of the scout, e.g. `signals-scout-error-tracking`.")
+    spend_usd = serializers.FloatField(
+        help_text=(
+            "Model spend attributed to the scout's runs in the window, in US dollars. Zero when none "
+            "of its runs had spend attributed, which `priced_run_count` tells apart from a scout that "
+            "really spent nothing."
+        ),
+    )
+    run_count = serializers.IntegerField(help_text="Runs the scout started in the window.")
+    priced_run_count = serializers.IntegerField(
+        help_text=(
+            "Runs of the scout that had spend attributed. Lower than `run_count` where a run failed "
+            "before its first model call, or its generations haven't landed yet. Divide `spend_usd` by "
+            "this, not by `run_count`, for cost per run."
+        ),
+    )
+    reports_touched = serializers.IntegerField(
+        help_text=(
+            "Distinct inbox reports the scout filed or added to in the window. A report it authored in "
+            "one run and edited in three counts once. Zero means the scout produced no reports, so "
+            "cost per report has no value rather than a value of zero."
+        ),
+    )
+
+
+class ScoutCostsSerializer(serializers.Serializer):
+    """Model spend and output per scout over a window."""
+
+    window_days = serializers.IntegerField(help_text="Window the rows describe, in days.")
+    scouts = ScoutCostSerializer(
+        many=True,
+        help_text="One row per scout that started at least one run on this project in the window.",
+    )
+    available = serializers.BooleanField(
+        help_text=(
+            "False when this deployment has no internal AI observability project to read the "
+            "generations from, so `scouts` is empty and every spend is unknown rather than zero."
         ),
     )
 
@@ -2712,6 +2774,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
+            "display_name",
             "scout_origin",
             "owners",
             "enabled",
@@ -2784,7 +2847,7 @@ def _capture_auto_pause_reverted(
 
 
 class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
-    """Editable schedule, enablement, and emit posture for one scout config."""
+    """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
     enabled = serializers.BooleanField(
         required=False,
@@ -2941,6 +3004,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalScoutConfig
         fields = [
+            "display_name",
             "enabled",
             "emit",
             "run_interval_minutes",

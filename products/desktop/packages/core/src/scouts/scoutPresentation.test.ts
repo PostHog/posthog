@@ -22,6 +22,7 @@ import {
   nextRunAt,
   normalizeRunStatus,
   prettifyScoutSkillName,
+  resolveScoutRouteName,
   runDurationSeconds,
   runMatchesFilter,
   SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
@@ -33,8 +34,6 @@ import {
   scoutCreatorKey,
   scoutCronScheduleError,
   scoutRunOutcomeLabel,
-  scoutSkillNameFromSlug,
-  scoutSkillSlug,
   sortConfigsForDisplay,
   summarizeRunWindow,
   weeklyCronToDayTime,
@@ -84,17 +83,39 @@ describe("naming", () => {
     expect(prettifyScoutSkillName("custom_thing")).toBe("Custom thing");
   });
 
-  it("round-trips slugs", () => {
-    expect(scoutSkillSlug("signals-scout-error-tracking")).toBe(
+  it.each<[string, string[], string]>([
+    [
+      "signals-scout-error-tracking",
+      ["signals-scout-error-tracking"],
+      "signals-scout-error-tracking",
+    ],
+    ["my-churn-watch", ["my-churn-watch"], "my-churn-watch"],
+    // A link copied before the route carried full names.
+    [
       "error-tracking",
-    );
-    expect(scoutSkillNameFromSlug("error-tracking")).toBe(
+      ["signals-scout-error-tracking"],
       "signals-scout-error-tracking",
-    );
-    expect(scoutSkillNameFromSlug("signals-scout-error-tracking")).toBe(
-      "signals-scout-error-tracking",
-    );
-  });
+    ],
+    // A bare name wins over the prefixed scout that shares its slug.
+    [
+      "error-tracking",
+      ["error-tracking", "signals-scout-error-tracking"],
+      "error-tracking",
+    ],
+    ["unknown-scout", ["signals-scout-error-tracking"], "unknown-scout"],
+  ])("resolves route value %s", (routeValue, skillNames, expected) =>
+    expect(
+      resolveScoutRouteName(
+        routeValue,
+        skillNames.map((skill_name) => ({ skill_name })),
+      ),
+    ).toBe(expected),
+  );
+
+  it("keeps the route value while configs are still loading", () =>
+    expect(resolveScoutRouteName("error-tracking", undefined)).toBe(
+      "error-tracking",
+    ));
 
   it.each<[Pick<ScoutConfig, "scout_origin"> | null | undefined, ScoutOrigin]>([
     [{ scout_origin: "canonical" }, "canonical"],
