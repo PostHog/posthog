@@ -13,6 +13,13 @@ into ordered batches. Sandbox attribution uses the authenticated task binding an
 rejects a conflicting task ID. Desktop callers can name only tasks they can control;
 the operation also records the authenticated user, independently of the claimed actor kind.
 
+Open Sketchpad streams reauthenticate and rerun project, scope, object-access, and
+channel checks every 15 seconds. Membership removal, token revocation, and scope
+changes close an existing stream at the next check. Each worker admits at most 20
+Sketchpad streams per user; user-less credentials share a per-team limit. These
+reservations release with the shared process slot, including responses closed
+before consumption and abandoned responses.
+
 `SketchpadRecord` stores fragments, source text, compiled output, and shared state.
 The record key is unique within a board and record kind. Source keys are hashes of
 the source text. Record timestamps track creation and updates; operation sequence
