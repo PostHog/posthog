@@ -429,13 +429,12 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, viewsets.ModelViewSet):
             current, serializer.validated_data
         )
         updated_check = cast(DataQualityCheck, serializer.save())
-        if self._redact_edited_history:
+        if self._last_run_is_hidden(updated_check):
             self._redact_last_run(updated_check)
 
     def _authorize_check_edit(self, check: DataQualityCheck, changes: dict) -> None:
         subject = self._check_identity(check)
         self._require_referenced_subject_access(check.check_type, check.config or {}, subject=subject)
-        self._redact_edited_history = self._last_run_is_hidden(check)
         # The candidate definition, not the stored one: an edit that points the check at a new
         # relationships target or rewrites its custom SQL has to clear that subject too, before it
         # is saved and the worker starts running it.
@@ -688,7 +687,6 @@ class DataQualityCheckOverviewViewSet(
     QUERY_GATED_ACTIONS = frozenset({"list", "health"})
     serializer_class = DataQualityOverviewCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
-    _subject_locations: dict[api.SubjectKey, api.SubjectLocation] = {}
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
         # Orphans are excluded: their subject is gone, so there is no page to link to, nothing to
@@ -700,17 +698,14 @@ class DataQualityCheckOverviewViewSet(
             .order_by("subject_name", "name")
         )
 
-    def get_serializer_context(self) -> dict:
-        return {**super().get_serializer_context(), "subject_locations": self._subject_locations}
-
     def list(self, request: Request, *args, **kwargs) -> Response:
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         checks = list(queryset) if page is None else page
         # Resolved once for the page, so linking to a subject costs two queries rather than one per
         # check. Anything the batch cannot resolve stays absent and renders as plain text.
-        self._subject_locations = api.subject_locations(self.team_id, checks)
-        serializer = self.get_serializer(checks, many=True)
+        context = {**self.get_serializer_context(), "subject_locations": api.subject_locations(self.team_id, checks)}
+        serializer = self.get_serializer(checks, many=True, context=context)
         return self.get_paginated_response(serializer.data) if page is not None else Response(serializer.data)
 
     def filter_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:

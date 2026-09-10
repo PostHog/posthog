@@ -96,8 +96,6 @@ class CheckTypeSpec(ABC):
         """
         return self.referenced_table_names(config)
 
-
-class QueryCheckTypeSpec(CheckTypeSpec):
     @abstractmethod
     def build(
         self,

@@ -6,10 +6,10 @@ one import and one entry.
 
 from ..facade.contracts import CheckTypeInfo
 from ..facade.enums import CheckType, SubjectType
-from .spec import QueryCheckTypeSpec
+from .spec import CheckTypeSpec
 from .types import accepted_values, custom_sql, freshness, not_null, relationships, row_count, unique
 
-_SPECS: dict[CheckType, QueryCheckTypeSpec] = {
+_SPECS: dict[CheckType, CheckTypeSpec] = {
     spec.type_name: spec
     for spec in (
         not_null.SPEC,
@@ -23,14 +23,14 @@ _SPECS: dict[CheckType, QueryCheckTypeSpec] = {
 }
 
 
-def get_spec(check_type: str) -> QueryCheckTypeSpec:
+def get_spec(check_type: str) -> CheckTypeSpec:
     try:
         return _SPECS[CheckType(check_type)]
     except (KeyError, ValueError):
         raise UnknownCheckTypeError(check_type)
 
 
-def all_specs() -> list[QueryCheckTypeSpec]:
+def all_specs() -> list[CheckTypeSpec]:
     return [_SPECS[check_type] for check_type in CheckType]
 
 

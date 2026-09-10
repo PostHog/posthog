@@ -8,7 +8,7 @@ from posthog.hogql import ast
 from ...facade.enums import CheckType, SubjectType
 from ..contracts import CheckPlan, SubjectRef
 from ..errors import SubjectUnresolvableError
-from ..spec import CheckConfig, QueryCheckTypeSpec
+from ..spec import CheckConfig, CheckTypeSpec
 from .common import column, diagnostic_of, one, subject_source
 
 
@@ -20,7 +20,7 @@ class RelationshipsConfig(CheckConfig):
     to_column: str = Field(min_length=1, description="Column holding the referenced values.")
 
 
-class RelationshipsSpec(QueryCheckTypeSpec):
+class RelationshipsSpec(CheckTypeSpec):
     """Referential integrity: every non-null value must exist in another subject's column."""
 
     type_name = CheckType.RELATIONSHIPS

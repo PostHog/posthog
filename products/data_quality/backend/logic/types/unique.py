@@ -2,11 +2,11 @@ from posthog.hogql import ast
 
 from ...facade.enums import CheckType
 from ..contracts import CheckPlan, SubjectRef
-from ..spec import CheckConfig, NoConfig, QueryCheckTypeSpec
+from ..spec import CheckConfig, CheckTypeSpec, NoConfig
 from .common import column, subject_source
 
 
-class UniqueSpec(QueryCheckTypeSpec):
+class UniqueSpec(CheckTypeSpec):
     type_name = CheckType.UNIQUE
     config_model = NoConfig
     requires_column = True

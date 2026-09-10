@@ -9,7 +9,7 @@ from products.data_quality.backend.logic.contracts import Evaluation, SubjectRef
 from products.data_quality.backend.logic.errors import CheckConfigError, SubjectUnresolvableError
 from products.data_quality.backend.logic.registry import UnknownCheckTypeError, all_specs, get_spec, list_check_types
 from products.data_quality.backend.logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
-from products.data_quality.backend.logic.spec import NoConfig, QueryCheckTypeSpec
+from products.data_quality.backend.logic.spec import CheckTypeSpec, NoConfig
 from products.data_quality.backend.logic.types.custom_sql import CustomSqlConfig, CustomSqlSpec
 
 ORDERS = SubjectRef(SubjectType.VIEW, "1cd4a1ef-0000-0000-0000-000000000001", "orders", "orders", exists=True)
@@ -421,14 +421,14 @@ class TestCheckCompiler:
         # is derived from the config model rather than written by hand, so it cannot drift from
         # what parse_config actually accepts.
         for spec in all_specs():
-            assert isinstance(spec, QueryCheckTypeSpec)
+            assert isinstance(spec, CheckTypeSpec)
             schema = spec.json_schema
             assert schema["type"] == "object"
             assert schema["additionalProperties"] is False, f"{spec.type_name} silently ignores unknown keys"
 
     def test_a_spec_missing_part_of_the_contract_cannot_be_instantiated(self) -> None:
         # An ABC rather than a Protocol so this fails here, not on the first agent to use it.
-        class Incomplete(QueryCheckTypeSpec):
+        class Incomplete(CheckTypeSpec):
             type_name = CheckType.NOT_NULL
             config_model = NoConfig
             requires_column = False

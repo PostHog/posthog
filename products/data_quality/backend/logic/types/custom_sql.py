@@ -10,7 +10,7 @@ from ..contracts import CheckPlan, SubjectRef
 from ..errors import CheckConfigError
 from ..metric_query import bind_metric_query
 from ..query_scope import referenced_table_names
-from ..spec import CheckConfig, QueryCheckTypeSpec
+from ..spec import CheckConfig, CheckTypeSpec
 
 
 def parse_failing_rows_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -54,7 +54,7 @@ class CustomSqlConfig(CheckConfig):
     )
 
 
-class CustomSqlSpec(QueryCheckTypeSpec):
+class CustomSqlSpec(CheckTypeSpec):
     """A user-written HogQL SELECT whose returned rows are the failures.
 
     No extra sandboxing: HogQL is already team-scoped and read-only, and the query is wrapped in a

@@ -4,7 +4,7 @@ from posthog.hogql import ast
 
 from ...facade.enums import CheckType
 from ..contracts import CheckPlan, Evaluation, SubjectRef
-from ..spec import CheckConfig, QueryCheckTypeSpec
+from ..spec import CheckConfig, CheckTypeSpec
 from .common import BoundsConfig, one, subject_source
 
 ROW_COUNT_ALIAS = "row_count"
@@ -19,7 +19,7 @@ class RowCountConfig(BoundsConfig):
     max: int | None = Field(default=None, ge=0, description="Fail if the table has more rows than this.")
 
 
-class RowCountSpec(QueryCheckTypeSpec):
+class RowCountSpec(CheckTypeSpec):
     """The one type that does not use zero-failing-rows semantics: it compares a count to bounds."""
 
     type_name = CheckType.ROW_COUNT

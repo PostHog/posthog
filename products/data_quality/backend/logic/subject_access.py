@@ -156,8 +156,6 @@ def readable_subjects(
     denied: set[str],
     *,
     can_read_catalog: bool = True,
-    can_read_tables: bool = True,
-    can_read_views: bool = True,
     metadata: SubjectMetadata | None = None,
 ) -> ReadableSubjects:
     """The team's live warehouse subjects, minus the ones this caller is denied. Four queries.
@@ -168,14 +166,8 @@ def readable_subjects(
     metadata = metadata if metadata is not None else subject_metadata(team_id)
     matcher = DeniedTableMatcher(denied)
     return ReadableSubjects(
-        table_ids=frozenset(
-            table_id
-            for table_id, name in metadata.table_names.items()
-            if can_read_tables and not matcher.matches([name])
-        ),
-        view_ids=frozenset(
-            view_id for view_id, name in metadata.view_names.items() if can_read_views and not matcher.matches([name])
-        ),
+        table_ids=frozenset(table_id for table_id, name in metadata.table_names.items() if not matcher.matches([name])),
+        view_ids=frozenset(view_id for view_id, name in metadata.view_names.items() if not matcher.matches([name])),
         metric_ids=frozenset(
             metric.id
             for metric in metadata.metrics
