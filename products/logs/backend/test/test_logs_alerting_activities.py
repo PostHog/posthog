@@ -2070,13 +2070,92 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
             next_check_at=datetime(2026, 5, 5, 9, 0, tzinfo=UTC),
         )
 
-        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=2, region="test")))
+        with patch("products.logs.backend.temporal.activities.logger.ainfo", new=AsyncMock()) as scheduler_log:
+            result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=2, region="test")))
 
         discovered = [(manifest.team_id, alert_id) for manifest in result.manifests for alert_id in manifest.alert_ids]
         assert len(discovered) == 2
         assert {team_id for team_id, _ in discovered} == {noisy_team.id, quiet_team.id}
         assert str(quiet_alert.id) in {alert_id for _, alert_id in discovered}
         assert result.due_items_lower_bound == 3
+        assert scheduler_log.call_args.kwargs["limited_by"] == "item_limit"
+
+    @freeze_time("2026-05-05T10:00:00Z")
+    def test_fills_capacity_after_sparse_teams(self):
+        from posthog.models import Team
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        teams = [
+            self.team,
+            Team.objects.create(organization=self.organization, name="Sparse team 1"),
+            Team.objects.create(organization=self.organization, name="Sparse team 2"),
+        ]
+        counts = [1, 1, 10]
+        for team, count in zip(teams, counts, strict=True):
+            for index in range(count):
+                LogsAlertConfiguration.objects.create(
+                    team=team,
+                    name=f"alert-{team.id}-{index}",
+                    filters={"serviceNames": [f"service-{team.id}-{index}"]},
+                    enabled=True,
+                    next_check_at=datetime(2026, 5, 5, 9, 0, tzinfo=UTC),
+                )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=5, region="test")))
+
+        discovered_team_ids = [manifest.team_id for manifest in result.manifests for _alert_id in manifest.alert_ids]
+        assert len(discovered_team_ids) == 5
+        assert [discovered_team_ids.count(team.id) for team in teams] == [1, 1, 3]
+
+    @freeze_time("2026-05-05T10:00:00Z")
+    def test_counts_wrapped_teams_as_deferred_when_page_fills_at_cursor_end(self):
+        from posthog.models import Team
+        from posthog.models.temporal_scheduler import TemporalSchedulerState
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        teams = [
+            self.team,
+            Team.objects.create(organization=self.organization, name="After cursor 1"),
+            Team.objects.create(organization=self.organization, name="After cursor 2"),
+        ]
+        for team in teams:
+            LogsAlertConfiguration.objects.create(
+                team=team,
+                name=f"alert-{team.id}",
+                filters={"serviceNames": [f"service-{team.id}"]},
+                enabled=True,
+                next_check_at=datetime(2026, 5, 5, 9, 0, tzinfo=UTC),
+            )
+        TemporalSchedulerState.objects.create(
+            scheduler="logs_alerts",
+            region="test",
+            discovery_cursor=str(self.team.id),
+        )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=2, region="test")))
+
+        assert sum(len(manifest.alert_ids) for manifest in result.manifests) == 2
+        assert result.due_items_lower_bound == 3
+
+    @freeze_time("2026-05-05T10:00:00Z")
+    def test_uses_updated_time_for_null_due_alert_backlog_age(self):
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="immediately due",
+            filters={"serviceNames": ["immediately-due"]},
+            enabled=True,
+            next_check_at=None,
+        )
+        due_since = datetime(2026, 5, 5, 8, 0, tzinfo=UTC)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(updated_at=due_since)
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(region="test")))
+
+        assert result.oldest_due_at_iso == due_since.isoformat()
 
     @freeze_time("2026-05-05T10:00:00Z")
     def test_rotates_the_team_cursor_between_bounded_runs(self):
@@ -2140,7 +2219,13 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
             next_check_at=datetime(2026, 5, 5, 21, 55, tzinfo=UTC),
         )
 
-        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+        first_result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=1)))
+
+        invalid_alert.refresh_from_db()
+        assert first_result.manifests == []
+        assert invalid_alert.state == LogsAlertConfiguration.State.BROKEN
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=1)))
 
         discovered_alert_ids = [alert_id for manifest in result.manifests for alert_id in manifest.alert_ids]
         assert discovered_alert_ids == [str(healthy_alert.id)]

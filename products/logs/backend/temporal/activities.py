@@ -13,7 +13,6 @@ from itertools import batched
 from uuid import UUID
 
 from django.db import connection, transaction
-from django.db.models import F
 from django.db.utils import IntegrityError
 
 import structlog
@@ -415,6 +414,12 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
             selection.encoded_size_bytes,
         )
     )
+    selected_alert_count = sum(len(manifest.alert_ids) for manifest in result.manifests)
+    limited_by = (
+        "item_limit"
+        if selection.limited_by == "none" and result.due_items_lower_bound > selected_alert_count
+        else selection.limited_by
+    )
     oldest_age_seconds = 0.0
     if result.oldest_due_at_iso is not None:
         oldest_age_seconds = max(
@@ -430,10 +435,10 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
     )
     await logger.ainfo(
         "logs_alerts.scheduler_discovery",
-        selected_alerts=sum(len(manifest.alert_ids) for manifest in result.manifests),
+        selected_alerts=selected_alert_count,
         due_items_lower_bound=result.due_items_lower_bound,
         payload_bytes=selection.encoded_size_bytes,
-        limited_by=selection.limited_by,
+        limited_by=limited_by,
         region=input.region,
     )
     return result
@@ -451,16 +456,108 @@ def _advance_logs_alert_discovery_cursor(region: str, expected_cursor: str, next
     ).update(discovery_cursor=next_cursor, updated_at=datetime.now(UTC))
 
 
+def _select_due_alert_candidate_ids(selected_team_ids: list[int], now: datetime, candidate_limit: int) -> list[UUID]:
+    candidates_by_team: dict[int, list[tuple[UUID, datetime | None]]] = defaultdict(list)
+    team_order = {team_id: index for index, team_id in enumerate(selected_team_ids)}
+    teams_to_fetch = list(selected_team_ids)
+    candidate_count = 0
+
+    with connection.cursor() as cursor:
+        while teams_to_fetch and candidate_count < candidate_limit:
+            remaining = candidate_limit - candidate_count
+            candidates_per_team = math.ceil(remaining / len(teams_to_fetch))
+            offsets = [len(candidates_by_team[team_id]) for team_id in teams_to_fetch]
+            orders = [team_order[team_id] for team_id in teams_to_fetch]
+            cursor.execute(
+                """
+                WITH selected_teams(team_id, candidate_offset, team_order) AS (
+                    SELECT * FROM unnest(%s::bigint[], %s::bigint[], %s::bigint[])
+                )
+                SELECT
+                    selected_teams.team_id,
+                    candidate.id,
+                    candidate.next_check_at
+                FROM selected_teams
+                CROSS JOIN LATERAL (
+                    SELECT alert.id, alert.next_check_at
+                    FROM logs_logsalertconfiguration AS alert
+                    WHERE alert.team_id = selected_teams.team_id
+                      AND alert.enabled = TRUE
+                      AND (alert.next_check_at <= %s OR alert.next_check_at IS NULL)
+                      AND alert.state <> 'broken'
+                      AND (
+                          alert.state <> 'snoozed'
+                          OR alert.snooze_until IS NULL
+                          OR alert.snooze_until <= %s
+                      )
+                    ORDER BY alert.next_check_at ASC NULLS FIRST, alert.id
+                    OFFSET selected_teams.candidate_offset
+                    LIMIT %s
+                ) AS candidate
+                ORDER BY selected_teams.team_order, candidate.next_check_at ASC NULLS FIRST, candidate.id
+                """,
+                [
+                    teams_to_fetch,
+                    offsets,
+                    orders,
+                    now,
+                    now,
+                    candidates_per_team,
+                ],
+            )
+            fetched_counts: dict[int, int] = defaultdict(int)
+            for team_id, alert_id, next_check_at in cursor.fetchall():
+                candidates_by_team[team_id].append((alert_id, next_check_at))
+                fetched_counts[team_id] += 1
+                candidate_count += 1
+            teams_to_fetch = [team_id for team_id in teams_to_fetch if fetched_counts[team_id] == candidates_per_team]
+
+    candidates: list[tuple[int, datetime | None, int, UUID]] = []
+    for team_id, rows in candidates_by_team.items():
+        candidates.extend(
+            (team_rank, next_check_at, team_order[team_id], alert_id)
+            for team_rank, (alert_id, next_check_at) in enumerate(rows, start=1)
+        )
+    candidates.sort(
+        key=lambda candidate: (
+            candidate[0],
+            candidate[1] is not None,
+            candidate[1] or datetime.min.replace(tzinfo=UTC),
+            candidate[2],
+            str(candidate[3]),
+        )
+    )
+    return [alert_id for _, _, _, alert_id in candidates[:candidate_limit]]
+
+
+def _oldest_due_alert_at(now: datetime) -> datetime | None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COALESCE(next_check_at, updated_at, created_at)
+            FROM logs_logsalertconfiguration
+            WHERE enabled = TRUE
+              AND state <> 'broken'
+              AND (next_check_at <= %s OR next_check_at IS NULL)
+              AND (
+                  state <> 'snoozed'
+                  OR snooze_until IS NULL
+                  OR snooze_until <= %s
+              )
+            ORDER BY COALESCE(next_check_at, updated_at, created_at), id
+            LIMIT 1
+            """,
+            [now, now],
+        )
+        row = cursor.fetchone()
+    return row[0] if row else None
+
+
 def _discover_cohorts_page_sync(input: DiscoverCohortsInput | None = None) -> _DiscoveredCohortsPage:
     input = input or DiscoverCohortsInput()
     now = datetime.now(UTC)
     due_alerts = _due_alerts_qs(now)
-    oldest_due_at = (
-        due_alerts.filter(next_check_at__isnull=False)
-        .order_by(F("next_check_at").asc(nulls_first=True), "id")
-        .values_list("next_check_at", flat=True)
-        .first()
-    )
+    oldest_due_at = _oldest_due_alert_at(now)
 
     with transaction.atomic():
         state, _ = TemporalSchedulerState.objects.get_or_create(
@@ -492,6 +589,8 @@ def _discover_cohorts_page_sync(input: DiscoverCohortsInput | None = None) -> _D
             )
             selected_team_ids.extend(teams_before_cursor[:remaining_team_slots])
             deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
+        elif team_cursor:
+            deferred_teams = deferred_teams or due_alerts.filter(team_id__lte=team_cursor).exists()
 
         if not selected_team_ids:
             return _DiscoveredCohortsPage(
@@ -504,63 +603,7 @@ def _discover_cohorts_page_sync(input: DiscoverCohortsInput | None = None) -> _D
             )
 
         candidate_limit = input.max_alerts_per_run + 1
-        candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                WITH selected_teams(team_id, team_order) AS (
-                    SELECT * FROM unnest(%s::bigint[]) WITH ORDINALITY
-                ),
-                bounded_candidates AS (
-                    SELECT
-                        selected_teams.team_id,
-                        selected_teams.team_order,
-                        candidate.id,
-                        candidate.next_check_at
-                    FROM selected_teams
-                    CROSS JOIN LATERAL (
-                        SELECT alert.id, alert.next_check_at
-                        FROM logs_logsalertconfiguration AS alert
-                        WHERE alert.team_id = selected_teams.team_id
-                          AND alert.enabled = TRUE
-                          AND (alert.next_check_at <= %s OR alert.next_check_at IS NULL)
-                          AND alert.state <> %s
-                          AND (
-                              alert.state <> %s
-                              OR alert.snooze_until IS NULL
-                              OR alert.snooze_until <= %s
-                          )
-                        ORDER BY alert.next_check_at ASC NULLS FIRST, alert.id
-                        LIMIT %s
-                    ) AS candidate
-                ),
-                ranked_candidates AS (
-                    SELECT
-                        id,
-                        next_check_at,
-                        team_order,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY team_id
-                            ORDER BY next_check_at ASC NULLS FIRST, id
-                        ) AS team_rank
-                    FROM bounded_candidates
-                )
-                SELECT id
-                FROM ranked_candidates
-                ORDER BY team_rank, next_check_at ASC NULLS FIRST, team_order, id
-                LIMIT %s
-                """,
-                [
-                    selected_team_ids,
-                    now,
-                    LogsAlertConfiguration.State.BROKEN,
-                    LogsAlertConfiguration.State.SNOOZED,
-                    now,
-                    candidates_per_team,
-                    candidate_limit,
-                ],
-            )
-            bounded_candidate_ids = [row[0] for row in cursor.fetchall()]
+        bounded_candidate_ids = _select_due_alert_candidate_ids(selected_team_ids, now, candidate_limit)
 
     candidate_ids = bounded_candidate_ids[: input.max_alerts_per_run]
     rows_by_id = {
@@ -630,6 +673,7 @@ def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -
         return set()
 
     rescheduled_alert_ids: set[UUID] = set()
+    invalid_alerts: list[tuple[UUID, str]] = []
     with transaction.atomic():
         alerts = _due_alerts_qs(now).select_for_update(of=("self",)).select_related("team").filter(id__in=alert_ids)
         for alert in alerts:
@@ -640,6 +684,7 @@ def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -
                     schedule_restriction=alert.schedule_restriction,
                 )
             except Exception as e:
+                reason = f"Invalid schedule restriction: {type(e).__name__}: {e}"
                 logger.exception(
                     "Skipping alert with invalid quiet-hours configuration",
                     alert_id=str(alert.id),
@@ -647,12 +692,16 @@ def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -
                     error=str(e),
                 )
                 rescheduled_alert_ids.add(alert.id)
+                invalid_alerts.append((alert.id, reason))
                 continue
             if next_check_at <= now:
                 continue
             alert.next_check_at = next_check_at
             alert.save(update_fields=["next_check_at", "updated_at"])
             rescheduled_alert_ids.add(alert.id)
+
+    for alert_id, reason in invalid_alerts:
+        _mark_alert_broken_for_bad_config(str(alert_id), reason)
 
     return rescheduled_alert_ids
 
