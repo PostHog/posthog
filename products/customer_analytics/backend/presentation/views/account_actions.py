@@ -25,7 +25,7 @@ from products.customer_analytics.backend.facade import (
 ACCOUNT_ACTION_AUTH_COUNTER = Counter(
     "posthog_customer_analytics_account_action_auth_total",
     "Successful authentications on the account routes called by CDP workflow actions, by auth method",
-    labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | scoped_jwt
+    labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | project_secret_api_key | scoped_jwt
 )
 
 
@@ -155,17 +155,17 @@ class ExternalAccountCreateSerializer(serializers.Serializer):
     )
 
 
-@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "null"}]})
 class _CustomPropertyScalarField(serializers.Field):
-    """A custom property value sent over the external API — a JSON scalar.
+    """A custom property value sent over the external API — a JSON scalar or null.
 
-    Objects, arrays, and null are rejected here; the concrete type each property accepts is set by
-    its definition and validated server-side when the value is coerced.
+    The concrete type each property accepts is set by its definition and validated server-side when
+    the value is coerced. Null clears the active value.
     """
 
     def to_internal_value(self, data: Any) -> Any:
-        if data is None or isinstance(data, dict | list):
-            raise serializers.ValidationError("Value must be a string, number, or boolean.")
+        if isinstance(data, dict | list):
+            raise serializers.ValidationError("Value must be a string, number, boolean, or null.")
         return data
 
 
@@ -175,8 +175,11 @@ class ExternalAccountCustomPropertiesSerializer(serializers.Serializer):
         help_text="External ID of the account whose custom property values to set — the group key it is linked to.",
     )
     properties = serializers.DictField(
-        child=_CustomPropertyScalarField(),
-        help_text="Map of custom property definition UUID to the value to set for this account.",
+        child=_CustomPropertyScalarField(allow_null=True),
+        help_text=(
+            "Map of custom property definition UUID to the value to set for this account. Use null to clear an "
+            "active value. Omitted definitions are unchanged."
+        ),
     )
 
 

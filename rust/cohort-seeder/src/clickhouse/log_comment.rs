@@ -50,6 +50,12 @@ pub enum ScanLogComment {
         spec: ChunkSpec,
         cohort_id: Option<CohortId>,
     },
+    /// The shadow compare's legacy wide re-scan of a behavioral chunk. Its own phase, so
+    /// `query_log_archive` separates the diagnostic's cost from the authoritative scan's.
+    BehavioralCompareChunk {
+        spec: ChunkSpec,
+        cohort_id: Option<CohortId>,
+    },
     PersonChunk(ChunkSpec),
     PersonBoundaries {
         run_id: RunId,
@@ -61,6 +67,7 @@ impl ScanLogComment {
     const fn phase(self) -> &'static str {
         match self {
             Self::BehavioralChunk { .. } => "behavioral",
+            Self::BehavioralCompareChunk { .. } => "behavioral_compare",
             Self::PersonChunk(_) => "person_scan",
             Self::PersonBoundaries { .. } => "person_boundaries",
         }
@@ -71,7 +78,8 @@ impl ScanLogComment {
         match self {
             // `day` is the seeder's day index, the same value its logs and its chunk planner carry,
             // so an operator matches a `query_log` row to a log line without converting anything.
-            Self::BehavioralChunk { spec, cohort_id } => LogCommentFields {
+            Self::BehavioralChunk { spec, cohort_id }
+            | Self::BehavioralCompareChunk { spec, cohort_id } => LogCommentFields {
                 cohort_id: cohort_id.map(|cohort_id| cohort_id.0),
                 day: Some(spec.day),
                 ..LogCommentFields::for_chunk(phase, spec)
@@ -203,6 +211,18 @@ mod tests {
                 + r#""phase":"behavioral","chunk":"00000000-0000-0000-0000-0000000000c0","#
                 + r#""day":20000,"band":3,"num_bands":8,"epoch":7}"#
         );
+        assert_eq!(
+            ScanLogComment::BehavioralCompareChunk {
+                spec: spec(None),
+                cohort_id: Some(CohortId(91)),
+            }
+            .to_string(),
+            r#"{"kind":"cohort_seeder","product":"cohorts","feature":"behavioral_cohorts","#
+                .to_owned()
+                + r#""team_id":2,"cohort_id":91,"run_id":"00000000-0000-0000-0000-00000000002a","#
+                + r#""phase":"behavioral_compare","chunk":"00000000-0000-0000-0000-0000000000c0","#
+                + r#""day":20000,"band":3,"num_bands":8,"epoch":7}"#
+        );
         let range = PersonRange::new(Uuid::from_u128(1), Some(Uuid::from_u128(2))).unwrap();
         assert_eq!(
             ScanLogComment::PersonChunk(spec(Some(range))).to_string(),
@@ -233,6 +253,10 @@ mod tests {
         let range = PersonRange::new(Uuid::from_u128(1), None).unwrap();
         for comment in [
             ScanLogComment::BehavioralChunk {
+                spec: spec(None),
+                cohort_id: None,
+            },
+            ScanLogComment::BehavioralCompareChunk {
                 spec: spec(None),
                 cohort_id: None,
             },

@@ -178,7 +178,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.1.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.197",
+    "@anthropic-ai/claude-agent-sdk": "0.3.251",
     "@anthropic-ai/sdk": "0.109.0",
     "@earendil-works/pi-agent-core": "catalog:",
     "@earendil-works/pi-ai": "catalog:",

@@ -24,6 +24,7 @@ import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 
 import { logsEmptyState } from './emptyState/logsEmptyState'
+import { LogsAgentIntegration } from './LogsAgentIntegration'
 import { LogsAnomalies } from './LogsAnomalies'
 import { LOGS_SCENE_VIEWER_ID, LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
 
@@ -66,6 +67,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
 
     return (
         <>
+            <LogsAgentIntegration activeTabIsViewer={activeTab === 'viewer'} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 resourceType={{

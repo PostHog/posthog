@@ -1242,23 +1242,58 @@ export interface LogsAnomalyScanErrorApi {
     error: string
 }
 
+export interface _SeriesBandsDateRangeApi {
+    /**
+     * Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the window. Same format as date_from. Omit or null for "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
 /**
+ * * `5` - 5
+ * * `15` - 15
+ * * `30` - 30
  * * `60` - 60
  */
 export type IntervalMinutesEnumApi = (typeof IntervalMinutesEnumApi)[keyof typeof IntervalMinutesEnumApi]
 
 export const IntervalMinutesEnumApi = {
+    Number5: 5,
+    Number15: 15,
+    Number30: 30,
     Number60: 60,
 } as const
 
 export interface LogsSeriesBandsRequestApi {
     /** Service whose per-series volume to chart (the log record's service_name). */
     serviceName: string
-    /** Display grain in minutes for buckets and bands. Only hourly is supported today.
+    /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
+    dateRange?: _SeriesBandsDateRangeApi
+    /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.
      *
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
      * * `60` - 60 */
-    intervalMinutes?: IntervalMinutesEnumApi
+    intervalMinutes?: IntervalMinutesEnumApi | null
 }
+
+/**
+ * * `sparse` - sparse
+ * * `quiet` - quiet
+ */
+export type CoarsenedReasonEnumApi = (typeof CoarsenedReasonEnumApi)[keyof typeof CoarsenedReasonEnumApi]
+
+export const CoarsenedReasonEnumApi = {
+    Sparse: 'sparse',
+    Quiet: 'quiet',
+} as const
 
 export interface LogsSeriesBandBucketApi {
     /** Start of the display bucket (UTC). */
@@ -1288,14 +1323,21 @@ export interface LogsSeriesBandSeriesApi {
     total_count: number
     /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
     baseline_weeks: number
-    /** Earliest bucket with data inside the fetched lookback. */
+    /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
     history_start: string
     /**
      * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
      * @nullable
      */
     band_ready_at: string | null
-    /** One entry per display bucket across the whole window, oldest first, zero-filled. */
+    /** Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at. */
+    interval_minutes: number
+    /** Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one. A series that a coarser rung has no rows for, or that the request's time budget cannot refetch, keeps the requested grain and still carries its reason.
+     *
+     * * `sparse` - sparse
+     * * `quiet` - quiet */
+    coarsened_reason: CoarsenedReasonEnumApi | null
+    /** One entry per display bucket across the window at this series' interval_minutes, oldest first, zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end. */
     buckets: LogsSeriesBandBucketApi[]
 }
 
@@ -1306,7 +1348,7 @@ export interface LogsSeriesBandsResponseApi {
     window_start: string
     /** End of the observed window (UTC, exclusive). */
     window_end: string
-    /** Display grain of the buckets, in minutes. */
+    /** Display grain requested, or picked to cut the window into about 168 buckets when the request left it out. */
     interval_minutes: number
     /** True when the service has more series than the response carries; the quietest were dropped. */
     series_truncated: boolean
@@ -1587,6 +1629,8 @@ export interface _LogsFacetValuesBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsFacetValuesRequestApi {
@@ -1680,6 +1724,10 @@ export interface _LogsGroupByBodyApi {
      * @maximum 500
      */
     limit?: number
+    /** Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsGroupByRequestApi {
@@ -1711,6 +1759,62 @@ export interface _LogsGroupByResponseApi {
     truncated: boolean
 }
 
+export interface _LogsImpactRequestApi {
+    /** The impact query to execute. Takes the same filters as the count query. */
+    query: _LogsCountBodyApi
+}
+
+export interface _LogsImpactTopValueApi {
+    /** The session ID or person distinct ID. */
+    value: string
+    /** Approximate number of matching logs that carry this value (topK estimate). */
+    count: number
+}
+
+export interface _LogsImpactGroupKeyApi {
+    /** Attribute map the key lives in, in the group-by endpoint's vocabulary: "log" or "resource".
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * * `column` - column */
+    source: LogsGroupBySourceEnumApi
+    /** The attribute key that carries the ID on most matching logs. */
+    key: string
+}
+
+export interface _LogsImpactResponseApi {
+    /** Number of log entries matching the filters. */
+    total: number
+    /** How many of the matching logs carry a session ID under the team's configured or conventional attribute keys. */
+    logsWithSessionId: number
+    /** Estimated number of unique session IDs across the matching logs (HyperLogLog, about 1-2% error). */
+    sessions: number
+    /** How many of the matching logs carry a person distinct ID under the team's configured or conventional attribute keys. */
+    logsWithDistinctId: number
+    /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
+    users: number
+    /** Top session IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+    topSessions: _LogsImpactTopValueApi[]
+    /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+    topUsers: _LogsImpactTopValueApi[]
+    /** The dimension that carries the session ID on most matching logs. Group by this dimension to drill into the sessions behind the counts. Null when no matching log carries a session ID. */
+    sessionGroupKey: _LogsImpactGroupKeyApi | null
+    /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to drill into the users behind the counts. Null when no matching log carries a distinct ID. */
+    personGroupKey: _LogsImpactGroupKeyApi | null
+}
+
+/**
+ * * `logs` - Logs
+ * * `spans` - Spans
+ */
+export type LogsMetricRuleRecordSourceEnumApi =
+    (typeof LogsMetricRuleRecordSourceEnumApi)[keyof typeof LogsMetricRuleRecordSourceEnumApi]
+
+export const LogsMetricRuleRecordSourceEnumApi = {
+    Logs: 'logs',
+    Spans: 'spans',
+} as const
+
 export interface LogsMetricRuleApi {
     /** Unique identifier for this metric rule. */
     readonly id: string
@@ -1729,16 +1833,21 @@ export interface LogsMetricRuleApi {
     /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
     filter_group?: unknown
     /**
-     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` / `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.
      * @maxLength 512
      * @nullable
      */
     value_attribute?: string | null
     /**
-     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
      * @items.maxLength 512
      */
     group_by?: string[]
+    /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
     readonly created_by: number
@@ -1774,16 +1883,21 @@ export interface PatchedLogsMetricRuleApi {
     /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
     filter_group?: unknown
     /**
-     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` / `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.
      * @maxLength 512
      * @nullable
      */
     value_attribute?: string | null
     /**
-     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
      * @items.maxLength 512
      */
     group_by?: string[]
+    /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
     readonly created_by?: number
@@ -1803,6 +1917,10 @@ export interface _LogsPatternsBodyApi {
     searchTerm?: string
     /** Property filters applied before mining. Same shape as the query-logs endpoint. */
     filterGroup?: _LogPropertyFilterApi[]
+    /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsPatternsRequestApi {
@@ -1996,6 +2114,8 @@ export interface _LogsQueryBodyApi {
     customColumns?: string[]
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsQueryRequestApi {
@@ -2398,6 +2518,8 @@ export interface _LogsSparklineBodyApi {
     sparklineRankBy?: SparklineRankByEnumApi
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsSparklineRequestApi {
@@ -2444,6 +2566,9 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `person` - person
+ * * `session` - session
+ * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
  */
@@ -2455,6 +2580,9 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Person: 'person',
+    Session: 'session',
+    Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
 } as const
@@ -2462,13 +2590,16 @@ export const LogsViewColumnTypeEnumApi = {
 export interface LogsViewColumnApi {
     /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
     id: string
-    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+    /** Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.
      *
      * * `timestamp` - timestamp
      * * `level` - level
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `person` - person
+     * * `session` - session
+     * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */
     type: LogsViewColumnTypeEnumApi

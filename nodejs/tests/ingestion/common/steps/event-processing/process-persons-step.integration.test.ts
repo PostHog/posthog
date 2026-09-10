@@ -23,6 +23,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { MergeFoldPlan } from '~/ingestion/common/persons/person-merge-fold'
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import {
@@ -51,12 +52,8 @@ describe('createProcessPersonsStep', () => {
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 1,
-        PERSON_MERGE_EVENTS_ENABLED: false,
-        PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
-        PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
-        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
@@ -708,6 +705,30 @@ describe('createProcessPersonsStep', () => {
             expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
         })
 
+        it('bootstraps a missing target from the triggering pair, not the first planned pair', async () => {
+            await createPersonWithProps('anon-1', { a: 1 })
+            // anon-2 has no person row, and anon-1's event was dropped before
+            // the person step, so anon-2's event triggers the fold.
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
+
+            await runIdentifies([identifyEvent('anon-2', 'user-1')], plan, foldOptions)
+
+            expect(plan.status).toBe('executed')
+            // The merged property blob is batch-deferred; only moves and
+            // deletes commit inside the fold transaction.
+            await personsStore.flush()
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(1)
+            // The trigger's pair had no persons on either side, so the
+            // bootstrap creates the target on user-1's deterministic uuid and
+            // the fold merges anon-1's person into it; bootstrapping anon-1's
+            // pair instead would leave anon-1's person as the survivor.
+            expect(persons[0].uuid).toBe(uuidFromDistinctId(teamId, 'user-1'))
+            expect(persons[0].properties).toEqual(expect.objectContaining({ a: 1 }))
+            const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
+            expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
+        })
+
         it('folded adds for distinct ids without a person get version 1', async () => {
             await createPersonWithProps('anon-1', { a: 1 })
             const plan = planFor('user-1', 'anon-1', 'anon-2')
@@ -791,7 +812,9 @@ describe('createProcessPersonsStep', () => {
         it('abandons the fold when sources changed between fetch and transaction', async () => {
             await createPersonWithProps('anon-1', { a: 1 })
             await createPersonWithProps('user-1', {})
-            const plan = planFor('user-1', 'anon-1')
+            // Two pairs so the folded path runs; a single-pair plan merges
+            // through the sequential path and never needs the count check.
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
 
             // Simulate a concurrent merge emptying the source between the
             // locked fetch and the transaction's count.

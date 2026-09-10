@@ -69,16 +69,15 @@ pub struct Args {
     #[arg(long)]
     pub skip_ssl_verification: bool,
 
-    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
-    /// release id onto the uploaded symbol sets: the previous behavior. EXPERIMENTAL `event`
-    /// leaves symbol sets unbound; the chunks already carry the release id in their injected
-    /// snippet, so the release is resolved per event rather than per symbol set. Also settable
-    /// via `POSTHOG_RELEASE_MODE`.
+    /// How the release is associated with exceptions. `event` (the default) leaves symbol sets
+    /// unbound; the chunks already carry the release id in their injected snippet, so the release
+    /// is resolved per event rather than per symbol set. `symbol-set` stamps the release id onto
+    /// the uploaded symbol sets instead. Also settable via `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
         value_enum,
-        default_value = "symbol-set"
+        default_value = "event"
     )]
     pub release_mode: ReleaseMode,
 }

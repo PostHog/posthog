@@ -12,6 +12,7 @@ import {
 import type { Adapter, ModelAccess } from "@posthog/shared";
 import {
   applyModelAccess,
+  subscriptionModelAccess,
   useAdapterSubscription,
   type WorkspaceModeForAccess,
 } from "@posthog/ui/features/settings/adapterSubscription";
@@ -40,7 +41,7 @@ export const SUBSCRIPTION_LOGIN_ACTION: Record<Adapter, string> = {
 
 const CLOUD_ONLY_REASON: Record<Adapter, string> = {
   claude:
-    "Anthropic billing only works for local and worktree tasks. Cloud tasks always use PostHog.",
+    "Claude plan billing is unavailable for cloud tasks. Try again later.",
   codex:
     "OpenAI billing only works for local and worktree tasks. Cloud tasks always use PostHog.",
 };
@@ -50,7 +51,6 @@ const TOOLTIP_DELAY_MS = 150;
 interface SubscriptionSubmenuProps {
   adapter: Adapter;
   closeOnChange?: boolean;
-  /** Workspace mode of the task being composed; cloud forces PostHog credits. */
   workspaceMode?: WorkspaceModeForAccess;
 }
 
@@ -60,20 +60,26 @@ export function SubscriptionSubmenu({
   workspaceMode,
 }: SubscriptionSubmenuProps): React.JSX.Element | null {
   const subscription = useAdapterSubscription(adapter);
-  if (!subscription.flagEnabled) {
+  const cloudTask = workspaceMode === "cloud";
+  const cloudAvailable = adapter === "claude" && subscription.cloudFlagEnabled;
+  if (
+    cloudTask
+      ? !subscription.flagEnabled &&
+        !cloudAvailable &&
+        !subscription.cloudSubscriptionOn
+      : !subscription.flagEnabled
+  ) {
     return null;
   }
-
-  // Cloud tasks always bill PostHog credits (see effectiveModelAccess), so the
-  // provider option is disabled there instead of silently overriding the pick.
-  const cloudTask = workspaceMode === "cloud";
   const providerLabel = PROVIDER_LABEL[adapter];
-  const value: ModelAccess =
-    cloudTask || !subscription.subscriptionOn
-      ? "posthog-gateway"
-      : "own-subscription";
+  const value: ModelAccess = cloudTask
+    ? subscriptionModelAccess(subscription, "cloud")
+    : subscription.subscriptionOn
+      ? "own-subscription"
+      : "posthog-gateway";
   const valueLabel =
-    subscription.subscriptionOn && subscription.loggedIn && !cloudTask
+    subscriptionModelAccess(subscription, workspaceMode ?? "local") ===
+    "own-subscription"
       ? providerLabel
       : "PostHog";
 
@@ -89,13 +95,17 @@ export function SubscriptionSubmenu({
         <DropdownMenuRadioGroup
           value={value}
           onValueChange={(next) =>
-            applyModelAccess(
-              adapter,
-              next === "own-subscription"
-                ? "own-subscription"
-                : "posthog-gateway",
-              subscription.loggedIn,
-            )
+            cloudTask && adapter === "claude"
+              ? subscription.setCloudSubscriptionOn?.(
+                  next === "own-subscription",
+                )
+              : applyModelAccess(
+                  adapter,
+                  next === "own-subscription"
+                    ? "own-subscription"
+                    : "posthog-gateway",
+                  subscription.loggedIn,
+                )
           }
         >
           <DropdownMenuRadioItem
@@ -104,7 +114,7 @@ export function SubscriptionSubmenu({
           >
             PostHog
           </DropdownMenuRadioItem>
-          {cloudTask ? (
+          {cloudTask && !cloudAvailable ? (
             <TooltipProvider delay={TOOLTIP_DELAY_MS}>
               <Tooltip disableHoverablePopup>
                 <TooltipTrigger render={<span className="flex" />}>
