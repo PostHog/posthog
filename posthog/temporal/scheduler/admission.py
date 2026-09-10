@@ -423,7 +423,7 @@ def _finish_scheduler_claim(
 
         claim.status = status
         claim.lease_expires_at = None
-        claim.completed_at = transition_time if status == TemporalSchedulerClaim.Status.COMPLETED else None
+        claim.completed_at = transition_time if status == TemporalSchedulerClaim.Status.COMPLETED.value else None
         claim.last_error = error[:MAX_CLAIM_ERROR_CHARS]
         claim.save(update_fields=["status", "lease_expires_at", "completed_at", "last_error", "updated_at"])
         permits_in_flight = global_pool.in_flight
@@ -445,7 +445,7 @@ def complete_scheduler_claim(
     return _finish_scheduler_claim(
         claim_id,
         claim_token,
-        status=TemporalSchedulerClaim.Status.COMPLETED,
+        status=TemporalSchedulerClaim.Status.COMPLETED.value,
         error="",
         now=now,
         transition="completed",
@@ -464,7 +464,7 @@ def release_scheduler_claim(
     return _finish_scheduler_claim(
         claim_id,
         claim_token,
-        status=TemporalSchedulerClaim.Status.AVAILABLE,
+        status=TemporalSchedulerClaim.Status.AVAILABLE.value,
         error=error,
         now=now,
         transition="released",
@@ -483,7 +483,7 @@ def quarantine_scheduler_claim(
     return _finish_scheduler_claim(
         claim_id,
         claim_token,
-        status=TemporalSchedulerClaim.Status.QUARANTINED,
+        status=TemporalSchedulerClaim.Status.QUARANTINED.value,
         error=error,
         now=now,
         transition="quarantined",
