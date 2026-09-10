@@ -3,6 +3,7 @@ import { ChartDisplayType } from '~/types'
 
 import {
     BIConfig,
+    BIConfigValidationIssue,
     BIEditorView,
     BIField,
     buildBIQuery,
@@ -10,6 +11,7 @@ import {
     defaultAggregationForField,
     getBIDataSourceKey,
     getBIFieldId,
+    getBIConfigValidationIssue,
     getBISortOptions,
     isBIFieldCompatible,
     parseBIEditorState,
@@ -56,6 +58,49 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
+    test.each<[string, Partial<BIConfig>, BIConfigValidationIssue]>([
+        ['a data source', { source: null }, 'missing_source'],
+        ['a shelf field', { rows: [{ ...eventField, name: '', expression: '' }] }, 'missing_field'],
+        [
+            'a custom value expression',
+            { values: [{ field: revenueField, aggregation: 'custom', customExpression: '  ' }] },
+            'missing_custom_value',
+        ],
+        ['a filter value', { filters: [{ field: eventField, operator: 'equals', value: '' }] }, 'missing_filter_value'],
+        [
+            'a custom filter condition',
+            { filters: [{ field: eventField, operator: 'custom', value: '', customExpression: '' }] },
+            'missing_custom_filter',
+        ],
+    ])('reports a missing %s', (_name, overrides, expectedIssue) => {
+        const config: BIConfig = {
+            source: { table: 'events' },
+            chartType: ChartDisplayType.Auto,
+            rows: [],
+            columns: [],
+            values: [],
+            filters: [],
+            limit: 100,
+            ...overrides,
+        }
+
+        expect(getBIConfigValidationIssue(config)).toBe(expectedIssue)
+    })
+
+    it('allows complete fields and custom expressions', () => {
+        const config: BIConfig = {
+            source: { table: 'events' },
+            chartType: ChartDisplayType.Auto,
+            rows: [eventField],
+            columns: [],
+            values: [{ field: revenueField, aggregation: 'custom', customExpression: 'sum(properties.revenue)' }],
+            filters: [{ field: eventField, operator: 'custom', value: '', customExpression: "event != ''" }],
+            limit: 100,
+        }
+
+        expect(getBIConfigValidationIssue(config)).toBeNull()
+    })
+
     it('builds a visualization node with dimensions, aggregations, and filters', () => {
         const expectedQuery = [
             'SELECT',
