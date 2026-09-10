@@ -118,16 +118,14 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Intro screen',
-        // Minimum versions are the first releases containing the intro screen renderer.
-        // Update these to the actual released versions once PostHog/posthog-js#4436 ships;
-        // the latest releases without it are posthog-js 1.413.3 and posthog-react-native 4.62.0.
         sdkVersions: {
-            'posthog-js': '1.414.0',
+            'posthog-js': '1.415.0',
             'posthog-react-native': '4.63.0',
+            'posthog-ios': '3.70.0',
         },
         unsupportedSdks: [
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/pull/754' },
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/pull/677' },
+            // Renderer is merged, waiting on the posthog-android release that resolves core 6.34.0
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/pull/736' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/pull/515' },
         ],
         check: (s) => !!s.appearance?.displayIntroScreen,
