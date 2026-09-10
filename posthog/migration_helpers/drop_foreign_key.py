@@ -96,14 +96,6 @@ class DropForeignKey(Operation):
         self.column = column
         self.to_table = to_table
 
-    def deconstruct(self) -> tuple[str, list, dict]:
-        kwargs: dict[str, str] = {"table": self.table}
-        if self.column is not None:
-            kwargs["column"] = self.column
-        if self.to_table is not None:
-            kwargs["to_table"] = self.to_table
-        return (self.__class__.__name__, [], kwargs)
-
     def state_forwards(self, app_label, state) -> None:
         pass
 
