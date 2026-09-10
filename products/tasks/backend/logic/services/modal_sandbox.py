@@ -903,7 +903,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                         {"config_name": config.name, "sandbox_id": sb.object_id, "image": winner.label},
                         cause=RuntimeError("readiness probe never passed"),
                     )
-                earlier_fallback = config.image_fallback
+                earlier_fallback: str | None = config.image_fallback
                 sb, modal_output, winner = cls._create_from_image_candidates(create_kwargs, remaining, config)
                 directory_mount_applied = False
                 # Every hop stays in the string: the run log reads the field once, so an
