@@ -5,7 +5,7 @@ import typing
 import asyncio
 import datetime as dt
 import dataclasses
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime
 
 from django.conf import settings
@@ -497,8 +497,7 @@ async def _fetch_due_subscriptions(
             },
         )
 
-    candidate_counts_by_team = Counter(candidate.team_id for candidate in page.subscriptions)
-    examined_counts_by_team: Counter[int] = Counter()
+    last_examined_team_id: int | None = None
     if inputs.use_durable_claims:
         claimed_subscriptions: list[DueSubscription] = []
         candidate_index = 0
@@ -526,7 +525,7 @@ async def _fetch_due_subscriptions(
             safe_candidates = candidates[:safe_candidate_count]
             candidate_index += safe_candidate_count
             reservation_result = await reserve_candidates(safe_candidates)
-            examined_counts_by_team.update(candidate.team_id for candidate in safe_candidates)
+            last_examined_team_id = safe_candidates[-1].team_id
             for candidate in safe_candidates:
                 claim = reservation_result.reservations.get(_subscription_occurrence_key(candidate))
                 if claim is not None:
@@ -562,11 +561,9 @@ async def _fetch_due_subscriptions(
 
         await release_payload_deferred_claims()
     if inputs.use_durable_claims:
-        cursor_team_id: str | None = None
-        for team_id in page.selected_team_ids:
-            if examined_counts_by_team[team_id] < candidate_counts_by_team[team_id]:
-                break
-            cursor_team_id = str(team_id)
+        cursor_team_id = str(last_examined_team_id) if last_examined_team_id is not None else None
+        if len(selection.items) < len(subscriptions_for_payload):
+            cursor_team_id = str(selection.items[-1].team_id) if selection.items else None
     else:
         cursor_team_id = str(selection.items[-1].team_id) if selection.items else None
 

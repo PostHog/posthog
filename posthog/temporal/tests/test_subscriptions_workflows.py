@@ -3579,7 +3579,7 @@ async def test_reserved_subscription_claim_expires_before_the_next_recovery_tick
 
 async def test_recover_subscription_scheduler_claims_releases_closed_workflow(team, user):
     region = "claim-test"
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-recovery", name="Claim recovery")
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-rcvry", name="Claim recovery")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
     await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
         next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
