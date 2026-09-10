@@ -8,6 +8,8 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     MAX_CURSOR_BYTES,
+    MAX_LOGGED_RUN_ID_CHARS,
+    MAX_LOGGED_RUN_IDS,
     LangSmithHostNotAllowedError,
     LangSmithPageLimitError,
     LangSmithPaginationTooLargeError,
@@ -15,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.
     LangSmithResponseTooLargeError,
     LangSmithResumeConfig,
     LangSmithRunsPageTooLargeError,
+    _bounded_run_ids,
     _fetch_page,
     _read_capped_body,
     _resolve_window_start,
@@ -288,6 +291,16 @@ class TestRunsPageShrinking:
         assert [r["id"] for r in rows] == ["huge"]
         assert selects[-1] == [name for name in RUNS_SELECT_FIELDS if name not in RUNS_HEAVY_SELECT_FIELDS]
 
+    def test_logged_run_ids_are_bounded_in_count_and_length(self):
+        # The host chooses how many runs a page holds and how long each id is, so the warning that
+        # names them must not grow with the response.
+        runs = [{"id": "x" * 1_000} for _ in range(100)]
+
+        ids = _bounded_run_ids(runs)
+
+        assert len(ids) == MAX_LOGGED_RUN_IDS
+        assert all(len(run_id) == MAX_LOGGED_RUN_ID_CHARS for run_id in ids)
+
     def test_single_run_page_oversized_without_heavy_fields_raises(self):
         manager = FakeManager()
         attempts = 0
@@ -310,7 +323,9 @@ class TestRunsColumnSelection:
         "enabled_columns,expected",
         [
             (None, RUNS_SELECT_FIELDS),
-            ([], RUNS_SELECT_FIELDS),
+            # An empty selection means what it means downstream: the required columns only, never
+            # everything. Otherwise deselecting every column still downloads inputs and outputs.
+            ([], ["id", "start_time"]),
             # The primary key and the partition key ride along whatever the user picked.
             (["outputs"], ["id", "start_time", "outputs"]),
             (["id", "name"], ["id", "name", "start_time"]),

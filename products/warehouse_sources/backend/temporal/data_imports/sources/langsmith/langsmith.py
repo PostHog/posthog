@@ -96,6 +96,11 @@ MAX_SESSION_IDS_BYTES = 2 * 1024 * 1024
 # scope the examples query. A user-controlled host could otherwise stream unbounded dataset ids.
 MAX_DATASET_IDS_BYTES = 2 * 1024 * 1024
 
+# Bound what one log line can carry out of a page. The host chooses how many runs it returns and
+# how long each id is, so an unbounded line lets it turn a warning into an oversized log event.
+MAX_LOGGED_RUN_IDS = 5
+MAX_LOGGED_RUN_ID_CHARS = 64
+
 
 class LangSmithRetryableError(Exception):
     pass
@@ -390,13 +395,19 @@ def _runs_select_fields(config: LangSmithEndpointConfig, enabled_columns: list[s
 
     MAX_RESPONSE_BYTES is enforced while the body is read, so a column the pipeline drops after the
     fetch still costs its bytes on the wire. The primary key and the partition key are kept whatever
-    the user picked, because the merge and the Delta layout need them.
+    the user picked, because the merge and the Delta layout need them. `None` and an empty list mean
+    what they mean to `apply_enabled_columns_projection`: every column, and only the required ones.
     """
-    if not enabled_columns:
+    if enabled_columns is None:
         return list(RUNS_SELECT_FIELDS)
     required = {*config.primary_keys, *([config.partition_key] if config.partition_key else [])}
     wanted = {*enabled_columns} | required
     return [name for name in RUNS_SELECT_FIELDS if name in wanted]
+
+
+def _bounded_run_ids(runs: list[Any]) -> list[str]:
+    """A sample of run ids, capped in count and length, for a log line."""
+    return [str(run.get("id"))[:MAX_LOGGED_RUN_ID_CHARS] for run in runs[:MAX_LOGGED_RUN_IDS] if isinstance(run, dict)]
 
 
 def _fetch_runs_page(
@@ -446,10 +457,10 @@ def _fetch_runs_page(
             continue
 
         if heavy_fields_dropped:
-            run_ids = [run.get("id") for run in data.get("runs", [])] if isinstance(data, dict) else []
+            runs = data.get("runs", []) if isinstance(data, dict) else []
             logger.warning(
-                f"LangSmith runs imported without {', '.join(RUNS_HEAVY_SELECT_FIELDS)} because they exceeded the "
-                f"response cap: run_ids={run_ids}"
+                f"LangSmith imported {len(runs)} run(s) without {', '.join(RUNS_HEAVY_SELECT_FIELDS)} because they "
+                f"exceeded the response cap: run_ids={_bounded_run_ids(runs)}"
             )
         return data, limit
 
