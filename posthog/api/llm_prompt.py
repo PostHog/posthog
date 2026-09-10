@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -14,7 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_batch_internal, capture_internal
 from posthog.api.llm_prompt_serializers import (
     ALLOWED_LIST_ORDERINGS,
     LLMPromptDuplicateSerializer,
@@ -191,10 +192,10 @@ class LLMPromptViewSet(
             prompt["config"] = prompt.get("config")
         return prompt
 
-    def _track_prompt_fetch(self, prompt: dict[str, Any], fetch_path: str = "by_name") -> None:
+    def _prompt_fetch_properties(self, prompt: dict[str, Any], fetch_path: str) -> dict[str, Any]:
         # prompt_label + prompt_version together answer "what was the production label
         # actually serving at time X" from the event stream alone.
-        properties = {
+        return {
             "prompt_id": prompt["id"],
             "prompt_name": prompt["name"],
             "prompt_version": prompt["version"],
@@ -204,6 +205,9 @@ class LLMPromptViewSet(
             "prompt_has_config": prompt.get("config") is not None,
             "prompt_fetch_path": fetch_path,
         }
+
+    def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
+        properties = self._prompt_fetch_properties(prompt, fetch_path="by_name")
         if not settings.TEST:
             try:
                 capture_internal(
@@ -218,6 +222,34 @@ class LLMPromptViewSet(
                 capture_exception(err)
 
         report_team_action(self.team, "llma prompt fetched", properties)
+
+    def _track_labeled_list_fetches(self, prompts: Sequence[LLMPrompt], label: str) -> None:
+        # One batch call, not one capture_internal per prompt: capture_internal is a
+        # synchronous HTTP request, so per-prompt calls would multiply request latency
+        # by the page size.
+        properties_per_prompt = [
+            self._prompt_fetch_properties(self._labeled_list_fetch_payload(prompt, label), fetch_path="list")
+            for prompt in prompts
+        ]
+        if not settings.TEST and properties_per_prompt:
+            try:
+                capture_batch_internal(
+                    events=[
+                        {
+                            "event": PROMPT_FETCHED_EVENT,
+                            "distinct_id": str(self.team.uuid),
+                            "properties": properties,
+                        }
+                        for properties in properties_per_prompt
+                    ],
+                    token=self.team.api_token,
+                    event_source=PROMPT_FETCHED_EVENT_SOURCE,
+                )
+            except Exception as err:
+                capture_exception(err)
+
+        for properties in properties_per_prompt:
+            report_team_action(self.team, "llma prompt fetched", properties)
 
     def _get_list_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMPromptListQuerySerializer(data=request.query_params)
@@ -654,8 +686,7 @@ class LLMPromptViewSet(
             # Each prompt served through a labeled list counts as one fetch, matching
             # get_by_name, so usage counts survive a caller migrating from per-name
             # calls. The unlabeled list backs the prompts UI page and stays untracked.
-            for prompt in prompts:
-                self._track_prompt_fetch(self._labeled_list_fetch_payload(prompt, label), fetch_path="list")
+            self._track_labeled_list_fetches(prompts, label)
 
         if page is not None:
             return self.get_paginated_response(serializer.data)
