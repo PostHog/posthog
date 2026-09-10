@@ -1322,6 +1322,41 @@ describe('set response-based survey branching', () => {
                     hasCycle: false,
                 })
 
+            // Deleting a choice leaves the rule that routed it behind. The SDK resolves a
+            // response against the choices that remain, so the stale key routes nobody and the
+            // step back to the first question is a path no respondent can take.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 2, 2: 0 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
             // The first question routes both of its choices, but it is optional. A respondent
             // who skips it reaches the second question, which steps back to the first, so the
             // loop is real even though no listed choice leads into it.
