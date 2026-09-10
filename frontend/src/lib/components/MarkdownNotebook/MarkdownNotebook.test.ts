@@ -7113,6 +7113,36 @@ First paragraph
 Second paragraph`)
     })
 
+    it('keeps rendering when a pasted code block carries no text', () => {
+        const onChange = jest.fn()
+        const convertExternalDataTransferToNodes = jest.fn(() => [
+            { id: 'pasted-code', type: 'code' as const, text: undefined as unknown as string },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First paragraph'),
+                onChange,
+                convertExternalDataTransferToNodes,
+            })
+        )
+
+        fireEvent.paste(getBodyTextBlock(container), {
+            clipboardData: {
+                files: [new File([''], 'pasted.txt', { type: 'text/plain' })],
+                getData: jest.fn(() => ''),
+            },
+        })
+
+        expect(container.querySelector('pre')).not.toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+First paragraph
+
+\`\`\`
+
+\`\`\``)
+    })
+
     it('undoes pasted markdown blocks as one notebook history step', () => {
         const onChange = jest.fn()
         const { container } = render(
