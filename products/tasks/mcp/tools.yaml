@@ -360,6 +360,9 @@ tools:
     task-channels-members-update:
         operation: task_channels_members_update
         enabled: false
+    task-channels-onboarding-research-create:
+        operation: task_channels_onboarding_research_create
+        enabled: false
     task-channels-onboarding-session-create:
         operation: task_channels_onboarding_session_create
         enabled: false
