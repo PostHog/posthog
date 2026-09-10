@@ -67,7 +67,7 @@ describe('ScoutRunBoxes', () => {
 
         expect(container.querySelectorAll('.bg-brand-yellow')).toHaveLength(2)
         const labels = Array.from(container.querySelectorAll('.sr-only')).map((node) => node.textContent ?? '')
-        expect(labels.filter((label) => label.includes('top 10% of run cost'))).toHaveLength(2)
+        expect(labels.filter((label) => label.includes('top 10% of runs by cost'))).toHaveLength(2)
     })
 
     it('marks nothing while the fleet has too few priced runs to rank', () => {

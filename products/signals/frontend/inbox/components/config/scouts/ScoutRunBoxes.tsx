@@ -54,7 +54,7 @@ function runTooltip(run: SignalScoutRunSummary, now: Date, costUsd: number | und
     // The marker is a colored bar, so say the same thing in words for anyone reading the tooltip
     // or the screen-reader label.
     if (expensive) {
-        parts.push('top 10% of run cost')
+        parts.push('top 10% of runs by cost')
     }
     return parts.join(' · ')
 }
