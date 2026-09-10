@@ -392,19 +392,32 @@ fn upload_inner(
 }
 
 /// Ask the server which chunks it still needs, so the chunks it already holds never occupy a
-/// start batch. Every chunk is kept when the server gives no usable answer.
+/// start batch.
 fn check_uploads<'a>(
     uploads: &[HashedUpload<'a>],
     force: bool,
     skip_on_conflict: bool,
 ) -> Vec<HashedUpload<'a>> {
+    needed_uploads(uploads, |batch| {
+        check_upload(batch, force, skip_on_conflict)
+    })
+}
+
+/// Keep the chunks that `check` reports as needed. A check that gives no usable answer costs
+/// only the round trips it would have saved, so the batches answered before it keep their
+/// result, and every chunk from the unanswered batch on is kept without a check.
+fn needed_uploads<'a>(
+    uploads: &[HashedUpload<'a>],
+    check: impl Fn(&[HashedUpload<'a>]) -> Option<Vec<String>>,
+) -> Vec<HashedUpload<'a>> {
     if uploads.is_empty() {
         return Vec::new();
     }
     let mut to_upload = Vec::new();
-    for batch in uploads.chunks(CHECK_BATCH_SIZE) {
-        let Some(needed) = check_upload(batch, force, skip_on_conflict) else {
-            return uploads.to_vec();
+    for (i, batch) in uploads.chunks(CHECK_BATCH_SIZE).enumerate() {
+        let Some(needed) = check(batch) else {
+            to_upload.extend(uploads[i * CHECK_BATCH_SIZE..].iter().copied());
+            break;
         };
         let needed: HashSet<String> = needed.into_iter().collect();
         to_upload.extend(
@@ -781,6 +794,7 @@ where
 mod tests {
     use super::*;
     use std::{
+        cell::Cell,
         fmt::Debug,
         sync::{Arc, Mutex, MutexGuard},
     };
@@ -903,6 +917,47 @@ mod tests {
         assert!(router.should_set_latch(true));
         router.record_transport_error(true);
         assert!(!router.should_set_latch(true));
+    }
+
+    #[test]
+    fn needed_uploads_keeps_the_results_of_the_checks_that_answered() {
+        let uploads: Vec<SymbolSetUpload> = (0..CHECK_BATCH_SIZE * 2 + 1)
+            .map(|i| SymbolSetUpload {
+                chunk_id: format!("chunk-{i}"),
+                release_id: None,
+                data: Vec::new(),
+                content_hash: None,
+            })
+            .collect();
+        let hashed: Vec<HashedUpload> = uploads
+            .iter()
+            .map(|upload| HashedUpload {
+                upload,
+                content_hash: "hash",
+            })
+            .collect();
+
+        let checks = Cell::new(0);
+        let to_upload = needed_uploads(&hashed, |batch| {
+            let checked = checks.get();
+            checks.set(checked + 1);
+            // The server needs one chunk of the first batch, then stops answering.
+            (checked == 0).then(|| vec![batch[0].upload.chunk_id.clone()])
+        });
+
+        let chunk_ids: Vec<&str> = to_upload
+            .iter()
+            .map(|hashed| hashed.upload.chunk_id.as_str())
+            .collect();
+
+        assert_eq!(checks.get(), 2);
+        assert_eq!(chunk_ids.len(), CHECK_BATCH_SIZE + 2);
+        assert_eq!(chunk_ids[0], "chunk-0");
+        assert_eq!(chunk_ids[1], format!("chunk-{CHECK_BATCH_SIZE}"));
+        assert_eq!(
+            chunk_ids[chunk_ids.len() - 1],
+            format!("chunk-{}", CHECK_BATCH_SIZE * 2)
+        );
     }
 
     #[test]
