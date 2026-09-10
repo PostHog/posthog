@@ -294,7 +294,7 @@ The initial subscription page boundary is at most 300 items, subject to the seri
 
 Other coordinators derive their per-tick maximum from the same recovery rule. A coordinator without production volume telemetry ships instrumentation and a conservative reviewed envelope before multi-page recovery is enabled.
 
-Temporal schedule inputs carry the runtime page target and recovery-page target. Code owns a higher hard maximum, so a control-plane or UI update can tune capacity without a release but cannot remove the safety boundary.
+Temporal schedule inputs carry the runtime page target and recovery-page target. Code owns those inputs. Every deploy reconciles the schedules, and reconciliation replaces the whole schedule, including its action arguments. A control-plane or UI edit of a target therefore holds only until the next deploy. Use that edit for immediate containment, and a release to change a target durably. Code also owns a higher hard maximum, which the discovery activity enforces, so no input can remove the safety boundary.
 
 Demand calculations use complete schedule buckets, including zero-demand intervals. They deduplicate logical occurrences and report retry volume separately.
 
