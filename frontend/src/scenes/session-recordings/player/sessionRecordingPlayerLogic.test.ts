@@ -1051,6 +1051,19 @@ describe('sessionRecordingPlayerLogic', () => {
                 expectedHasUnrenderable: false,
             },
             {
+                // a viewer moving between tabs interleaves the windows, and window 1 still plays
+                description: 'leaves out the window that plays normally between two spans of a damaged one',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    ...w2moves(START + 62000, START + 82000),
+                    w1move(START + 87000),
+                    w1move(START + 92000),
+                    ...w2moves(START + 97000, START + 117000),
+                ],
+                expectedUnrenderableWindowMs: 50000,
+                expectedHasUnrenderable: true,
+            },
+            {
                 description: 'does not flag a later window whose span is only a backdated idle event',
                 secondSourceSnapshots: [
                     w1move(START + 61000),

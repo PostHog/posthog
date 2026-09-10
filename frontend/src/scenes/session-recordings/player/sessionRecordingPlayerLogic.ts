@@ -1982,8 +1982,35 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             event.timestamp < endTimestamp &&
                             event.type !== EventType.Custom
                     )
-                    if (hasLostContent) {
-                        spans.push({ startTimestamp: segment.startTimestamp, endTimestamp })
+                    if (!hasLostContent) {
+                        continue
+                    }
+                    // Windows interleave when a viewer moves between tabs, so this range can hold
+                    // another window's segments, which play normally. Only the damaged window's own
+                    // segments stay blank, together with the gaps that hold it on screen.
+                    let openSpanIndex = -1
+                    for (const blankSegment of sessionPlayerData.segments) {
+                        if (blankSegment.startTimestamp >= endTimestamp) {
+                            break
+                        }
+                        if (blankSegment.endTimestamp <= segment.startTimestamp) {
+                            continue
+                        }
+                        if (blankSegment.windowId !== windowId) {
+                            continue
+                        }
+                        const spanStart = Math.max(blankSegment.startTimestamp, segment.startTimestamp)
+                        const spanEnd = Math.min(blankSegment.endTimestamp, endTimestamp)
+                        if (spanEnd <= spanStart) {
+                            continue
+                        }
+                        // consecutive segments of the damaged window read as one blank stretch
+                        if (openSpanIndex >= 0 && spans[openSpanIndex].endTimestamp === spanStart) {
+                            spans[openSpanIndex].endTimestamp = spanEnd
+                        } else {
+                            openSpanIndex = spans.length
+                            spans.push({ startTimestamp: spanStart, endTimestamp: spanEnd })
+                        }
                     }
                 }
                 return spans
