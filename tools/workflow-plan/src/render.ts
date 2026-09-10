@@ -29,11 +29,16 @@ const LEGEND = [
     .map(([mark, meaning]) => `${mark} = ${meaning}`)
     .join('   ')
 
+function center(text: string, width: number): string {
+    const left = Math.floor((width - text.length) / 2)
+    return text.padStart(text.length + left).padEnd(width)
+}
+
 function renderGrid(cornerLabel: string, rowLabels: string[], columns: Column[]): string[] {
     const labelWidth = Math.max(cornerLabel.length, ...rowLabels.map((label) => label.length))
     const widths = columns.map(({ name, cells }) => Math.max(name.length, ...cells.map((cell) => cell.length)))
     const row = (label: string, cells: string[]): string =>
-        `${label.padEnd(labelWidth)} ${cells.map((cell, index) => cell.padStart(widths[index]!)).join(' ')}`
+        `${label.padEnd(labelWidth)} ${cells.map((cell, index) => center(cell, widths[index]!)).join(' ')}`.trimEnd()
     return [
         row(
             cornerLabel,
