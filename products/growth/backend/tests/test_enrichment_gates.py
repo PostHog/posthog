@@ -48,10 +48,11 @@ class TestEnrichmentGates(BaseTest):
 
     def test_resolve_signup_identity_with_a_work_email_returns_a_lowercased_identity(self):
         organization = self._org_with_member("Founder@Stripe.com")
-        member = organization.memberships.get()
+        distinct_id = organization.memberships.get().user.distinct_id
+        assert distinct_id is not None
 
         assert resolve_signup_identity(str(organization.id)) == SignupIdentity(
-            distinct_id=member.user.distinct_id, domain="stripe.com"
+            distinct_id=distinct_id, domain="stripe.com"
         )
 
     @parameterized.expand(
