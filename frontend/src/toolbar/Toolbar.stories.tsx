@@ -18,6 +18,7 @@ import { listExperimentsAPIResponse } from './__mocks__/list-web-experiments-res
 import { listWebVitalsAPIResponse } from './__mocks__/list-web-vitals-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
+import { toolbarPosthogJS } from './toolbarPosthogJS'
 import { TOOLBAR_ID } from './utils'
 
 function useToolbarStyles(): void {
@@ -69,7 +70,7 @@ const meta: Meta<StoryArgs> = {
         layout: 'fullscreen',
         viewMode: 'story',
     },
-    render: (props) => {
+    render: (props, { parameters }) => {
         const toolbarParams: ToolbarParams = {
             accessToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
             actionId: undefined,
@@ -125,10 +126,13 @@ const meta: Meta<StoryArgs> = {
         const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(theToolbarLogic)
 
         useEffect(() => {
+            // The toolbar uses its own SDK instance, so the app's Storybook flag overrides do not reach it.
+            toolbarPosthogJS.featureFlags.overrideFeatureFlags({ flags: parameters.featureFlags ?? {} })
             setDragPosition(50, 50)
             setVisibleMenu(props.menu || 'none')
             toggleMinimized(props.minimized ?? false)
             toggleTheme(props.theme || 'light')
+            return () => toolbarPosthogJS.featureFlags.overrideFeatureFlags(false)
         }, [Object.values(props)]) // oxlint-disable-line react-hooks/exhaustive-deps
 
         return (
@@ -159,14 +163,17 @@ export const Heatmap: Story = {
 }
 
 export const HeatmapLocked: Story = {
+    parameters: { featureFlags: { 'toolbar-paid-heatmaps': true } },
     args: { menu: 'heatmap', heatmapLocked: true },
 }
 
 export const HeatmapEntitlementsLoading: Story = {
+    parameters: { featureFlags: { 'toolbar-paid-heatmaps': true } },
     args: { menu: 'heatmap', heatmapLocked: true, entitlementsState: 'loading' },
 }
 
 export const HeatmapEntitlementsError: Story = {
+    parameters: { featureFlags: { 'toolbar-paid-heatmaps': true } },
     args: { menu: 'heatmap', heatmapLocked: true, entitlementsState: 'error' },
 }
 
