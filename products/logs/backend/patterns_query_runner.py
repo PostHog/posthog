@@ -261,24 +261,33 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         member_groups = {
             member: group_id for group_id, pattern in enumerate(patterns, start=1) for member in pattern.match_patterns
         }
+        # `LIMIT n BY` caps rows, not distinct bodies, and the table's sort order puts the rows of a
+        # repeated line next to each other, so one body can fill a group's whole quota. Read a
+        # bounded multiple of the quota and keep the distinct bodies here. Grouping on `body` in the
+        # query would decompress it for every matching row instead of stopping at the rows read
+        # first, which is the cost this query is shaped to avoid.
+        fetch_per_group = max_examples * 4
         rows = self._execute(
             parse_select(
                 "SELECT transform(pattern, {patterns}, {group_ids}, 0) AS pattern_group, "
                 "substringUTF8(body, 1, 4096), severity_text, service_name, timestamp "
                 "FROM logs WHERE {where} AND pattern IN {patterns} "
-                "LIMIT {max_examples} BY pattern_group LIMIT {limit}",
+                "LIMIT {fetch_per_group} BY pattern_group LIMIT {limit}",
                 placeholders={
                     "where": self._stored_where(version),
                     "patterns": ast.Constant(value=list(member_groups)),
                     "group_ids": ast.Constant(value=list(member_groups.values())),
-                    "max_examples": ast.Constant(value=max_examples),
-                    "limit": ast.Constant(value=len(patterns) * max_examples),
+                    "fetch_per_group": ast.Constant(value=fetch_per_group),
+                    "limit": ast.Constant(value=len(patterns) * fetch_per_group),
                 },
             )
         ).results
         examples: dict[int, list[LogSample]] = {}
         for row in rows:
-            examples.setdefault(row[0], []).append(
+            group = examples.setdefault(row[0], [])
+            if len(group) >= max_examples or any(example.body == row[1] for example in group):
+                continue
+            group.append(
                 LogSample(
                     body=row[1], severity_text=row[2], service_name=row[3], timestamp=row[4].replace(tzinfo=dt.UTC)
                 )

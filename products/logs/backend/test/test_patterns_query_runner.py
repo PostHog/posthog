@@ -80,6 +80,28 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert patterns["Archive job <ID> queued"]["match_patterns"] == ["Archive job <ID> queued"]
         assert patterns["Archive job <ID> queued"]["pattern_version"] == 5
 
+    @freeze_time(_FROZEN_NOW)
+    def test_stored_examples_do_not_repeat_a_body(self) -> None:
+        self._insert(
+            [
+                {**self._log("Retry 7 timed out"), "pattern": "Retry <N> timed out", "pattern_version": 5}
+                for _ in range(12)
+            ]
+            + [
+                {**self._log("Retry 8 timed out", minute=1), "pattern": "Retry <N> timed out", "pattern_version": 5},
+                {**self._log("Retry 9 timed out", minute=2), "pattern": "Retry <N> timed out", "pattern_version": 5},
+            ]
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            results = self._run()
+
+        pattern = results["patterns"][0]
+        bodies = [example["body"] for example in pattern["examples"]]
+        assert pattern["count"] == 14
+        assert len(bodies) == len(set(bodies))
+        assert set(bodies) == {"Retry 7 timed out", "Retry 8 timed out", "Retry 9 timed out"}
+
     @parameterized.expand([(False, 100, "flag_disabled"), (True, 98, "insufficient_version_coverage")])
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_body_fallback_does_not_mix_stored_versions(self, enabled: bool, coverage: int, reason: str) -> None:
