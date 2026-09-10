@@ -177,13 +177,18 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertEqual(body["products"][0]["usage_ratio"], 3120520 / 5000000)
 
     @patch("ee.billing.billing_manager.requests.get")
-    def test_member_reads_the_usage_status_and_needs_the_read_flag_for_the_counts(self, mock_get):
+    def test_member_reads_the_usage_status_and_never_the_organization_counts(self, mock_get):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.organization.usage = {"recordings": {"usage": 15000, "limit": 15000, "quota_limited_until": PERIOD_END}}
         self.organization.save()
         response = self.client.get(self._url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # The organization total needs full access, so the member read flag does not open it.
+        self.member_read.return_value = True
+        for path in ("usage/", "spend/"):
+            self.assertEqual(self.client.get(self._url(path)).status_code, status.HTTP_403_FORBIDDEN, path)
+        self.member_read.return_value = False
         mock_get.assert_not_called()
 
         mock_get.return_value = _response(USAGE_STATUS)

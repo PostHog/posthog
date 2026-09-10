@@ -160,9 +160,10 @@ test.describe('Organization billing API', () => {
             for (const path of ['forecast/', 'invoices/', 'limits/']) {
                 expect((await get(path)).status(), path).toBe(403)
             }
+            // The organization totals need full access, whatever the member read flag says.
+            expect((await get('usage/')).status()).toBe(403)
+            expect((await get('spend/')).status()).toBe(403)
             const withFlag = memberHasReadFlag ? 200 : 403
-            expect((await get('usage/')).status()).toBe(withFlag)
-            expect((await get('spend/')).status()).toBe(withFlag)
             expect((await get('usage/timeseries/', SERIES)).status()).toBe(withFlag)
             expect((await get('projects/')).status()).toBe(withFlag)
         })

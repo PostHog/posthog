@@ -1057,7 +1057,7 @@
         "feature_flag": "billing-mcp-read-tools"
     },
     "billing-spend-summary-get": {
-        "description": "Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with the two totals. Needs usage read access: owners always, admins when owner-only billing is off, or members when the member read flag is on. Use it for \"what have we spent so far this month\"; for the projection to the end of the period call billing-forecast-get, for history call billing-spend-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "description": "Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with the two totals. An organization total, so it needs full billing access: owners always, and admins when owner-only billing is off. Use it for \"what have we spent so far this month\"; for the projection to the end of the period call billing-forecast-get, for history call billing-spend-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get spend this billing period",
@@ -1132,7 +1132,7 @@
         "feature_flag": "organization-billing-api"
     },
     "billing-usage-summary-get": {
-        "description": "Usage so far this billing period: per usage key the usage, the limit in effect, today's usage where PostHog tracks it and whether the resource is being limited right now, and per product and add-on the current usage, limit, ratio and over-limit flag. Quantities only, with the date the usage was reported through. Needs usage read access; billing-usage-status-get is the member's read. Use it for \"how many events have we used\"; for amounts call billing-overview-get, for history call billing-usage-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "description": "Usage so far this billing period: per usage key the usage, the limit in effect, today's usage where PostHog tracks it and whether the resource is being limited right now, and per product and add-on the current usage, limit, ratio and over-limit flag. Quantities only, with the date the usage was reported through. An organization total, so it needs full billing access; billing-usage-timeseries-get reads the same numbers per project with usage read, and billing-usage-status-get is the member's read. Use it for \"how many events have we used\"; for amounts call billing-overview-get, for history call billing-usage-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get usage this billing period",

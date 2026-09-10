@@ -693,7 +693,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
-        self._require(grants, BillingEntitlement.USAGE_READ, whole_organization=True)
+        self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
         data = self._manager().get_organization_spend(organization, grants)
         return Response({**data, "billing_period": _billing_period(data.get("billing_period"))})
 
@@ -864,7 +864,9 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
-        self._require(grants, BillingEntitlement.USAGE_READ)
+        # An organization total against an organization limit, so it is not clipped to a caller's
+        # projects. Usage read reads the same numbers per project through the timeseries.
+        self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
         data = self._manager().get_organization_usage(organization, grants)
         organization_usage = organization.usage or {}
         usage_summary = []
