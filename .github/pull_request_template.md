@@ -54,6 +54,7 @@
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
      - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
+     - CodeRabbit CLI pass: each finding and its disposition (fixed, or rejected with the reason), or that the CLI was unavailable and the PR opened without a local pass. The findings only appeared in the terminal, so this is their only record.
      - decisions made along the way: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes instead, where a reviewer will actually see it.
      - anything else that helps reviewers
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
@@ -73,6 +74,7 @@
 - Public OSS repo: no internal customers, incidents, or operational metrics.
 - Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. See AGENTS.md, "Stacked PRs" and /stacking-prs.
 - Simplify before opening: if your agent has a behavior-preserving cleanup pass (Claude Code: `/simplify`), run it on a non-trivial diff before final tests and preflight, since it edits the tree. Skip it for small mechanical changes.
+- Review before opening: invoke `/reviewing-with-coderabbit` once over the branch. If the CLI is unavailable, open the PR anyway.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.

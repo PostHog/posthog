@@ -256,7 +256,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/algolia/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/alguna/alguna.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/alguna/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/alpha_vantage/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/amazon_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/amplitude/amplitude.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/amplitude/settings.py
