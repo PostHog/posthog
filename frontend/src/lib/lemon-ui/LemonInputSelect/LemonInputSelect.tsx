@@ -543,9 +543,14 @@ export function LemonInputSelect<T = string>({
             return
         }
         if (hasCustomValue) {
-            // Keep the input as typed when an option holds it verbatim, because a leading or
-            // trailing space is part of that value and trimming it breaks an exact-match filter.
-            _onActionItem(optionMaps.keySet.has(inputValue) ? inputValue : inputValue.trim(), null)
+            // Keep the input as typed when an option holds it verbatim, or when it still equals the
+            // value being edited. A leading or trailing space is part of such a value, and trimming
+            // it breaks an exact-match filter. The edited value is not always among the options,
+            // because a search response replaces them.
+            const itemBeingEdited = itemBeingEditedIndex !== null ? value?.[itemBeingEditedIndex] : undefined
+            const isEditUnchanged = itemBeingEdited !== undefined && getStringKey(itemBeingEdited) === inputValue
+            const keepVerbatim = optionMaps.keySet.has(inputValue) || isEditUnchanged
+            _onActionItem(keepVerbatim ? inputValue : inputValue.trim(), null)
         } else {
             setInputValue('')
         }
