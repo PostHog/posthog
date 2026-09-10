@@ -1811,7 +1811,8 @@ class TestLiveTreeSmoke:
 
 class TestReusableSecretPassthroughCheck:
     @staticmethod
-    def _callee(required: bool) -> str:
+    def _callee(required: bool, reads: bool = True) -> str:
+        env = "T: ${{ secrets.NEEDED }}" if reads else "T: static"
         return f"""
         name: R
         on:
@@ -1826,7 +1827,7 @@ class TestReusableSecretPassthroughCheck:
             steps:
               - run: echo
                 env:
-                  T: ${{{{ secrets.NEEDED }}}}
+                  {env}
         """
 
     @pytest.mark.parametrize(
@@ -1847,8 +1848,31 @@ class TestReusableSecretPassthroughCheck:
         assert len(issues) == 1, [i.render() for i in issues]
         assert "does not declare it" in issues[0].message
 
-    def test_flags_a_caller_omitting_a_required_secret(self, tmp_path: Path) -> None:
-        _write(tmp_path, "_callee.yml", self._callee(required=True))
+    def test_reads_come_only_from_expressions(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "_callee.yml",
+            """
+            name: R
+            # Needs secrets.COMMENTED_ONLY to be configured in the repo.
+            on:
+              workflow_call:
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo secrets.SHELL_LITERAL_ONLY
+                    env:
+                      T: ${{ secrets['BRACKETED'] }}
+            """,
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split(" ")[1] for i in issues] == ["secrets.BRACKETED"], [i.render() for i in issues]
+
+    @pytest.mark.parametrize("reads", [True, False], ids=["read", "declared-only"])
+    def test_flags_a_caller_omitting_a_required_secret(self, tmp_path: Path, reads: bool) -> None:
+        _write(tmp_path, "_callee.yml", self._callee(required=True, reads=reads))
         _write(
             tmp_path,
             "caller.yml",

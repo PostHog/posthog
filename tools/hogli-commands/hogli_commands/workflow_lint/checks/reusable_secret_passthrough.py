@@ -14,14 +14,19 @@ either way.
 Two rules, because the halves fail independently:
 
 - an undeclared read can never receive a value, whoever calls it;
-- a read declared ``required: true`` still arrives empty from a caller that
-  omits it.
+- a secret declared ``required: true`` must be passed by every caller, whether
+  or not the callee reads it directly, because GitHub refuses to start the call
+  without it.
 
 The second rule follows the declaration rather than second-guessing it.
 ``required: false`` is the callee saying it tolerates absence, and callers rely
 on that: a smoke-test build deliberately withholds the symbol upload key so it
 does not publish symbols. Mark a secret ``required: true`` when every caller
 must supply it.
+
+Reads are collected from ``${{ }}`` expressions in the parsed YAML only. A
+``secrets.X`` in a YAML comment or in shell text outside an expression is not a
+read, and a bracket reference such as ``secrets['X']`` is.
 
 A caller that passes a differently named secret through to the callee's input
 satisfies the second rule. The mapping is what matters, not the name matching.
@@ -30,6 +35,7 @@ satisfies the second rule. The mapping is what matters, not the name matching.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
@@ -40,7 +46,8 @@ INHERIT = "inherit"
 # GITHUB_TOKEN is minted per run and reaches every job, so it is never declared.
 IMPLICIT_SECRETS = frozenset({"GITHUB_TOKEN"})
 
-_SECRET_REF = re.compile(r"secrets\.([A-Za-z0-9_]+)")
+_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+_SECRET_REF = re.compile(r"""\bsecrets(?:\.([A-Za-z0-9_]+)|\[\s*['"]([A-Za-z0-9_]+)['"]\s*\])""")
 
 
 def _call_block(wf: Workflow) -> dict | None:
@@ -71,9 +78,25 @@ def _required(call: dict) -> set[str]:
     return {name for name, body in secrets.items() if isinstance(body, dict) and body.get("required") is True}
 
 
+def _strings(node: object) -> Iterator[str]:
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield from _strings(key)
+            yield from _strings(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _strings(item)
+
+
 def _reads(wf: Workflow) -> set[str]:
-    text = wf.path.read_text(encoding="utf-8")
-    return set(_SECRET_REF.findall(text)) - IMPLICIT_SECRETS
+    reads: set[str] = set()
+    for text in _strings(wf.raw):
+        for expression in _EXPRESSION.findall(text):
+            for dotted, bracketed in _SECRET_REF.findall(expression):
+                reads.add(dotted or bracketed)
+    return reads - IMPLICIT_SECRETS
 
 
 def _callee_name(uses: str) -> str | None:
@@ -104,7 +127,7 @@ class ReusableSecretPassthroughCheck(WorkflowCheck):
                 continue
             declared = _declared(call)
             reads = _reads(wf)
-            callable_workflows[wf.path.name] = (wf, _required(call) & reads, reads - declared)
+            callable_workflows[wf.path.name] = (wf, _required(call), reads - declared)
 
         for name, (wf, _needed, undeclared_reads) in sorted(callable_workflows.items()):
             for secret in sorted(undeclared_reads):
