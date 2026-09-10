@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { FunnelsDataWarehouseNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { DataWarehouseNode, FunnelsDataWarehouseNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { buildFunnelsQuery, buildTrendsQuery, MockResponse, renderInsightPage } from '~/test/insight-testing'
 
 // The disabled-reason copy shows through LemonButton's Tooltip, which has a 400ms open
@@ -103,19 +103,17 @@ describe('TaxonomicBreakdownFilter', () => {
     })
 
     describe('on a data warehouse series', () => {
-        const warehouseQuery: TrendsQuery = buildTrendsQuery({
-            series: [
-                {
-                    kind: NodeKind.DataWarehouseNode,
-                    id: 'ad_stats',
-                    name: 'ad_stats',
-                    table_name: 'ad_stats',
-                    id_field: 'id',
-                    timestamp_field: 'reported_at',
-                    distinct_id_field: 'account_id',
-                },
-            ],
-        })
+        const warehouseSeries: DataWarehouseNode = {
+            kind: NodeKind.DataWarehouseNode,
+            id: 'ad_stats',
+            name: 'ad_stats',
+            table_name: 'ad_stats',
+            id_field: 'id',
+            timestamp_field: 'reported_at',
+            distinct_id_field: 'account_id',
+        }
+
+        const warehouseQuery: TrendsQuery = buildTrendsQuery({ series: [warehouseSeries] })
 
         const warehouseSchema = {
             tables: {
@@ -172,6 +170,21 @@ describe('TaxonomicBreakdownFilter', () => {
                 expect(screen.getAllByText('campaign.campaign_name').length).toBeGreaterThan(0)
             })
             expect(screen.getByText(/SQL expression/i)).toBeInTheDocument()
+        })
+
+        it('withholds the SQL expression escape hatch when an events series is mixed in', async () => {
+            renderInsightPage({
+                query: buildTrendsQuery({
+                    series: [warehouseSeries, { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                }),
+                mocks: { additionalMockResponses: schemaMocks },
+            })
+            await userEvent.click(await waitForBreakdownButton())
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+            })
+            expect(screen.queryAllByText(/SQL expression/i)).toHaveLength(0)
         })
 
         it('offers a warehouse funnel only its own columns, without joined paths or SQL expressions', async () => {
