@@ -17,13 +17,37 @@ const FORBIDDEN_CALLS: { re: RegExp; reason: string }[] = [
   { re: /\bimportScripts\s*\(/, reason: "importScripts() is not allowed" },
   { re: /\beval\s*\(/, reason: "eval() is not allowed" },
   { re: /\bnew\s+Function\s*\(/, reason: "new Function() is not allowed" },
+  { re: /\bFunction\s*\(/, reason: "Function() is not allowed" },
+  {
+    re: /\.\s*constructor\b/,
+    reason: "constructor access is not allowed",
+  },
+  { re: /\b__proto__\b/, reason: "__proto__ access is not allowed" },
   { re: /\bimport\s*\.\s*meta\b/, reason: "import.meta is not allowed" },
 ];
+
+// Members that give arbitrary code execution to code that reaches them.
+// `constructor` is in the set because it leads to the Function constructor from
+// any value.
+const FORBIDDEN_MEMBERS: ReadonlySet<string> = new Set([
+  "eval",
+  "Function",
+  "require",
+  "importScripts",
+  "constructor",
+  "__proto__",
+]);
 
 const MODULE_STATEMENT = /\b(import|export)\b/g;
 const QUOTED = /["']([^"'\n]*)["']/;
 const STATEMENT_SCAN_LIMIT = 2000;
 
+// A static pre-filter, not a security boundary. It rejects the plain routes to
+// dynamic code and to modules outside the allowlist, and it reads member keys
+// that the code builds from literal text, so `x["ev" + "al"]` is rejected. A key
+// that exists only at run time, such as `x[name]`, can still name any member, so
+// the frame CSP stays the boundary: `default-src 'none'`, no `unsafe-eval`, and
+// no network egress.
 export function checkCanvasCode(
   code: string,
   allowed: ReadonlySet<string> = CANVAS_BASE_ALLOWED_IMPORTS,
@@ -37,6 +61,12 @@ export function checkCanvasCode(
     if (re.test(bare)) violations.push(reason);
   }
 
+  for (const key of constantMemberKeys(code, bare)) {
+    if (FORBIDDEN_MEMBERS.has(key)) {
+      violations.push(`member access to "${key}" is not allowed`);
+    }
+  }
+
   for (const specifier of moduleSources(code, bare)) {
     if (!allowed.has(specifier)) {
       violations.push(`import of non-whitelisted module "${specifier}"`);
@@ -44,6 +74,69 @@ export function checkCanvasCode(
   }
 
   return { ok: violations.length === 0, violations };
+}
+
+function constantMemberKeys(code: string, bare: string): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < bare.length; i += 1) {
+    if (bare[i] !== "[") continue;
+    const close = closingBracket(bare, i);
+    if (close === -1) continue;
+    const key = constantText(code.slice(i + 1, close));
+    if (key !== null) keys.push(key);
+  }
+  return keys;
+}
+
+function closingBracket(bare: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < bare.length; i += 1) {
+    if (bare[i] === "[") depth += 1;
+    else if (bare[i] === "]") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+// Reads text that is built only from literals, so `"ev" + "al"` reads as
+// `eval`. Text that needs a value at run time has no constant form and gives
+// null.
+function constantText(text: string): string | null {
+  const parts: string[] = [];
+  let rest = text.trim();
+
+  while (rest.length > 0) {
+    const literal = /^(["'`])((?:\\.|(?!\1)[^\\])*)\1/.exec(rest);
+    if (!literal) return null;
+    const body = literal[2] ?? "";
+    if (literal[1] === "`" && body.includes("${")) return null;
+    parts.push(unescapeLiteral(body));
+    rest = rest.slice(literal[0].length).trim();
+    if (rest.length === 0) break;
+    if (rest[0] !== "+") return null;
+    rest = rest.slice(1).trim();
+  }
+
+  return parts.length > 0 ? parts.join("") : null;
+}
+
+function unescapeLiteral(body: string): string {
+  return body.replace(
+    /\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(.))/gs,
+    (
+      _match,
+      braced?: string,
+      unicode?: string,
+      hex?: string,
+      char?: string,
+    ) => {
+      const point = braced ?? unicode ?? hex;
+      if (point !== undefined) return String.fromCodePoint(parseInt(point, 16));
+      return char ?? "";
+    },
+  );
 }
 
 function moduleSources(code: string, bare: string): string[] {
