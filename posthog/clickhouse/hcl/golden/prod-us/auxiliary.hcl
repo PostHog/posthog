@@ -1834,6 +1834,9 @@ database "posthog" {
   table "sharded_billing_usage_records_hourly" {
     order_by     = ["team_id", "hour", "organization_id", "producer_id", "usage_key", "unit"]
     partition_by = "toYYYYMM(hour)"
+    settings = {
+      index_granularity = "8192"
+    }
     column "hour" {
       type = "DateTime('UTC')"
     }

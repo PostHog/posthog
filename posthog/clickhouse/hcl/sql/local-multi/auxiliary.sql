@@ -319,7 +319,7 @@ CREATE TABLE posthog.sharded_billing_usage_records_hourly (
   unit LowCardinality(String),
   quantity Int64,
   rolled_up_at DateTime64(6, 'UTC')
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records_hourly', '{replica}', rolled_up_at) ORDER BY (team_id, hour, organization_id, producer_id, usage_key, unit) PARTITION BY toYYYYMM(hour);
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records_hourly', '{replica}', rolled_up_at) ORDER BY (team_id, hour, organization_id, producer_id, usage_key, unit) PARTITION BY toYYYYMM(hour) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,
