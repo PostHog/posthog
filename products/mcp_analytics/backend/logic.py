@@ -12,7 +12,6 @@ from posthog.schema import AnyPropertyFilterDiscriminated, DateRange
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -31,6 +30,7 @@ from products.mcp_analytics.backend.constants import (
     MCP_TOOL_CALL_EVENT,
 )
 from products.mcp_analytics.backend.facade import contracts, enums
+from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
@@ -71,16 +71,11 @@ def shared_filters_expr(
 ) -> ast.Expr:
     """The MCP analytics tabs' shared property filters as one event-level HogQL expression.
 
-    Mirrors ``_dashboard_where`` in ``hogql_queries/dashboard_series.py``: the caller's property
-    filters plus, when the test-account switch is on, the team's own ``test_account_filters``.
-    Returns ``true`` when nothing is selected so callers can always AND it into a WHERE.
+    The raw SQL here ANDs a single placeholder into its WHERE, so the runners' list form is folded
+    into one expression, with ``true`` when nothing is selected.
     """
-    all_properties: list[Any] = list(properties or [])
-    if filter_test_accounts:
-        all_properties += team.test_account_filters or []
-    if not all_properties:
-        return ast.Constant(value=True)
-    return property_to_expr(all_properties, team)
+    exprs = shared_filter_exprs(team, properties, filter_test_accounts)
+    return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 
 
 def _filters_cache_fragment(properties: list[AnyPropertyFilterDiscriminated] | None, filter_test_accounts: bool) -> str:
