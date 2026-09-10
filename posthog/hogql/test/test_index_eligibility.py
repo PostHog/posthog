@@ -485,3 +485,17 @@ class TestIndexEligibilityAnalysis(BaseTest):
 
         assert response.isUsingIndices == QueryIndexUsage.UNDECISIVE
         assert response.index_usage == []
+
+    def test_metadata_reports_an_events_scan_with_no_time_range(self) -> None:
+        response = self._metadata("select count() from events where event = '$pageview'")
+
+        assert response.unpruned_scans is not None
+        [scan] = response.unpruned_scans
+        assert scan.table_name == "events"
+        assert scan.partition_key == "toYYYYMM(timestamp)"
+        assert scan.fix
+
+    def test_metadata_reports_no_scan_once_the_time_range_is_bounded(self) -> None:
+        response = self._metadata("select count() from events where timestamp > now() - interval 7 day")
+
+        assert response.unpruned_scans == []

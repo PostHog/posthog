@@ -9,7 +9,7 @@ import { subscriptions } from 'kea-subscriptions'
 // JS context, and that's exactly what happens on auto-reload when the new script chunks are loaded. Unfortunately
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
-import { MarkerSeverity, editor } from 'monaco-editor'
+import { type IPosition, type IRange, MarkerSeverity, editor } from 'monaco-editor'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -31,11 +31,89 @@ import { getContextSourceQuery } from './sourceQueryUtils'
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 const VIM_COMMAND_HISTORY_LIMIT = 50
 
+/**
+ * Translate a backend offset into a Monaco offset.
+ *
+ * Parser offsets count Unicode code points; Monaco counts UTF-16 code units. Any character outside the
+ * BMP, such as an emoji in a string literal, makes the two diverge and lands an edit mid-token.
+ */
+export function codePointOffsetToUtf16(text: string, codePointOffset: number): number {
+    let utf16 = 0
+    let codePoints = 0
+    while (codePoints < codePointOffset && utf16 < text.length) {
+        utf16 += (text.codePointAt(utf16) ?? 0) > 0xffff ? 2 : 1
+        codePoints += 1
+    }
+    return utf16
+}
+
+export interface ModelMarkerFixAction {
+    title: string
+    /** Ranges are resolved against the editor model, so they already carry the metadata query offset. */
+    edits: { range: IRange; text: string }[]
+}
+
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
     hogQLAIFixPrompt?: string
-    start: number
-    end: number
+    hogQLFixAction?: ModelMarkerFixAction
+    /** Where the fix action is offered. A query-level fix should not need the caret on its marker. */
+    hogQLFixScope?: IRange
+}
+
+/** How to place an offset from the metadata query in the editor document. */
+export interface MarkerPlacement {
+    /** The statement the metadata query covered. Notice offsets index this, not the whole script. */
+    query: string
+    /** UTF-16 offset of that statement within the full editor text. */
+    markerOffset: number
+    positionAt: (offset: number) => IPosition
+    /** Where a query-level fix is offered. */
+    statementScope: IRange
+}
+
+export function noticeToMarker(notice: HogQLNotice, severity: MarkerSeverity, placement: MarkerPlacement): ModelMarker {
+    const { query, markerOffset, positionAt, statementScope } = placement
+    // The backend counts code points and Monaco counts UTF-16 units, so convert before adding the
+    // statement offset, which Monaco already counts in UTF-16.
+    const documentPositionAt = (codePointOffset: number): IPosition =>
+        positionAt(codePointOffsetToUtf16(query, codePointOffset) + markerOffset)
+    const start = documentPositionAt(notice.start ?? 0)
+    const end = documentPositionAt(notice.end ?? query.length)
+    return {
+        startLineNumber: start.lineNumber,
+        startColumn: start.column,
+        endLineNumber: end.lineNumber,
+        endColumn: end.column,
+        message: notice.message ?? 'Unknown error',
+        severity: severity,
+        hogQLFix: notice.fix?.startsWith('ai_prompt:') ? undefined : notice.fix,
+        hogQLAIFixPrompt: notice.fix?.startsWith('ai_prompt:') ? notice.fix.slice('ai_prompt:'.length) : undefined,
+        hogQLFixScope: notice.fix_action ? statementScope : undefined,
+        hogQLFixAction: notice.fix_action
+            ? {
+                  title: notice.fix_action.title,
+                  edits: notice.fix_action.edits.map((edit) => {
+                      const editStart = documentPositionAt(edit.start)
+                      const editEnd = documentPositionAt(edit.end)
+                      return {
+                          range: {
+                              startLineNumber: editStart.lineNumber,
+                              startColumn: editStart.column,
+                              endLineNumber: editEnd.lineNumber,
+                              endColumn: editEnd.column,
+                          },
+                          text: edit.text,
+                      }
+                  }),
+              }
+            : undefined,
+    }
+}
+
+/** The text a metadata request analyzes: one statement of the script when the caller marks one. */
+function analyzedQueryFor(props: CodeEditorLogicProps): string {
+    return props.metadataQuery ?? props.query
 }
 
 export interface CodeEditorLogicProps {
@@ -53,7 +131,8 @@ export interface CodeEditorLogicProps {
     onError?: (error: string | null) => void
     /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
     indexUsage?: boolean
-    onMetadata?: (metadata: HogQLMetadataResponse | null) => void
+    /** `analyzedQuery` is the exact text the response describes, so a caller can detect a stale response. */
+    onMetadata?: (metadata: HogQLMetadataResponse | null, analyzedQuery: string | null) => void
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
 }
@@ -63,6 +142,7 @@ export interface codeEditorLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     error: string | null
     hasErrors: boolean
+    markersAreStale: boolean
     metadata: [string, HogQLMetadataResponse] | null
     metadataLoading: boolean
     modelMarkers: ModelMarker[]
@@ -126,6 +206,7 @@ export interface codeEditorLogicActions {
 export interface codeEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        markersAreStale: (metadata: [string, HogQLMetadataResponse] | null, arg: string) => boolean
         hasErrors: (modelMarkers: ModelMarker[]) => boolean
         error: (hasErrors: boolean, modelMarkers: ModelMarker[]) => string | null
     }
@@ -156,13 +237,13 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
                     if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
-                        props.onMetadata?.(null)
+                        props.onMetadata?.(null, null)
                         return null
                     }
                     await breakpoint(300)
-                    const query = props.metadataQuery ?? props.query
+                    const query = analyzedQueryFor(props)
                     if (query === '') {
-                        props.onMetadata?.(null)
+                        props.onMetadata?.(null, null)
                         return null
                     }
 
@@ -193,7 +274,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         )
                     )
                     breakpoint()
-                    props.onMetadata?.(response)
+                    props.onMetadata?.(response, query)
                     return [query, response]
                 },
             },
@@ -210,34 +291,32 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     const [query, metadataResponse] = metadata
 
                     const markerOffset = props.metadataQueryOffset ?? 0
+                    // The metadata query is one statement of the script, and a query-level fix applies
+                    // to all of it, so the caret only has to be somewhere inside these bounds.
+                    const scopeStartPosition = model.getPositionAt(markerOffset)
+                    const scopeEndPosition = model.getPositionAt(markerOffset + query.length)
+                    const statementScope = {
+                        startLineNumber: scopeStartPosition.lineNumber,
+                        startColumn: scopeStartPosition.column,
+                        endLineNumber: scopeEndPosition.lineNumber,
+                        endColumn: scopeEndPosition.column,
+                    }
 
-                    function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
-                        const start = model!.getPositionAt((error.start ?? 0) + markerOffset)
-                        const end = model!.getPositionAt((error.end ?? query.length) + markerOffset)
-                        return {
-                            start: error.start ?? 0,
-                            startLineNumber: start.lineNumber,
-                            startColumn: start.column,
-                            end: error.end ?? query.length,
-                            endLineNumber: end.lineNumber,
-                            endColumn: end.column,
-                            message: error.message ?? 'Unknown error',
-                            severity: severity,
-                            hogQLFix: error.fix?.startsWith('ai_prompt:') ? undefined : error.fix,
-                            hogQLAIFixPrompt: error.fix?.startsWith('ai_prompt:')
-                                ? error.fix.slice('ai_prompt:'.length)
-                                : undefined,
-                        }
+                    const placement: MarkerPlacement = {
+                        query,
+                        markerOffset,
+                        positionAt: (offset: number) => model.getPositionAt(offset),
+                        statementScope,
                     }
 
                     for (const notice of metadataResponse?.errors ?? []) {
-                        markers.push(noticeToMarker(notice, 8 /* MarkerSeverity.Error */))
+                        markers.push(noticeToMarker(notice, 8 /* MarkerSeverity.Error */, placement))
                     }
                     for (const notice of metadataResponse?.warnings ?? []) {
-                        markers.push(noticeToMarker(notice, 4 /* MarkerSeverity.Warning */))
+                        markers.push(noticeToMarker(notice, 4 /* MarkerSeverity.Warning */, placement))
                     }
                     for (const notice of metadataResponse?.notices ?? []) {
-                        markers.push(noticeToMarker(notice, 1 /* MarkerSeverity.Hint */))
+                        markers.push(noticeToMarker(notice, 1 /* MarkerSeverity.Hint */, placement))
                     }
 
                     props.monaco?.editor.setModelMarkers(model, 'hogql', markers)
@@ -262,6 +341,14 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         ],
     }),
     selectors({
+        // The markers and their fix actions carry ranges into the text the server last analyzed. A
+        // failed reload keeps that response while metadataLoading returns to false, so the text can
+        // move on without the markers following it. Offering those ranges edits the wrong span.
+        markersAreStale: [
+            (s) => [s.metadata, (_, props: CodeEditorLogicProps) => analyzedQueryFor(props)],
+            (metadata: [string, HogQLMetadataResponse] | null, currentQuery: string) =>
+                metadata === null || metadata[0] !== currentQuery,
+        ],
         hasErrors: [
             (s) => [s.modelMarkers],
             (modelMarkers: ModelMarker[]) =>

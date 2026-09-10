@@ -113,6 +113,7 @@ export function QueryWindow({
         setSendRawQuery,
         openMaterializationModal,
         setSourceQuery,
+        fixErrors,
     } = useActions(logic)
     const { setEditorView } = useActions(biLogic)
 
@@ -367,6 +368,10 @@ export function QueryWindow({
                         // that mounts against an existing model never runs that path, and would then
                         // ask for metadata without the index report.
                         indexUsage: true,
+                        // Markers carry an `ai_prompt:` fix, which Monaco turns into a "Fix with AI"
+                        // action. Without this the action renders and does nothing.
+                        onFixWithAI: (prompt: string) =>
+                            fixErrors(queryInput ?? '', prompt, selectedConnectionId ?? undefined),
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },
@@ -396,8 +401,8 @@ export function QueryWindow({
                         onError: (error) => {
                             setError(error)
                         },
-                        onMetadata: (metadata) => {
-                            setMetadata(metadata)
+                        onMetadata: (metadata, analyzedQuery) => {
+                            setMetadata(metadata, analyzedQuery)
                         },
                         onMetadataLoading: (loading) => {
                             setMetadataLoading(loading)
