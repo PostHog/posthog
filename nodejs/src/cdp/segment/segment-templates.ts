@@ -221,7 +221,12 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
             modifiedVal = modifiedVal.replaceAll('context.app.version', 'event.properties.$app_version')
         }
         if (modifiedVal.includes('event.anonymousId')) {
-            modifiedVal = modifiedVal.replaceAll('event.anonymousId', 'event.distinct_id')
+            // The pre-identify ID, so a vendor can join anonymous activity to the identified
+            // profile. It must stay different from userId, which carries the distinct ID.
+            modifiedVal = modifiedVal.replaceAll(
+                'event.anonymousId',
+                'event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id'
+            )
         }
         if (modifiedVal.includes('context.device.advertisingId')) {
             modifiedVal = modifiedVal.replaceAll('context.device.advertisingId', '')

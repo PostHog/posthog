@@ -33,11 +33,6 @@ exports[`SegmentDestinationExecutorService segment plugins should call the plugi
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
-    "level": "info",
-    "message": "HTTP request completed with status 200 ({"code":200,"server_upload_time":1747910402315,"payload_size_bytes":22207,"events_ingested":1}).",
-    "timestamp": "2025-01-01T00:00:00.000Z",
-  },
-  {
     "level": "debug",
     "message": "convertedResponse, 200, {"code":200,"server_upload_time":1747910402315,"payload_size_bytes":22207,"events_ingested":1}, {"code":200,"server_upload_time":1747910402315,"payload_size_bytes":22207,"events_ingested":1}, {}",
     "timestamp": "2025-01-01T00:00:00.000Z",
@@ -1334,11 +1329,6 @@ exports[`SegmentDestinationExecutorService segment plugins works with multiple f
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
-    "level": "info",
-    "message": "HTTP request completed with status 200 ({"success":true,"data":{"id":20,"owner_id":{"id":1234,"name":"Max","email":"max@posthog.com","has_pic":0,"pic_hash":null,"active_flag":true,"value":1234},"org_id":null,"name":"Max","first_name":"Max","last_name":null,"open_deals_count":0,"related_open_deal... [truncated]).",
-    "timestamp": "2025-01-01T00:00:00.000Z",
-  },
-  {
     "level": "debug",
     "message": "convertedResponse, 200, {"success":true,"data":{"id":20,"owner_id":{"id":1234,"name":"Max","email":"max@posthog.com","has_pic":0,"pic_hash":null,"active_flag":true,"value":1234},"org_id":null,"name":"Max","first_name":"Max","last_name":null,"open_deals_count":0,"related_open_deals_count":0,"closed_deals_count":0,"related_closed_deals_count":0,"participant_open_deals_count":0,"participant_closed_deals_count":0,"email_messages_count":0,"activities_count":0,"done_activities_count":0,"undone_activities_count":0,"files_count":0,"notes_count":0,"followers_count":0,"won_deals_count":0,"related_won_deals_count":0,"lost_deals_count":0,"related_lost_deals_count":0,"active_flag":true,"phone":[{"value":"","primary":true}],"email":[{"label":"work","value":"max@posthog.com","primary":true}],"first_char":"m","update_time":"2025-05-22 11:45:51","delete_time":null,"add_time":"2025-05-22 11:45:51","visible_to":"3","picture_id":null,"next_activity_date":null,"next_activity_time":null,"next_activity_id":null,"last_activity_id":null,"last_activity_date":null,"last_incoming_mail_time":null,"last_outgoing_mail_time":null,"label":null,"label_ids":[],"im":[{"value":"","primary":true}],"postal_address":null,"postal_address_lat":null,"postal_address_long":null,"postal_address_subpremise":null,"postal_address_street_number":null,"postal_address_route":null,"postal_address_sublocality":null,"postal_address_locality":null,"postal_address_admin_area_level_1":null,"postal_address_admin_area_level_2":null,"postal_address_country":null,"postal_address_postal_code":null,"postal_address_formatted_address":null,"notes":null,"birthday":null,"job_title":null,"org_name":null,"cc_email":"posthog-sandbox@pipedrivemail.com","primary_email":"max@posthog.com","owner_name":"Max","company_id":1234},"additional_data":{"didMerge":false},"related_objects":{"user":{"1234":{"id":1234,"name":"Max","email":"max@posthog.com","has_pic":0,"pic_hash":null,"active_flag":true}}}}, {"success":true,"data":{"id":20,"owner_id":{"id":1234,"name":"Max","email":"max@posthog.com","has_pic":0,"pic_hash":null,"active_flag":true,"value":1234},"org_id":null,"name":"Max","first_name":"Max","last_name":null,"open_deals_count":0,"related_open_deals_count":0,"closed_deals_count":0,"related_closed_deals_count":0,"participant_open_deals_count":0,"participant_closed_deals_count":0,"email_messages_count":0,"activities_count":0,"done_activities_count":0,"undone_activities_count":0,"files_count":0,"notes_count":0,"followers_count":0,"won_deals_count":0,"related_won_deals_count":0,"lost_deals_count":0,"related_lost_deals_count":0,"active_flag":true,"phone":[{"value":"","primary":true}],"email":[{"label":"work","value":"max@posthog.com","primary":true}],"first_char":"m","update_time":"2025-05-22 11:45:51","delete_time":null,"add_time":"2025-05-22 11:45:51","visible_to":"3","picture_id":null,"next_activity_date":null,"next_activity_time":null,"next_activity_id":null,"last_activity_id":null,"last_activity_date":null,"last_incoming_mail_time":null,"last_outgoing_mail_time":null,"label":null,"label_ids":[],"im":[{"value":"","primary":true}],"postal_address":null,"postal_address_lat":null,"postal_address_long":null,"postal_address_subpremise":null,"postal_address_street_number":null,"postal_address_route":null,"postal_address_sublocality":null,"postal_address_locality":null,"postal_address_admin_area_level_1":null,"postal_address_admin_area_level_2":null,"postal_address_country":null,"postal_address_postal_code":null,"postal_address_formatted_address":null,"notes":null,"birthday":null,"job_title":null,"org_name":null,"cc_email":"posthog-sandbox@pipedrivemail.com","primary_email":"max@posthog.com","owner_name":"Max","company_id":1234},"additional_data":{"didMerge":false},"related_objects":{"user":{"1234":{"id":1234,"name":"Max","email":"max@posthog.com","has_pic":0,"pic_hash":null,"active_flag":true}}}}, {}",
     "timestamp": "2025-01-01T00:00:00.000Z",
@@ -1366,11 +1356,6 @@ exports[`SegmentDestinationExecutorService segment plugins works with multiple f
   {
     "level": "debug",
     "message": "fetchOptions, {"method":"POST","headers":{"Content-Type":"application/json"},"body":"{\\"name\\":\\"Max\\",\\"email\\":\\"max@posthog.com\\",\\"phone\\":null}"}",
-    "timestamp": "2025-01-01T00:00:00.000Z",
-  },
-  {
-    "level": "info",
-    "message": "HTTP request completed with status 200 ({"success":true,"data":{"id":20,"owner_id":{"id":1234,"name":"Max","email":"max@posthog.com","has_pic":0,"pic_hash":null,"active_flag":true,"value":1234},"org_id":null,"name":"Max","first_name":"Max","last_name":null,"open_deals_count":0,"related_open_deal... [truncated]).",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
