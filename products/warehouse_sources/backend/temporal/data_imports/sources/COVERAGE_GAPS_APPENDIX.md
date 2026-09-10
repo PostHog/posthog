@@ -38,7 +38,7 @@ Note: Source uses a static ENDPOINTS list (products/warehouse_sources/backend/te
 
 ## ActiveCampaign — gaps
 
-Today (16): `accounts`, `automations`, `campaigns`, `contacts`, `custom_fields`, `deal_groups`, `deal_stages`, `deals`, `ecom_customers`, `ecom_order_products`, `ecom_orders`, `email_activities`, `forms`, `lists`, `segments`, `tags`
+Today (18): `accounts`, `automations`, `campaigns`, `contact_automations`, `contacts`, `custom_fields`, `deal_activities`, `deal_groups`, `deal_stages`, `deals`, `ecom_customers`, `ecom_order_products`, `ecom_orders`, `email_activities`, `forms`, `lists`, `segments`, `tags`
 
 Diffed against: <https://developers.activecampaign.com/reference/overview>
 
@@ -46,14 +46,21 @@ Diffed against: <https://developers.activecampaign.com/reference/overview>
 - [x] `ecomOrders` — e-commerce revenue transactions; no commerce data is synced at all today (high)
 - [x] `ecomOrderProducts` — order line items needed for product-level revenue breakdowns (high)
 - [x] `ecomCustomers` — resolves the customer IDs carried on ecom orders (high)
-- [ ] `dealActivities (GET /deals/{id}/dealActivities)` — deal stage-transition and change history (high)
+- [x] `dealActivities (GET /dealActivities)` — deal stage-transition and change history (high)
 - [ ] `contactActivities (GET /activities)` — contact-level activity timeline across campaigns and automations (high)
 - [ ] `contactLists (list memberships)` — membership table joining synced contacts to synced lists (high)
-- [ ] `contactAutomations` — membership table joining synced contacts to synced automations, with entry/exit state (high)
+- [x] `contactAutomations` — membership table joining synced contacts to synced automations, with entry/exit state (high)
 - [ ] `accountContacts (account-contact association)` — membership table joining synced accounts to synced contacts (medium)
 - [ ] `users (and groups)` — lookup resolving owner IDs on deals, tasks and notes (medium)
 - [ ] `notes` — free-text CRM notes attached to contacts, deals and accounts (medium)
 - [ ] `tasks (with taskTypes / taskOutcomes)` — sales activity volume plus the lookup tables that decode task type and outcome (medium)
+
+Note: `contactActivities` and `contactLists` are left unticked on purpose. Neither has an
+account-wide collection route in API v3: `GET /activities` documents "A contact ID is required to
+access this endpoint. This endpoint does not support multiple contact IDs with a single call", and
+list memberships are only readable at `GET /contacts/{id}/contactLists`. Both would therefore cost
+one request per contact per sync, which does not finish on a real contact base. Revisit if
+ActiveCampaign adds a collection route.
 
 Note: deal_groups/deal_stages already cover the pipelines and stages lookups. The reference sidebar also exposes campaign messages, campaign link stats, scores, bounce logs, custom object records, conversations, SMS broadcast metrics and the separate e-commerce GraphQL API — all plausible but lower value than the 12 above.
 
