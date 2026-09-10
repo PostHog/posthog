@@ -1203,7 +1203,7 @@ export interface sqlEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         metadataIsStale: (
-            metadataAnalyzedQuery: any,
+            metadataAnalyzedQuery: string | null,
             activeQueryText: string | null,
             queryInput: string | null
         ) => boolean
