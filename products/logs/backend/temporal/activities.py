@@ -483,13 +483,12 @@ def _select_due_alert_candidate_ids(selected_team_ids: list[int], now: datetime,
         while teams_to_fetch and candidate_count < candidate_limit:
             remaining = candidate_limit - candidate_count
             candidates_per_team = math.ceil(remaining / len(teams_to_fetch))
-            cursor_ids = [
-                cursors_by_team[team_id][0] if cursors_by_team[team_id] else None for team_id in teams_to_fetch
-            ]
+            team_cursors = [cursors_by_team[team_id] for team_id in teams_to_fetch]
+            cursor_ids = [team_cursor[0] if team_cursor is not None else None for team_cursor in team_cursors]
             cursor_next_check_ats = [
-                cursors_by_team[team_id][1] if cursors_by_team[team_id] else None for team_id in teams_to_fetch
+                team_cursor[1] if team_cursor is not None else None for team_cursor in team_cursors
             ]
-            has_cursors = [cursors_by_team[team_id] is not None for team_id in teams_to_fetch]
+            has_cursors = [team_cursor is not None for team_cursor in team_cursors]
             orders = [team_order[team_id] for team_id in teams_to_fetch]
             cursor.execute(
                 """
