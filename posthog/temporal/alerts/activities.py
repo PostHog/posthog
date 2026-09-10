@@ -57,6 +57,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError, InsufficientHistoryError
+from products.alerts.backend.evaluation.forecast import inconclusive_metadata
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.forecasting.capacity import ForecastCapacityUnavailable, ForecastEvaluationCapacityExceeded
 from products.alerts.backend.forecasting.engine import ForecastExecutionError
@@ -348,7 +349,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             raise
         except CH_TRANSIENT_ERRORS:
             raise
-        except InsufficientHistoryError:
+        except InsufficientHistoryError as err:
+            # Extraction stopped before the evaluation could classify the outcome, so the reason
+            # only exists on this exception. An inconclusive check preserves the alert state and
+            # notifies nobody, which makes the check row and this log the only way to tell a
+            # permanently inconclusive forecast alert from a healthy one.
+            logger.info("alerts.forecast_inconclusive", alert_id=str(alert.id), detail=str(err))
             with transaction.atomic():
                 locked = (
                     AlertConfiguration.objects.select_for_update(of=("self",))
@@ -359,7 +365,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     return discarded
                 alert_check, _ = add_alert_check(
                     locked,
-                    AlertEvaluationResult(value=None, breaches=[], is_inconclusive=True),
+                    AlertEvaluationResult(
+                        value=None,
+                        breaches=[],
+                        is_inconclusive=True,
+                        triggered_metadata=inconclusive_metadata("extraction_incomplete", str(err)),
+                    ),
                     None,
                 )
             return EvaluateAlertResult(

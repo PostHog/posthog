@@ -215,13 +215,25 @@ def _training_window(
     return dates[-training_points:], values[-training_points:]
 
 
+def inconclusive_metadata(reason: str, detail: str | None = None) -> dict[str, Any]:
+    """Build the ``triggered_metadata`` envelope for an inconclusive forecast check.
+
+    The alert activity writes the same envelope for an extraction that never reached the
+    evaluation, so the reason vocabulary stays in one module.
+    """
+    forecast: dict[str, Any] = {"status": "inconclusive", "reason": reason}
+    if detail:
+        forecast["detail"] = detail
+    return {"forecast": forecast}
+
+
 def _inconclusive(result: ExtractionResult, reason: str) -> AlertEvaluationResult:
     return AlertEvaluationResult(
         value=None,
         breaches=[],
         is_inconclusive=True,
         interval=result.interval_type.value if result.interval_type else None,
-        triggered_metadata={"forecast": {"status": "inconclusive", "reason": reason}},
+        triggered_metadata=inconclusive_metadata(reason),
     )
 
 

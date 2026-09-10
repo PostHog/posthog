@@ -615,7 +615,7 @@ class TestEvaluateAlert:
         await sync_to_async(alert.save)(update_fields=["state"])
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=InsufficientHistoryError("not enough history"),
+            side_effect=InsufficientHistoryError("the target date needs too many forecast points"),
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
@@ -625,6 +625,13 @@ class TestEvaluateAlert:
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == AlertState.FIRING
         assert check.error is None
+        assert check.triggered_metadata == {
+            "forecast": {
+                "status": "inconclusive",
+                "reason": "extraction_incomplete",
+                "detail": "the target date needs too many forecast points",
+            }
+        }
 
     async def test_forecast_execution_error_is_retryable(self, alert) -> None:
         with patch(
