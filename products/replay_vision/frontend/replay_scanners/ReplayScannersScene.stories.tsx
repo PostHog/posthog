@@ -201,6 +201,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
+            verify_positives: 'off',
         },
         scanner_result: {
             model_output: {
@@ -278,6 +279,7 @@ const observationDetail = observation({
                 'The user spent most of the session in checkout, retrying an invalid coupon three times before abandoning the cart at the payment step.',
         },
         signals_count: 1,
+        verification: null,
     },
 })
 
@@ -301,6 +303,7 @@ const monitorObservationDetail = observation({
             prompt: 'Did the user struggle at checkout? Count it as struggling if they retried a coupon code more than once, resubmitted the payment form after an error, or moved back and forth between the cart and the payment step without completing the order. Ignore sessions that never reached the checkout page at all.',
             allow_inconclusive: true,
         },
+        verify_positives: 'off',
     },
     scanner_result: {
         model_output: {
@@ -311,6 +314,7 @@ const monitorObservationDetail = observation({
                 'The user entered a coupon code three times, each time getting a validation error, then switched to the payment form and submitted it twice before leaving the page. That is a retry loop at checkout rather than ordinary browsing.',
         },
         signals_count: 1,
+        verification: null,
     },
 })
 

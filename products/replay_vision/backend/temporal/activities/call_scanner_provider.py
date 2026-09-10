@@ -12,7 +12,7 @@ import asyncio
 import functools
 from collections import Counter
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
@@ -29,6 +29,7 @@ from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -41,9 +42,14 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
-from products.replay_vision.backend.temporal.metrics import record_mission_pass, record_provider_call
+from products.replay_vision.backend.temporal.metrics import (
+    record_mission_pass,
+    record_provider_call,
+    record_verification_outcome,
+)
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
+    STEP_CORE,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
     BaseScannerOutput,
@@ -54,12 +60,14 @@ from products.replay_vision.backend.temporal.scanners.base import (
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
+    VerificationRecord,
 )
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +76,10 @@ _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation er
 # One clean re-ask after a validation failure. The per-step re-prompt above retries inside the same conversation,
 # where the model stays anchored on the answer it just got wrong; a fresh conversation is an independent draw.
 _MAX_MISSION_ATTEMPTS = 2
+# Snapshot `verify_positives` values that draw; anything else (including a typo) behaves as `off`.
+_VERIFY_MODES = ("shadow", "enforce")
+# Activity time kept free of verify draws, so assembling and returning the result never races the timeout.
+_VERIFY_BUDGET_RESERVE_SECONDS = 60.0
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
 
@@ -80,6 +92,15 @@ class _StepResult:
 
     output: BaseModel | None
     provider_refused: bool = False
+
+
+@frozen
+class _MissionOutcome:
+    """What one scan produced: the finalized output, the side-mission findings, and the verify-positives audit."""
+
+    finalized: BaseScannerOutput
+    signals: list[SignalFinding]
+    verification: VerificationRecord | None = None
 
 
 @activity.defn
@@ -172,7 +193,7 @@ async def run_scan(
     )
     video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
 
-    finalized, signals = await _run_mission(
+    outcome = await _run_mission(
         scanner=scanner,
         snapshot=snapshot,
         video_part=video_part,
@@ -182,8 +203,8 @@ async def run_scan(
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
-    finalized = _resolve_citations(finalized, scanner, duration_ms)
-    return ScannerCallOutput(model_output=finalized, signals=signals)
+    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms)
+    return ScannerCallOutput(model_output=finalized, signals=outcome.signals, verification=outcome.verification)
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -353,7 +374,7 @@ async def _run_mission(
     team_id: int,
     llm_inputs: ScannerLlmInputs,
     trace_id: str,
-) -> tuple[BaseScannerOutput, list[SignalFinding]]:
+) -> _MissionOutcome:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
 
     Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
@@ -384,11 +405,12 @@ async def _run_mission(
         return dispatch_events_tool(call, events_index)
 
     cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
+    steps = scanner.mission_steps()
     run = functools.partial(
         _run_steps,
         client=client,
         model=model,
-        steps=scanner.mission_steps(),
+        steps=steps,
         video_part=video_part,
         preamble_text=preamble_text,
         dispatch=dispatch,
@@ -396,13 +418,112 @@ async def _run_mission(
         metric_labels=metric_labels,
         trace_id=trace_id,
     )
+    verification: VerificationRecord | None = None
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
+        core = step_outputs.get(STEP_CORE)
+        if (
+            isinstance(scanner, MonitorScanner)
+            and isinstance(core, MonitorLlmResponse)
+            and snapshot.verify_positives in _VERIFY_MODES
+            and core.verdict == "yes"
+        ):
+            # Verification re-draws over the cache, so it has to finish before the `finally` below deletes it.
+            served, verification = await _verify_positive_verdict(
+                scanner=scanner,
+                mode=snapshot.verify_positives,
+                core_step=next(step for step in steps if step.name == STEP_CORE),
+                first=core,
+                run=run,
+                cache=cache,
+                model=snapshot.model,
+            )
+            step_outputs = {**step_outputs, STEP_CORE: served}
     finally:
         if cache is not None:
             await _delete_video_cache(cache_client, cache.name)
 
-    return scanner.assemble(step_outputs)
+    finalized, signals = scanner.assemble(step_outputs)
+    return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+
+
+async def _verify_positive_verdict(
+    *,
+    scanner: MonitorScanner,
+    mode: str,
+    core_step: MissionStep,
+    first: MonitorLlmResponse,
+    run: Any,
+    cache: Any | None,
+    model: str,
+) -> tuple[MonitorLlmResponse, VerificationRecord]:
+    """Re-draw the core step once; a `yes` is served only when the second draw agrees.
+
+    Replay Vision optimizes for precision, not recall: a finding it presents must hold up, and a missed one costs
+    less than a wrong one. So a single dissenting draw is enough to drop the `yes`, and the dissent (its verdict and
+    its reasoning) is what gets served. No third draw breaks the tie in favour of the finding.
+
+    Every draw is a fresh conversation over the same cached video and preamble, so it never sees the first pass or
+    its reasoning. Verification only ever tightens a scan that already succeeded: without a cache, without time left
+    in the activity budget, or when the draw fails for any reason, the first verdict stands and the record says why.
+    """
+    draws = [first]
+    skipped_reason: str | None = None
+    if cache is None:
+        skipped_reason = "no_cache"
+    else:
+        # An activity timeout fires outside the `except` below and fails the whole scan, first verdict included.
+        # Capping the draw at the remaining budget turns that into a `draw_failed` the first pass survives.
+        budget = _remaining_verify_budget_seconds()
+        if budget is not None and budget <= 0:
+            skipped_reason = "no_budget"
+        else:
+            verify_step = replace(core_step, name=f"{STEP_CORE}_verify_2")
+            try:
+                outputs = await asyncio.wait_for(run(steps=[verify_step], cache_name=cache.name), timeout=budget)
+                draw = outputs[verify_step.name]
+                if not isinstance(draw, MonitorLlmResponse):
+                    raise TypeError(f"verify draw returned {type(draw).__name__}")
+                draws.append(draw)
+            except Exception as exc:
+                # No traceback or message: a provider error body can quote the prompt, as at the activity boundary.
+                logger.warning(
+                    "replay_vision.call_scanner_provider.verify_draw_failed",
+                    model=model,
+                    error_type=type(exc).__name__,
+                    code=getattr(exc, "code", None),
+                    status=getattr(exc, "status", None),
+                )
+                skipped_reason = "draw_failed"
+
+    # The dissent, when there is one, is the last draw; otherwise the first pass stands.
+    resolved_draw = draws[-1]
+    served = resolved_draw if mode == "enforce" else first
+    if skipped_reason:
+        outcome = skipped_reason
+    else:
+        outcome = "agreed" if resolved_draw.verdict == first.verdict else "flipped"
+    record_verification_outcome(scanner_type=scanner.scanner_type.value, mode=mode, outcome=outcome)
+    record = VerificationRecord(
+        mode=mode,
+        draws=[draw.verdict for draw in draws],
+        resolved_verdict=resolved_draw.verdict,
+        served_verdict=served.verdict,
+        skipped_reason=skipped_reason,
+    )
+    return served, record
+
+
+def _remaining_verify_budget_seconds() -> float | None:
+    """Seconds a verify draw may take before the activity's start-to-close timeout, or None when there is no timeout
+    (the eval suite calls `run_scan` outside an activity)."""
+    if not activity.in_activity():
+        return None
+    info = activity.info()
+    if info.start_to_close_timeout is None:
+        return None
+    elapsed = (timezone.now() - info.started_time).total_seconds()
+    return info.start_to_close_timeout.total_seconds() - elapsed - _VERIFY_BUDGET_RESERVE_SECONDS
 
 
 async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
