@@ -3,6 +3,7 @@ import json
 import time
 import random
 import datetime
+from enum import StrEnum
 from typing import Any, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -23,7 +24,8 @@ from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.crypto import constant_time_compare
+from django.utils.http import base36_to_int, url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
 
 import structlog
@@ -1146,6 +1148,33 @@ class PasswordResetSerializer(serializers.Serializer):
         return True
 
 
+class PasswordResetTokenStatus(StrEnum):
+    VALID = "valid"
+    EXPIRED = "expired"
+    SUPERSEDED = "superseded"
+    ALREADY_USED = "already_used"
+    INVALID = "invalid"
+
+
+def password_reset_token_error(token_status: PasswordResetTokenStatus) -> serializers.ValidationError:
+    if token_status == PasswordResetTokenStatus.EXPIRED:
+        hours = settings.PASSWORD_RESET_TIMEOUT // 3600
+        expiry = f"{hours} hour" if hours == 1 else f"{hours} hours"
+        code = "expired_token"
+        message = f"This reset link expired. Links work for {expiry}. Request a new one to set your password."
+    elif token_status == PasswordResetTokenStatus.SUPERSEDED:
+        code = "superseded_token"
+        message = "A newer reset link was sent to your email. Open the most recent one, or request a new link."
+    elif token_status == PasswordResetTokenStatus.ALREADY_USED:
+        code = "password_already_reset"
+        message = "You already used this link to change your password. Try logging in with your new password."
+    else:
+        code = "invalid_token"
+        message = "This reset link is not valid. Request a new one to set your password."
+
+    return serializers.ValidationError({"token": [message]}, code=code)
+
+
 class PasswordResetCompleteSerializer(serializers.Serializer):
     token = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True)
@@ -1167,20 +1196,15 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
                 Exception("User not found in password reset serializer"),
                 {"user_uuid": self.context["view"].kwargs["user_uuid"]},
             )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
+            raise password_reset_token_error(PasswordResetTokenStatus.INVALID)
 
-        if not password_reset_token_generator.check_token(user, validated_data["token"]):
+        token_status = password_reset_token_generator.check_token_status(user, validated_data["token"])
+        if token_status != PasswordResetTokenStatus.VALID:
             capture_exception(
                 Exception("Invalid password reset token in serializer"),
-                {"user_uuid": user.uuid, "token": validated_data["token"]},
+                {"user_uuid": user.uuid, "token": validated_data["token"], "reason": token_status},
             )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
+            raise password_reset_token_error(token_status)
         password = validated_data["password"]
         try:
             validate_password(password, user)
@@ -1235,19 +1259,15 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
             capture_exception(
                 Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
             )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
+            raise password_reset_token_error(PasswordResetTokenStatus.INVALID)
 
-        if not password_reset_token_generator.check_token(user, token):
+        token_status = password_reset_token_generator.check_token_status(user, token)
+        if token_status != PasswordResetTokenStatus.VALID:
             capture_exception(
-                Exception("Invalid password reset token in viewset"), {"user_uuid": user_uuid, "token": token}
+                Exception("Invalid password reset token in viewset"),
+                {"user_uuid": user_uuid, "token": token, "reason": token_status},
             )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
+            raise password_reset_token_error(token_status)
 
         return {"success": True, "token": token}
 
@@ -1264,6 +1284,40 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
         return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}{usable_user.password}"
+
+    def check_token_status(self, user: User, token: str) -> PasswordResetTokenStatus:
+        """Tell apart the reasons a token fails, so the reset page can name one instead of listing all of them."""
+        if self.check_token(user, token):
+            return PasswordResetTokenStatus.VALID
+
+        try:
+            timestamp_b36, _ = token.split("-")
+            issued_at_seconds = base36_to_int(timestamp_b36)
+        except ValueError:
+            return PasswordResetTokenStatus.INVALID
+
+        candidates = [
+            self._make_token_with_timestamp(user, issued_at_seconds, secret)
+            for secret in [self.secret, *self.secret_fallbacks]
+        ]
+        if any(constant_time_compare(candidate, token) for candidate in candidates):
+            # The signature still covers the user's current state, so only the age check can have failed.
+            return PasswordResetTokenStatus.EXPIRED
+        if len(token) != len(candidates[0]):
+            return PasswordResetTokenStatus.INVALID
+
+        token_age_seconds = self._num_seconds(self._now()) - issued_at_seconds
+        requested_at = user.requested_password_reset_at
+        if requested_at is None:
+            # Only a completed reset clears the pending request, so the link has served its purpose.
+            return PasswordResetTokenStatus.ALREADY_USED
+        # Ages rather than absolute times, so a clock offset between the token and the database
+        # cannot read as a newer request. The slack covers the token timestamp, which is whole seconds.
+        if (timezone.now() - requested_at).total_seconds() < token_age_seconds - 2:
+            return PasswordResetTokenStatus.SUPERSEDED
+        if token_age_seconds > settings.PASSWORD_RESET_TIMEOUT:
+            return PasswordResetTokenStatus.EXPIRED
+        return PasswordResetTokenStatus.INVALID
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()
