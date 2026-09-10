@@ -24,6 +24,7 @@ export interface tracingCorrelationConfigLogicValues {
     configuredDistinctIdKeys: string[] | undefined
     configuredSessionIdKeys: string[] | undefined
     correlationLinksEnabled: boolean
+    sessionErrorBadgesEnabled: boolean
     tracingConfig: TeamTracingConfigApi | null
     tracingConfigLoading: boolean
 }
@@ -68,6 +69,7 @@ export interface tracingCorrelationConfigLogicMeta {
         configuredDistinctIdKeys: (tracingConfig: TeamTracingConfigApi | null) => string[] | undefined
         configuredSessionIdKeys: (tracingConfig: TeamTracingConfigApi | null) => string[] | undefined
         correlationLinksEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        sessionErrorBadgesEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
@@ -121,10 +123,18 @@ export const tracingCorrelationConfigLogic = kea<tracingCorrelationConfigLogicTy
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS],
         ],
+        // Single owner of the "badge spans whose session hit errors?" rule, for the span list
+        // badge and the trace drawer's Errors tab.
+        sessionErrorBadgesEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES],
+        ],
     }),
     afterMount(({ actions, values }) => {
-        // This config only feeds correlation links, so skip the request when they are off.
-        if (values.correlationLinksEnabled) {
+        // This config only feeds correlation surfaces, so skip the request when all of them are
+        // off. The error badges resolve a session from the same configured keys, so a team that
+        // renamed those keys needs the config loaded for the badges alone.
+        if (values.correlationLinksEnabled || values.sessionErrorBadgesEnabled) {
             actions.loadTracingConfig()
         }
     }),

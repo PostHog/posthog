@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode, useCallback, useRef } from 'react'
+import { CSSProperties, ReactNode, useCallback, useMemo, useRef } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { LemonTag } from '@posthog/lemon-ui'
@@ -14,11 +14,12 @@ import { formatDuration } from '../../TraceWaterfallView'
 import type { TracingOrderBy, TracingOrderDirection } from '../../tracingFiltersLogic'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
-import { ResizableColumnSpec } from '../TableColumns/columnWidths'
+import { MIN_COLUMN_WIDTH, ResizableColumnSpec } from '../TableColumns/columnWidths'
 import { TableCell } from '../TableColumns/TableCell'
 import { TableHeaderCell } from '../TableColumns/TableHeaderCell'
 import { ResizableColumns, useResizableColumns } from '../TableColumns/useResizableColumns'
 import { SpanRowActions } from './SpanRowActions'
+import { SpanSessionErrorsCell } from './SpanSessionErrorsCell'
 
 const ROW_HEIGHT = 36
 const HEADER_HEIGHT = 32
@@ -33,9 +34,15 @@ const SPAN_COLUMNS: ResizableColumnSpec[] = [
     { key: 'kind', width: 90 },
     { key: 'duration', width: 90 },
     { key: 'status', width: 80 },
+    // The session error badge. It holds its width on rows with no errors so the columns beside it
+    // stay aligned down the page as counts arrive.
+    { key: 'sessionErrors', width: MIN_COLUMN_WIDTH },
     { key: 'traceId', width: 140 },
     { key: 'actions', width: 130 },
 ]
+const SPAN_COLUMNS_WITHOUT_SESSION_ERRORS: ResizableColumnSpec[] = SPAN_COLUMNS.filter(
+    (column) => column.key !== 'sessionErrors'
+)
 // pinned: identifies stored column widths — renaming resets everyone's widths
 const TABLE_KEY = 'spans'
 
@@ -57,12 +64,15 @@ interface VirtualizedSpanListProps extends SortProps {
     hasMoreToLoad?: boolean
     onLoadMore?: () => void
     emptyState?: ReactNode
+    /** Show the column that badges rows whose session hit errors. */
+    showSessionErrors?: boolean
 }
 
 interface SpanRowProps {
     dataSource: Span[]
     widths: Record<string, number>
     onRowClick: (span: Span) => void
+    showSessionErrors: boolean
 }
 
 /** Header cell wired to the shared resize handle. `sort` marks the column as server-sortable. */
@@ -105,10 +115,15 @@ function SpanHeaderCell({
 function SpanRowHeader({
     widths,
     columns,
+    showSessionErrors,
     orderBy,
     orderDirection,
     onSort,
-}: { widths: Record<string, number>; columns: ResizableColumns } & SortProps): JSX.Element {
+}: {
+    widths: Record<string, number>
+    columns: ResizableColumns
+    showSessionErrors: boolean
+} & SortProps): JSX.Element {
     const shared = { widths, columns }
     const sortProps = { orderBy, orderDirection, onSort }
     return (
@@ -133,6 +148,8 @@ function SpanRowHeader({
                 sort={{ column: 'duration', ...sortProps }}
             />
             <SpanHeaderCell {...shared} columnKey="status" label="Status" />
+            {/* The session error badge needs no heading; its tooltip says what the count means. */}
+            {showSessionErrors && <SpanHeaderCell {...shared} columnKey="sessionErrors" />}
             <SpanHeaderCell {...shared} columnKey="traceId" label="Trace ID" />
             {/* Row actions need no heading. */}
             <SpanHeaderCell {...shared} columnKey="actions" />
@@ -143,10 +160,12 @@ function SpanRowHeader({
 function SpanRow({
     span,
     widths,
+    showSessionErrors,
     onClick,
 }: {
     span: Span
     widths: Record<string, number>
+    showSessionErrors: boolean
     onClick: () => void
 }): JSX.Element {
     const status = STATUS_CODE_LABELS[span.status_code] ?? { label: String(span.status_code), type: 'default' as const }
@@ -195,6 +214,11 @@ function SpanRow({
             <TableCell width={widths.status}>
                 <LemonTag type={status.type}>{status.label}</LemonTag>
             </TableCell>
+            {showSessionErrors && (
+                <TableCell width={widths.sessionErrors}>
+                    <SpanSessionErrorsCell span={span} />
+                </TableCell>
+            )}
             <TableCell width={widths.traceId}>
                 <span className="font-mono">{span.trace_id.substring(0, 16)}...</span>
             </TableCell>
@@ -211,6 +235,7 @@ function SpanListRow({
     style,
     dataSource,
     widths,
+    showSessionErrors,
     onRowClick,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
@@ -222,7 +247,12 @@ function SpanListRow({
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div {...ariaAttributes} style={style} data-index={index} data-row-key={span.uuid}>
-            <SpanRow span={span} widths={widths} onClick={() => onRowClick(span)} />
+            <SpanRow
+                span={span}
+                widths={widths}
+                showSessionErrors={showSessionErrors}
+                onClick={() => onRowClick(span)}
+            />
         </div>
     )
 }
@@ -235,6 +265,7 @@ export function VirtualizedSpanList({
     hasMoreToLoad = false,
     onLoadMore,
     emptyState = 'No spans found',
+    showSessionErrors = false,
     orderBy,
     orderDirection,
     onSort,
@@ -243,7 +274,14 @@ export function VirtualizedSpanList({
     const lastVisibleRangeRef = useRef<{ startIndex: number; stopIndex: number } | null>(null)
 
     const listRef = useListRef(null)
-    const columns = useResizableColumns(TABLE_KEY, SPAN_COLUMNS)
+    // A stable specs reference, because useResizableColumns reuses its resolved widths object
+    // while the specs identity holds. A fresh array every render would hand every virtualized row
+    // new widths and re-render the whole list.
+    const columnSpecs = useMemo(
+        () => (showSessionErrors ? SPAN_COLUMNS : SPAN_COLUMNS_WITHOUT_SESSION_ERRORS),
+        [showSessionErrors]
+    )
+    const columns = useResizableColumns(TABLE_KEY, columnSpecs)
 
     const handleRowsRendered = useCallback(
         (
@@ -298,6 +336,7 @@ export function VirtualizedSpanList({
                                 <SpanRowHeader
                                     widths={widths}
                                     columns={columns}
+                                    showSessionErrors={showSessionErrors}
                                     orderBy={orderBy}
                                     orderDirection={orderDirection}
                                     onSort={onSort}
@@ -308,7 +347,7 @@ export function VirtualizedSpanList({
                                     rowCount={dataSource.length}
                                     rowHeight={ROW_HEIGHT}
                                     rowComponent={SpanListRow}
-                                    rowProps={{ dataSource, widths, onRowClick }}
+                                    rowProps={{ dataSource, widths, showSessionErrors, onRowClick }}
                                     onRowsRendered={handleRowsRendered}
                                     listRef={listRef}
                                 />

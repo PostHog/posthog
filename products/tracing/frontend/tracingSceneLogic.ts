@@ -42,7 +42,7 @@ import type {
     TracingViewMode,
 } from './tracingFiltersLogic'
 import { tracingViewerLogic } from './tracingViewerLogic'
-import type { Span } from './types'
+import type { Span, SpanInspectorTab } from './types'
 
 /** What each result row represents: a trace (its root span), an individual span, or an operation aggregate. */
 export type TracingDisplayMode = TracingViewMode | 'operations'
@@ -100,6 +100,9 @@ export interface tracingSceneLogicValues {
     selectedTraceId: string | null // tracingViewerLogic
     selectedTraceTs: string | null // tracingViewerLogic
     traceIdentity: TraceIdentity // tracingViewerLogic
+    traceSessionId: string | null // tracingViewerLogic
+    sessionErrorBadgesEnabled: boolean // tracingViewerLogic
+    inspectorTab: SpanInspectorTab // tracingViewerLogic
     activeTracingTab: 'operations' | 'traces'
     breadcrumbs: Breadcrumb[]
     displayMode: TracingDisplayMode
@@ -210,12 +213,17 @@ export interface tracingSceneLogicActions {
             | {
                   spanId?: string | null
                   ts?: string | null
+                  tab?: SpanInspectorTab | null
               }
             | undefined
     ) => {
         spanId: string | null
+        tab: SpanInspectorTab | null
         traceId: string
         ts: string | null
+    } // tracingViewerLogic
+    selectInspectorTab: (tab: SpanInspectorTab) => {
+        tab: SpanInspectorTab
     } // tracingViewerLogic
     selectSpan: (spanId: string | null) => {
         spanId: string | null
@@ -298,6 +306,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'isTraceOpen',
                 'openTraceSpans',
                 'traceIdentity',
+                'traceSessionId',
+                'sessionErrorBadgesEnabled',
+                'inspectorTab',
                 'isLoadingFullTrace',
                 'canLoadMoreTraceSpans',
                 'compareFlameSpanName',
@@ -330,7 +341,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setFilters',
             ],
             tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }),
-            ['openTrace', 'selectSpan', 'closeTrace', 'openCompareFlame', 'closeCompareFlame'],
+            ['openTrace', 'selectSpan', 'selectInspectorTab', 'closeTrace', 'openCompareFlame', 'closeCompareFlame'],
         ],
     })),
 

@@ -81,6 +81,9 @@ function TracingSceneContents(): JSX.Element {
         sparklineLoading,
         openTraceSpans,
         traceIdentity,
+        traceSessionId,
+        sessionErrorBadgesEnabled,
+        inspectorTab,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
@@ -116,6 +119,7 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         loadMoreTraceSpans,
         setVisibleRowRange,
+        selectInspectorTab,
         setSort,
         setChartType,
         applyHeatmapBrush,
@@ -253,6 +257,7 @@ function TracingSceneContents(): JSX.Element {
                                 hasMoreToLoad={hasMoreToLoad}
                                 onLoadMore={fetchNextPage}
                                 onVisibleRowRangeChange={setVisibleRowRange}
+                                showSessionErrors={sessionErrorBadgesEnabled}
                                 orderBy={filters.orderBy}
                                 orderDirection={filters.orderDirection}
                                 onSort={(column) =>
@@ -290,6 +295,10 @@ function TracingSceneContents(): JSX.Element {
                 ts={selectedTraceTs}
                 spans={openTraceSpans}
                 identity={traceIdentity}
+                sessionId={traceSessionId}
+                showSessionErrors={sessionErrorBadgesEnabled}
+                inspectorTab={inspectorTab}
+                onSelectInspectorTab={selectInspectorTab}
                 loading={isLoadingFullTrace}
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}
