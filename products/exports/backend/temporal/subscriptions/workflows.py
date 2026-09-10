@@ -10,6 +10,7 @@ import temporalio.common
 import temporalio.workflow
 from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.base import PostHogWorkflow
@@ -108,6 +109,13 @@ _FAILURE_STAGE_COMPONENT: dict[SubscriptionFailureStage, str] = {
 }
 
 
+@frozen
+class _ScheduledSubscriptionChild:
+    workflow: Callable[..., Coroutine[Any, Any, None]]
+    inputs: TrackedSubscriptionInputs
+    workflow_id: str
+
+
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
     return [
         {
@@ -198,7 +206,7 @@ def _record_subscription_failure(
 
 def _build_scheduled_subscription_child(
     subscription: DueSubscription,
-) -> tuple[Callable[..., Coroutine[Any, Any, None]], TrackedSubscriptionInputs, str]:
+) -> _ScheduledSubscriptionChild:
     tracked = TrackedSubscriptionInputs(
         subscription_id=subscription.subscription_id,
         team_id=subscription.team_id,
@@ -231,7 +239,7 @@ def _build_scheduled_subscription_child(
     else:
         workflow = ProcessSubscriptionWorkflow.run
         child_id = f"process-subscription-{subscription.subscription_id}"
-    return workflow, tracked, child_id
+    return _ScheduledSubscriptionChild(workflow=workflow, inputs=tracked, workflow_id=child_id)
 
 
 def _record_subscription_dispatch_outcome(region: str, outcome: str, count: int) -> None:
@@ -260,12 +268,12 @@ def _record_subscription_dispatch_outcome(region: str, outcome: str, count: int)
 async def _run_legacy_subscription_children(subscription_infos: list[DueSubscription]) -> None:
     tasks = []
     for subscription in subscription_infos:
-        workflow, tracked, child_id = _build_scheduled_subscription_child(subscription)
+        child = _build_scheduled_subscription_child(subscription)
         tasks.append(
             temporalio.workflow.execute_child_workflow(
-                workflow,
-                tracked,
-                id=child_id,
+                child.workflow,
+                child.inputs,
+                id=child.workflow_id,
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 execution_timeout=dt.timedelta(hours=2),
             )
@@ -298,7 +306,7 @@ async def _run_legacy_subscription_children(subscription_infos: list[DueSubscrip
 
 async def _start_claimed_subscription_children(subscription_infos: list[DueSubscription], region: str) -> None:
     async def start_one(subscription: DueSubscription) -> tuple[str, int | None]:
-        workflow, tracked, child_id = _build_scheduled_subscription_child(subscription)
+        child = _build_scheduled_subscription_child(subscription)
         claim_inputs = (
             SubscriptionSchedulerClaimInputs(
                 claim_id=subscription.scheduler_claim_id,
@@ -311,9 +319,9 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
             return "failed", subscription.subscription_id
         try:
             await temporalio.workflow.start_child_workflow(
-                workflow,
-                tracked,
-                id=child_id,
+                child.workflow,
+                child.inputs,
+                id=child.workflow_id,
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 execution_timeout=dt.timedelta(hours=2),
             )
