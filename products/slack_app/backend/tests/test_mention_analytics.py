@@ -112,6 +112,46 @@ class TestReportSlackMentionReceived:
         assert props["posthog_user_identified"] is exp_identified
         assert ("$set" in props) is exp_identified
 
+    @parameterized.expand(
+        [
+            # name, files, exp_attachments, exp_images, exp_mimetypes
+            ("no_files_key", None, 0, 0, []),
+            ("empty_list", [], 0, 0, []),
+            ("one_screenshot", [{"id": "F1", "name": "shot.png", "mimetype": "image/png"}], 1, 1, ["image/png"]),
+            (
+                "image_and_log",
+                [
+                    {"id": "F1", "name": "shot.png", "mimetype": "image/png"},
+                    {"id": "F2", "name": "server.log", "mimetype": "text/plain"},
+                ],
+                2,
+                1,
+                ["image/png", "text/plain"],
+            ),
+            ("non_image_only", [{"id": "F1", "name": "rows.csv", "mimetype": "text/csv"}], 1, 0, ["text/csv"]),
+            ("two_images_one_mimetype", [{"mimetype": "image/png"}, {"mimetype": "image/png"}], 2, 2, ["image/png"]),
+            # Slack omits ``mimetype`` on some uploads; the file still counts, unlabeled.
+            ("mimetype_missing", [{"id": "F1", "name": "unknown"}], 1, 0, []),
+        ]
+    )
+    @patch("products.slack_app.backend.api.posthoganalytics.capture")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
+    def test_capture_attachment_properties(
+        self, _name, files, exp_attachments, exp_images, exp_mimetypes, mock_resolve, mock_capture
+    ):
+        mock_resolve.return_value = self.user
+        event: dict = {"channel": "C001", "ts": "1700.0001", "user": "U123"}
+        if files is not None:
+            event["files"] = files
+
+        _report_slack_mention_received(event, self.integration, "T12345")
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["slack_attachment_count"] == exp_attachments
+        assert props["slack_image_count"] == exp_images
+        assert props["slack_has_image"] is (exp_images > 0)
+        assert props["slack_attachment_mimetypes"] == exp_mimetypes
+
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     def test_capture_failure_is_swallowed(self, mock_resolve, mock_capture):

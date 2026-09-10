@@ -89,6 +89,7 @@ from products.slack_app.backend.services.slack_messages import (
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
+    parse_slack_file_refs,
     post_slack_thread_reply,
 )
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
@@ -1325,6 +1326,24 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
 def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
     files = event.get("files")
     return isinstance(files, list) and len(files) > 0
+
+
+def _slack_attachment_props(event: dict[str, Any]) -> dict[str, Any]:
+    """Analytics context for whatever a message carried alongside its text.
+
+    The agent reads images now, so how often people send one is the question the mention
+    event has to answer, and it can only do that by counting the uploads as they arrive.
+    Distinct mimetypes ride along so a screenshot is separable from a log or a CSV without
+    a second event.
+    """
+    files = parse_slack_file_refs(event.get("files"))
+    image_count = sum(1 for file in files if file.mimetype.startswith("image/"))
+    return {
+        "slack_attachment_count": len(files),
+        "slack_image_count": image_count,
+        "slack_has_image": image_count > 0,
+        "slack_attachment_mimetypes": sorted({file.mimetype for file in files if file.mimetype}),
+    }
 
 
 def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
@@ -3415,6 +3434,7 @@ def _report_slack_mention_received(
             # "im" marks an assistant DM; channel mentions carry "channel"/"group" or no type at all.
             "slack_channel_type": event.get("channel_type"),
             "posthog_user_identified": identified_distinct_id is not None,
+            **_slack_attachment_props(event),
         }
         if posthog_user is not None and identified_distinct_id is not None:
             properties["$set"] = posthog_user.get_analytics_metadata()
