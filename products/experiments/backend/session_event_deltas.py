@@ -743,11 +743,12 @@ class _QuerySetup:
             ),
             ast.CompareOperation(
                 # An SDK that sends `$session_id: null` leaves the string "null" in the column,
-                # because the materialization keeps the raw JSON token. Without this it passes as a
-                # session id, and every such event of every exposed person groups into one session
-                # whose last activity is always the most recent, so it wins a slot of the session
-                # ceiling and people get read from a session they never had. HogQL's own property
-                # read of `$session_id` treats both values as absent.
+                # because the materialization keeps the raw JSON token. That string is a non-empty
+                # value, so it needs its own exclusion. Without it, every such event of every
+                # exposed person groups into one session whose last activity is always the most
+                # recent. That session takes a slot of the session ceiling, and the scan reads
+                # people from a session they never had. HogQL's own property read of `$session_id`
+                # treats both values as absent.
                 op=ast.CompareOperationOp.NotIn,
                 left=ast.Field(chain=["$session_id"]),
                 right=ast.Constant(value=["", "null"]),

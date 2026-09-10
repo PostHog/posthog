@@ -203,9 +203,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             )
 
     def _sessionless_backend_event(self, distinct_id: str, event: str, *, at: datetime) -> None:
-        # An SDK that sends an explicit JSON null for `$session_id` leaves the string "null" in the
-        # column, because the materialization keeps the raw JSON token. That is a different trace
-        # from `_unsessioned_exposure`, which omits the key and leaves the column empty.
+        # An explicit JSON null leaves the string "null" in the `$session_id` column, because the
+        # materialization keeps the raw JSON token. That is a different trace from
+        # `_unsessioned_exposure`, which omits the key and leaves the column empty.
         _create_event(
             team=self.team, event=event, distinct_id=distinct_id, timestamp=at, properties={"$session_id": None}
         )
