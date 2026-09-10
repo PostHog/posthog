@@ -443,14 +443,27 @@ class TestPrinter(BaseTest):
             "Unsupported function call 'TRANSFORM(...)'",
         )
 
-    def test_transform_with_non_constant_arrays_executes_on_clickhouse(self):
+    @parameterized.expand(
+        [
+            (
+                "over_no_rows",
+                "select transform(event, ['a', 'b'], [event, 'y'], 'z') from events where event = 'no_such_event'",
+                [],
+            ),
+            # `transform` looks a key up by hash, so a -0.0 source misses a 0.0 key and takes the default.
+            # `equals` calls the two zeros equal, so a rewrite built on it would answer 'a' here instead.
+            (
+                "signed_zero_takes_the_default",
+                "select transform(-0.0, [0.0, 1.0], ['a', upper('b')], 'z')",
+                [("z",)],
+            ),
+        ]
+    )
+    def test_transform_with_non_constant_arrays_executes_on_clickhouse(self, _name: str, query: str, expected: list):
         # ClickHouse rejects a `transform` whose match or result array is not constant, even over no rows.
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        sql = self._select(
-            "select transform(event, ['a', 'b'], [event, 'y'], 'z') from events where event = 'no_such_event'",
-            context,
-        )
-        self.assertEqual(sync_execute(sql, context.values), [])
+        sql = self._select(query, context)
+        self.assertEqual(sync_execute(sql, context.values), expected)
 
     def test_try_cast_non_postgres_error(self):
         self._assert_query_error(
