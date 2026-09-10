@@ -17,6 +17,7 @@ from posthog.api.wizard.ci_oidc import (
     GITHUB_OIDC_ISSUER,
     WizardCiOidcError,
     looks_like_jwt,
+    reset_key_set_cache,
     verify_github_oidc,
     wizard_ci_oidc_configured,
 )
@@ -27,9 +28,10 @@ _PUBLIC_KEY = _PRIVATE_KEY.public_key()
 
 AUDIENCE = "posthog-wizard-ci"
 REPOSITORY = "PostHog/wizard"
-OWNER_ID = "11801436"
+OWNER_ID = "60330232"
 WORKFLOW_PATH = "PostHog/wizard/.github/workflows/smoke-test.yml"
 SUBJECT = "repo:PostHog/wizard:ref:refs/heads/main"
+KID = "github-signing-key-1"
 
 CI_SETTINGS = {
     "WIZARD_CI_OIDC_AUDIENCE": AUDIENCE,
@@ -40,12 +42,17 @@ CI_SETTINGS = {
 }
 
 
-class _FakeSigningKey:
-    def __init__(self, key):
-        self.key = key
+def _jwk(kid: str = KID, use: str = "sig") -> dict:
+    key = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(_PUBLIC_KEY))
+    key.update({"kid": kid, "use": use, "alg": "RS256"})
+    return key
 
 
-def _token(**overrides) -> str:
+def _key_set(*keys: dict) -> jwt.PyJWKSet:
+    return jwt.PyJWKSet.from_dict({"keys": list(keys) or [_jwk()]})
+
+
+def _token(kid: str = KID, **overrides) -> str:
     """A token GitHub would issue for the smoke-test workflow, before overrides."""
     now = datetime.now(tz=UTC)
     claims = {
@@ -62,14 +69,15 @@ def _token(**overrides) -> str:
     claims.update(overrides)
     for key in [k for k, v in claims.items() if v is None]:
         del claims[key]
-    return jwt.encode(claims, _PRIVATE_KEY, algorithm="RS256")
+    return jwt.encode(claims, _PRIVATE_KEY, algorithm="RS256", headers={"kid": kid})
 
 
 @pytest.fixture(autouse=True)
-def _jwks():
-    with patch("posthog.api.wizard.ci_oidc._get_jwks_client") as client:
-        client.return_value.get_signing_key_from_jwt.return_value = _FakeSigningKey(_PUBLIC_KEY)
-        yield client
+def _fetch():
+    reset_key_set_cache()
+    with patch("posthog.api.wizard.ci_oidc._fetch_key_set", return_value=_key_set()) as fetch:
+        yield fetch
+    reset_key_set_cache()
 
 
 class TestVerifyGitHubOidc:
@@ -141,20 +149,58 @@ class TestVerifyGitHubOidc:
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(_token(workflow_ref=f"{WORKFLOW_PATH}.bak@refs/heads/main"))
 
-    def test_a_token_for_another_issuer_costs_no_key_fetch(self, _jwks):
+    def test_a_token_for_another_issuer_costs_no_fetch(self, _fetch):
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(_token(iss="https://evil.example.com"))
-        _jwks.return_value.get_signing_key_from_jwt.assert_not_called()
+        _fetch.assert_not_called()
 
-    def test_a_token_for_another_audience_costs_no_key_fetch(self, _jwks):
+    def test_a_token_for_another_audience_costs_no_fetch(self, _fetch):
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(_token(aud="sts.amazonaws.com"))
-        _jwks.return_value.get_signing_key_from_jwt.assert_not_called()
+        _fetch.assert_not_called()
 
-    def test_a_smoke_test_token_still_reaches_the_key_fetch(self, _jwks):
+    def test_a_smoke_test_token_still_reaches_the_fetch(self, _fetch):
         # Derived from the two above: the pre-filter must not become the check.
         verify_github_oidc(_token())
-        _jwks.return_value.get_signing_key_from_jwt.assert_called_once()
+        _fetch.assert_called_once()
+
+    def test_a_second_verification_reuses_the_cached_key_set(self, _fetch):
+        verify_github_oidc(_token())
+        verify_github_oidc(_token())
+        _fetch.assert_called_once()
+
+    def test_an_unknown_kid_refetches_once_then_stops(self, _fetch):
+        # The amplification this bounds: PyJWKClient refetches on every miss, so
+        # without the interval each invented token would reach GitHub.
+        for _ in range(5):
+            with pytest.raises(WizardCiOidcError):
+                verify_github_oidc(_token(kid="made-up"))
+        # One cold fetch plus one forced refresh, then the interval holds.
+        assert _fetch.call_count == 2
+
+    def test_a_token_with_no_kid_is_refused_without_a_fetch(self, _fetch):
+        now = datetime.now(tz=UTC)
+        unkeyed = jwt.encode(
+            {
+                "iss": GITHUB_OIDC_ISSUER,
+                "aud": AUDIENCE,
+                "sub": SUBJECT,
+                "iat": int(now.timestamp()),
+                "exp": int((now + timedelta(minutes=10)).timestamp()),
+            },
+            _PRIVATE_KEY,
+            algorithm="RS256",
+        )
+        with pytest.raises(WizardCiOidcError):
+            verify_github_oidc(unkeyed)
+        _fetch.assert_not_called()
+
+    def test_an_encryption_key_is_not_used_to_verify(self, _fetch):
+        # Same kid, wrong use: verifying with it would accept a key GitHub never
+        # offered for signatures.
+        _fetch.return_value = _key_set(_jwk(use="enc"))
+        with pytest.raises(WizardCiOidcError):
+            verify_github_oidc(_token())
 
     def test_an_expired_token_is_refused(self):
         past = datetime.now(tz=UTC) - timedelta(minutes=30)
@@ -182,6 +228,7 @@ class TestVerifyGitHubOidc:
             },
             other,
             algorithm="RS256",
+            headers={"kid": KID},
         )
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(forged)
@@ -207,15 +254,16 @@ class TestVerifyGitHubOidc:
         def segment(payload: dict) -> str:
             return base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
 
-        signing_input = f"{segment({'alg': 'HS256', 'typ': 'JWT'})}.{segment(claims)}"
+        header = {"alg": "HS256", "typ": "JWT", "kid": KID}
+        signing_input = f"{segment(header)}.{segment(claims)}"
         signature = hmac.new(public_pem, signing_input.encode(), hashlib.sha256).digest()
         forged = f"{signing_input}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
 
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(forged)
 
-    def test_an_unresolvable_signing_key_refuses(self, _jwks):
-        _jwks.return_value.get_signing_key_from_jwt.side_effect = Exception("jwks unreachable")
+    def test_an_unreachable_key_set_refuses(self, _fetch):
+        _fetch.side_effect = Exception("jwks unreachable")
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(_token())
 
