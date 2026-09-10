@@ -2,8 +2,6 @@ import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER, MOCK
 
 import { expectLogic } from 'kea-test-utils'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -54,19 +52,6 @@ describe('membersLogic', () => {
                 MOCK_USER_UUID,
                 MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid,
             ])
-        })
-    })
-
-    describe('changeMemberAccessLevel', () => {
-        it('reads the organization back after any level change', async () => {
-            organizationLogic.mount()
-
-            await expectLogic(organizationLogic, () => {
-                logic.actions.changeMemberAccessLevel(
-                    MOCK_SECOND_ORGANIZATION_MEMBER,
-                    OrganizationMembershipLevel.Admin
-                )
-            }).toDispatchActions(['loadCurrentOrganization'])
         })
     })
 

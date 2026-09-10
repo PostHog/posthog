@@ -6,7 +6,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType, UserType } from '~/types'
@@ -292,9 +291,6 @@ export const membersLogic = kea<membersLogicType>([
                         Made <b>{member.user.first_name}</b> organization {membershipLevelToName.get(level)}
                     </>
                 )
-                // Any level change can move the current user too, for example handing over ownership
-                // demotes the previous owner, so read the organization back instead of guessing.
-                organizationLogic.actions.loadCurrentOrganization()
 
                 if (!values.members) {
                     return null
