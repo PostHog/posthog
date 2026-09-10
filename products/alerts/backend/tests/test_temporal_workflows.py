@@ -287,17 +287,19 @@ async def test_probe_timeout_still_starts_independent_delivery(
     environment: WorkflowEnvironment, caplog: pytest.LogCaptureFixture, timeout_type: TimeoutType
 ) -> None:
     caplog.set_level(logging.WARNING, logger="temporalio.workflow")
+    activity_started = asyncio.Event()
+    release_activity = asyncio.Event()
 
     @activity.defn(name="alerts_product_check_due_activity")
     async def blocked_probe() -> None:
-        await asyncio.Event().wait()
+        activity_started.set()
+        await release_activity.wait()
 
     client = environment.client
     async with Worker(
         client,
         task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
         workflows=EVALUATION_WORKFLOWS,
-        activities=[blocked_probe] if timeout_type == TimeoutType.START_TO_CLOSE else [],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         parent = await client.start_workflow(
@@ -307,7 +309,25 @@ async def test_probe_timeout_still_starts_independent_delivery(
             task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
             execution_timeout=dt.timedelta(seconds=50),
         )
-        await parent.result()
+        async with asyncio.timeout(10):
+            while not any(
+                event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                for event in (await parent.fetch_history()).events
+            ):
+                pass
+        if timeout_type == TimeoutType.SCHEDULE_TO_CLOSE:
+            # Separate the close deadlines instead of racing schedule-to-start at the same deadline.
+            await environment.sleep(25)
+        async with Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            activities=[blocked_probe],
+        ):
+            try:
+                await asyncio.wait_for(activity_started.wait(), timeout=5)
+                await parent.result()
+            finally:
+                release_activity.set()
         history = await parent.fetch_history()
         timeouts = [
             event.activity_task_timed_out_event_attributes
