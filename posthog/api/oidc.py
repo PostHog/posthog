@@ -77,7 +77,9 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
     @cached_property
     def discovery_document(self) -> dict[str, Any]:
         document = self.get_json(f"{self.oidc_endpoint()}/.well-known/openid-configuration")
-        if document.get("issuer") != self.identity_provider_config.oidc_issuer_url:
+        issuer = document.get("issuer")
+        configured_issuer = self.identity_provider_config.oidc_issuer_url
+        if not isinstance(issuer, str) or issuer.rstrip("/") != configured_issuer.rstrip("/"):
             raise AuthFailed(self, "The OIDC discovery issuer does not match the configured issuer.")
         for field in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
             endpoint = document.get(field)

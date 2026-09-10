@@ -277,10 +277,32 @@ class TestOIDCAuthentication(APILicensedTest):
         with self.assertRaises(AuthFailed):
             self.backend.auth_url()
 
-    def test_oidc_checks_discovery_issuer(self):
-        with patch.object(self.backend, "get_json", return_value={"issuer": "https://other.example.com"}):
-            with self.assertRaises(AuthFailed):
-                self.backend.oidc_config()
+    @parameterized.expand(
+        [
+            ("mismatch", "https://idp.example.com", "https://other.example.com", False),
+            ("configured_trailing_slash", "https://idp.example.com/", "https://idp.example.com", True),
+            ("discovered_trailing_slash", "https://idp.example.com", "https://idp.example.com/", True),
+        ]
+    )
+    def test_oidc_checks_discovery_issuer(self, _name, configured_issuer, discovered_issuer, accepted):
+        self.config.oidc_issuer_url = configured_issuer
+        self.config.save()
+
+        with patch.object(
+            self.backend,
+            "get_json",
+            return_value={
+                "issuer": discovered_issuer,
+                "authorization_endpoint": "https://idp.example.com/authorize",
+                "token_endpoint": "https://idp.example.com/token",
+                "jwks_uri": "https://idp.example.com/keys",
+            },
+        ):
+            if accepted:
+                self.assertEqual(self.backend.oidc_config()["issuer"], discovered_issuer)
+            else:
+                with self.assertRaises(AuthFailed):
+                    self.backend.oidc_config()
 
     def test_oidc_does_not_share_discovery_between_tenants(self):
         other_backend = MultitenantOIDCAuth(self.backend.strategy, self.backend.redirect_uri)
