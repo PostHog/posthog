@@ -1,24 +1,26 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
+import { INBOX_EVENTS } from '../../inboxAnalytics'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { SELECTION_HOLD_MS } from '../../utils/reportSelection'
 import { ReportCard } from './ReportCard'
 
-jest.mock('lib/components/TZLabel', () => ({
-    TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
-}))
+jest.mock('posthog-js')
 
-function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
+function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
     return {
-        id: 'report-1',
-        title: 'Hooli traffic is hammering the beta',
-        summary: 'Sign-ups from Hooli IP ranges jumped overnight.',
+        id,
+        title: `Report ${id}`,
+        summary: 'summary',
         status: SignalReportStatus.READY,
         total_weight: 0,
         signal_count: 1,
@@ -30,56 +32,152 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
         ...overrides,
-    } as SignalReport
+    } satisfies SignalReport
 }
 
 describe('ReportCard', () => {
+    let logic: ReturnType<typeof inboxBulkActionsLogic.build>
+
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
-    })
-    afterEach(cleanup)
-
-    // The redesign makes the linked row the only way in and leaves the status / actionability chips
-    // to the section headers; the legacy list keeps Dismiss, the Review button, and the chips.
-    it.each([[true], [false]])(
-        'with the redesign flag %p shows Review and Dismiss and chips only on the legacy list',
-        (redesign) => {
-            const legacyChrome = !redesign
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
-            })
-            const report = makeReport({
-                status: SignalReportStatus.CANDIDATE,
-                actionability: 'immediately_actionable',
-            })
-            const { queryByText } = render(<ReportCard report={report} />)
-            expect(queryByText('Review') !== null).toBe(legacyChrome)
-            expect(queryByText('View report')).toBeNull()
-            expect(queryByText('Dismiss') !== null).toBe(legacyChrome)
-            expect(queryByText('Queued') !== null).toBe(legacyChrome)
-            expect(queryByText('Actionable') !== null).toBe(legacyChrome)
-        }
-    )
-
-    it('links the card to the report detail by default', () => {
-        const { container } = render(<ReportCard report={makeReport()} />)
-        expect(container.querySelector('a')).toHaveAttribute('href', expect.stringContaining('report-1'))
+        logic = inboxBulkActionsLogic()
+        logic.mount()
+        render(<ReportCard report={makeReport('r-1')} selectable />)
     })
 
-    it('exposes no routable link in preview mode (the placeholder id 404s)', () => {
-        const { container, getByText } = render(<ReportCard report={makeReport()} preview />)
-        // Card still renders, but nothing navigates to the detail route.
-        expect(getByText('Hooli traffic is hammering the beta')).toBeInTheDocument()
-        expect(container.querySelector('a')).toBeNull()
+    afterEach(() => {
+        cleanup()
+        jest.useRealTimers()
+        logic.unmount()
     })
 
-    it('exposes no link on a preview PR card either (the PR badge url is fabricated)', () => {
-        const report = makeReport({
-            title: 'fix(compression): stop 4K streams dropping to single-threaded encode',
-            implementation_pr_url: 'https://github.com/PiedPiper/pipernet/pull/486',
+    /** True once a click has followed the card's link through to the report detail. */
+    function openedReport(): boolean {
+        return router.values.location.pathname.includes('r-1')
+    }
+
+    /**
+     * jsdom has no `PointerEvent`, and `fireEvent.pointerDown` drops the button and the
+     * coordinates the hold reads, so dispatch a `MouseEvent` under the pointer event's name.
+     */
+    function firePointer(type: string, init: MouseEventInit): void {
+        fireEvent(cardLink(), new MouseEvent(type, { bubbles: true, ...init }))
+    }
+
+    /** Properties of the last `Inbox selection mode entered` event, if one was captured. */
+    function lastSelectionEntry(): Record<string, unknown> | undefined {
+        const calls = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SELECTION_MODE_ENTERED
+        )
+        return calls[calls.length - 1]?.[1]
+    }
+
+    /** The card body, which is the link a plain click follows. */
+    function cardLink(): HTMLElement {
+        return screen.getByText('Report r-1').closest('a') as HTMLElement
+    }
+
+    it('opens the report on a plain click, leaving the selection empty', () => {
+        fireEvent.click(cardLink())
+
+        expect(openedReport()).toBe(true)
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    it('selects on cmd-click instead of opening the report', () => {
+        fireEvent.click(cardLink(), { metaKey: true })
+
+        expect(openedReport()).toBe(false)
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+    })
+
+    it('toggles on a plain click once the list is in selection mode', () => {
+        fireEvent.click(cardLink(), { metaKey: true })
+        fireEvent.click(cardLink())
+
+        expect(openedReport()).toBe(false)
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    it('selects on a press and hold, and swallows the click that ends it', () => {
+        jest.useFakeTimers()
+        firePointer('pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        jest.advanceTimersByTime(SELECTION_HOLD_MS)
+        firePointer('pointerup', {})
+
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+
+        fireEvent.click(cardLink())
+        expect(openedReport()).toBe(false)
+    })
+
+    it('cancels the hold when the pointer travels, so a scroll never selects', () => {
+        jest.useFakeTimers()
+        firePointer('pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        firePointer('pointermove', { clientX: 10, clientY: 60 })
+        jest.advanceTimersByTime(SELECTION_HOLD_MS)
+
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    test.each([
+        ['cmd-click', { metaKey: true }, 'meta_click'],
+        ['shift-click', { shiftKey: true }, 'shift_click'],
+    ])('records the entry method when a %s starts the selection', (_name, modifiers, entryMethod) => {
+        // The rendered order, which a shift-range measures itself against.
+        logic.actions.setVisibleReportIds(['r-1'])
+
+        fireEvent.click(cardLink(), modifiers)
+
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+        expect(lastSelectionEntry()).toMatchObject({ entry_method: entryMethod })
+    })
+
+    it('leaves a cmd-click on the nested scout link to the browser', () => {
+        // The card rendered for every other test names no scout, so it carries no nested link.
+        cleanup()
+        render(
+            <ReportCard
+                report={{
+                    ...makeReport('r-2'),
+                    source_products: ['signals_scout'],
+                    scout_name: 'signals-scout-web-vitals',
+                }}
+                selectable
+            />
+        )
+        const scoutLink = screen.getByText('Web vitals').closest('a') as HTMLElement
+
+        // `fireEvent` returns false once anything calls `preventDefault`, which is what would
+        // cancel the browser's open-in-a-new-tab gesture.
+        expect(fireEvent.click(scoutLink, { metaKey: true })).toBe(true)
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    it('selects from the gutter checkbox', () => {
+        fireEvent.click(screen.getByLabelText('Select report: Report r-1'))
+
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+    })
+
+    it('does not offer selection for a resolved report', () => {
+        cleanup()
+        render(<ReportCard report={makeReport('r-2', { status: SignalReportStatus.RESOLVED })} selectable />)
+
+        expect(screen.queryByLabelText('Select report: Report r-2')).not.toBeInTheDocument()
+    })
+
+    it('locks the selection while a bulk action is running', () => {
+        const setState = jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {}))
+        act(() => {
+            logic.actions.setSelectedReportIds(['r-1'])
+            logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null })
         })
-        const { container } = render(<ReportCard report={report} preview />)
-        expect(container.querySelector('a')).toBeNull()
+
+        const checkbox = screen.getByLabelText('Select report: Report r-1')
+        expect(checkbox).toBeDisabled()
+        fireEvent.click(checkbox)
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+        setState.mockRestore()
     })
 })

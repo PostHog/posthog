@@ -1,4 +1,6 @@
+import os
 import json
+import tempfile
 from datetime import datetime
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
@@ -8,6 +10,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import patch
+
+from django.test import override_settings
 
 from rest_framework import status
 
@@ -605,6 +609,18 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(mock_reload.call_count, 1)
+
+    @override_settings(DEBUG=False)
+    def test_create_plugin_rejects_local_file_url(self, mock_get, mock_reload):
+        with tempfile.TemporaryDirectory() as plugin_dir:
+            with open(os.path.join(plugin_dir, "plugin.json"), "w") as plugin_json:
+                json.dump({"name": "on-disk", "description": "contents of a file on the server"}, plugin_json)
+
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": f"file:{plugin_dir}"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(Plugin.objects.count(), 0)
+        self.assertEqual(PluginSourceFile.objects.count(), 0)
 
     def test_create_plugin_version_range_eq_current(self, mock_get, mock_reload):
         with self.is_cloud(False):
