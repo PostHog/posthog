@@ -1485,6 +1485,7 @@ export function createExecTool(
                                 forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
+                                includeRenderNote: true,
                             })
                         )
                         trackInnerCall?.(tool.name, {
