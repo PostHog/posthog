@@ -9,10 +9,33 @@ export function createNavigationTiming(): {
 } {
   let nextId = 0;
   let navigation: Navigation | null = null;
+  let unsubscribeFromVisibilityChange: (() => void) | null = null;
+
+  const clearNavigation = (): void => {
+    navigation = null;
+    unsubscribeFromVisibilityChange?.();
+    unsubscribeFromVisibilityChange = null;
+  };
 
   return {
     start: () => {
-      navigation = { id: ++nextId, startedAt: performance.now() };
+      clearNavigation();
+      if (document.visibilityState !== "visible") return;
+
+      const nextNavigation = { id: ++nextId, startedAt: performance.now() };
+      navigation = nextNavigation;
+      const onVisibilityChange = (): void => {
+        if (
+          document.visibilityState !== "visible" &&
+          navigation?.id === nextNavigation.id
+        ) {
+          clearNavigation();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      unsubscribeFromVisibilityChange = () => {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      };
     },
     settle: (record) => {
       const settledNavigation = navigation;
@@ -21,8 +44,12 @@ export function createNavigationTiming(): {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (navigation?.id !== settledNavigation.id) return;
+          if (document.visibilityState !== "visible") {
+            clearNavigation();
+            return;
+          }
 
-          navigation = null;
+          clearNavigation();
           record(performance.now() - settledNavigation.startedAt);
         });
       });

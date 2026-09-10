@@ -51,4 +51,27 @@ describe("createNavigationTiming", () => {
 
     expect(record).not.toHaveBeenCalled();
   });
+
+  it("does not record while the window is hidden", () => {
+    let visibility: DocumentVisibilityState = "visible";
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(
+      () => visibility,
+    );
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
+      frames.push(cb);
+      return frames.length;
+    });
+    const timing = createNavigationTiming();
+    const record = vi.fn();
+
+    timing.start();
+    timing.settle(record);
+    visibility = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
+    frames[0]?.(0);
+    frames[1]?.(0);
+
+    expect(record).not.toHaveBeenCalled();
+  });
 });
