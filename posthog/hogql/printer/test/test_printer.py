@@ -404,6 +404,12 @@ class TestPrinter(BaseTest):
     def test_transform_falls_back_to_multi_if(self, _name: str, query: str, expected: str):
         self.assertIn(expected, self._select(query))
 
+    def test_transform_with_wrong_case_stays_unsupported(self):
+        self._assert_query_error(
+            "select TRANSFORM(event, [event, 'b'], ['x', 'y'], 'z') as t from events",
+            "Unsupported function call 'TRANSFORM(...)'",
+        )
+
     def test_transform_with_non_constant_arrays_executes_on_clickhouse(self):
         # ClickHouse rejects a `transform` whose match or result array is not constant, even over no rows.
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)

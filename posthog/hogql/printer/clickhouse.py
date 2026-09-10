@@ -911,7 +911,7 @@ class ClickHousePrinter(BasePrinter):
             if parse_sql_runtime_type(type_arg.value).family == "unknown":
                 raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
 
-        if node.name.lower() == "transform":
+        if node.name == "transform":
             multi_if = self._transform_as_multi_if(node)
             if multi_if is not None:
                 return self.visit(multi_if)
