@@ -158,6 +158,15 @@ async def test_subscription_scheduler_dispatch_metric_has_bounded_dimensions() -
     meter.add.assert_called_once_with(3)
 
 
+# Temporal rejects @workflow.run on a class defined inside a function, so this stub child stays
+# at module level.
+@temporalio.workflow.defn(name="process-subscription")
+class LegacyProcessSubscriptionChild:
+    @temporalio.workflow.run
+    async def run(self, _inputs: TrackedSubscriptionInputs) -> None:
+        return None
+
+
 async def test_schedule_all_subscriptions_replays_pre_durable_dispatch_history(monkeypatch) -> None:
     @temporalio.activity.defn(name="fetch_due_subscriptions_activity")
     async def fetch_one(_inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
@@ -171,19 +180,13 @@ async def test_schedule_all_subscriptions_replays_pre_durable_dispatch_history(m
             )
         ]
 
-    @temporalio.workflow.defn(name="process-subscription")
-    class LegacyChild:
-        @temporalio.workflow.run
-        async def run(self, _inputs: TrackedSubscriptionInputs) -> None:
-            return None
-
     task_queue = str(uuid.uuid4())
     pre_patch_history: WorkflowHistory
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
-            workflows=[ScheduleAllSubscriptionsWorkflow, LegacyChild],
+            workflows=[ScheduleAllSubscriptionsWorkflow, LegacyProcessSubscriptionChild],
             activities=[fetch_one],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -453,9 +456,9 @@ async def test_subscription_delivery_scheduling(
     assert mock_send_email.call_count == 4
     delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
-    claim_statuses = await sync_to_async(list)(
-        TemporalSchedulerClaim.objects.filter(scheduler="subscriptions").values_list("status", flat=True)
-    )
+    claim_statuses: list[str] = await sync_to_async(
+        lambda: list(TemporalSchedulerClaim.objects.filter(scheduler="subscriptions").values_list("status", flat=True))
+    )()
     assert claim_statuses == [TemporalSchedulerClaim.Status.COMPLETED] * 2
 
 
@@ -3364,7 +3367,7 @@ async def test_claimed_subscription_page_checkpoints_after_dispatch_with_unequal
     for index, (subscription_team, due_at) in enumerate(zip(teams, due_times, strict=True)):
         insight = await sync_to_async(Insight.objects.create)(
             team=subscription_team,
-            short_id=f"claim-cursor-{index}",
+            short_id=f"clm-cursor-{index}",
             name=f"Claim cursor insight {index}",
         )
         subscription = await sync_to_async(create_subscription)(
@@ -3408,6 +3411,65 @@ async def test_claimed_subscription_page_checkpoints_after_dispatch_with_unequal
     assert await ActivityEnvironment().run(advance_subscription_scheduler_cursor_activity, advance_inputs)
     await sync_to_async(state.refresh_from_db)()
     assert state.discovery_cursor == str(sorted_team_ids[0])
+
+
+async def test_claimed_subscription_pages_rotate_across_tenants_with_unequal_due_times(team, user):
+    teams = sorted(
+        [
+            team,
+            *[
+                await sync_to_async(Team.objects.create)(
+                    organization=team.organization, name=f"Rotation page team {index}"
+                )
+                for index in range(2)
+            ],
+        ],
+        key=lambda rotation_team: rotation_team.id,
+    )
+    # Due times run counter to team id order, and every team keeps a second due row, so a page
+    # that ordered or checkpointed by due time would re-serve scanned teams and starve the rest.
+    due_times = [
+        datetime(2020, 1, 3, tzinfo=ZoneInfo("UTC")),
+        datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC")),
+        datetime(2020, 1, 2, tzinfo=ZoneInfo("UTC")),
+    ]
+    for index, (subscription_team, due_at) in enumerate(zip(teams, due_times, strict=True)):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=subscription_team,
+            short_id=f"rot-page-{index}",
+            name=f"Rotation page insight {index}",
+        )
+        subscriptions = [
+            await sync_to_async(create_subscription)(team=subscription_team, insight=insight, created_by=user)
+            for _ in range(2)
+        ]
+        await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in subscriptions]).update)(
+            next_delivery_date=due_at
+        )
+
+    activity_inputs = FetchDueSubscriptionsActivityInputs(
+        buffer_minutes=15,
+        max_subscriptions_per_run=2,
+        region="rotation-page-test",
+        use_durable_claims=True,
+    )
+
+    first_page = await ActivityEnvironment().run(fetch_claimed_due_subscriptions_activity, activity_inputs)
+    first_cursor = first_page.next_discovery_cursor
+    assert [item.team_id for item in first_page.subscriptions] == [teams[0].id, teams[1].id]
+    assert first_cursor is not None and first_cursor == str(teams[1].id)
+    assert await ActivityEnvironment().run(
+        advance_subscription_scheduler_cursor_activity,
+        AdvanceSubscriptionSchedulerCursorInputs(
+            region=activity_inputs.region,
+            expected_discovery_cursor=first_page.expected_discovery_cursor,
+            next_discovery_cursor=first_cursor,
+        ),
+    )
+
+    second_page = await ActivityEnvironment().run(fetch_claimed_due_subscriptions_activity, activity_inputs)
+
+    assert [item.team_id for item in second_page.subscriptions] == [teams[2].id, teams[2].id]
 
 
 async def test_fetch_due_subscriptions_rejects_limit_above_hard_maximum() -> None:

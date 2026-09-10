@@ -4,6 +4,7 @@ import dataclasses
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
 
 # Type names of these failures never appear in recipient-facing copy. When a safe code and message
@@ -132,7 +133,7 @@ DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN = 300
 MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN = 1_000
 
 
-@dataclasses.dataclass
+@frozen
 class DueSubscription:
     subscription_id: int
     team_id: int
@@ -254,7 +255,7 @@ class ProcessSubscriptionWorkflowInputs:
     resource_type: str = ""
 
 
-@dataclasses.dataclass
+@frozen
 class TrackedSubscriptionInputs:
     """Internal inputs for ProcessSubscriptionWorkflow with SLO tracking.
 
