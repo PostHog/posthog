@@ -1,0 +1,56 @@
+rules:
+    - id: no-dynamic-worker-body
+      message: |
+          Worker body built from a value rather than a constant. The app policy allows
+          `worker-src 'self' blob:`, and that allowance rests on every blob worker body
+          being fixed at build time.
+
+          A blob URL is safe to permit because only script can mint one, so an attacker
+          needs script execution before they can use it. That argument fails if our own
+          code turns attacker-influenced data into a worker body: a value the attacker
+          controls then becomes code running with this origin's network credentials,
+          reachable from a data-injection alone.
+
+          Build the worker from a real file instead:
+
+              new Worker(new URL('./thing.worker.ts', import.meta.url), { type: 'module' })
+
+          `frontend/src/scenes/data-warehouse/editor/hogqlParserWorkerManager.ts` and
+          `frontend/src/scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts`
+          both do this. A same-origin file needs no `blob:` allowance at all.
+
+          A bundled library that ships its own blob worker is fine, because its body is a
+          compile-time constant. This rule covers first-party code.
+
+          If a dynamic body is genuinely unavoidable, put `// nosemgrep: no-dynamic-worker-body`
+          on the line before it with a reason, and state where the body comes from and why
+          no input can reach it.
+      severity: ERROR
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - frontend/src
+              - products
+              - common
+          exclude:
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+      patterns:
+          - pattern-either:
+                # A Blob assembled inline, then handed straight to a worker.
+                - pattern: new $WORKER(URL.createObjectURL(new Blob(...)), ...)
+                - pattern: new $WORKER(window.URL.createObjectURL(new Blob(...)), ...)
+                # A `data:` or `blob:` worker URL concatenated or interpolated from a value.
+                - pattern: new $WORKER("..." + $X, ...)
+                - pattern: |
+                      new $WORKER(`...${$X}...`, ...)
+          # Without this every `new Error(`...${x}...`)` in the tree matches.
+          - metavariable-regex:
+                metavariable: $WORKER
+                regex: ^(Worker|SharedWorker)$
+      metadata:
+          category: security
+          confidence: MEDIUM
+          references:
+              - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/worker-src
