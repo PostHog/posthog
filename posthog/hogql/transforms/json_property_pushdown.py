@@ -1,16 +1,12 @@
-from typing import TypeVar, cast
-
-from django.db import models
-from django.db.models.functions.comparison import Coalesce
+from typing import Literal, TypeVar, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.property_metadata import PropertyMetadata, load_property_metadata
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
-
-from posthog.models import PropertyDefinition, Team
 
 _T_AST = TypeVar("_T_AST", bound=ast.AST)
 
@@ -19,19 +15,21 @@ _T_AST = TypeVar("_T_AST", bound=ast.AST)
 # rewrite would change the result type; those are intentionally left untouched.
 STRING_EXTRACT_FUNCTIONS = {"JSONExtractString"}
 
-# PropertyDefinition types that PropertySwapper rewrites a property access into a non-String expression
-# (Numeric -> toFloat, Boolean -> toBool, DateTime -> toDateTime). Wrapping one of those in `ifNull(..., '')`
-# has no common ClickHouse supertype with the '' String, so a JSONExtractString on such a property must NOT
-# be rewritten; it is left as-is (JSONExtractString already returns a non-nullable String).
+# PropertySwapper turns a property access with one of these definition types into a non-String expression
+# (toFloat / toBool / toDateTime), and ClickHouse has no supertype for `ifNull(<non-String>, '')`.
 SWAP_TYPED_PROPERTY_TYPES = {"Numeric", "Boolean", "DateTime"}
 
-# (definition type, group type index, property name) -> whether the property is swap-typed.
-_SwapTypedCache = dict[tuple[int, int | None, str], bool]
+# Where PropertySwapper buckets a lazy-table property: ("person", None) or ("group", group_type_index).
+# None where it never retypes the property, such as `FROM groups` without a `group_id` global.
+_SwapperBucket = tuple[Literal["person", "group"], int | None] | None
+_LazyProperty = tuple[_SwapperBucket, str]
 
 
-def _matched_property_access(node: ast.AST, context: HogQLContext):
+def _matched_property_access(
+    node: ast.AST, context: HogQLContext
+) -> tuple[list[str | int], str, _SwapperBucket] | None:
     """If `node` is `JSONExtractString(<lazy-table JSON field>, '<constant key>')`, return
-    (field_chain, key, table_type) so it can be rewritten to a property access. Otherwise return None."""
+    (field_chain, key, swapper_bucket) so it can be rewritten to a property access. Otherwise return None."""
     if not isinstance(node, ast.Call) or node.name not in STRING_EXTRACT_FUNCTIONS or len(node.args) != 2:
         return None
 
@@ -60,7 +58,20 @@ def _matched_property_access(node: ast.AST, context: HogQLContext):
     if not isinstance(field_type.resolve_database_field(context), StringJSONDatabaseField):
         return None
 
-    return inner.chain, key.value, table_type
+    return inner.chain, key.value, _swapper_bucket(table_type, context)
+
+
+def _swapper_bucket(table_type: ast.LazyTableType | ast.LazyJoinType, context: HogQLContext) -> _SwapperBucket:
+    """Mirrors PropertySwapper.visit_field, so the rewrite skips exactly the properties the swapper retypes."""
+    resolved_table = table_type.resolve_database_table(context)
+    if isinstance(resolved_table, (PersonsTable, RawPersonsTable)):
+        return ("person", None)
+    if not isinstance(resolved_table, GroupsTable):
+        return None
+    if isinstance(table_type, ast.LazyJoinType):
+        return ("group", int(table_type.field.split("_")[1])) if table_type.field.startswith("group_") else None
+    group_id = context.globals.get("group_id") if context.globals else None
+    return ("group", group_id) if isinstance(group_id, int) else None
 
 
 def rewrite_json_extract_to_property(node: _T_AST, context: HogQLContext) -> tuple[_T_AST, bool]:
@@ -72,119 +83,86 @@ def rewrite_json_extract_to_property(node: _T_AST, context: HogQLContext) -> tup
     `JSONExtractString(properties, 'name')` requests the whole `properties` field and makes the argMax
     materialize the entire JSON blob per group/person, which can exhaust memory.
 
-    Only String/untyped properties are rewritten. A Numeric/Boolean/DateTime-typed property is type-swapped
-    by PropertySwapper to a non-String expression, and `ifNull(<non-string>, '')` has no common ClickHouse
-    supertype with the '' default (a NO_COMMON_TYPE error). Those are left as the original JSONExtractString,
-    which already returns a String.
-
     Property access returns NULL for a missing key while `JSONExtractString` returns ''; the `ifNull(..., '')`
     wrapper restores that, so the rewrite matches `JSONExtractString` for scalar values and missing keys and
     keeps the non-nullable String type.
 
-    Returns (node, rewritten). When nothing is rewritten the original node is returned unchanged, so the
-    caller can skip the (otherwise wasted) re-resolution. Emits untyped nodes; the caller re-runs type
-    resolution to assign types.
+    A property that PropertySwapper retypes (a Numeric/Boolean/DateTime definition) keeps its
+    `JSONExtractString`, because `ifNull(<non-String>, '')` has no ClickHouse supertype and
+    `JSONExtractString` already returns a String.
+
+    Returns (node, rewritten). When nothing is rewritten the original node comes back unchanged, so the
+    caller can skip re-resolving types. Rewritten nodes are untyped; the caller re-runs type resolution.
     """
-    cache: _SwapTypedCache = {}
-    finder = _Finder(context, cache)
+    finder = _Finder(context)
     finder.visit(node)
-    if not finder.found:
+    rewritable = finder.properties - _type_swapped(finder.properties, context)
+    if not rewritable:
         return node, False
-    return cast(_T_AST, _Transformer(context, cache).visit(node)), True
+    return cast(_T_AST, _Transformer(context, rewritable).visit(node)), True
 
 
-def _is_swap_typed(
-    context: HogQLContext,
-    table_type: ast.LazyTableType | ast.LazyJoinType,
-    property_name: str,
-    cache: _SwapTypedCache,
-) -> bool:
-    """True if `property_name` on this persons/groups table has a Numeric/Boolean/DateTime PropertyDefinition.
-    PropertySwapper rewrites such a property access to a non-String expression, which ifNull(..., '') cannot
-    wrap, so the JSONExtractString rewrite must be skipped for it."""
-    if not context.team_id:
-        return False
-    team = context.team or Team.objects.filter(id=context.team_id).first()
-    if team is None:
-        return False
-    context.team = team
+def _type_swapped(properties: set[_LazyProperty], context: HogQLContext) -> set[_LazyProperty]:
+    """The properties PropertySwapper will retype, resolved through its own metadata loader."""
+    person_names: set[str] = set()
+    group_names: dict[int, set[str]] = {}
+    for bucket, name in properties:
+        if bucket is None:
+            continue
+        kind, group_type_index = bucket
+        if kind == "person":
+            person_names.add(name)
+        elif group_type_index is not None:
+            group_names.setdefault(group_type_index, set()).add(name)
+    if context.team_id is None or not (person_names or group_names):
+        return set()
 
-    resolved_table = table_type.resolve_database_table(context)
-    if isinstance(resolved_table, (PersonsTable, RawPersonsTable)):
-        definition_type = PropertyDefinition.Type.PERSON
-        group_type_index = None
-    elif isinstance(resolved_table, GroupsTable):
-        definition_type = PropertyDefinition.Type.GROUP
-        group_type_index = _group_type_index(context, table_type)
-    else:
-        return False
-
-    cache_key = (int(definition_type), group_type_index, property_name)
-    if cache_key in cache:
-        return cache[cache_key]
-
-    query = PropertyDefinition.objects.alias(
-        effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-    ).filter(
-        effective_project_id=team.project_id,
-        name=property_name,
-        type=definition_type,
-        property_type__in=SWAP_TYPED_PROPERTY_TYPES,
+    metadata = load_property_metadata(
+        context,
+        event_property_names=set(),
+        person_property_names=person_names,
+        group_property_names=group_names,
     )
-    # When the group type index is unknown (e.g. `FROM groups` without a group_id), match any group type for
-    # the name: if any is non-String, skip the rewrite to stay safe.
-    if group_type_index is not None:
-        query = query.filter(group_type_index=group_type_index)
-
-    result = query.exists()
-    cache[cache_key] = result
-    return result
+    return {(bucket, name) for bucket, name in properties if _is_type_swapped(metadata, bucket, name)}
 
 
-def _group_type_index(context: HogQLContext, table_type: ast.LazyTableType | ast.LazyJoinType) -> int | None:
-    if isinstance(table_type, ast.LazyJoinType) and table_type.field.startswith("group_"):
-        return int(table_type.field.split("_")[1])
-    if isinstance(table_type, ast.LazyTableType) and context.globals:
-        group_id = context.globals.get("group_id")
-        if isinstance(group_id, int):
-            return group_id
-    return None
+def _is_type_swapped(metadata: PropertyMetadata, bucket: _SwapperBucket, name: str) -> bool:
+    if bucket is None:
+        return False
+    kind, group_type_index = bucket
+    if kind == "person":
+        info = metadata.person_properties.get(name)
+    else:
+        info = metadata.group_properties.get(f"{group_type_index}_{name}")
+    return (info or {}).get("type") in SWAP_TYPED_PROPERTY_TYPES
 
 
 class _Finder(TraversingVisitor):
-    def __init__(self, context: HogQLContext, cache: _SwapTypedCache):
+    def __init__(self, context: HogQLContext):
         super().__init__()
         self.context = context
-        self.cache = cache
-        self.found = False
-
-    def visit(self, node: ast.AST | None):
-        if not self.found:
-            super().visit(node)
+        self.properties: set[_LazyProperty] = set()
 
     def visit_call(self, node: ast.Call):
         matched = _matched_property_access(node, self.context)
         if matched is not None:
-            _chain, key, table_type = matched
-            # Only a rewritable (String/untyped) match counts. Skipping swap-typed matches here keeps the
-            # caller from running the rewrite + re-resolution for queries where nothing would be rewritten.
-            if not _is_swap_typed(self.context, table_type, key, self.cache):
-                self.found = True
-                return
+            _chain, key, bucket = matched
+            self.properties.add((bucket, key))
+            return
         super().visit_call(node)
 
 
 class _Transformer(CloningVisitor):
-    def __init__(self, context: HogQLContext, cache: _SwapTypedCache):
+    def __init__(self, context: HogQLContext, rewritable: set[_LazyProperty]):
         super().__init__(clear_types=True)
         self.context = context
-        self.cache = cache
+        self.rewritable = rewritable
 
     def visit_call(self, node: ast.Call):
         matched = _matched_property_access(node, self.context)
         if matched is not None:
-            chain, key, table_type = matched
-            if not _is_swap_typed(self.context, table_type, key, self.cache):
+            chain, key, bucket = matched
+            if (bucket, key) in self.rewritable:
                 # JSONExtractString returns '' for a missing key; property access returns NULL. Wrap in
                 # ifNull(..., '') to keep that contract and the non-nullable String type.
                 return ast.Call(

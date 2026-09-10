@@ -1,17 +1,22 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person
 
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import PropertyDefinition
 
 
-class TestJSONPropertyPushdown(BaseTest):
-    def _print(self, query: str) -> str:
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+class TestJSONPropertyPushdown(ClickhouseTestMixin, BaseTest):
+    def _print(self, query: str, group_id: int | None = None) -> str:
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            globals={"group_id": group_id} if group_id is not None else None,
+        )
         printed, _ = prepare_and_print_ast(parse_select(query), context, dialect="clickhouse")
         return printed
 
@@ -69,12 +74,36 @@ class TestJSONPropertyPushdown(BaseTest):
     )
     def test_non_string_typed_property_is_not_rewritten(self, table: str, property_type: str):
         self._define_property(table, "amount", property_type)
-        printed = self._print(f"SELECT JSONExtractString(properties, 'amount') AS amount FROM {table}")
+        printed = self._print(
+            f"SELECT JSONExtractString(properties, 'amount') AS amount FROM {table}",
+            group_id=0 if table == "groups" else None,
+        )
         self.assertIn("JSONExtractString", printed)
         self.assertNotIn("properties___amount", printed)
 
     @parameterized.expand(["groups", "persons"])
     def test_string_typed_property_is_still_rewritten(self, table: str):
         self._define_property(table, "amount", "String")
-        printed = self._print(f"SELECT JSONExtractString(properties, 'amount') AS amount FROM {table}")
+        printed = self._print(
+            f"SELECT JSONExtractString(properties, 'amount') AS amount FROM {table}",
+            group_id=0 if table == "groups" else None,
+        )
         self.assertIn("properties___amount", printed)
+
+    def test_typed_group_property_is_not_rewritten_on_events_join(self):
+        self._define_property("groups", "amount", "Numeric")
+        printed = self._print("SELECT JSONExtractString(group_0.properties, 'amount') AS amount FROM events")
+        self.assertIn("JSONExtractString", printed)
+        self.assertNotIn("properties___amount", printed)
+
+    def test_typed_group_property_is_rewritten_without_group_type_index(self):
+        # PropertySwapper only retypes a `FROM groups` property when a `group_id` global names the group type.
+        self._define_property("groups", "amount", "Numeric")
+        printed = self._print("SELECT JSONExtractString(properties, 'amount') AS amount FROM groups")
+        self.assertIn("properties___amount", printed)
+
+    def test_typed_person_property_json_extract_executes(self):
+        self._define_property("persons", "amount", "Numeric")
+        _create_person(team=self.team, distinct_ids=["d1"], properties={"amount": 100})
+        response = execute_hogql_query("SELECT JSONExtractString(properties, 'amount') FROM persons", self.team)
+        self.assertEqual(response.results[0][0], "100")
