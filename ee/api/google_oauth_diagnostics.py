@@ -116,7 +116,7 @@ def _start_probes(job: Callable[[], None]) -> bool:
 
     try:
         Thread(target=run, name="google-oauth-diagnostics", daemon=True).start()
-    except RuntimeError:
+    except Exception:
         _PROBE_SLOTS.release()
         return False
     return True
