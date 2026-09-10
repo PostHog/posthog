@@ -3155,6 +3155,32 @@ class TestPrinter(BaseTest):
             f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 3)",
         )
 
+    @parameterized.expand(
+        [
+            ("dateSub_day", "dateSub('day', 6, today())", "minus(today(), toIntervalDay(6))"),
+            ("dateAdd_month", "dateAdd('month', 1, today())", "plus(today(), toIntervalMonth(1))"),
+            ("unit_is_case_insensitive", "dateAdd('YEAR', 1, today())", "plus(today(), toIntervalYear(1))"),
+            ("unit_can_be_plural", "dateSub('weeks', 2, today())", "minus(today(), toIntervalWeek(2))"),
+            (
+                "interval_form_is_untouched",
+                "dateAdd(today(), toIntervalDay(1))",
+                "dateAdd(today(), toIntervalDay(1))",
+            ),
+        ]
+    )
+    def test_date_arithmetic_with_unit(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("unsupported_unit", "dateAdd('fortnight', 1, today())", "Unsupported unit 'fortnight'"),
+            ("unit_from_a_column", "dateSub(event, 1, today())", "requires a constant string"),
+        ]
+    )
+    def test_date_arithmetic_with_bad_unit(self, _name: str, expr: str, message: str):
+        with self.assertRaisesMessage(QueryError, message):
+            self._expr(expr)
+
     def test_functions_expecting_datetime_arg(self):
         self.assertEqual(
             self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1')) as t"),
