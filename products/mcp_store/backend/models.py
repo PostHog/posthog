@@ -256,7 +256,6 @@ class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel)
         db_table = "mcp_store_mcpserverinstallationtool"
         unique_together = [("installation", "tool_name")]
         indexes = [
-            models.Index(fields=["installation", "approval_state"]),
             models.Index(fields=["installation", "removed_at"]),
         ]
 
