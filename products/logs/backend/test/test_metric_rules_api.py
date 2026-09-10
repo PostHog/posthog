@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
@@ -13,7 +13,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.logs.backend.models import MAX_ENABLED_METRIC_RULES, LogsMetricRule
 from products.logs.backend.presentation.filter_group_validation import MAX_FILTER_GROUP_LEAF_VALUES
-from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleSerializer
+from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleSerializer, LogsMetricRuleViewSet
 
 VALID_FILTER_GROUP = {
     "type": "AND",
@@ -488,6 +488,21 @@ class TestLogsMetricRulesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert self.client.get(detail_url).status_code == status.HTTP_200_OK
+
+    def test_required_scopes_survive_schema_generation_context(self):
+        # drf-spectacular calls dangerously_get_required_scopes with a mock request and
+        # no team context for every action. It must not crash (KeyError on team_id) —
+        # regressing this broke `hogli build:openapi`.
+        view = LogsMetricRuleViewSet()
+        view.action_map = {}
+        for action in ("create", "update", "partial_update", "destroy", "list"):
+            view.action = action
+            view.kwargs = {}
+            scopes = view.dangerously_get_required_scopes(Mock(data={}), view)
+            if action in ("create", "update", "partial_update", "destroy"):
+                assert scopes == ["logs:write", "metrics:write"], (action, scopes)
+            else:
+                assert scopes is None, (action, scopes)
 
     def test_span_rule_write_scopes_include_tracing_read(self):
         key_value = generate_random_token_personal()

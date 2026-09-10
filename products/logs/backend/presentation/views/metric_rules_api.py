@@ -317,9 +317,17 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _write_targets_spans(self, request: Request) -> bool:
         if self.action == "create":
-            return request.data.get("source") == LogsMetricRule.RecordSource.SPANS
+            # drf-spectacular calls this with a mock request during schema generation;
+            # a missing body means "no submitted source", not a crash.
+            data = getattr(request, "data", None) or {}
+            return data.get("source") == LogsMetricRule.RecordSource.SPANS
         if self.action in ("update", "partial_update", "destroy"):
-            instance = self.get_object()
+            try:
+                instance = self.get_object()
+            except Exception:
+                # get_object() needs a resolved team (schema generation has none) — a 404
+                # is a failed lookup too, and in both cases there is no spans rule to gate.
+                return False
             return instance.source == LogsMetricRule.RecordSource.SPANS
         return False
 
