@@ -15,8 +15,10 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
+from django.db import connection
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -146,6 +148,34 @@ class TestLoginPrecheckAPI(APIBaseTest):
         self.assertEqual(len(response_data["webauthn_credentials"]), 1)
         self.assertEqual(response_data["webauthn_credentials"][0]["type"], "public-key")
         self.assertEqual(response_data["webauthn_credentials"][0]["transports"], ["internal", "hybrid"])
+
+    def test_login_precheck_offers_only_the_resolved_accounts_passkeys(self):
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        abandoned = User.objects.create_and_join(self.organization, "twin@posthog.com", None)
+        in_use = User.objects.create_and_join(self.organization, "twin-alt@posthog.com", self.CONFIG_PASSWORD)
+        User.objects.filter(pk=in_use.pk).update(email="Twin@posthog.com", last_login=timezone.now())
+        for owner, credential_id in ((abandoned, b"abandoned-credential"), (in_use, b"in-use-credential")):
+            WebauthnCredential.objects.create(
+                user=owner,
+                credential_id=credential_id,
+                label="Passkey",
+                public_key=b"test-public-key",
+                algorithm=-7,
+                counter=0,
+                transports=["internal"],
+                verified=True,
+            )
+
+        response = self.client.post("/api/login/precheck", {"email": "twin@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [credential["id"] for credential in response.json()["webauthn_credentials"]],
+            [bytes_to_base64url(b"in-use-credential")],
+        )
 
     def test_login_precheck_does_not_return_unverified_webauthn_credentials(self):
         from posthog.models.webauthn_credential import WebauthnCredential
@@ -341,6 +371,20 @@ class TestLoginAPI(APIBaseTest):
     """
 
     CONFIG_AUTO_LOGIN = False
+
+    def test_login_resolves_the_email_through_the_indexed_lower_fold(self):
+        self.user.is_email_verified = True
+        self.user.save()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # `posthog_user` has an expression index on `LOWER(email)` only, so an `UPPER` comparison
+        # from `email__iexact` falls back to a sequential scan on every login attempt.
+        user_lookups = [q["sql"] for q in queries.captured_queries if 'FROM "posthog_user"' in q["sql"]]
+        self.assertTrue(user_lookups)
+        self.assertFalse([sql for sql in user_lookups if "UPPER(" in sql])
 
     @patch("posthoganalytics.capture")
     def test_user_logs_in_with_email_and_password(self, mock_capture):

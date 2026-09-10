@@ -286,7 +286,7 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
+        existing_user = EmailLookupHandler.get_user_by_email(validated_data["email"], is_active=None)
         evaluate_auth_attempt(
             request=request._request,
             email=validated_data["email"],

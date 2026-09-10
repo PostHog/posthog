@@ -199,3 +199,16 @@ class TestUser(BaseTest):
         for typed_email in ("dup@example.com", "Dup@example.com", "DUP@example.com"):
             with self.subTest(email=typed_email):
                 self.assertEqual(User.objects.get_by_natural_key(typed_email), newer)
+
+    def test_get_by_natural_key_prefers_the_active_case_variant(self):
+        active = User.objects.create(email="Shadow@example.com")
+        active.last_login = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+        active.save(update_fields=["last_login"])
+
+        deactivated = User.objects.create(email="shadow@example.com", is_active=False)
+        deactivated.last_login = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
+        deactivated.save(update_fields=["last_login"])
+
+        for typed_email in ("shadow@example.com", "Shadow@example.com"):
+            with self.subTest(email=typed_email):
+                self.assertEqual(User.objects.get_by_natural_key(typed_email), active)
