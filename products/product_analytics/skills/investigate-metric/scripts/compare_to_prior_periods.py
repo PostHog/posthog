@@ -7,8 +7,7 @@ as a file path. Auto-detects interval and picks the right cycle:
     minute → no cycle, rolling (last N vs preceding N)
     hour   → weekly cycle (168 buckets, weekday × hour-of-day)
     day    → weekly cycle (7 buckets, weekday)
-    week   → no cycle, sequential
-    month  → no cycle, sequential
+    week, month, quarter, year → no cycle, sequential
 
 Use after step 2.1 of SKILL.md to resolve the variance question (step 2.2).
 
@@ -55,6 +54,8 @@ INTERVAL_STEPS = {
 }
 
 SUB_DAY_INTERVALS = {"second", "minute", "hour"}
+
+CALENDAR_MONTHS = {"month": 1, "quarter": 3, "year": 12}
 
 
 def load_input() -> dict:
@@ -161,9 +162,10 @@ def stamp(dt: datetime, interval: str) -> str:
 
 def next_bucket_start(dt: datetime, interval: str) -> datetime:
     """Start of the bucket after the one beginning at dt."""
-    if interval == "month":
-        year, month = (dt.year + 1, 1) if dt.month == 12 else (dt.year, dt.month + 1)
-        return dt.replace(year=year, month=month, day=1)
+    months = CALENDAR_MONTHS.get(interval)
+    if months is not None:
+        shifted = dt.month - 1 + months
+        return dt.replace(year=dt.year + shifted // 12, month=shifted % 12 + 1, day=1)
     return dt + INTERVAL_STEPS.get(interval, timedelta(days=1))
 
 
@@ -520,7 +522,7 @@ def main() -> int:
     elif interval == "week":
         recent_n = int(recent_override) if recent_override else 4
         report_sequential(label, points, interval, recent_n, tolerance, now)
-    elif interval == "month":
+    elif interval in {"month", "quarter", "year"}:
         recent_n = int(recent_override) if recent_override else 3
         report_sequential(label, points, interval, recent_n, tolerance, now)
     else:

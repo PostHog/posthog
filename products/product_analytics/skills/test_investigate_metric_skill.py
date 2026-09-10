@@ -103,13 +103,20 @@ def test_completed_terminal_day_keeps_its_anomaly_verdict(monkeypatch, capsys, t
     assert "1 completed weekday(s) outside" in out
 
 
-def test_in_progress_terminal_month_is_excluded_from_the_anomaly_count(monkeypatch, capsys, tmp_path):
-    days = [f"2026-{month:02d}-01" for month in range(3, 10)]
-    payload = build_payload(days, [50_000.0, 52_000.0, 51_000.0, 53_000.0, 49_000.0, 50_500.0, 9_000.0], "month")
+@pytest.mark.parametrize(
+    ("interval", "days"),
+    [
+        ("month", [f"2026-{month:02d}-01" for month in range(3, 10)]),
+        ("quarter", [f"{y}-{m:02d}-01" for y in (2025, 2026) for m in (1, 4, 7, 10)][:7]),
+        ("year", [f"{year}-01-01" for year in range(2020, 2027)]),
+    ],
+)
+def test_in_progress_terminal_period_is_excluded_from_the_anomaly_count(monkeypatch, capsys, tmp_path, interval, days):
+    payload = build_payload(days, [50_000.0, 52_000.0, 51_000.0, 53_000.0, 49_000.0, 50_500.0, 9_000.0], interval)
 
     out = run(monkeypatch, capsys, tmp_path, payload, now="2026-09-10T12:00:00-07:00")
 
-    assert "PARTIAL" in table_row(out, "2026-09-01")
+    assert "PARTIAL" in table_row(out, days[-1])
     assert "within normal variance" in out
 
 
