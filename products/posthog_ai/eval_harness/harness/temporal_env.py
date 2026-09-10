@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
+import datetime as dt
 import threading
 
 from django.conf import settings
@@ -22,6 +23,12 @@ from products.tasks.backend.facade.temporal import (
 )
 
 logger = logging.getLogger(__name__)
+
+# This worker serves one throwaway eval run, so it has nothing worth draining for
+# minutes on shutdown. Cap the graceful drain below the join timeout in stop() so a
+# slow in-flight activity does not leave the worker thread hanging past teardown.
+WORKER_GRACEFUL_SHUTDOWN_TIMEOUT = dt.timedelta(seconds=5)
+WORKER_STOP_JOIN_TIMEOUT_SECONDS = 15
 
 
 def temporal_client_target(env: WorkflowEnvironment) -> tuple[str, str]:
@@ -139,6 +146,7 @@ class TemporalWorkerThread:
             activities=TASKS_ACTIVITIES + NOTEBOOK_ACTIVITIES,  # type: ignore[arg-type]
             max_concurrent_workflow_tasks=self._max_concurrent_workflow_tasks,
             max_concurrent_activities=self._max_concurrent_activities,
+            graceful_shutdown_timeout=WORKER_GRACEFUL_SHUTDOWN_TIMEOUT,
             enable_combined_metrics_server=False,
         )
         logger.info("Eval temporal worker created")
@@ -152,10 +160,13 @@ class TemporalWorkerThread:
     def stop(self) -> None:
         self._loop.call_soon_threadsafe(self._stop_event.set)
         if self._thread is not None:
-            self._thread.join(timeout=10)
+            self._thread.join(timeout=WORKER_STOP_JOIN_TIMEOUT_SECONDS)
             if self._thread.is_alive():
                 # The loop is still running the worker; closing it now would raise.
                 # Leak it rather than risk a RuntimeError masking the real teardown.
-                logger.warning("Eval temporal worker thread did not join in 10s; leaving its loop open")
+                logger.warning(
+                    "Eval temporal worker thread did not join in %ds; leaving its loop open",
+                    WORKER_STOP_JOIN_TIMEOUT_SECONDS,
+                )
                 return
         self._loop.close()
