@@ -1,8 +1,10 @@
 import base64
 import hashlib
+import ipaddress
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -10,6 +12,8 @@ from rest_framework.test import APIClient
 
 from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel, OAuthGrant
+
+PUBLIC_IPS = {ipaddress.ip_address("93.184.216.34")}
 
 
 class TestDynamicClientRegistration(APIBaseTest):
@@ -41,7 +45,8 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertIsNone(app.organization)
         self.assertIsNone(app.user)
 
-    def test_register_full_client(self):
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IPS)
+    def test_register_full_client(self, _resolve):
         response = self.client.post(
             "/oauth/register/",
             {

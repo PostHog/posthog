@@ -442,31 +442,6 @@ def is_url_allowed(
     return verdict.allowed, verdict.reason
 
 
-def is_url_allowed_by_name(raw_url: str) -> tuple[bool, str | None]:
-    """Validate a URL for SSRF protection from its text alone, with no DNS lookup.
-
-    Returns (True, None) when the URL is acceptable, or (False, reason) when it is not.
-
-    Weaker than ``is_url_allowed``: a registered name that resolves to a private address
-    passes here, because nothing looks it up. Use this where PostHog does not make the
-    request itself, so a lookup on the request path would cost latency without protecting
-    PostHog's own egress. It still rejects the direct forms - an IP literal in a private,
-    loopback, link-local or metadata range, and a name under an internal domain suffix.
-    """
-    if _dev_bypass_enabled():
-        return True, None
-
-    shape_reason = _url_shape_error(raw_url)
-    if shape_reason is not None:
-        return False, shape_reason
-
-    host = _canonicalize_host(urlparse.urlparse(raw_url).hostname or "")
-    blocked_name = _blocked_host_name(host)
-    if blocked_name is not None:
-        return False, blocked_name.reason
-    return True, None
-
-
 def validate_url_and_pin_ips(raw_url: str) -> PinnedUrlVerdict:
     """
     Like ``is_url_allowed`` but also returns the validated IP set.
