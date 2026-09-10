@@ -33,13 +33,15 @@ is_selected() {
 }
 
 mkdir -p "$output_dir"
-find "$output_dir" -maxdepth 1 -type f -name 'junit-product-*.xml' -delete
+find "$output_dir" -maxdepth 1 -type f -name '*junit-product-*.xml' -delete
 
-for report in products/*/junit-product.xml; do
+# retry-junit-product.xml holds the rerun of a product's failed tests, uploaded next
+# to the first report so Trunk sees both the failure and the pass that marks a flake.
+for report in products/*/junit-product.xml products/*/retry-junit-product.xml; do
     [ -f "$report" ] || continue
     if ! is_excluded "$report"; then
         product="$(basename "$(dirname "$report")")"
-        cp "$report" "$output_dir/junit-product-$product.xml"
+        cp "$report" "$output_dir/$(basename "$report" .xml)-$product.xml"
     fi
 done
 

@@ -1082,6 +1082,7 @@ jobs:
                       echo "::notice::Checked-out revision predates the person-on-events default, running product tests in legacy mode"
                       export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
+                  echo "PERSON_ON_EVENTS_V2_ENABLED=$PERSON_ON_EVENTS_V2_ENABLED" >> "$GITHUB_ENV"
                   # A workflow edit reaches an open PR before the script edit does, so a
                   # branch that has not rebased still plans the flat {filters, pytest_args}
                   # shape. Normalize that into one leg rather than requiring the new key.
@@ -1115,6 +1116,48 @@ jobs:
                   set -e
                   exit $overall
 
+            # Reruns only the tests that failed, once, in this job, into a separate report.
+            # Trunk still receives the first report, so the failure keeps counting as flake
+            # signal, while a pass on the rerun lets the job go green. The script exits
+            # non-zero when nothing can be retried, and the verdict then falls back to the
+            # first run's outcome. The job checks out the PR head, so a head that predates
+            # the script gets no retry.
+            - name: Retry failed product tests
+              id: retry-product-tests
+              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' }}
+              continue-on-error: true
+              env:
+                  # Same credentials and mode as "Run product tests".
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
+                  MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
+                  # --lf reruns the tests pytest's cache recorded as failed; --last-failed-no-failures
+                  # none runs nothing when that cache is empty, which the script reports as a
+                  # failed retry. No --splits, --store-durations or --cov: the rerun is not a shard.
+                  PYTEST_ADDOPTS: >-
+                      --reuse-db
+                      --junitxml=retry-junit-product.xml
+                      --lf --last-failed-no-failures none
+                      ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
+              shell: bash
+              run: |
+                  if [ ! -f .github/scripts/retry-failed-tests.sh ]; then
+                      echo "::notice::Checked-out revision has no retry script, keeping the first run's outcome"
+                      exit 1
+                  fi
+                  bash .github/scripts/retry-failed-tests.sh 'products/*/junit-product.xml' 'products/*/retry-junit-product.xml' -- bash -c '
+                      overall=0
+                      for report in $FAILED_REPORTS; do
+                          package_json="$(dirname "$report")/package.json"
+                          package_name="$(node -e "process.stdout.write(JSON.parse(require(\"fs\").readFileSync(process.argv[1], \"utf8\")).name)" "$package_json")"
+                          echo "::group::retry turbo backend:test --filter=$package_name"
+                          turbo run backend:test --filter="$package_name" --concurrency=1 --output-logs=full --force --log-order=stream || overall=1
+                          echo "::endgroup::"
+                      done
+                      exit $overall
+                  '
+
             # Stages every product's report under a per-product filename. Pass a report path to
             # exclude a product from Trunk quarantine; this step then owns that product's verdict.
             - name: Prepare product JUnit for Trunk
@@ -1141,15 +1184,15 @@ jobs:
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: ./.github/actions/trunk-quarantine-gate
               with:
-                  junit-paths: trunk-junit/junit-product-*.xml
-                  previous-step-outcome: ${{ steps.run-product-tests.outcome }}
+                  junit-paths: trunk-junit/*junit-product-*.xml
+                  previous-step-outcome: ${{ steps.retry-product-tests.outcome == 'success' && 'success' || steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Sits before the timing-data upload so
             # a real failure still skips it, as it did before the test step got continue-on-error.
             - name: Fail on test failure
-              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success'))) }}
+              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && steps.retry-product-tests.outcome != 'success' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
@@ -3341,6 +3384,7 @@ jobs:
                       echo "::notice::Checked-out revision predates the person-on-events default, running Core in legacy mode"
                       export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
+                  echo "PERSON_ON_EVENTS_V2_ENABLED=$PERSON_ON_EVENTS_V2_ENABLED" >> "$GITHUB_ENV"
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
                   # file granularity only when the installed pytest-split offers them, else
                   # duration_based_chunks / item. A workflow edit runs merged with master, so
@@ -3369,6 +3413,8 @@ jobs:
                       # no --reruns (fail loud on the narrow subset).
                       # The full run below also runs without --reruns: retries mask the raw flake
                       # signal Trunk needs, and the quarantine gate is the flake net instead.
+                      # "Retry failed Django tests" reruns a failed shard's failures into a
+                      # separate report, so Trunk still gets this run's signal.
                       if [[ "${{ matrix.compat }}" == "true" ]]; then
                           targets="$COMPAT_FILES"
                       elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
@@ -3376,6 +3422,7 @@ jobs:
                       else
                           targets="$CORE_FILES"
                       fi
+                      echo "PYTEST_RETRY_TARGETS=$targets" >> "$GITHUB_ENV"
                       # A selection wide enough to need more than one shard is split like a
                       # full run. Item granularity on purpose: the target list is already
                       # narrow, so pre-import file skipping saves nothing, and the per-segment
@@ -3394,19 +3441,16 @@ jobs:
                           $PYTEST_ARGS
                   else
                     full_targets="posthog ee/"
-                    full_ignores=()
+                    full_ignores=(--ignore=posthog/temporal --ignore=posthog/dags --ignore=common/hogvm/python/test --ignore=posthog/test/repo_invariants)
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                         full_targets="./posthog/clickhouse/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
+                    echo "PYTEST_RETRY_TARGETS=$full_targets ${full_ignores[*]}" >> "$GITHUB_ENV"
                     # shellcheck disable=SC2086
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
-                        --ignore=posthog/temporal \
-                        --ignore=posthog/dags \
-                        --ignore=common/hogvm/python/test \
-                        --ignore=posthog/test/repo_invariants \
                         "${full_ignores[@]}" \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 --store-durations \
@@ -3516,6 +3560,7 @@ jobs:
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
                                           --splitting-algorithm="$SPLITTING_ALGORITHM")
                       fi
+                      echo "PYTEST_RETRY_TARGETS=$TEMPORAL_FILES" >> "$GITHUB_ENV"
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
@@ -3529,6 +3574,7 @@ jobs:
                       # anyway, so the shard dies either way) and was the reason the
                       # transaction=True overhead in async tests looked like "the
                       # timeout problem" instead of a per-test cost worth fixing.
+                      echo "PYTEST_RETRY_TARGETS=posthog/temporal products/signals/backend/emission" >> "$GITHUB_ENV"
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
@@ -3547,6 +3593,42 @@ jobs:
                   else
                       exit $exit_code
                   fi
+
+            # Reruns only the tests that failed, once, in this job, into a separate report.
+            # Trunk still receives the first report, so the failure keeps counting as flake
+            # signal, while a pass on the rerun lets the job go green. The script exits
+            # non-zero when nothing can be retried, and the verdict then falls back to the
+            # first run's outcome. This job checks out the PR head, so a head that predates
+            # the script gets no retry. One step serves both segments: only the segment's
+            # own test step can have failed.
+            - name: Retry failed Django tests
+              id: retry-django-tests
+              if: ${{ !cancelled() && (steps.run-core-tests.outcome == 'failure' || steps.run-temporal-tests.outcome == 'failure') }}
+              continue-on-error: true
+              shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
+              env:
+                  # Same credentials and mode as the test steps; PERSON_ON_EVENTS_V2_ENABLED
+                  # and PYTEST_RETRY_TARGETS arrive through GITHUB_ENV from the step that ran.
+                  AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
+                  MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
+                  MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  SEGMENT: ${{ matrix.segment == 'Core' && 'core' || 'temporal' }}
+              run: |
+                  if [ ! -f .github/scripts/retry-failed-tests.sh ]; then
+                      echo "::notice::Checked-out revision has no retry script, keeping the first run's outcome"
+                      exit 1
+                  fi
+                  # --lf reruns the tests pytest's cache recorded as failed; --last-failed-no-failures
+                  # none runs nothing when that cache is empty, which the script reports as a
+                  # failed retry. No --splits, --store-durations or --cov: the rerun is not a shard.
+                  # shellcheck disable=SC2086
+                  bash .github/scripts/retry-failed-tests.sh "junit-$SEGMENT.xml" "retry-junit-$SEGMENT.xml" -- \
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call $PYTEST_RETRY_TARGETS -m "not async_migrations" \
+                          --lf --last-failed-no-failures none \
+                          -r fEsxX \
+                          --junitxml="retry-junit-$SEGMENT.xml" \
+                          $PYTEST_ARGS
 
             - name: Save hypothesis constants cache
               # One Core shard per master run writes the weekly entry: a save from
@@ -3663,11 +3745,11 @@ jobs:
               if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
-                  junit-paths: junit-core.xml
+                  junit-paths: '*junit-core.xml'
                   org-slug: posthog-inc
                   cli-version: '0.13.7'
                   quarantine: true
-                  previous-step-outcome: ${{ steps.run-core-tests.outcome }}
+                  previous-step-outcome: ${{ steps.retry-django-tests.outcome == 'success' && 'success' || steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Quarantine gate (Temporal)
               id: quarantine_gate_temporal
@@ -3675,16 +3757,16 @@ jobs:
               if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
-                  junit-paths: junit-temporal.xml
+                  junit-paths: '*junit-temporal.xml'
                   org-slug: posthog-inc
                   cli-version: '0.13.7'
                   quarantine: true
-                  previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
+                  previous-step-outcome: ${{ steps.retry-django-tests.outcome == 'success' && 'success' || steps.run-temporal-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
             - name: Fail on test failure
-              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
+              if: ${{ !cancelled() && steps.retry-django-tests.outcome != 'success' && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
