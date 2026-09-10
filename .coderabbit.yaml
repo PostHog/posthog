@@ -22,6 +22,16 @@ reviews:
         # Draft PRs will be eligible when automatic reviews are enabled later.
         drafts: true
 
+    # Content rules shared with Greptile (.greptile/config.json "instructions"), so the two reviews can be compared.
+    path_instructions:
+        - path: '**/*'
+          instructions: >-
+              Do not comment on alphabetical sorting, trailing commas, or formatting. Linters catch these.
+              Judge code by four simplicity rules: it passes all the tests, expresses every idea it needs
+              to express, says everything once and only once, and has no superfluous parts.
+              Prefer parameterised tests over near-duplicate test functions.
+              In async Python, flag blocking synchronous calls such as ORM queries, HTTP requests, file I/O, and sleep.
+
     pre_merge_checks:
         # PostHog documents selectively and does not enforce docstring coverage.
         docstrings:

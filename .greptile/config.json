@@ -4,13 +4,25 @@
     "triggerOnDrafts": true,
     "fileChangeLimit": 100,
     "disabledLabels": ["no-greptile"],
+    "instructions": "Be direct and concise: state the issue, its impact, and the fix, with no preamble or praise.\nDo not comment on alphabetical sorting, trailing commas, or formatting. Linters catch these.\nJudge code by four simplicity rules: it passes all the tests, expresses every idea it needs to express, says everything once and only once, and has no superfluous parts.\nPrefer parameterised tests over near-duplicate test functions.\nIn async Python, flag blocking synchronous calls such as ORM queries, HTTP requests, file I/O, and sleep.",
     "shouldUpdateDescription": false,
-    "summarySection": { "included": false },
-    "confidenceScoreSection": { "included": false },
-    "issuesTableSection": { "included": false },
-    "sequenceDiagramSection": { "included": false },
+    "summarySection": {
+        "included": false
+    },
+    "confidenceScoreSection": {
+        "included": false
+    },
+    "issuesTableSection": {
+        "included": false
+    },
+    "sequenceDiagramSection": {
+        "included": false
+    },
     "fixWithAI": true,
     "statusCheck": false,
     "statusCommentsEnabled": false,
-    "autoApprove": { "enabled": false, "riskCeiling": "low" }
+    "autoApprove": {
+        "enabled": false,
+        "riskCeiling": "low"
+    }
 }
