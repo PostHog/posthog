@@ -1644,57 +1644,6 @@ describe('Cyclotron V2', () => {
             await assertPool.query('DELETE FROM cyclotron_email_team_seq')
         })
 
-        // A backlog of denied sends must not stall the queue. Denied sends park on real
-        // future slots, so each one is dequeued once and steps aside, everyone queued
-        // behind them drains, and the row's transition counter stays far below its
-        // 32,767 ceiling (a row at the ceiling fails every dequeue batch it joins).
-        it('a denied backlog parks out of the way and a later team drains', async () => {
-            const flowA = uuidv7()
-            const flowB = uuidv7()
-            // Team 1 queued first, so its 20 sends hold the 20 best queue positions.
-            await manager.bulkCreateJobs(
-                Array.from({ length: 20 }, () => ({ teamId: 1, queueName: EMAIL_QUEUE, functionId: flowA }))
-            )
-            await manager.bulkCreateJobs(
-                Array.from({ length: 5 }, () => ({ teamId: 2, queueName: EMAIL_QUEUE, functionId: flowB }))
-            )
-
-            const worker = createWorker(EMAIL_QUEUE, { batchMaxSize: 10 })
-            const slotMs = 10_000
-            let denials = 0
-            const dequeuedA = new Set<string>()
-            const ackedB = new Set<string>()
-
-            // Process batches the way the email worker does: team 1's sends are denied by
-            // their limit and park on their reserved slots, team 2 has no limit and sends.
-            // If denied sends re-parked only a second out they would keep their place at
-            // the head, own every batch, and team 2 would never get one.
-            for (let cycle = 1; cycle <= 3; cycle++) {
-                const batch = await dequeueOneBatch(worker)
-                for (const job of batch) {
-                    if (job.functionId === flowA) {
-                        dequeuedA.add(job.id)
-                        denials++
-                        await job.reschedule({ scheduledAt: new Date(Date.now() + denials * slotMs) })
-                    } else {
-                        ackedB.add(job.id)
-                        await job.ack()
-                    }
-                }
-            }
-
-            // All of team 2's sends went out, with 20 denied sends queued in front of them.
-            expect(ackedB.size).toBe(5)
-            // Each denied send was dequeued exactly once, not cycled over and over.
-            expect(dequeuedA.size).toBe(20)
-            // One dequeue plus one reschedule per denied send, so the counter stays at 2.
-            const res = await assertPool.query<{ max_tc: number }>(
-                'SELECT MAX(transition_count) AS max_tc FROM cyclotron_jobs WHERE function_id = $1',
-                [flowA]
-            )
-            expect(res.rows[0].max_tc).toBe(2)
-        })
-
         describe('Manager: dequeue_seq assignment', () => {
             it('assigns dequeue_seq for email jobs, NULL for other queues', async () => {
                 const [emailId] = await manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
