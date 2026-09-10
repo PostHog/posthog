@@ -15,7 +15,6 @@ jest.mock('scenes/hog-functions/configuration/HogFunctionConfiguration', () => {
     throw new Error('Permission previews must not import the product scene')
 })
 jest.mock('products/posthog_ai/frontend/components/tool/EditDiffRenderer', () => ({
-    DiffStats: () => null,
     DiffEditor: ({ diff }: { diff: { oldText: string; newText: string } }) => (
         <div>
             <span>{diff.oldText}</span>
@@ -104,14 +103,14 @@ describe('HogFunctionPermissionPreview', () => {
         expect(screen.getByText('Original evidence')).toBeInTheDocument()
     })
 
-    it('renders the proposed diff against the matching mounted configuration', () => {
+    it('renders the proposed diff against the matching mounted configuration', async () => {
         jest.mocked(hogFunctionConfigurationLogic.findAllMounted).mockReturnValue([
             { props: { id: 'function-1' }, values: { loaded: true, configuration: { name: 'Original destination' } } },
         ] as ReturnType<typeof hogFunctionConfigurationLogic.findAllMounted>)
         render(<HogFunctionPermissionPreview request={request} fallback={<div>Original evidence</div>} />)
         expect(screen.queryByText('Original evidence')).not.toBeInTheDocument()
         expect(screen.getByText('Name')).toBeInTheDocument()
-        expect(screen.getByText('Original destination')).toBeInTheDocument()
+        expect(await screen.findByText('Original destination')).toBeInTheDocument()
         expect(screen.getByText('Updated destination')).toBeInTheDocument()
     })
 })
