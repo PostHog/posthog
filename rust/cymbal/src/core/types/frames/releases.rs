@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
 use sqlx::Executor;
+use url::Url;
 use uuid::Uuid;
 
 use crate::symbolication::symbol_store::saving::truncate_ref;
@@ -202,7 +203,7 @@ fn sanitize_remote_url(url: &str) -> Option<String> {
         return None;
     }
 
-    let Some(scheme_end) = trimmed.find("://") else {
+    if !trimmed.contains("://") {
         // SSH carries no password, so the `git` in `git@host:owner/repo.git` is a fixed
         // username. Any other userinfo is not an SSH login and may be a token.
         let (authority, path) = trimmed.split_once(':').unwrap_or((trimmed, ""));
@@ -212,31 +213,32 @@ fn sanitize_remote_url(url: &str) -> Option<String> {
         } else {
             Some(trimmed.to_string())
         };
-    };
+    }
 
-    let authority_start = scheme_end + 3;
-    let authority_end = trimmed[authority_start..]
-        .find('/')
-        .map_or(trimmed.len(), |index| authority_start + index);
-    let authority = &trimmed[authority_start..authority_end];
-    let path = &trimmed[authority_end..];
+    // Userinfo must percent-encode `/`, so `https://user:secret/@host/o/r.git` is malformed and
+    // no scan can find where its authority ends. A parser that rejects it fails closed.
+    let Ok(mut parsed) = Url::parse(trimmed) else {
+        return if trimmed.contains('@') {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    };
 
     // `https://host/${TOKEN}@host/o/r.git` is a CI script interpolating one segment too late.
     // The authority parses clean, so userinfo stripping never sees the token.
-    if path_holds_credential(path) {
+    if path_holds_credential(parsed.path()) {
         return None;
     }
 
-    let Some(credentials_end) = authority.rfind('@') else {
+    // Returning the input untouched keeps the parser from reshaping a URL holding no credential.
+    if parsed.username().is_empty() && parsed.password().is_none() {
         return Some(trimmed.to_string());
-    };
+    }
 
-    Some(format!(
-        "{}{}{}",
-        &trimmed[..authority_start],
-        &authority[credentials_end + 1..],
-        path
-    ))
+    parsed.set_username("").ok()?;
+    parsed.set_password(None).ok()?;
+    Some(parsed.to_string())
 }
 
 /// An `@` opening a segment is an npm scope (`/@scope/package`), not a credential.
@@ -384,7 +386,7 @@ mod tests {
     #[test]
     fn event_remote_urls_drop_credentials_query_and_fragment() {
         // `None` means the URL cannot be cleaned, so the key is dropped from the event.
-        let cases: [(&str, Option<&str>); 10] = [
+        let cases: [(&str, Option<&str>); 12] = [
             (
                 "https://user:password@github.com/example/repo.git?token=query#access_token=fragment",
                 Some("https://github.com/example/repo.git"),
@@ -412,6 +414,10 @@ mod tests {
             ("git@github.com:ghs_tokenvalue@example/repo.git", None),
             // SSH has no password slot, so a non-`git` userinfo is not a login.
             ("ghs_tokenvalue@github.com:example/repo.git", None),
+            // An unencoded `/` in the password moves the `@` to the head of a path segment,
+            // where it would otherwise read as a scope.
+            ("https://user:secret/@github.com/example/repo.git", None),
+            ("https://user:sec/ret@github.com/example/repo.git", None),
             ("https://user:ghp_tokenvalue?x@github.com/example/repo.git", None),
             (
                 "https://github.com/example/@scope/package.git",
