@@ -31,6 +31,10 @@ HOST_NOT_ALLOWED_ERROR = "LangSmith host is not allowed"
 # Returned when a cloud connection would send the API key over plaintext HTTP.
 INSECURE_SCHEME_ERROR = "LangSmith host must use https"
 
+# Raised (and registered retryable) when the API answers 429 or 5xx. `_fetch_page` retries it
+# inline; once that budget exhausts, Temporal retries the activity from the saved checkpoint.
+RETRYABLE_API_ERROR = "LangSmith API error (retryable)"
+
 # Raised (and registered non-retryable) when the host loops the runs cursor. A host that returns a
 # cursor we've already paged is stuck or hostile; retrying re-hits the same cursor, so fail for good.
 REPEATED_CURSOR_ERROR = "LangSmith returned a repeated pagination cursor"
@@ -339,7 +343,7 @@ def _fetch_page(
         # 429 and transient 5xx are retryable (runs/query rate limits are tight: 10 req/10s on
         # windows up to 7 days, 3 req/10s beyond); auth/permission errors below are not.
         if response.status_code == 429 or response.status_code >= 500:
-            raise LangSmithRetryableError(f"LangSmith API error (retryable): status={response.status_code}, url={url}")
+            raise LangSmithRetryableError(f"{RETRYABLE_API_ERROR}: status={response.status_code}, url={url}")
 
         # Redirects are disabled as an SSRF boundary; a 3xx means the host tried to bounce the
         # authenticated request elsewhere, so fail instead of parsing (or following) it.
