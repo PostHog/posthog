@@ -244,6 +244,9 @@ export const DataCatalogMetricsChecksPartialUpdateBody = /* @__PURE__ */ zod
 export const DataCatalogMetricsChecksSchedulePartialUpdateBody = /* @__PURE__ */ zod.object({
     interval: zod
         .enum(['1hour', '6hour', '12hour', '24hour', '7day'])
+        .describe(
+            '\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day'
+        )
         .optional()
         .describe(
             'How often all enabled checks on the metric run.\n\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day'

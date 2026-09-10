@@ -22898,6 +22898,13 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    /**
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     */
     export type DataQualityScheduleIntervalEnum = typeof DataQualityScheduleIntervalEnum[keyof typeof DataQualityScheduleIntervalEnum];
 
 
@@ -22912,19 +22919,28 @@ export namespace Schemas {
     export interface DataQualityCheckSchedule {
       /** Schedule identifier. */
       readonly id: string;
-      /** Schedule interval: 1hour, 6hour, 12hour, 24hour, or 7day. */
+      /** How often the checks run.
+       *
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day */
       readonly interval: DataQualityScheduleIntervalEnum;
       /** Whether the schedule runs automatically. */
       readonly enabled: boolean;
-      /** Next scheduled execution time. */
-      readonly next_run_at: string;
       /**
-         * Most recent scheduled execution time.
+         * Next scheduled execution time, if enabled.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite execution time.
          * @nullable
          */
       readonly last_run_at: string | null;
       /**
-         * Most recent suite started by this schedule.
+         * Most recent visible scheduled suite.
          * @nullable
          */
       readonly last_suite_run: string | null;

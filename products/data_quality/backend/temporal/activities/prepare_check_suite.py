@@ -5,6 +5,7 @@ from django.db import models
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade import api as data_modeling_facade
@@ -12,7 +13,8 @@ from products.data_modeling.backend.facade import api as data_modeling_facade
 from ...facade.enums import SubjectType, SuiteRunTrigger
 from ...logic.checks import live_subject_checks
 from ...logic.flags import get_data_quality_checks_flag_for_team_id
-from ...models import DataQualityCheck, DataQualityCheckSchedule, DataQualitySuiteRun
+from ...logic.metric_schedules import MetricScheduleKey, MetricSchedules
+from ...models import DataQualityCheck, DataQualitySuiteRun
 from ..contracts import PreparedSuite, RunCheckSuiteInputs
 
 LOGGER = get_logger(__name__)
@@ -22,13 +24,21 @@ CHECKS_PER_BATCH = 25
 
 @activity.defn
 async def prepare_check_suite_activity(inputs: RunCheckSuiteInputs) -> PreparedSuite:
-    return await sync_to_async(_prepare)(inputs)
+    schedule_enabled = True
+    if inputs.trigger == SuiteRunTrigger.SCHEDULED:
+        if not inputs.schedule_id:
+            raise ValueError("Scheduled suites require a schedule identifier")
+        key = MetricScheduleKey.parse(inputs.schedule_id)
+        if key.team_id != inputs.team_id or inputs.metric_ids != [str(key.metric_id)]:
+            raise ValueError("Schedule subject does not match suite inputs")
+        schedule = await MetricSchedules(await async_connect()).describe(key)
+        schedule_enabled = schedule is not None and not schedule.schedule.state.paused
+    return await sync_to_async(_prepare)(inputs, schedule_enabled=schedule_enabled)
 
 
-def _prepare(inputs: RunCheckSuiteInputs) -> PreparedSuite:
-    checks = _select_checks(inputs) if _checks_enabled(inputs.team_id) and _schedule_wants_run(inputs) else []
+def _prepare(inputs: RunCheckSuiteInputs, *, schedule_enabled: bool = True) -> PreparedSuite:
+    checks = _select_checks(inputs) if _checks_enabled(inputs.team_id) and schedule_enabled else []
     suite_run = _suite_run(inputs)
-    _stamp_schedule(inputs, suite_run)
 
     check_ids = [str(check_id) for check_id in checks]
     batches = [check_ids[start : start + CHECKS_PER_BATCH] for start in range(0, len(check_ids), CHECKS_PER_BATCH)]
@@ -47,30 +57,6 @@ def _checks_enabled(team_id: int) -> bool:
     if enabled is None:
         raise RuntimeError(f"Could not read the data quality checks flag for team {team_id}.")
     return enabled
-
-
-def _schedule_wants_run(inputs: RunCheckSuiteInputs) -> bool:
-    """Whether the schedule that asked for this suite still wants it.
-
-    The dispatcher starts the child before it acknowledges the occurrence, so a pause can reach the
-    row while this suite is already on its way. Read the row again, or the pause runs one more full
-    suite after the API reported it applied.
-    """
-    if inputs.trigger != SuiteRunTrigger.SCHEDULED or not inputs.schedule_id:
-        return True
-    return (
-        DataQualityCheckSchedule.objects.for_team(inputs.team_id).filter(id=inputs.schedule_id, enabled=True).exists()
-    )
-
-
-def _stamp_schedule(inputs: RunCheckSuiteInputs, suite_run: DataQualitySuiteRun) -> None:
-    if inputs.trigger != SuiteRunTrigger.SCHEDULED or not inputs.schedule_id or suite_run.subject_uuid is None:
-        return
-    DataQualityCheckSchedule.objects.for_team(inputs.team_id).filter(
-        id=inputs.schedule_id, subject_type=suite_run.subject_type, subject_uuid=suite_run.subject_uuid
-    ).filter(models.Q(last_run_at__isnull=True) | models.Q(last_run_at__lte=suite_run.started_at)).update(
-        last_run_at=suite_run.started_at, last_suite_run=suite_run, updated_at=datetime.now(UTC)
-    )
 
 
 def _suite_run(inputs: RunCheckSuiteInputs) -> DataQualitySuiteRun:

@@ -15,22 +15,24 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from ..facade.contracts import DISPATCH_SCHEDULED_SUITES_WORKFLOW_NAME
+from .activities.reconcile_schedules import ScheduleReconcileCursor
+from .workflows.reconcile_schedules import RECONCILE_WORKFLOW_NAME
 
 CLEANUP_SCHEDULE_ID = "cleanup-data-quality-check-runs-schedule"
-DISPATCH_SCHEDULE_ID = "dispatch-scheduled-data-quality-suites-schedule"
+RECONCILE_SCHEDULE_ID = "reconcile-data-quality-metric-schedules"
 
 
-async def create_dispatch_scheduled_data_quality_suites_schedule(client: Client) -> None:
+async def create_reconcile_metric_schedules_schedule(client: Client) -> None:
     await _upsert(
         client,
-        DISPATCH_SCHEDULE_ID,
+        RECONCILE_SCHEDULE_ID,
         Schedule(
             action=ScheduleActionStartWorkflow(
-                DISPATCH_SCHEDULED_SUITES_WORKFLOW_NAME,
-                id=DISPATCH_SCHEDULE_ID,
+                RECONCILE_WORKFLOW_NAME,
+                ScheduleReconcileCursor(),
+                id=RECONCILE_SCHEDULE_ID,
                 task_queue=settings.DATA_MODELING_TASK_QUEUE,
-                execution_timeout=dt.timedelta(minutes=15),
+                execution_timeout=dt.timedelta(hours=1),
             ),
             spec=ScheduleSpec(cron_expressions=["*/15 * * * *"]),
             policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),

@@ -15,7 +15,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from ..facade import api
 from ..facade.enums import CheckSeverity, CheckType, CreatedSource, ScheduleInterval, SubjectType
-from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualityCheckSchedule, DataQualitySuiteRun
+from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -257,24 +257,21 @@ class DataQualityCheckScheduleUpdateSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(required=False, help_text="Whether checks run automatically on this schedule.")
 
 
-class DataQualityCheckScheduleSerializer(serializers.ModelSerializer):
-    interval = serializers.SerializerMethodField(help_text="Schedule interval: 1hour, 6hour, 12hour, 24hour, or 7day.")
-
-    class Meta:
-        model = DataQualityCheckSchedule
-        fields = ["id", "interval", "enabled", "next_run_at", "last_run_at", "last_suite_run"]
-        read_only_fields = fields
-        extra_kwargs = {
-            "id": {"help_text": "Schedule identifier."},
-            "enabled": {"help_text": "Whether the schedule runs automatically."},
-            "next_run_at": {"help_text": "Next scheduled execution time."},
-            "last_run_at": {"help_text": "Most recent scheduled execution time."},
-            "last_suite_run": {"help_text": "Most recent suite started by this schedule."},
-        }
-
-    @extend_schema_field(serializers.ChoiceField(choices=list(ScheduleInterval)))
-    def get_interval(self, obj: DataQualityCheckSchedule) -> str:
-        return api.label_from_interval(obj.interval)
+class DataQualityCheckScheduleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Schedule identifier.")
+    interval = serializers.ChoiceField(
+        choices=list(ScheduleInterval), read_only=True, help_text="How often the checks run."
+    )
+    enabled = serializers.BooleanField(read_only=True, help_text="Whether the schedule runs automatically.")
+    next_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Next scheduled execution time, if enabled."
+    )
+    last_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Most recent visible scheduled suite execution time."
+    )
+    last_suite_run = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Most recent visible scheduled suite."
+    )
 
 
 @extend_schema_serializer(component_name="DataQualityCheckRun")
