@@ -173,7 +173,12 @@ class _DateRangeSerializer(serializers.Serializer):
 
 class _LogPropertyFilterSerializer(serializers.Serializer):
     key = serializers.CharField(
-        help_text='Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").',
+        help_text=(
+            'Attribute key. For type "log", use "message" for the body text, or a log column: '
+            '"pattern" and "pattern_version" (the patterns pivot), "severity_level", "service_name", '
+            '"trace_id", "span_id". For "log_attribute"/"log_resource_attribute", use the attribute '
+            'key (e.g. "k8s.container.name").'
+        ),
     )
     type = serializers.ChoiceField(
         choices=_LOG_PROPERTY_TYPE_CHOICES,
