@@ -31,6 +31,7 @@ from products.notebooks.backend.util import (
     _get_markdown_notebook_markdown,
     _iter_markdown_component_blocks,
     _parse_markdown_component_props,
+    iter_markdown_blocks,
 )
 
 _CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight"}
@@ -56,6 +57,8 @@ class NotebookCellState:
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
     last_run: dict[str, Any] | None = None
+    start: int = 0
+    end: int = 0
 
 
 def extract_cells(content: Any) -> list[NotebookCellState]:
@@ -235,4 +238,40 @@ def build_notebook_cell_state(team_id: int, notebook: Any) -> list[NotebookCellS
     for cell in cells:
         if len(cell.code) > _CODE_PREVIEW_CHARS:
             cell.code = cell.code[:_CODE_PREVIEW_CHARS] + "\n… [truncated]"
-    return cells
+    # Prose is added after the truncation above, and must stay that way. An editor that edits a
+    # block by id compares the source it read against the document to find the block again when
+    # the offsets no longer fit. A truncated source never matches, so the edit fails.
+    return _merge_prose_cells(cells, notebook.content)
+
+
+def _merge_prose_cells(cells: list[NotebookCellState], content: Any) -> list[NotebookCellState]:
+    """Return every cell in document order, with the notebook's prose blocks added.
+
+    Prose carries no run state and no dataframe, so it takes no part in the dependency graph.
+    It is listed so a caller can address a paragraph, a heading, or a fenced block by id.
+    """
+    markdown = _get_markdown_notebook_markdown(content)
+    if markdown is None:
+        return cells
+
+    by_node_id = {cell.node_id: cell for cell in cells}
+    ordered: list[NotebookCellState] = []
+    for block in iter_markdown_blocks(markdown):
+        if block.kind == "prose":
+            ordered.append(
+                NotebookCellState(
+                    node_id=block.node_id,
+                    cell_type="markdown",
+                    code=block.source,
+                    start=block.start,
+                    end=block.end,
+                )
+            )
+            continue
+        cell = by_node_id.get(block.node_id)
+        if cell is None:
+            continue
+        cell.start = block.start
+        cell.end = block.end
+        ordered.append(cell)
+    return ordered

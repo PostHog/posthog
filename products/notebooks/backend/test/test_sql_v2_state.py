@@ -23,6 +23,7 @@ from products.notebooks.backend.sql_v2_variables import (
     substitute_duckdb_variables,
     substitute_hogql_variables,
 )
+from products.notebooks.backend.util import iter_markdown_blocks
 
 
 def markdown_content(markdown: str) -> dict[str, Any]:
@@ -125,6 +126,37 @@ def cells_markdown(count: int) -> dict[str, Any]:
     )
 
 
+class TestMarkdownBlockSpans(SimpleTestCase):
+    MARKDOWN = (
+        "# Title\n\n"
+        "Some prose.\nA second line.\n\n"
+        '<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />\n\n'
+        "```python\nx = 1\n\ny = 2\n```\n\n"
+        "Closing paragraph."
+    )
+
+    def test_every_block_span_slices_back_to_its_source(self) -> None:
+        # An update addresses a block by offset, so an off-by-one here overwrites a neighbour or
+        # leaves a fragment behind.
+        blocks = list(iter_markdown_blocks(self.MARKDOWN))
+        assert [self.MARKDOWN[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+
+    def test_a_fenced_block_stays_whole_across_its_blank_line(self) -> None:
+        sources = [block.source for block in iter_markdown_blocks(self.MARKDOWN)]
+        assert "```python\nx = 1\n\ny = 2\n```" in sources
+
+    def test_editing_one_block_leaves_the_other_ids_unchanged(self) -> None:
+        before = {block.node_id for block in iter_markdown_blocks(self.MARKDOWN)}
+        edited = self.MARKDOWN.replace("Closing paragraph.", "Rewritten paragraph.")
+        after = {block.node_id for block in iter_markdown_blocks(edited)}
+        assert len(before - after) == 1
+        assert len(after - before) == 1
+
+    def test_identical_prose_blocks_get_distinct_ids(self) -> None:
+        blocks = list(iter_markdown_blocks("Same text.\n\nSame text."))
+        assert len({block.node_id for block in blocks}) == 2
+
+
 class TestCellCountLimit(SimpleTestCase):
     @parameterized.expand(
         [
@@ -148,6 +180,10 @@ class TestCellCountLimit(SimpleTestCase):
         # cannot delete cells down to get under it.
         over = MAX_NOTEBOOK_CELLS + 5
         validate_cell_count(cells_markdown(over), cells_markdown(over + delta))
+
+    def test_prose_does_not_count_toward_the_ceiling(self) -> None:
+        prose = "\n\n".join(f"Paragraph {index}." for index in range(MAX_NOTEBOOK_CELLS * 2))
+        validate_cell_count(None, markdown_content(prose))
 
     def test_a_notebook_already_over_the_ceiling_still_cannot_grow(self) -> None:
         over = MAX_NOTEBOOK_CELLS + 5
@@ -308,3 +344,4 @@ class TestNotebookCellState(APIBaseTest):
         assert by_node["p"]["status"] == "never_run"
         assert by_node["p"]["depends_on"] == ["s"]
         assert by_node["s"]["last_run"]["run_id"]
+        assert data["markdown"][by_node["s"]["start"] : by_node["s"]["end"]].startswith('<SQLV2 nodeId="s"')

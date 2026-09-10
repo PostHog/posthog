@@ -24,6 +24,9 @@ interface MockState {
     runStatusResponses: any[]
     createBodies: any[]
     patchBodies: any[]
+    // Cells the sql_v2 state endpoint reports. Supplied per test: the spans are the backend's
+    // job, and `test_sql_v2_state.py` covers how it derives them.
+    stateCells?: any[]
 }
 
 function markdownContent(markdown: string): Record<string, unknown> {
@@ -42,6 +45,9 @@ function createMockContext(state: MockState): Context {
                 throw new Error('No queued run status response')
             }
             return next
+        }
+        if (opts.method === 'GET' && path.endsWith('/sql_v2/state/')) {
+            return { notebook_id: 'aBcD1234', markdown: state.markdown, cells: state.stateCells ?? [] }
         }
         if (opts.method === 'GET') {
             return {
@@ -447,7 +453,7 @@ describe('notebook cell tools', () => {
         expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('code="select 2"')
         expect(state.runBodies[0]).toMatchObject({ node_id: 'target', code: 'select 2' })
         expect(state.runBodies[0]).not.toHaveProperty('variables')
-        expect(result.stale_dependents).toEqual([{ node_id: 'reader', dataframe_name: 'out' }])
+        expect(result).toMatchObject({ stale_dependents: [{ node_id: 'reader', dataframe_name: 'out' }] })
         // Write-back replaces the stale runId in place.
         const writtenBack = state.saveBodies[1].content.content[0].attrs.markdown
         expect(writtenBack).toContain('runId="run-1"')
@@ -586,6 +592,93 @@ describe('notebook cell tools', () => {
                     attrs: { nodeId: 'markdown-notebook-v2', markdown: '# Signup analysis\n\nIntro.' },
                 },
             ],
+        })
+    })
+    describe('markdown cells', () => {
+        const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
+        // Spans of "First paragraph." in DOC, as the backend reports them.
+        const FIRST = { node_id: 'mdp-abc-0', cell_type: 'markdown', code: 'First paragraph.', start: 9, end: 25 }
+
+        it('replaces the addressed block and leaves its neighbours untouched', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            const result = await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: FIRST.node_id,
+                markdown: 'Rewritten paragraph.',
+            })
+
+            expect(result).toMatchObject({ node_id: FIRST.node_id, updated: true })
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toBe(
+                ['# Title', '', 'Rewritten paragraph.', '', 'Second paragraph.'].join('\n')
+            )
+        })
+
+        it.each([
+            ['terminated', '<SQLV2 nodeId="x" code="select 1" />'],
+            // parseCellTags reports nothing for this one, which is why the guard is lexical.
+            ['unterminated', '<PythonV2 nodeId="x" code="a\n\nb" />'],
+        ])('refuses markdown carrying a %s component tag', async (_name, injected) => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: `Intro.\n${injected}`,
+                })
+            ).rejects.toThrow(/notebooks-add-cell/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('falls back to the block text when the document moved under the offsets', async () => {
+            const state = makeState(`Inserted above.\n\n${DOC}`)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: FIRST.node_id,
+                markdown: 'Rewritten paragraph.',
+            })
+
+            const saved = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(saved).toContain('Rewritten paragraph.')
+            expect(saved).toContain('Second paragraph.')
+        })
+
+        it('refuses to guess when the block text is no longer unique', async () => {
+            const state = makeState(`${DOC}\n\nFirst paragraph.`)
+            state.stateCells = [{ ...FIRST, start: 999, end: 1015 }]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Rewritten.',
+                })
+            ).rejects.toThrow(/Re-read the notebook/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it.each([
+            ['code on a markdown cell', { node_id: FIRST.node_id, code: 'select 1' }, /is a markdown cell/],
+            ['markdown on a runnable cell', { node_id: 'target', markdown: 'text' }, /is a sql cell/],
+            ['both content parameters', { node_id: 'target', code: 'select 1', markdown: 'text' }, /not both/],
+        ])('routes %s to the right parameter', async (_name, params, expected) => {
+            const state = makeState(['<SQLV2 nodeId="target" code="select 1" returnVariable="df" />'].join('\n'))
+            state.stateCells = [FIRST, { node_id: 'target', cell_type: 'sql', code: 'select 1', start: 0, end: 58 }]
+            const context = createMockContext(state)
+
+            await expect(updateCellHandler(context, { notebook_id: 'aBcD1234', ...params } as any)).rejects.toThrow(
+                expected
+            )
+            expect(state.saveBodies).toHaveLength(0)
         })
     })
 })

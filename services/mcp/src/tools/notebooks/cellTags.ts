@@ -120,6 +120,15 @@ export function buildCellTag(tagName: string, props: Record<string, unknown>): s
  * starts at a line beginning with `<TagName` and runs until a line ending in `/>` (or a
  * closing tag) — a blank line terminates an unclosed tag without swallowing the document.
  */
+/**
+ * Lexical on purpose. `parseCellTags` reports nothing for a tag that never terminates, and that
+ * is the case that corrupts a document, so a guard built on the parser would pass exactly the
+ * input it must reject.
+ */
+export function startsComponentTag(line: string): boolean {
+    return TAG_START_REGEX.test(line.trim())
+}
+
 export function parseCellTags(markdown: string): CellTagBlock[] {
     const blocks: CellTagBlock[] = []
     const lines = markdown.split('\n')
