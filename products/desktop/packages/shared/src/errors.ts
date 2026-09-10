@@ -101,23 +101,22 @@ const ORG_LIMIT_PATTERNS = [
   "user sustained rate limit exceeded",
 ] as const;
 
-/**
- * The LLM gateway refused the request because PostHog's own upstream provider
- * credentials were rejected (`provider_credentials_rejected`), not because the
- * caller ran out of credits. The raw provider wording reads like an account
- * problem, so without this the failure is indistinguishable from a usage limit.
- * The provider codes and prose are kept as a fallback for a gateway that has not
- * shipped the typed classification yet, and mirror the gateway's rejection
- * signals (_CREDENTIAL_REJECTION_CODES / _CREDENTIAL_REJECTION_SIGNATURES in
- * services/llm-gateway/src/llm_gateway/api/handler.py). A revoked or mistyped key
- * fails with `invalid_api_key` / "incorrect api key provided", as routine an
- * event as an organization mismatch.
- */
-const PROVIDER_CREDENTIAL_PATTERNS = [
-  "provider_credentials_rejected",
-  "credentials were rejected",
+const PROVIDER_CREDENTIAL_STATUS_REGEX = /API Error:\s*(?:400|401|403)\b/i;
+const PROVIDER_AUTH_STATUS_REGEX = /API Error:\s*(?:401|403)\b/i;
+const PROVIDER_CREDENTIAL_ERROR_FIELD_REGEX =
+  /"(?:type|code)"\s*:\s*"(?:provider_credentials_rejected|invalid_organization|invalid_api_key|unrecognizedclientexception)"/i;
+const PROVIDER_CREDENTIAL_MESSAGE_REGEX =
+  /^PostHog's [a-z0-9_-]+ credentials were rejected\./i;
+
+// Older gateways return provider-specific errors. Trust their text only with a
+// 401 or 403 status because a request-controlled 400 can echo it.
+const LEGACY_PROVIDER_CREDENTIAL_PATTERNS = [
   "invalid_organization",
   "invalid_api_key",
+  "authentication_error",
+  "invalid x-api-key",
+  "unrecognizedclientexception",
+  "security token included in the request is invalid",
   "organization tied to the api key",
   "no such organization",
   "incorrect api key provided",
@@ -181,9 +180,13 @@ export function isProviderCredentialError(
   errorMessage: string,
   errorDetails?: string,
 ): boolean {
+  const value = [errorMessage, errorDetails].filter(Boolean).join(" ");
   return (
-    includesAny(errorMessage, PROVIDER_CREDENTIAL_PATTERNS) ||
-    includesAny(errorDetails, PROVIDER_CREDENTIAL_PATTERNS)
+    PROVIDER_CREDENTIAL_MESSAGE_REGEX.test(value) ||
+    (PROVIDER_CREDENTIAL_STATUS_REGEX.test(value) &&
+      PROVIDER_CREDENTIAL_ERROR_FIELD_REGEX.test(value)) ||
+    (PROVIDER_AUTH_STATUS_REGEX.test(value) &&
+      includesAny(value, LEGACY_PROVIDER_CREDENTIAL_PATTERNS))
   );
 }
 
@@ -251,7 +254,10 @@ export function classifyPromptFailure(
   const message = getErrorMessage(error) || String(error);
   // Checked before the limit patterns: a rejected gateway credential is not the caller's
   // limit, and retrying it only repeats the same refusal.
-  if (isProviderCredentialError(message, errorDetails)) {
+  if (
+    errorType === "provider_credentials_rejected" ||
+    isProviderCredentialError(message, errorDetails)
+  ) {
     return {
       kind: "provider_credentials",
       message,

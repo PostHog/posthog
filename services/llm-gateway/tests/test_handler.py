@@ -228,11 +228,26 @@ class TestProviderFailureClassification:
         )
 
     @pytest.mark.asyncio
-    async def test_handle_llm_request_removes_caller_headers(
+    async def test_handle_llm_request_removes_only_top_level_caller_headers(
         self,
         authenticated_user: AuthenticatedUser,
     ) -> None:
         captured: dict[str, Any] = {}
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "send_request",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "headers": {"type": "object"},
+                            "extra_headers": {"type": "object"},
+                        },
+                    },
+                },
+            }
+        ]
 
         async def capture_call(**kwargs: Any) -> dict[str, Any]:
             captured.update(kwargs)
@@ -244,6 +259,7 @@ class TestProviderFailureClassification:
                 "headers": {"Authorization": "Bearer attacker"},
                 "extra_headers": {"OpenAI-Organization": "attacker"},
                 "temperature": 0,
+                "tools": tools,
             },
             user=authenticated_user,
             model="test-model",
@@ -252,4 +268,4 @@ class TestProviderFailureClassification:
             llm_call=capture_call,
         )
 
-        assert captured == {"model": "test-model", "temperature": 0}
+        assert captured == {"model": "test-model", "temperature": 0, "tools": tools}

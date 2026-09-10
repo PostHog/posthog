@@ -184,6 +184,12 @@ describe("classifyPromptFailure", () => {
       "provider_credentials",
       false,
     ],
+    [
+      `API Error: 400 {"error":{"message":"PostHog's openai credentials were rejected.","type":"provider_credentials_rejected","code":"provider_credentials_rejected"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
     // Wording a gateway that predates the classification still sends.
     [
       `API Error: 401 {"error":{"message":"You do not have access to the organization tied to the API key.","code":"invalid_organization"}}`,
@@ -198,6 +204,30 @@ describe("classifyPromptFailure", () => {
       undefined,
       "provider_credentials",
       false,
+    ],
+    [
+      `API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    [
+      `API Error: 400 {"Error":{"Code":"UnrecognizedClientException","Message":"The security token included in the request is invalid"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    [
+      `API Error: 400 {"error":{"message":"Model 'provider_credentials_rejected' is not supported","type":"invalid_request_error","code":"model_not_supported"}}`,
+      undefined,
+      "unknown",
+      false,
+    ],
+    [
+      `API Error: 400 {"error":{"message":"Model 'authentication_error' is not supported","type":"invalid_request_error","code":"model_not_supported"}}`,
+      undefined,
+      "authentication",
+      true,
     ],
     ["process exited", undefined, "fatal_session", true],
     ["invalid model", undefined, "unknown", false],
