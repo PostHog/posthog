@@ -459,6 +459,24 @@ def test_check_passes_on_missing_file(runner: CliRunner, tmp_path: Path) -> None
     assert result.exit_code == 0
 
 
+def test_due_lists_entries_that_fail_check_in_the_requested_days(runner: CliRunner, tmp_path: Path) -> None:
+    entries = [
+        raw_entry(
+            id=f"posthog/test_{name}.py",
+            added=(TODAY - timedelta(days=20)).isoformat(),
+            expires=(TODAY - timedelta(days=expired_days_ago)).isoformat(),
+        )
+        for name, expired_days_ago in (("week_out", 1), ("not_due", 3), ("tomorrow", 7))
+    ]
+    path = write_file(tmp_path / "q.json", entries)
+    result = cli(runner, path, "due", "--in-days", "7", "--in-days", "1")
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "• `posthog/test_tomorrow.py` (@team-devex): fails check on 2026-06-11 (1d)",
+        "• `posthog/test_week_out.py` (@team-devex): fails check on 2026-06-17 (7d)",
+    ]
+
+
 def test_repo_quarantine_file_is_valid(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(core, "today_utc", WALL_CLOCK_TODAY_UTC)
     assert core.QUARANTINE_PATH.name == ".test_quarantine.json"

@@ -7,6 +7,7 @@ Schema contract and selector grammar: ``hogli_commands.quarantine.core``.
     hogli test:quarantine list [--json]
     hogli test:quarantine remove <id>
     hogli test:quarantine check [--grace-days 7]
+    hogli test:quarantine due --in-days 7 [--in-days 1]
 """
 
 from __future__ import annotations
@@ -141,6 +142,25 @@ def check(path: Path, grace_days: int) -> None:
     if violations:
         raise SystemExit(1)
     click.echo(f"{path.name} OK ({len(result.entries)} entries).")
+
+
+@quarantine.command(name="due", help="List entries that start failing `check` in exactly the given number of days.")
+@click.option(
+    "--in-days",
+    "in_days",
+    type=click.IntRange(min=1),
+    multiple=True,
+    required=True,
+    help="Days until `check` fails. Repeat to match several distances.",
+)
+@click.pass_obj
+def due(path: Path, in_days: tuple[int, ...]) -> None:
+    today = core.today_utc()
+    for entry in sorted(core.load(path).entries, key=lambda e: e.id):
+        fails_on = core.check_failure_date(entry)
+        days_left = (fails_on - today).days
+        if days_left in in_days:
+            click.echo(f"• `{entry.id}` ({entry.owner}): fails check on {fails_on.isoformat()} ({days_left}d)")
 
 
 # Direct invocation needs only click + stdlib (used by test-quarantine.yml to

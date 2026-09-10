@@ -332,6 +332,11 @@ def _validate_name_qualified_selector(selector: str) -> str | None:
     return None
 
 
+def check_failure_date(entry: Entry, grace_days: int = DEFAULT_GRACE_DAYS) -> date:
+    """First day ``check`` rejects ``entry`` for outliving the grace period."""
+    return entry.expires + timedelta(days=grace_days + 1)
+
+
 def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS) -> tuple[list[str], list[str]]:
     """Lint a loaded quarantine file; returns (violations, warnings).
 
@@ -365,7 +370,7 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
             violations.append(f"{label}: added {entry.added} is in the future")
 
         expired_for = (today - entry.expires).days
-        if expired_for > grace_days:
+        if today >= check_failure_date(entry, grace_days):
             violations.append(f"{label}: expired {expired_for} days ago (grace is {grace_days}) — remove or re-triage")
         elif expired_for > 0:
             days_left = grace_days - expired_for
