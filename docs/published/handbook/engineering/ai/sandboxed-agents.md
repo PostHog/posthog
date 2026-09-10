@@ -33,12 +33,6 @@ The run thread shows startup state in a progress accordion, with completed steps
 Before progress arrives, it shows "Setting up sandbox", including when resuming a finished run.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
-In the PostHog AI composer, selecting the Codex harness selects GPT-5.6 Sol by default.
-A saved model preference takes priority if the model is available for the selected harness.
-The composer uses the user's project preference over the project default, as resolved by the server.
-If neither the saved model nor GPT-5.6 Sol is available, the composer selects the first available Codex model.
-This selection does not change saved settings or the model of an active run.
-
 ```text
 Your product code
     │
