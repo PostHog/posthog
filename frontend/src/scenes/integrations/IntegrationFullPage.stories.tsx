@@ -44,11 +44,11 @@ type Story = StoryObj<typeof IntegrationFullPage>
 
 // integrationsLogic loads from the environments endpoint, not projects
 export const NotConnected: Story = {
-    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [] } } })],
+    decorators: [mswDecorator({ get: { '/api/projects/:id/integrations': { results: [] } } })],
 }
 
 export const Connected: Story = {
-    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [mockIntegration] } } })],
+    decorators: [mswDecorator({ get: { '/api/projects/:id/integrations': { results: [mockIntegration] } } })],
 }
 
 // A connect attempt the provider sent back without a code. Slack answers `access_denied` both when
@@ -70,7 +70,7 @@ export const SlackNotConfigured: Story = {
                     realm: Realm.Cloud,
                     slack_service: { available: false, client_id: null },
                 },
-                '/api/environments/:id/integrations': { results: [] },
+                '/api/projects/:id/integrations': { results: [] },
             },
         }),
     ],
@@ -82,7 +82,7 @@ export const GithubNotConnected: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:id/integrations': { results: [] },
+                '/api/projects/:id/integrations': { results: [] },
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],
                     personal_github_connected: false,
@@ -110,7 +110,7 @@ export const NoPermission: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:id/integrations': { results: [] },
+                '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/@current/': memberOrganization,
             },
         }),

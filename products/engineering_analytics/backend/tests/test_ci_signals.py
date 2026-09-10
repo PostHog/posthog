@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -796,7 +796,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         ]
         # Both detector calls must read one clock: each keys its source_id on the observation
         # week, so two real-clock reads straddling Monday 00:00 UTC would fail the equality below.
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             findings = detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2)
             assert {f.extra["workflow_name"] for f in findings} == {"red-ci"}
             assert findings[0].source_type == SOURCE_TYPE_BROKEN_DEFAULT_BRANCH

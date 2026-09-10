@@ -1,7 +1,11 @@
-import { CustomBotDefinition, CustomBotField, CustomBotMatcher } from '~/queries/schema/schema-general'
+import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator } from '~/types'
 
 export const CUSTOM_BOT_CATEGORY = 'custom'
-export const MAX_CUSTOM_BOT_DEFINITIONS = 50
+export const MAX_CUSTOM_BOT_RULES = 50
+export const MAX_CONDITIONS_PER_RULE = 10
+// The per-list and per-rule caps multiply, so the aggregate cap is what limits a query.
+export const MAX_TOTAL_CONDITIONS = 100
 export const MAX_PATTERN_LENGTH = 200
 export const MAX_NAME_LENGTH = 100
 
@@ -26,8 +30,20 @@ export const CUSTOM_BOT_FIELD_OPTIONS: { value: CustomBotField; label: string }[
 
 const MATCHER_LABELS: Record<CustomBotMatcher, string> = {
     [CustomBotMatcher.Contains]: 'contains',
+    [CustomBotMatcher.Exact]: 'equals',
     [CustomBotMatcher.Regex]: 'matches regex',
     [CustomBotMatcher.Cidr]: 'is in range',
+}
+
+// "equals" and "contains" sit next to each other in the same select but differ in case handling,
+// so each says which it is.
+const MATCHER_TOOLTIPS: Partial<Record<CustomBotMatcher, string>> = {
+    [CustomBotMatcher.Contains]: 'Case-insensitive',
+    [CustomBotMatcher.Exact]: 'Case-sensitive, matches the whole value',
+}
+
+export function matcherLabel(matcher: CustomBotMatcher): string {
+    return MATCHER_LABELS[matcher]
 }
 
 // Mirrors TRAFFIC_TYPE_BY_CATEGORY in
@@ -45,21 +61,31 @@ export const CUSTOM_BOT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
     { value: 'headless_browser', label: 'Headless browser' },
 ]
 
+const NUMERIC_FIELDS = [CustomBotField.ScreenWidth, CustomBotField.ScreenHeight]
+
 export function fieldLabel(key: CustomBotField): string {
     return CUSTOM_BOT_FIELD_OPTIONS.find((option) => option.value === key)?.label ?? key
 }
 
 /** Comparing an IP to a network range is the only sensible default, and only works on an IP. */
-export function matcherOptionsFor(key: CustomBotField): { value: CustomBotMatcher; label: string }[] {
+export function matcherOptionsFor(key: CustomBotField): { value: CustomBotMatcher; label: string; tooltip?: string }[] {
     const matchers =
         key === CustomBotField.IP
-            ? [CustomBotMatcher.Cidr, CustomBotMatcher.Contains, CustomBotMatcher.Regex]
-            : [CustomBotMatcher.Contains, CustomBotMatcher.Regex]
-    return matchers.map((matcher) => ({ value: matcher, label: MATCHER_LABELS[matcher] }))
+            ? [CustomBotMatcher.Cidr, CustomBotMatcher.Contains, CustomBotMatcher.Exact, CustomBotMatcher.Regex]
+            : [CustomBotMatcher.Contains, CustomBotMatcher.Exact, CustomBotMatcher.Regex]
+    return matchers.map((matcher) => ({
+        value: matcher,
+        label: MATCHER_LABELS[matcher],
+        tooltip: MATCHER_TOOLTIPS[matcher],
+    }))
 }
 
 export function defaultMatcherFor(key: CustomBotField): CustomBotMatcher {
-    return key === CustomBotField.IP ? CustomBotMatcher.Cidr : CustomBotMatcher.Contains
+    if (key === CustomBotField.IP) {
+        return CustomBotMatcher.Cidr
+    }
+    // A screen dimension is a single number, so equality is the match someone means.
+    return NUMERIC_FIELDS.includes(key) ? CustomBotMatcher.Exact : CustomBotMatcher.Contains
 }
 
 export function patternPlaceholderFor(key: CustomBotField, matcher: CustomBotMatcher): string {
@@ -68,6 +94,10 @@ export function patternPlaceholderFor(key: CustomBotField, matcher: CustomBotMat
     }
     if (matcher === CustomBotMatcher.Regex) {
         return key === CustomBotField.RawUserAgent ? 'AcmeBot/[0-9]+' : '^/api/'
+    }
+    // The contains placeholder for an IP is a prefix, which an equality match can never satisfy.
+    if (matcher === CustomBotMatcher.Exact && key === CustomBotField.IP) {
+        return '192.0.2.55'
     }
     return (
         {
@@ -196,52 +226,77 @@ function parseCidr(pattern: string): { value: bigint; width: bigint; prefix: big
     return { ...parsed, prefix: BigInt(prefixText) }
 }
 
-export function validateCustomBotDefinition(definition: CustomBotDefinition): string | null {
-    if (!definition.name.trim()) {
-        return 'Give this bot a name.'
-    }
-    if (definition.name.length > MAX_NAME_LENGTH) {
-        return `Name cannot be longer than ${MAX_NAME_LENGTH} characters.`
-    }
-    if (!definition.pattern.trim()) {
-        return definition.matcher === CustomBotMatcher.Cidr
+export function validateCustomBotCondition(condition: CustomBotCondition): string | null {
+    if (!condition.pattern.trim()) {
+        return condition.matcher === CustomBotMatcher.Cidr
             ? 'Add an IP address or range to match.'
             : 'Add a value to match.'
     }
-    if (definition.pattern.length > MAX_PATTERN_LENGTH) {
+    if (condition.pattern.length > MAX_PATTERN_LENGTH) {
         return `Pattern cannot be longer than ${MAX_PATTERN_LENGTH} characters.`
     }
 
-    if (definition.matcher === CustomBotMatcher.Cidr) {
-        if (definition.key !== CustomBotField.IP) {
+    if (condition.matcher === CustomBotMatcher.Cidr) {
+        if (condition.key !== CustomBotField.IP) {
             return 'Ranges only work with the IP address property.'
         }
-        return parseCidr(definition.pattern) ? null : 'This is not a valid IP address or range.'
+        return parseCidr(condition.pattern) ? null : 'This is not a valid IP address or range.'
     }
 
-    if (definition.matcher !== CustomBotMatcher.Regex) {
+    if (condition.matcher !== CustomBotMatcher.Regex) {
         return null
     }
     for (const { pattern, label } of UNSUPPORTED_CONSTRUCTS) {
-        if (pattern.test(definition.pattern)) {
+        if (pattern.test(condition.pattern)) {
             return `This uses a ${label}, which is not supported here.`
         }
     }
     try {
-        compileCustomBotRegex(definition.pattern)
+        compileCustomBotRegex(condition.pattern)
     } catch {
         return 'This is not a valid regular expression.'
     }
     return null
 }
 
-/** Whether a rule matches one property value, mirroring how the rule is compiled for the query. */
-export function matchesValue(definition: CustomBotDefinition, value: string): boolean {
-    if (!value.trim() || validateCustomBotDefinition(definition)) {
+export function validateCustomBotRule(rule: CustomBotRule): string | null {
+    if (!rule.name.trim()) {
+        return 'Give this bot a name.'
+    }
+    if (rule.name.length > MAX_NAME_LENGTH) {
+        return `Name cannot be longer than ${MAX_NAME_LENGTH} characters.`
+    }
+    if (rule.items.length === 0) {
+        return 'Add at least one condition.'
+    }
+    // Dragging a condition into a rule can exceed the cap without ever using the add button.
+    if (rule.items.length > MAX_CONDITIONS_PER_RULE) {
+        return `A rule can have at most ${MAX_CONDITIONS_PER_RULE} conditions.`
+    }
+    for (const condition of rule.items) {
+        const error = validateCustomBotCondition(condition)
+        if (error) {
+            return error
+        }
+    }
+    return null
+}
+
+export function validateCustomBotRuleSet(rules: CustomBotRule[]): string | null {
+    const total = rules.reduce((sum, rule) => sum + rule.items.length, 0)
+    if (total > MAX_TOTAL_CONDITIONS) {
+        return `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules.`
+    }
+    return null
+}
+
+/** Whether a condition matches one property value, mirroring how it is compiled for the query. */
+export function conditionMatchesValue(condition: CustomBotCondition, value: string): boolean {
+    if (!value.trim() || validateCustomBotCondition(condition)) {
         return false
     }
-    if (definition.matcher === CustomBotMatcher.Cidr) {
-        const network = parseCidr(definition.pattern)
+    if (condition.matcher === CustomBotMatcher.Cidr) {
+        const network = parseCidr(condition.pattern)
         const candidate = parseIp(value.trim())
         if (!network || !candidate || network.width !== candidate.width) {
             return false
@@ -249,25 +304,101 @@ export function matchesValue(definition: CustomBotDefinition, value: string): bo
         const mask = ((1n << network.prefix) - 1n) << (network.width - network.prefix)
         return (network.value & mask) === (candidate.value & mask)
     }
-    if (definition.matcher === CustomBotMatcher.Regex) {
+    if (condition.matcher === CustomBotMatcher.Regex) {
         try {
-            return compileCustomBotRegex(definition.pattern).test(value)
+            return compileCustomBotRegex(condition.pattern).test(value)
         } catch {
             return false
         }
     }
-    return value.toLowerCase().includes(definition.pattern.trim().toLowerCase())
+    if (condition.matcher === CustomBotMatcher.Exact) {
+        return value === condition.pattern.trim()
+    }
+    return value.toLowerCase().includes(condition.pattern.trim().toLowerCase())
 }
 
-export function sanitizeCustomBotDefinitions(definitions: CustomBotDefinition[]): CustomBotDefinition[] {
-    return definitions
-        .filter((definition) => definition.name.trim() && definition.pattern.trim())
-        .map((definition) => ({
-            id: definition.id,
-            name: definition.name.trim(),
-            key: definition.key,
-            pattern: definition.pattern.trim(),
-            matcher: definition.matcher,
-            category: definition.category || CUSTOM_BOT_CATEGORY,
+/** Whether a rule matches the test values, one value per property, combined the way the query is. */
+export function ruleMatchesValues(rule: CustomBotRule, values: Partial<Record<CustomBotField, string>>): boolean {
+    if (validateCustomBotRule(rule)) {
+        return false
+    }
+    const matches = rule.items.map((condition) => conditionMatchesValue(condition, values[condition.key] ?? ''))
+    return rule.combiner === FilterLogicalOperator.Or ? matches.some(Boolean) : matches.every(Boolean)
+}
+
+function isCondition(value: unknown): value is CustomBotCondition {
+    if (!value || typeof value !== 'object') {
+        return false
+    }
+    const condition = value as CustomBotCondition
+    // Enum membership matters: an unknown matcher would read as valid in the editor and then 400
+    // on save against the server's strict parsing.
+    return (
+        typeof condition.pattern === 'string' &&
+        CUSTOM_BOT_FIELD_OPTIONS.some((option) => option.value === condition.key) &&
+        Object.values(CustomBotMatcher).includes(condition.matcher)
+    )
+}
+
+/** Read stored rules, dropping entries that do not parse — including any saved by a
+pre-combiner release. One bad entry must not take down the one surface that could fix it; the
+caller compares lengths against the raw list to tell the user a save removes dropped entries.
+
+Minted ids must be deterministic (index-based, not random): the saved-rules comparison runs per
+render, and a random id would read as an endless unsaved change. */
+export function parseCustomBotRules(raw: unknown): CustomBotRule[] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    const rules: CustomBotRule[] = []
+    // A shared or missing id collapses entries in the id-keyed drag-and-drop context.
+    const seenIds = new Set<string>()
+    const uniqueId = (candidate: string, fallback: string): string => {
+        let id = candidate && !seenIds.has(candidate) ? candidate : fallback
+        // The fallback can itself collide with an explicit id that happens to share its shape.
+        let suffix = 0
+        while (seenIds.has(id)) {
+            id = `${fallback}-${suffix++}`
+        }
+        seenIds.add(id)
+        return id
+    }
+    raw.forEach((entry, index) => {
+        if (!entry || typeof entry !== 'object') {
+            return
+        }
+        const current = entry as CustomBotRule
+        if (!Array.isArray(current.items) || typeof current.name !== 'string' || !current.items.every(isCondition)) {
+            return
+        }
+        rules.push({
+            ...current,
+            id: uniqueId(current.id, `rule-${index}`),
+            combiner: current.combiner === FilterLogicalOperator.Or ? current.combiner : FilterLogicalOperator.And,
+            items: current.items.map((condition, conditionIndex) => ({
+                ...condition,
+                id: uniqueId(condition.id, `rule-${index}-${conditionIndex}`),
+            })),
+        })
+    })
+    return rules
+}
+
+export function sanitizeCustomBotRules(rules: CustomBotRule[]): CustomBotRule[] {
+    return rules
+        .map((rule) => ({
+            id: rule.id,
+            name: rule.name.trim(),
+            category: rule.category || CUSTOM_BOT_CATEGORY,
+            combiner: rule.combiner,
+            items: rule.items
+                .filter((condition) => condition.pattern.trim())
+                .map((condition) => ({
+                    id: condition.id,
+                    key: condition.key,
+                    matcher: condition.matcher,
+                    pattern: condition.pattern.trim(),
+                })),
         }))
+        .filter((rule) => rule.name && rule.items.length > 0)
 }
