@@ -155,6 +155,15 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
     return TestQueryRunner
 
 
+_QUERY_SCAN_FLAG_SHOW = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+_QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(mode="log_only", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+
+
+def _calculate_recording_clickhouse_stats(_self):
+    record(rows_read=12, duration_ms=34.0)
+    return TheTestBasicQueryResponse(results=[])
+
+
 class TestQueryRunner(BaseTest):
     maxDiff = None
 
@@ -199,24 +208,14 @@ class TestQueryRunner(BaseTest):
         assert any(w.get("table_name") == "paid_bills" for w in warnings)
         assert any(w.get("resources") == ["insight"] for w in warnings)
 
-    @parameterized.expand(
-        [
-            ("flag on", QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)),
-            ("flag off", None),
-        ]
-    )
+    @parameterized.expand([("flag on", _QUERY_SCAN_FLAG_SHOW), ("flag off", None)])
     def test_query_scan_summary_attached_only_for_a_flagged_team(self, _name, flag):
         TestQueryRunner = self.setup_test_query_runner_class()
-
-        def calculate_with_clickhouse_stats(_self):
-            record(rows_read=12, duration_ms=34.0)
-            return TheTestBasicQueryResponse(results=[])
-
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with (
             mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag),
             mock.patch.object(
-                TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_clickhouse_stats
+                TestQueryRunner, "_calculate", autospec=True, side_effect=_calculate_recording_clickhouse_stats
             ),
         ):
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
@@ -225,47 +224,30 @@ class TestQueryRunner(BaseTest):
             assert response.query_scan is None
         else:
             assert response.query_scan is not None
-            assert response.query_scan.mode == "show"
-            assert response.query_scan.rows_read == 12
-            assert response.query_scan.duration_ms == 34
+            assert (response.query_scan.mode, response.query_scan.rows_read, response.query_scan.duration_ms) == (
+                "show",
+                12,
+                34,
+            )
 
     @parameterized.expand(
         [
-            (
-                "flag turned off",
-                QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
-                None,
-                None,
-            ),
-            (
-                "mode narrowed",
-                QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
-                QueryScanFlag(mode="log_only", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
-                "log_only",
-            ),
-            (
-                "flag turned on",
-                None,
-                QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
-                None,
-            ),
+            ("flag turned off", None, None),
+            ("mode narrowed", _QUERY_SCAN_FLAG_LOG_ONLY, "log_only"),
         ]
     )
-    def test_cache_hit_serves_the_current_query_scan_mode(self, _name, flag_at_write, flag_at_read, expected_mode):
+    def test_cache_hit_serves_the_current_query_scan_mode(self, _name, flag_at_read, expected_mode):
         TestQueryRunner = self.setup_test_query_runner_class()
-
-        def calculate_with_clickhouse_stats(_self):
-            record(rows_read=12, duration_ms=34.0)
-            return TheTestBasicQueryResponse(results=[])
-
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with (
             freeze_time(datetime(2023, 2, 4, 13, 37, 42)),
             mock.patch.object(
-                TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_clickhouse_stats
+                TestQueryRunner, "_calculate", autospec=True, side_effect=_calculate_recording_clickhouse_stats
             ),
         ):
-            with mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag_at_write):
+            with mock.patch(
+                "posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW
+            ):
                 runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             with mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag_at_read):
                 response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
@@ -275,9 +257,11 @@ class TestQueryRunner(BaseTest):
             assert response.query_scan is None
         else:
             assert response.query_scan is not None
-            assert response.query_scan.mode == expected_mode
-            assert response.query_scan.rows_read == 12
-            assert response.query_scan.duration_ms == 34
+            assert (response.query_scan.mode, response.query_scan.rows_read, response.query_scan.duration_ms) == (
+                expected_mode,
+                12,
+                34,
+            )
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()

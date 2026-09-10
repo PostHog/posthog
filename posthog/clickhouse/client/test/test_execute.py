@@ -114,34 +114,29 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
 
 
 def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:
-    return SimpleNamespace(progress=SimpleNamespace(rows=rows, bytes=rows * 10, elapsed_ns=elapsed_ns, written_rows=0))
+    return SimpleNamespace(progress=SimpleNamespace(rows=rows, elapsed_ns=elapsed_ns))
 
 
 class _FakeNativeClient(ClickHouseClient):
     # Nothing here connects, so disconnect() only clears last_query.
-    def __init__(self, query_info: SimpleNamespace, fails: str | None, last_query: SimpleNamespace | None) -> None:
+    def __init__(self, fails: str | None = None, last_query: SimpleNamespace | None = None) -> None:
         super().__init__(host="localhost")
         self.last_query = last_query
-        self._query_info = query_info
         self._fails = fails
 
     def execute(self, *args: Any, **kwargs: Any) -> list[tuple[int]]:
         if self._fails == "connect":
             self.disconnect()
             raise ValueError("Connection refused")
-        self.last_query = self._query_info
+        self.last_query = _fake_query_info(rows=7, elapsed_ns=3_000_000)
         if self._fails == "kill":
             self.disconnect()
             raise ValueError("Memory limit (for query) exceeded")
         return [(1,)]
 
 
-def _native_client(fails: str | None = None, previous_query_info: SimpleNamespace | None = None) -> _FakeNativeClient:
-    return _FakeNativeClient(_fake_query_info(rows=7, elapsed_ns=3_000_000), fails, previous_query_info)
-
-
 def _proxy_client() -> ProxyClient:
-    summary = {"read_rows": "7", "read_bytes": "70", "elapsed_ns": "3000000", "written_rows": "0"}
+    summary = {"read_rows": "7", "elapsed_ns": "3000000"}
     http_client = SimpleNamespace(query=lambda **kwargs: SimpleNamespace(summary=summary, result_set=[(1,)]))
     return ProxyClient(http_client)  # type: ignore[arg-type]
 
@@ -149,11 +144,11 @@ def _proxy_client() -> ProxyClient:
 @pytest.mark.parametrize(
     "make_client,raises,expected",
     [
-        (_native_client, False, (7, 3.0)),
-        (lambda: _native_client(fails="kill"), True, (7, 3.0)),
+        (_FakeNativeClient, False, (7, 3.0)),
+        (lambda: _FakeNativeClient(fails="kill"), True, (7, 3.0)),
         # Counting the previous query's progress would charge this query with another query's rows.
         (
-            lambda: _native_client(fails="connect", previous_query_info=_fake_query_info(rows=99, elapsed_ns=1)),
+            lambda: _FakeNativeClient(fails="connect", last_query=_fake_query_info(rows=99, elapsed_ns=1)),
             True,
             (0, 0.0),
         ),
