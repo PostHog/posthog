@@ -12,6 +12,7 @@ import {
   SKETCHPAD_REMOVE_FRAGMENT_TOOL_NAME,
   SKETCHPAD_SET_STATE_TOOL_NAME,
   SKETCHPAD_UPDATE_FRAGMENT_TOOL_NAME,
+  sealSketchpadText,
   sketchpadAddFragmentShape,
   sketchpadCacheFilePath,
   sketchpadCacheSchema,
@@ -45,7 +46,7 @@ function text(value: string): LocalToolResult {
 }
 
 function sketchpadContent(value: string): LocalToolResult {
-  return text(`${SKETCHPAD_CONTENT_IS_DATA}\n\n${value}`);
+  return text(`${SKETCHPAD_CONTENT_IS_DATA}\n\n${sealSketchpadText(value)}`);
 }
 
 function errorText(value: string): LocalToolResult {
