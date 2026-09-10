@@ -278,7 +278,7 @@ echo -e "\n${C_CYAN}PostHog dev${C_RESET} ${C_DIM}── ${_branch}${C_RESET}\n"
 
 _activation_start=$(date +%s)
 
-# ── Steps 1, 1b, 2 (kicked off in parallel, with AMI cache-skip) ───
+# ── Steps 1, 1b, 2 (kicked off in parallel; uv and pnpm have an AMI cache-skip) ───
 # uv sync, pnpm install, and `make phrocs build` are independent -- none
 # of them reads or writes the other's outputs. Kick the two non-spinner
 # ones off in the background BEFORE foregrounding uv sync, so the wall
@@ -287,23 +287,26 @@ _activation_start=$(date +%s)
 # depend on the venv it populates, and because its run_step spinner remains
 # the user-visible progress indicator for activate.
 #
-# Each step also checks an AMI-bake stamp file (sha256 of the source-of-
-# truth input recorded at bake time): when the on-disk hash matches the
-# baked hash, the workspace is in the same state as the bake and the
-# subprocess would be a no-op, so we skip it entirely. On laptops or
-# pre-stamp workspaces the stamps are missing and the checks fall back
-# to running normally -- no regression.
+# uv sync and pnpm install also check an AMI-bake stamp file (sha256 of the
+# lockfile recorded at bake time): when the on-disk hash matches the baked
+# hash, the workspace is in the same state as the bake and the subprocess
+# would be a no-op, so we skip it entirely. On laptops or pre-stamp
+# workspaces the stamps are missing and the checks fall back to running
+# normally -- no regression.
+#
+# The phrocs build gets no stamp. Its Makefile already compares source and
+# binary timestamps, so `make` is a no-op when nothing changed. A stamp on
+# the built binary would never expire: a devbox pulls master at boot while
+# the binary stays the baked one, so the hash matches forever and the box
+# keeps running a phrocs that predates the config hogli generates.
 _PNPM_LOCK="$FLOX_ENV_PROJECT/pnpm-lock.yaml"
 _UV_LOCK="$FLOX_ENV_PROJECT/uv.lock"
-_PHROCS_BIN="$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs"
 
 _PNPM_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-pnpm-stamp)
 _UV_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-uv-stamp)
-_PHROCS_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-phrocs-stamp)
 
 _PNPM_CURRENT=$(_sha256_file "$_PNPM_LOCK")
 _UV_CURRENT=$(_sha256_file "$_UV_LOCK")
-_PHROCS_CURRENT=$(_sha256_file "$_PHROCS_BIN")
 
 # A stamp says the lockfile matches the bake, not that this checkout has the
 # outputs. A fresh worktree matches every stamp and has neither, so require the
@@ -314,8 +317,6 @@ _PNPM_SKIP=0
 [[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" && -d "$FLOX_ENV_PROJECT/node_modules/.pnpm" ]] && _PNPM_SKIP=1
 _UV_SKIP=0
 [[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" && -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] && _UV_SKIP=1
-_PHROCS_SKIP=0
-[[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
 
 # Seed repo-local git settings here, because package.json's postinstall runs inside
 # the sandbox below, which write-denies .git/config. The postinstall still tries
@@ -362,13 +363,11 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_START=$(date +%s)
 fi
 
-if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
-  _BG_PHROCS_LOG=$(mktemp)
-  _ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
-  ( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
-  _BG_PHROCS_PID=$!
-  _BG_PHROCS_START=$(date +%s)
-fi
+_BG_PHROCS_LOG=$(mktemp)
+_ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
+( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
+_BG_PHROCS_PID=$!
+_BG_PHROCS_START=$(date +%s)
 
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 if [[ "$_UV_SKIP" -eq 1 ]]; then
@@ -406,11 +405,7 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
-if [[ "$_PHROCS_SKIP" -eq 1 ]]; then
-  done_step "Build phrocs (cached)"
-else
-  wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
-fi
+wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
 if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
 fi
