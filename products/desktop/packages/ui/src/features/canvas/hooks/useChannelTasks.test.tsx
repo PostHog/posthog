@@ -242,6 +242,26 @@ describe("useChannelTasks", () => {
     expect(mocks.listFetches.third).toBe(0);
   });
 
+  it("invalidates the space tree and saved searches when filing succeeds", async () => {
+    const treeKey = ["space-tree-tasks", "source"];
+    const searchKey = ["task-feed-results", "space:source"];
+    queryClient.setQueryData(treeKey, { tasks: [], count: 0 });
+    queryClient.setQueryData(searchKey, { tasks: [], isComplete: true });
+    mocks.file.mockResolvedValueOnce({
+      channelId: "dest",
+      taskId: "t1",
+      createdAt: 1,
+    });
+    const { result } = renderHook(useFilingHarness, { wrapper });
+
+    await act(async () => {
+      await result.current.mutations.fileTask("dest", "t1");
+    });
+
+    expect(queryClient.getQueryState(treeKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(searchKey)?.isInvalidated).toBe(true);
+  });
+
   it("invalidates channel lists when unfiling succeeds", async () => {
     const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
 

@@ -2,6 +2,8 @@ import type { ChannelTaskRecord } from "@posthog/core/canvas/channelTaskSchemas"
 import { useHostTRPC } from "@posthog/host-router/react";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { channelFeedQueryRoot } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
+import { spaceTreeTasksQueryRoot } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import { taskFeedResultsQueryRoot } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -117,6 +119,11 @@ export function useChannelTaskMutations() {
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() }),
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) }),
       queryClient.invalidateQueries({ queryKey: channelFeedQueryRoot }),
+      // The space tree and a saved space search each ask the server for one
+      // space's sessions, so a move makes both ends wrong, and both poll far
+      // slower than the move takes.
+      queryClient.invalidateQueries({ queryKey: spaceTreeTasksQueryRoot }),
+      queryClient.invalidateQueries({ queryKey: taskFeedResultsQueryRoot }),
     ]);
 
   const file = useMutation(
