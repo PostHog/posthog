@@ -1,4 +1,6 @@
 import { load } from 'js-yaml'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import type { Context, JsonValue } from './expressions.ts'
 import { type RawStep, type Scenario, type StepStub, type Workflow, flattenSteps } from './plan.ts'
@@ -193,13 +195,29 @@ export function allFiltersChanged(workflow: Workflow): Record<string, Record<str
     return stubs
 }
 
-// The Depot shadow gates its whole graph on a sampling variable and a dice-roll script output.
-// Plan every run as sampled in, because the plan is about the gates behind the sample.
-const DEPOT_SHADOW_VARS: Record<string, string> = { CI_DEPOT_SHADOW_PERCENT: '100' }
-const DEPOT_SHADOW_OUTPUTS: Record<string, Record<string, string>> = { sample: { sampled: 'true' } }
+export const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 
-export function defaultScenarios(workflow: Workflow): Scenario[] {
+type ScriptStubs = Pick<Scenario, 'vars' | 'jobOutputs'>
+
+// Values only a script produces at runtime, without which a workflow's gates cannot be planned.
+const SCRIPT_STUBS: Record<string, ScriptStubs> = {
+    '.github/workflows/release.yml': {
+        jobOutputs: {
+            plan: {
+                val: JSON.stringify({ ci: { github: { artifacts_matrix: { include: null }, pr_run_mode: 'upload' } } }),
+            },
+        },
+    },
+    // The Depot shadow gates its whole graph on a sampling variable and a dice roll; plan it as sampled in.
+    '.depot/workflows/ci-backend.yml': {
+        vars: { CI_DEPOT_SHADOW_PERCENT: '100' },
+        jobOutputs: { sample: { sampled: 'true' } },
+    },
+}
+
+export function defaultScenarios(workflow: Workflow, workflowPath: string): Scenario[] {
     const steps = allFiltersChanged(workflow)
+    const stubs = SCRIPT_STUBS[path.relative(REPO_ROOT, workflowPath).split(path.sep).join('/')] ?? {}
     const scenarios: Scenario[] = [
         { name: 'draft', github: pullRequest({ draft: true }), steps },
         { name: 'ready', github: pullRequest(), steps },
@@ -209,5 +227,5 @@ export function defaultScenarios(workflow: Workflow): Scenario[] {
         { name: 'scheduled', github: schedule(), steps },
         { name: 'dispatched', github: workflowDispatch(), steps },
     ]
-    return scenarios.map((scenario) => ({ ...scenario, vars: DEPOT_SHADOW_VARS, jobOutputs: DEPOT_SHADOW_OUTPUTS }))
+    return scenarios.map((scenario) => ({ ...scenario, ...stubs }))
 }

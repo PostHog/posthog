@@ -14,8 +14,8 @@ The table has one row per job and one column per built-in scenario: `draft`, `re
 A cell reads `▶` for a job that runs, `✗` for one that fails, `⊘` for one that is cancelled, and `.` for a skipped job; a trailing `0` marks a matrix that expands to no cells. A legend under the table repeats this.
 In a terminal the header row is bold and every second row has a shaded background; set `NO_COLOR` to turn that off.
 Every paths filter is stubbed as if all of its filters matched.
-Outputs that scripts produce at runtime are empty, so a job gated on `needs.x.outputs.matrix != ''` shows as skipped until a scenario stubs that output, and a matrix built from such an output has no cell count.
-The Depot shadow in `.depot/workflows/` is planned as sampled in: every scenario sets `vars.CI_DEPOT_SHADOW_PERCENT` and stubs the `sample` job's `sampled` output to `true`, so the table shows the gates behind the sampling roll.
+Outputs that scripts produce at runtime are empty, so a job gated on `needs.x.outputs.matrix != ''` shows as skipped and a matrix built from such an output has no cell count.
+Where a workflow cannot be planned without such a value, `SCRIPT_STUBS` in `src/scenarios.ts` supplies it per workflow path: the release plan output, and the Depot shadow's sampling variable and dice roll so `.depot/workflows/ci-backend.yml` plans as sampled in.
 
 ## Pin the intended behavior in a test
 

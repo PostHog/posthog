@@ -3,14 +3,13 @@ import { readFileSync } from 'node:fs'
 
 import {
     type Context,
-    type ExpressionFunction,
+    type FunctionMap,
     type JsonValue,
     containsExpression,
     evaluateCondition,
     evaluateTemplate,
     evaluateValue,
-    statusFunctions,
-    withNullForEmptyJson,
+    planFunctions,
 } from './expressions.ts'
 
 export type Outcome = 'success' | 'failure' | 'cancelled' | 'skipped'
@@ -161,7 +160,7 @@ function jobOrder(jobs: Record<string, RawJob>): string[] {
 function evaluateEnv(
     raw: Record<string, unknown> | undefined,
     context: Context,
-    functions: Map<string, ExpressionFunction>
+    functions: FunctionMap
 ): Record<string, string> {
     const env: Record<string, string> = {}
     for (const [key, value] of Object.entries(raw ?? {})) {
@@ -170,20 +169,15 @@ function evaluateEnv(
     return env
 }
 
-function resolveMatrixValue(raw: unknown, context: Context, functions: Map<string, ExpressionFunction>): unknown {
+function resolveMatrixValue(raw: unknown, context: Context, functions: FunctionMap): unknown {
     return containsExpression(raw) ? evaluateValue(raw, context, functions) : raw
 }
 
-export function countMatrixCells(
-    rawMatrix: unknown,
-    context: Context,
-    functions: Map<string, ExpressionFunction>
-): number | undefined {
+export function countMatrixCells(rawMatrix: unknown, context: Context, functions: FunctionMap): number | undefined {
     if (rawMatrix === undefined || rawMatrix === null) {
         return undefined
     }
-    const matrixFunctions = withNullForEmptyJson(functions)
-    const matrix = resolveMatrixValue(rawMatrix, context, matrixFunctions)
+    const matrix = resolveMatrixValue(rawMatrix, context, functions)
     if (Array.isArray(matrix)) {
         return matrix.length
     }
@@ -191,14 +185,14 @@ export function countMatrixCells(
         return undefined
     }
     const entries = matrix as Record<string, unknown>
-    const include = resolveMatrixValue(entries['include'], context, matrixFunctions)
+    const include = resolveMatrixValue(entries['include'], context, functions)
     if (include === null) {
         return undefined
     }
     const includeCount = Array.isArray(include) ? include.length : 0
     const axes = Object.entries(entries)
         .filter(([key]) => key !== 'include' && key !== 'exclude')
-        .map(([, value]) => resolveMatrixValue(value, context, matrixFunctions))
+        .map(([, value]) => resolveMatrixValue(value, context, functions))
     if (axes.some((value) => value === null)) {
         return undefined
     }
@@ -207,6 +201,10 @@ export function countMatrixCells(
         return includeCount
     }
     return axisSizes.reduce((product, size) => product * size, 1) + includeCount
+}
+
+function toStepPlan(step: RawStep, index: number, runs: boolean): StepPlan {
+    return { index, id: step.id, name: step.name, uses: step.uses, runs }
 }
 
 function planSteps(
@@ -221,7 +219,7 @@ function planSteps(
     const plans: StepPlan[] = []
     let failed = false
     steps.forEach((step, index) => {
-        const stepStatus = statusFunctions({
+        const stepStatus = planFunctions({
             dependenciesSucceeded: !failed,
             dependenciesFailed: failed,
             cancelled: !!scenario.cancelled,
@@ -245,7 +243,7 @@ function planSteps(
         if (step.id) {
             stepContexts[step.id] = { outputs: runs ? (stub?.outputs ?? {}) : {}, outcome, conclusion }
         }
-        plans.push({ index, id: step.id, name: step.name, uses: step.uses, runs })
+        plans.push(toStepPlan(step, index, runs))
     })
     return { steps: plans, stepContexts, failed }
 }
@@ -265,7 +263,7 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
     const workflowEnv = evaluateEnv(
         workflow.env,
         baseContext,
-        statusFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
     )
 
     for (const jobId of jobOrder(workflow.jobs)) {
@@ -273,7 +271,7 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
         const cancelled = !!scenario.cancelled && !completed.has(jobId)
         const needs = needIds(job)
         const needResults = needs.map((need) => jobs[need]?.result ?? 'success')
-        const status = statusFunctions({
+        const status = planFunctions({
             dependenciesSucceeded: needResults.every((result) => result === 'success'),
             dependenciesFailed: needResults.some((result) => result === 'failure'),
             cancelled,
@@ -309,13 +307,7 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
                 id: jobId,
                 result: cancelled ? 'cancelled' : 'skipped',
                 outputs: {},
-                steps: allSteps.map((step, index) => ({
-                    index,
-                    id: step.id,
-                    name: step.name,
-                    uses: step.uses,
-                    runs: false,
-                })),
+                steps: allSteps.map((step, index) => toStepPlan(step, index, false)),
                 matrixCells: undefined,
                 reusable,
             }
@@ -354,6 +346,11 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
         }
     }
     return { jobs, errors }
+}
+
+export function formatPlanError(scenarioName: string, error: PlanError): string {
+    const site = error.step ? `${error.job}/${error.step}` : error.job
+    return `${scenarioName}: ${site} ${error.where}: ${error.message}`
 }
 
 export function runningJobs(plan: WorkflowPlan): string[] {

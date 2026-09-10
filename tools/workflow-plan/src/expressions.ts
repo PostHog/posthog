@@ -1,14 +1,10 @@
 import { Evaluator, Lexer, Parser, data, wellKnownFunctions } from '@actions/expressions'
+import type { FunctionDefinition } from '@actions/expressions/funcs/info'
+import { truthy } from '@actions/expressions/result'
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 export type Context = Record<string, JsonValue>
-
-export interface ExpressionFunction {
-    name: string
-    minArgs: number
-    maxArgs: number
-    call: (...args: data.ExpressionData[]) => data.ExpressionData
-}
+export type FunctionMap = Map<string, FunctionDefinition>
 
 export interface StatusState {
     dependenciesSucceeded: boolean
@@ -37,130 +33,68 @@ const EMBEDDED_EXPRESSION = /\$\{\{([\s\S]*?)\}\}/g
 
 export const HASH_FILES_STUB = 'workflow-plan-stub-hash'
 
-export function toExpressionData(value: JsonValue | undefined): data.ExpressionData {
-    if (value === null || value === undefined) {
-        return new data.Null()
-    }
-    if (typeof value === 'string') {
-        return new data.StringData(value)
-    }
-    if (typeof value === 'number') {
-        return new data.NumberData(value)
-    }
-    if (typeof value === 'boolean') {
-        return new data.BooleanData(value)
-    }
-    if (Array.isArray(value)) {
-        const array = new data.Array()
-        for (const item of value) {
-            array.add(toExpressionData(item))
-        }
-        return array
-    }
-    const dictionary = new data.Dictionary()
-    for (const [key, item] of Object.entries(value)) {
-        dictionary.add(key, toExpressionData(item))
-    }
-    return dictionary
-}
-
-function booleanFunction(name: string, value: () => boolean): [string, ExpressionFunction] {
+function booleanFunction(name: string, value: () => boolean): [string, FunctionDefinition] {
     return [name, { name, minArgs: 0, maxArgs: 0, call: () => new data.BooleanData(value()) }]
 }
 
-export function statusFunctions(state: StatusState): Map<string, ExpressionFunction> {
-    return new Map<string, ExpressionFunction>([
+// An empty string is an output no script produced at plan time, so it resolves to null instead of failing.
+const FROM_JSON_OR_NULL: FunctionDefinition = {
+    name: 'fromJSON',
+    minArgs: 1,
+    maxArgs: 1,
+    call: (...args) =>
+        args[0]!.coerceString().trim() === '' ? new data.Null() : wellKnownFunctions['fromjson']!.call(...args),
+}
+
+export function planFunctions(state: StatusState): FunctionMap {
+    return new Map<string, FunctionDefinition>([
         booleanFunction('success', () => state.dependenciesSucceeded && !state.cancelled),
         booleanFunction('failure', () => state.dependenciesFailed),
         booleanFunction('cancelled', () => state.cancelled),
         booleanFunction('always', () => true),
         [
             'hashfiles',
-            {
-                name: 'hashFiles',
-                minArgs: 1,
-                maxArgs: 255,
-                call: () => new data.StringData(HASH_FILES_STUB),
-            },
+            { name: 'hashFiles', minArgs: 1, maxArgs: 255, call: () => new data.StringData(HASH_FILES_STUB) },
         ],
+        ['fromjson', FROM_JSON_OR_NULL],
     ])
 }
 
-function isTruthy(value: data.ExpressionData): boolean {
-    switch (value.kind) {
-        case data.Kind.Null:
-            return false
-        case data.Kind.Boolean:
-            return value.coerceString() === 'true'
-        case data.Kind.Number: {
-            const number = value.number()
-            return number !== 0 && !Number.isNaN(number)
-        }
-        case data.Kind.String:
-            return value.coerceString() !== ''
-        default:
-            return true
-    }
-}
-
-export function evaluateExpression(
-    expression: string,
-    context: Context,
-    functions: Map<string, ExpressionFunction>
-): data.ExpressionData {
+export function evaluateExpression(expression: string, context: Context, functions: FunctionMap): data.ExpressionData {
     const tokens = new Lexer(expression).lex().tokens
-    const functionInfos = [...functions.values()].map(({ name, minArgs, maxArgs }) => ({ name, minArgs, maxArgs }))
-    const ast = new Parser(tokens, CONTEXT_NAMES, functionInfos).parse()
-    return new Evaluator(ast, toExpressionData(context) as data.Dictionary, functions).evaluate()
+    const ast = new Parser(tokens, CONTEXT_NAMES, [...functions.values()]).parse()
+    const contextData = JSON.parse(JSON.stringify(context), data.reviver) as data.Dictionary
+    return new Evaluator(ast, contextData, functions).evaluate()
 }
 
-export function fromExpressionData(value: data.ExpressionData): JsonValue {
-    switch (value.kind) {
-        case data.Kind.Null:
-            return null
-        case data.Kind.Boolean:
-            return value.coerceString() === 'true'
-        case data.Kind.Number:
-            return value.number()
-        case data.Kind.String:
-            return value.coerceString()
-        case data.Kind.Array:
-            return (value as data.Array).values().map(fromExpressionData)
-        default:
-            return Object.fromEntries(
-                (value as data.Dictionary).pairs().map((pair) => [pair.key, fromExpressionData(pair.value)])
-            )
-    }
+function unwrapExpression(raw: string): string | undefined {
+    return WHOLE_EXPRESSION.exec(raw.trim())?.[1]?.trim()
 }
 
 /** Evaluates a YAML value that may be one whole expression, a template, or a plain literal, keeping structure. */
-export function evaluateValue(raw: unknown, context: Context, functions: Map<string, ExpressionFunction>): unknown {
+export function evaluateValue(raw: unknown, context: Context, functions: FunctionMap): unknown {
     if (typeof raw !== 'string') {
         return raw
     }
-    const wrapped = WHOLE_EXPRESSION.exec(raw.trim())
-    if (wrapped) {
-        return fromExpressionData(evaluateExpression(wrapped[1]!.trim(), context, functions))
+    const expression = unwrapExpression(raw)
+    if (expression !== undefined) {
+        return JSON.parse(JSON.stringify(evaluateExpression(expression, context, functions), data.replacer))
     }
     return raw.includes('${{') ? JSON.parse(evaluateTemplate(raw, context, functions)) : raw
 }
 
-export function evaluateCondition(raw: unknown, context: Context, functions: Map<string, ExpressionFunction>): boolean {
+export function evaluateCondition(raw: unknown, context: Context, functions: FunctionMap): boolean {
     if (raw === undefined || raw === null) {
-        return evaluateCondition('success()', context, functions)
+        return truthy(functions.get('success')!.call())
     }
-    let expression = String(raw).trim()
-    const wrapped = WHOLE_EXPRESSION.exec(expression)
-    if (wrapped) {
-        expression = wrapped[1]!.trim()
-    }
+    let expression = unwrapExpression(String(raw)) ?? String(raw).trim()
     if (!STATUS_FUNCTION.test(expression)) {
         expression = `success() && (${expression})`
     }
-    return isTruthy(evaluateExpression(expression, context, functions))
+    return truthy(evaluateExpression(expression, context, functions))
 }
 
-export function evaluateTemplate(raw: unknown, context: Context, functions: Map<string, ExpressionFunction>): string {
+export function evaluateTemplate(raw: unknown, context: Context, functions: FunctionMap): string {
     if (typeof raw !== 'string') {
         return raw === undefined || raw === null ? '' : String(raw)
     }
@@ -171,17 +105,4 @@ export function evaluateTemplate(raw: unknown, context: Context, functions: Map<
 
 export function containsExpression(raw: unknown): boolean {
     return typeof raw === 'string' && raw.includes('${{')
-}
-
-// An empty string is an output no script produced at plan time, so it resolves to null instead of failing.
-const FROM_JSON_OR_NULL: ExpressionFunction = {
-    name: 'fromJSON',
-    minArgs: 1,
-    maxArgs: 1,
-    call: (...args) =>
-        args[0]!.coerceString().trim() === '' ? new data.Null() : wellKnownFunctions['fromjson']!.call(...args),
-}
-
-export function withNullForEmptyJson(functions: Map<string, ExpressionFunction>): Map<string, ExpressionFunction> {
-    return new Map([...functions, ['fromjson', FROM_JSON_OR_NULL]])
 }

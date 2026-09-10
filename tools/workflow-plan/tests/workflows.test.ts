@@ -2,7 +2,6 @@
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -10,11 +9,13 @@ import {
     type Scenario,
     type StepStub,
     type Workflow,
+    formatPlanError,
     loadWorkflow,
     planWorkflow,
     runningJobs,
 } from '../src/plan.ts'
 import {
+    REPO_ROOT,
     allFiltersChanged,
     defaultScenarios,
     mergeQueue,
@@ -24,7 +25,7 @@ import {
     schedule,
 } from '../src/scenarios.ts'
 
-const WORKFLOWS_DIR = fileURLToPath(new URL('../../../.github/workflows/', import.meta.url))
+const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
 const workflowFiles = readdirSync(WORKFLOWS_DIR).filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
 const cache = new Map<string, Workflow>()
 const workflow = (file: string): Workflow => {
@@ -52,28 +53,17 @@ const frontendSelectors: Stubs = {
     },
 }
 
-const backend = (overrides: Partial<Scenario> & { name: string }): [string, Scenario] => {
-    const wf = workflow('ci-backend.yml')
-    return [
-        'ci-backend.yml',
-        {
-            github: pullRequest(),
-            ...overrides,
-            steps: { ...allFiltersChanged(wf), ...backendSelectors, ...overrides.steps },
-        },
+type ScenarioBuilder = (overrides: Partial<Scenario> & { name: string }) => [string, Scenario]
+
+const suite = (file: string, selectors: Stubs): ScenarioBuilder => {
+    const filters = allFiltersChanged(workflow(file))
+    return (overrides) => [
+        file,
+        { github: pullRequest(), ...overrides, steps: { ...filters, ...selectors, ...overrides.steps } },
     ]
 }
-const frontend = (overrides: Partial<Scenario> & { name: string }): [string, Scenario] => {
-    const wf = workflow('ci-frontend.yml')
-    return [
-        'ci-frontend.yml',
-        {
-            github: pullRequest(),
-            ...overrides,
-            steps: { ...allFiltersChanged(wf), ...frontendSelectors, ...overrides.steps },
-        },
-    ]
-}
+const backend = suite('ci-backend.yml', backendSelectors)
+const frontend = suite('ci-frontend.yml', frontendSelectors)
 
 interface Expectation {
     file: string
@@ -244,25 +234,11 @@ const STEP_EXPECTATIONS: StepExpectation[] = ['ci-backend.yml', 'ci-frontend.yml
     },
 ])
 
-// Job outputs a script produces at runtime, where a condition cannot even be evaluated without them.
-const SCRIPT_OUTPUTS: Record<string, Record<string, Record<string, string>>> = {
-    'release.yml': {
-        plan: {
-            val: JSON.stringify({ ci: { github: { artifacts_matrix: { include: null }, pr_run_mode: 'upload' } } }),
-        },
-    },
-}
-
 describe('.github/workflows run plans', () => {
     it.each(workflowFiles)('%s evaluates every job and step condition under the built-in scenarios', (file) => {
         const wf = workflow(file)
-        const errors = defaultScenarios(wf).flatMap(({ name, ...scenario }) =>
-            planWorkflow(wf, { name, ...scenario, jobOutputs: { ...scenario.jobOutputs, ...SCRIPT_OUTPUTS[file] } })
-                .errors.filter((error) => error.where !== 'matrix')
-                .map(
-                    (error) =>
-                        `${name}: ${error.job}${error.step ? `/${error.step}` : ''} ${error.where}: ${error.message}`
-                )
+        const errors = defaultScenarios(wf, path.join(WORKFLOWS_DIR, file)).flatMap((scenario) =>
+            planWorkflow(wf, scenario).errors.map((error) => formatPlanError(scenario.name, error))
         )
         expect(errors).toEqual([])
     })
@@ -271,7 +247,7 @@ describe('.github/workflows run plans', () => {
         '$file on $scenario.name runs the intended jobs',
         ({ file, scenario, runs, skipped, results }) => {
             const plan = planWorkflow(workflow(file), scenario)
-            expect(plan.errors.filter((error) => error.where !== 'matrix')).toEqual([])
+            expect(plan.errors).toEqual([])
             const running = new Set(runningJobs(plan))
             const named = [...(runs ?? []), ...(skipped ?? []), ...Object.keys(results ?? {})]
             expect({

@@ -1,4 +1,4 @@
-import type { Outcome, Scenario, WorkflowPlan } from './plan.ts'
+import { type Outcome, type Scenario, type WorkflowPlan, formatPlanError } from './plan.ts'
 
 export interface ScenarioPlan {
     scenario: Scenario
@@ -74,19 +74,13 @@ export function renderPlanTable(scenarioPlans: ScenarioPlan[], style?: TableStyl
     const columns = scenarioPlans.map(({ scenario, plan }) => ({
         name: scenario.name,
         cells: jobIds.map((jobId) => {
-            const job = plan.jobs[jobId]
-            if (!job) {
-                return '?'
-            }
+            const job = plan.jobs[jobId]!
             return job.matrixCells === 0 ? `${MARKS[job.result]}${EMPTY_MATRIX_SUFFIX}` : MARKS[job.result]
         }),
     }))
     const lines = [...renderGrid('job', jobIds, columns, style), '', LEGEND]
     const errors = scenarioPlans.flatMap(({ scenario, plan }) =>
-        plan.errors.map(
-            (error) =>
-                `${scenario.name}: ${error.job}${error.step ? `/${error.step}` : ''} ${error.where}: ${error.message}`
-        )
+        plan.errors.map((error) => formatPlanError(scenario.name, error))
     )
     if (errors.length > 0) {
         lines.push('', 'Errors:', ...errors)
