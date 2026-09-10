@@ -90,8 +90,8 @@ tools:
             you want to see the computed results.
 
 
-            Put the insight definition in `query.source`, under the wrapper node that matches it —
-            `InsightVizNode` for a product analytics query, `DataVisualizationNode` for a SQL one:
+            Put the insight definition in `query.source`, under the wrapper node that matches it — `InsightVizNode` for
+            a product analytics query, `DataVisualizationNode` for a SQL one:
 
 
             ```json
