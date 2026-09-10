@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -31,16 +33,15 @@ EVENT_CATEGORIES_ENDPOINT = "event_categories"
 TAXONOMY_EVENT_PATH = "/api/2/taxonomy/event"
 
 
-@dataclass
+@frozen
 class AmplitudeFanoutConfig:
     parent_path: str
     parent_data_selector: str
-    # Field read off each parent row, sent to the child endpoint as a query param, and stamped
-    # back onto every child row so the composite primary key is always populated.
-    field: str
+    # Stamped onto every child row, so the composite primary key is never half null.
+    join_field: str
 
 
-@dataclass
+@frozen
 class AmplitudeEndpointConfig:
     name: str
     path: str
@@ -55,8 +56,7 @@ class AmplitudeEndpointConfig:
     # Must be a STABLE datetime field (never `updated_at`/`last_seen`) so partitions don't
     # rewrite on every sync.
     partition_key: str | None = None
-    # Set when the endpoint only lists rows for one parent at a time, so the catalog is built
-    # by walking a parent endpoint and querying this one per parent row.
+    # Set when the endpoint only lists rows for one parent at a time.
     fanout: AmplitudeFanoutConfig | None = None
 
 
@@ -93,8 +93,7 @@ AMPLITUDE_ENDPOINTS: dict[str, AmplitudeEndpointConfig] = {
         primary_keys=["id"],
         data_selector="data",
     ),
-    # Taxonomy API lookups. None of them expose a timestamp filter or a cursor, so they are
-    # full-refresh snapshots of the project's tracking plan.
+    # Taxonomy API lookups. None expose a timestamp filter or a cursor, so all are full refresh.
     EVENT_TYPES_ENDPOINT: AmplitudeEndpointConfig(
         name=EVENT_TYPES_ENDPOINT,
         path=TAXONOMY_EVENT_PATH,
@@ -110,7 +109,7 @@ AMPLITUDE_ENDPOINTS: dict[str, AmplitudeEndpointConfig] = {
         fanout=AmplitudeFanoutConfig(
             parent_path=TAXONOMY_EVENT_PATH,
             parent_data_selector="data",
-            field="event_type",
+            join_field="event_type",
         ),
     ),
     USER_PROPERTIES_ENDPOINT: AmplitudeEndpointConfig(

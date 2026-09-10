@@ -288,7 +288,7 @@ def _get_fanout_rows(
     for parent in parents:
         if not isinstance(parent, dict):
             continue
-        parent_value = parent.get(fanout.field)
+        parent_value = parent.get(fanout.join_field)
         if not isinstance(parent_value, str) or not parent_value:
             continue
 
@@ -301,23 +301,23 @@ def _get_fanout_rows(
                 config.data_selector,
                 config.name,
                 logger,
-                params={fanout.field: parent_value},
+                params={fanout.join_field: parent_value},
             )
         except requests.HTTPError as e:
-            # Amplitude answers 400 "Not found" for a parent it no longer resolves — for example
-            # one deleted between listing the parents and querying it. Skip it rather than
-            # failing the whole catalog.
+            # Amplitude answers 400 "Not found" for an event type deleted between listing the
+            # parents and querying it. Skip that parent instead of failing the whole table.
             if e.response is not None and e.response.status_code == 400:
-                logger.warning(f"Amplitude {config.name}: skipping {fanout.field}={parent_value} (Amplitude returned 400)")
+                logger.warning(
+                    f"Amplitude {config.name}: skipping {fanout.join_field}={parent_value} (Amplitude returned 400)"
+                )
                 continue
             raise
 
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            # Shared properties come back without the parent field, so stamp on the value we
-            # queried with — otherwise part of the primary key is null.
-            row[fanout.field] = parent_value
+            # Amplitude omits this on shared properties, so set it from the value we queried with.
+            row[fanout.join_field] = parent_value
             yield row
 
 

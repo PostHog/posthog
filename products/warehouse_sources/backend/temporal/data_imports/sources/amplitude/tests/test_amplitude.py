@@ -368,8 +368,7 @@ class TestFanoutRows:
                 "data": [
                     {"event_type": "Play Song"},
                     {"event_type": "Onboard Start"},
-                    # A parent with no usable name must not be queried, or we would stamp a null
-                    # into half of the composite primary key.
+                    # A parent with no usable name must not be queried.
                     {"category": {"name": "Attribution"}},
                 ],
             },
