@@ -218,8 +218,9 @@ def _sessions_cache_key(
     date_from: str,
     date_to: str,
     filters: str,
+    user_id: int | None,
 ) -> str:
-    payload = f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{filters}"
+    payload = f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{filters}_{user_id}"
     return generate_cache_key(team_id, payload)
 
 
@@ -233,6 +234,7 @@ def list_mcp_sessions(
     date_to: str | None = None,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPSessionsPage:
     """List a page of MCP sessions for a team, aggregated on the fly from $mcp_tool_call events.
 
@@ -256,6 +258,10 @@ def list_mcp_sessions(
     (``tool_call_count``, ``tools_used``) while ``session_start`` / ``session_end`` still describe
     when the whole session ran, because those bound the detail and intent scans.
 
+    ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
+    control is evaluated for that member, not with the project defaults, because ``properties`` is
+    caller-supplied and would otherwise read restricted properties.
+
     Person email/name are resolved from distinct_id via personhog. ``intent`` is
     empty until the ad-hoc summary endpoint (separate PR) fills the intent seam.
     """
@@ -269,6 +275,9 @@ def list_mcp_sessions(
         effective_date_from,
         date_to or "",
         _filters_cache_fragment(properties, filter_test_accounts),
+        # Property-level access control is evaluated per member, so two members can get different
+        # rows from the same filters. Key the cache by the caller to keep them apart.
+        user.pk if user is not None else None,
     )
     cached = cache.get(cache_key)
     if cached is not None:
@@ -284,6 +293,7 @@ def list_mcp_sessions(
         date_to=date_to,
         properties=properties,
         filter_test_accounts=filter_test_accounts,
+        user=user,
     )
     # Don't cache empty results: a newly set-up team's first sessions would
     # otherwise stay hidden for the full TTL.
@@ -302,6 +312,7 @@ def _query_mcp_sessions(
     date_to: str | None,
     properties: list[AnyPropertyFilterDiscriminated] | None,
     filter_test_accounts: bool,
+    user: User | None,
 ) -> contracts.MCPSessionsPage:
     column, descending = _normalise_order_by(order_by)
     # Append the unique session_id as a tiebreaker so the sort is a *total* order.
@@ -348,7 +359,7 @@ def _query_mcp_sessions(
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_list"
     ):
-        response = execute_hogql_query(query=query, team=team)
+        response = execute_hogql_query(query=query, team=team, user=user)
 
     rows = [_row_to_session_dict(row) for row in (response.results or [])]
     has_next = len(rows) > limit
@@ -621,10 +632,12 @@ def _extract_error_message(raw: Any) -> str | None:
     return value
 
 
-def _run_activity_query(team: Team, sql: str, name: str, placeholders: dict[str, ast.Constant]) -> list[Any]:
+def _run_activity_query(
+    team: Team, sql: str, name: str, placeholders: dict[str, ast.Expr], user: User | None
+) -> list[Any]:
     query = parse_select(sql, placeholders={**placeholders})
     with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name=name):
-        response = execute_hogql_query(query=query, team=team)
+        response = execute_hogql_query(query=query, team=team, user=user)
     return response.results or []
 
 
@@ -632,6 +645,7 @@ def get_activity_overview(
     team: Team,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.ActivityOverview:
     """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
@@ -640,6 +654,10 @@ def get_activity_overview(
 
     ``properties`` and ``filter_test_accounts`` are the tabs' shared filters, applied to every
     section so the counters, top tools, clients, and feed all describe the same slice.
+
+    ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
+    control is evaluated for that member, not with the project defaults, because ``properties`` is
+    caller-supplied and would otherwise read restricted properties.
     """
     date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
     tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
@@ -655,6 +673,7 @@ def get_activity_overview(
             "date_from": date_from,
             "shared_filters": shared_filters,
         },
+        user,
     )
     stats_row = stats_rows[0] if stats_rows else [0] * 7
     stats = contracts.ActivityStats(
@@ -679,6 +698,7 @@ def get_activity_overview(
                 "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
                 "shared_filters": shared_filters,
             },
+            user,
         )
     ]
 
@@ -694,6 +714,7 @@ def get_activity_overview(
                 "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
                 "shared_filters": shared_filters,
             },
+            user,
         )
     ]
 
@@ -717,6 +738,7 @@ def get_activity_overview(
                 "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
                 "shared_filters": shared_filters,
             },
+            user,
         )
     ]
 
@@ -770,6 +792,7 @@ def list_mcp_tool_calls(
     date_from: datetime | None = None,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPToolCallsPage:
     """List a page of a session's $mcp_tool_call events in chronological order.
 
@@ -783,6 +806,10 @@ def list_mcp_tool_calls(
 
     ``properties`` and ``filter_test_accounts`` are the tabs' shared filters, so the detail view
     shows the same calls the session list counted.
+
+    ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
+    control is evaluated for that member, not with the project defaults, because ``properties`` is
+    caller-supplied and would otherwise read restricted properties.
     """
     query = parse_select(
         _MCP_TOOL_CALLS_SQL,
@@ -798,7 +825,7 @@ def list_mcp_tool_calls(
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_tool_calls"
     ):
-        response = execute_hogql_query(query=query, team=team)
+        response = execute_hogql_query(query=query, team=team, user=user)
     rows = response.results or []
     has_next = len(rows) > limit
     results = [

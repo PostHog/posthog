@@ -752,6 +752,31 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         # Every endpoint narrows to the one matching event; without the filter each would report two.
         assert "dropped_tool" not in response.content.decode()
 
+    @parameterized.expand(
+        [
+            ("sessions_list", "", {"date_from": "-7d"}),
+            ("tool_calls", "{session_id}/tool_calls/", {"date_from": "-7d"}),
+            ("activity_overview", "activity_overview/", {}),
+        ]
+    )
+    def test_property_restrictions_are_resolved_for_the_caller(
+        self, _name: str, suffix: str, extra: dict[str, str]
+    ) -> None:
+        # These endpoints run caller-supplied property filters, so the caller has to reach HogQL:
+        # property-level access control falls back to the project defaults for a userless query,
+        # and filtering a restricted property by candidate values would then leak whether it
+        # matches. Assert the identity arrives, not what the restrictions are.
+        path = f"/api/environments/{self.team.id}/mcp_analytics/sessions/{suffix.format(session_id=uuid7())}"
+        with patch(
+            "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
+            return_value=set(),
+        ) as resolve_restrictions:
+            response = self.client.get(path, extra)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert resolve_restrictions.call_count > 0
+        assert all(call.kwargs["user"] == self.user for call in resolve_restrictions.call_args_list)
+
     def test_unparseable_properties_are_a_400(self) -> None:
         response = self.client.get(
             f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"properties": "{not json"}
