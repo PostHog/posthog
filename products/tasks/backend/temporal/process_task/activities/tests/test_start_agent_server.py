@@ -1,3 +1,5 @@
+from typing import Literal
+
 import pytest
 from freezegun import freeze_time
 
@@ -5,6 +7,7 @@ from django.db import OperationalError
 
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
+    ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
     SandboxTimeoutError,
@@ -15,6 +18,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     CollectAgentShadowResultInput,
     StartAgentServerInput,
     _agentsh_domains_for,
+    _emit_agent_server_log_tail,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
     _invoke_start_agent_server,
@@ -68,6 +72,7 @@ def _context(
     network_policy_fingerprint: str | None = None,
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
+    claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -85,6 +90,7 @@ def _context(
         network_policy_fingerprint=network_policy_fingerprint,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        claude_model_access=claude_model_access,
         _branch=branch,
     )
 
@@ -539,6 +545,32 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
     sandbox.execute.assert_not_called()
 
 
+@pytest.mark.parametrize("access,exit_code", [("posthog-gateway", 1), ("own-subscription", 0), ("own-subscription", 1)])
+def test_subscription_compatibility_is_checked_before_launch(mocker, access, exit_code) -> None:
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=exit_code)
+    params = _LaunchParams(
+        mcp_configs=[],
+        relayed_mcp_servers=[],
+        actor_user_id=None,
+        agentsh_domains=None,
+        protected_base_branch=None,
+        event_ingest_token=None,
+        task_run_session_token=None,
+        event_ingest_url=None,
+        event_ingest_keep_stream_open=False,
+    )
+    context = _context(claude_model_access=access)
+    if access == "own-subscription" and exit_code != 0:
+        with pytest.raises(ProcessTaskFatalError, match="cannot use your Claude plan yet"):
+            _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None)
+        sandbox.start_agent_server.assert_not_called()
+    else:
+        _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None)
+        sandbox.start_agent_server.assert_called_once()
+        assert sandbox.start_agent_server.call_args.kwargs["claude_model_access"] == access
+
+
 def test_agent_shadow_flag_uses_server_side_organization_targeting(mocker) -> None:
     feature_enabled = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
@@ -952,3 +984,21 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
 
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["initial_permission_mode"] == "plan"
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected_message"),
+    [
+        ("line one\nline two\n", "agent-server log tail:\nline one\nline two"),
+        ("", "agent-server log tail: empty. The agent-server wrote nothing to /tmp/agent-server.log."),
+    ],
+)
+def test_emit_agent_server_log_tail_reports_empty_log(mocker, stdout, expected_message) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(stdout=stdout, stderr="", exit_code=0)
+    emit = mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+
+    _emit_agent_server_log_tail(context, sandbox)
+
+    emit.assert_called_once_with(context.run_id, "debug", expected_message)

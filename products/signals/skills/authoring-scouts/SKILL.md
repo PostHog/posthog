@@ -28,9 +28,11 @@ A scout's output is the **report channel**: it lists `emit_report` / `edit_repor
 The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
 (A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
-A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
-The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
-**The `signals-scout-` name prefix is load-bearing: a skill named anything else will never run as a scout.**
+A scout is an `LLMSkill` that holds a `SignalScoutConfig`.
+The harness loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
+**The config row is what makes a skill a scout.** Any valid skill name works, so the `signals-scout-` prefix is optional.
+The prefix controls one thing: the coordinator globs `signals-scout-*` to auto-register a config for a skill that has none.
+A skill with any other name needs its config created alongside it, which is what `scout-create-prepare` / `-execute` does.
 
 ## The job before the writing
 
@@ -128,8 +130,10 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout with a fresh grace window before the sweep may judge it again.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `write_scopes` — defaults to `[]`: the scout reads the project and writes only what every scout writes (its findings, its memory, and notebooks).
-  Grant `dashboard:write`, `insight:write`, `annotation:write`, or `alert:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `llm_skill:write`, `warehouse_view:write`, or `warehouse_table:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
   Each scope is project-wide and covers update and delete of every object of its kind, not only the ones the scout made, so grant only what the scout's body actually tends, and say in the body what it may change and when.
+  `llm_skill:write` is the one to think twice about: custom scouts are skills in the same store, so a scout holding it can edit a sibling scout's body, or the body it runs from itself. Grant it to a scout whose job really is tending a set of skills, name that set in the body, and say there that the scouts are off limits unless tending them is the job.
+  `warehouse_view:write` and `warehouse_table:write` are separate on purpose: a scout that keeps a set of views healthy does not also need to create tables. Take both rows only when the scout tends both.
   Only the person the scout's runs act as (whoever authored it) or a project admin can set the field, and grants are activity-logged. A scoped API key must itself carry each scope it grants.
   A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.

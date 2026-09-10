@@ -240,6 +240,11 @@ export class RateLimiterService {
      * nothing, so a caller that retries a multi-token claim cannot drain the buckets while never
      * succeeding. Returns which bucket denied (index into `buckets`), or null when granted.
      * Runtime errors deny with `deniedIndex: null` — fail-closed, like claimUpTo.
+     *
+     * On clustered Valkey the two keys must hash to the same slot (give them the same `{...}`
+     * hash tag), because the Lua script touches both keys in one call and the cluster rejects
+     * cross-slot calls with a CROSSSLOT error. Single-node Valkey accepts any pair of keys, so
+     * tests and local dev do not catch a violation; production does, on every claim.
      */
     public async claimAllOrNothingPair(
         buckets: [Omit<ClaimRequest, 'requested'>, Omit<ClaimRequest, 'requested'>],

@@ -1,1 +1,1 @@
-0043_drop_legacy_dataset_tables
+0045_squash_2026_09_07_schema_addons

@@ -3,7 +3,6 @@ import type {
   ScoutConfig,
   ScoutSuggestionItem,
 } from "@posthog/api-client/posthog-client";
-import { scoutSkillSlug } from "@posthog/core/scouts/scoutPresentation";
 import {
   suggestionActionLabel,
   suggestionMetaLine,
@@ -111,7 +110,7 @@ function SuggestionCard({
           variant="outline"
           size="xs"
           onClick={act}
-          data-attr={`scout-suggestion-${scoutSkillSlug(item.skill_name)}`}
+          data-attr={`scout-suggestion-${item.skill_name}`}
         >
           {canTurnOn ? suggestionActionLabel(item) : "Draft it"}
         </Button>

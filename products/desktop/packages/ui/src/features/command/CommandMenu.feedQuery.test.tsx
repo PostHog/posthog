@@ -7,6 +7,9 @@ let taskResultsComplete = true;
 
 // The palette pulls half the app in; everything irrelevant to the feed-query
 // mode is stubbed to its empty state.
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => null,

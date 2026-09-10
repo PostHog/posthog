@@ -12,6 +12,7 @@ import {
   ClientSideConnection,
   ndJsonStream,
   PROTOCOL_VERSION,
+  RequestError,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
 import { execGh } from "@posthog/git/gh";
@@ -66,10 +67,13 @@ import {
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
+import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
   type AgentErrorClassification,
   classifyAgentError,
   isPromptTooLongError,
+  isRetryableUpstreamErrorClassification,
+  sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
 import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
@@ -120,12 +124,14 @@ import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
+import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
+import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
@@ -135,7 +141,12 @@ import {
 } from "./pr-checkout";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
-import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
+import {
+  type CredentialResponseParams,
+  claudeCodeConfigSchema,
+  jsonRpcRequestSchema,
+  validateCommandParams,
+} from "./schemas";
 import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
@@ -147,6 +158,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_provider_failure",
   "content_block_rejection",
   "turn_ended_without_response",
+  "subscription_usage_limit",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -155,14 +167,6 @@ const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 export const UPSTREAM_PROVIDER_FAILURE_MESSAGE =
   "The upstream AI provider failed to process the request. Please retry the task in a few minutes.";
 
-const upstreamProviderFailureClassifications =
-  new Set<AgentErrorClassification>([
-    "upstream_stream_terminated",
-    "upstream_connection_error",
-    "upstream_timeout",
-    "upstream_provider_failure",
-  ]);
-
 type TurnFailureDisposition =
   | "terminal"
   | "recoverable"
@@ -170,7 +174,23 @@ type TurnFailureDisposition =
   | "retryable_followup";
 
 const errorWithClassificationSchema = z.object({
-  data: z.object({ classification: agentErrorClassificationSchema }),
+  data: z.object({
+    classification: agentErrorClassificationSchema,
+    // The adapter carries the app-server's own cause here, so the diagnostic
+    // path can report it separately from the generic ACP display text.
+    result: z.string().optional(),
+    madeProgress: z.boolean().optional(),
+    usage: z
+      .object({
+        inputTokens: z.number(),
+        outputTokens: z.number(),
+        cachedReadTokens: z.number().optional(),
+        cachedWriteTokens: z.number().optional(),
+        thoughtTokens: z.number().optional(),
+        totalTokens: z.number(),
+      })
+      .optional(),
+  }),
 });
 
 export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
@@ -252,12 +272,30 @@ interface BuiltPrompt {
 }
 
 export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
+export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
+  "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.";
+export const MESSAGE_DRIVEN_RESUME_CAPABILITY = "prewarmedResumeMessageDriven";
+
+export interface PreparedInitialTaskMessage {
+  taskRun: TaskRun;
+  action: "wait" | "idle" | "resume" | "initial";
+}
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
     type: "text",
     text,
     _meta: { ui: { hidden: true } },
+  } as ContentBlock;
+}
+
+function hiddenPromptBlock(block: ContentBlock): ContentBlock {
+  const meta = block._meta as
+    | { ui?: Record<string, unknown>; [key: string]: unknown }
+    | undefined;
+  return {
+    ...block,
+    _meta: { ...meta, ui: { ...meta?.ui, hidden: true } },
   } as ContentBlock;
 }
 
@@ -435,7 +473,9 @@ export class AgentServer {
   private questionRelayedToSlack = false;
   private adapterEmittedTurnComplete = false;
   private suppressAdapterTurnComplete = false;
+  private readonly cancelledStartupSessions = new WeakSet<ActiveSession>();
   private runUsage = new RunUsageAccumulator();
+  private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
@@ -466,8 +506,15 @@ export class AgentServer {
   // often arrives while newSession() is still awaited (this.session is still null),
   // causing a second session to be created and duplicate Slack messages to be sent.
   private initializationPromise: Promise<void> | null = null;
+  private readonly shutdownController = new AbortController();
+  private initializingConnection: ReturnType<
+    typeof createAcpConnection
+  > | null = null;
+  private initializationFailureCode: string | undefined;
+  private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
+  private eventRedactor = new SecretEventRedactor();
   /** ACP notifications emitted by newSession/resumeSession before this.session is assigned. */
   private preSessionEvents: Record<string, unknown>[] = [];
   private deliveredMessageIds = new Set<string>();
@@ -475,6 +522,10 @@ export class AgentServer {
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
   private activeStartupTurnCount = 0;
+  private readonly retryWrappedSessionDepth = new WeakMap<
+    ActiveSession,
+    number
+  >();
   // Normal follow-ups own turns in arrival order. Explicit steering bypasses
   // this tail so it can still reach the active adapter turn immediately.
   private nonSteerDeliveryTail: Promise<void> = Promise.resolve();
@@ -498,6 +549,9 @@ export class AgentServer {
   private readonly posthogExecPermissionRegex: RegExp;
   private readonly posthogExecPermissionRegexSource: string;
   private mcpRelayServer: McpRelayServer | null = null;
+  private readonly credentialRelay = new CredentialRelay({
+    emitEvent: (event) => this.broadcastEvent(event),
+  });
 
   /**
    * Start loopback relay endpoints for the run's designated desktop-only MCP
@@ -522,6 +576,9 @@ export class AgentServer {
   }
 
   private detachSseController(controller: SseController): void {
+    if (this.initializingSseController === controller) {
+      this.initializingSseController = null;
+    }
     if (this.session?.sseController === controller) {
       this.session.sseController = null;
     }
@@ -670,10 +727,14 @@ export class AgentServer {
         status: "ok",
         hasSession: !!this.session,
         readiness: boot.state,
+        failureCode: this.initializationFailureCode,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
         boot,
-        capabilities: [PREWARMED_RESUME_IDLE_CAPABILITY],
+        capabilities: [
+          PREWARMED_RESUME_IDLE_CAPABILITY,
+          MESSAGE_DRIVEN_RESUME_CAPABILITY,
+        ],
       });
     });
 
@@ -698,6 +759,10 @@ export class AgentServer {
         );
       }
 
+      if (!this.isConfiguredRun(payload)) {
+        return c.json({ error: "Token does not match this task run" }, 403);
+      }
+
       let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
       const clearKeepalive = (): void => {
         if (keepaliveInterval) {
@@ -706,9 +771,9 @@ export class AgentServer {
         }
       };
 
+      let sseController: SseController | null = null;
       const stream = new ReadableStream({
         start: async (controller) => {
-          let sseController: SseController | null = null;
           const encoder = new TextEncoder();
           const detachCurrentSseController = (): void => {
             if (sseController) {
@@ -766,9 +831,7 @@ export class AgentServer {
         cancel: () => {
           clearKeepalive();
           this.logger.debug("SSE connection closed");
-          if (this.session?.sseController) {
-            this.session.sseController = null;
-          }
+          if (sseController) this.detachSseController(sseController);
         },
       });
 
@@ -798,7 +861,7 @@ export class AgentServer {
         );
       }
 
-      if (!this.session || this.session.payload.run_id !== payload.run_id) {
+      if (!this.isConfiguredRun(payload)) {
         return c.json({ error: "No active session for this run" }, 400);
       }
 
@@ -810,6 +873,13 @@ export class AgentServer {
       }
 
       const command = parseResult.data;
+      const isCredentialResponse =
+        command.method === "credential_response" ||
+        command.method === "posthog/credential_response" ||
+        command.method === POSTHOG_NOTIFICATIONS.CREDENTIAL_RESPONSE;
+      if (!isCredentialResponse && !this.session) {
+        return c.json({ error: "No active session for this run" }, 400);
+      }
       const paramsValidation = validateCommandParams(
         command.method,
         command.params ?? {},
@@ -830,10 +900,11 @@ export class AgentServer {
       }
 
       try {
-        const result = await this.executeCommand(
-          command.method,
-          (command.params as Record<string, unknown>) || {},
-        );
+        const result = isCredentialResponse
+          ? this.resolveCredentialResponse(
+              paramsValidation.data as CredentialResponseParams,
+            )
+          : await this.executeCommand(command.method, command.params ?? {});
         return c.json({
           jsonrpc: "2.0",
           id: command.id,
@@ -1003,20 +1074,34 @@ export class AgentServer {
     return this.resumeState?.nativeGoal;
   }
 
+  private async cleanupInitializingConnection(): Promise<void> {
+    const connection = this.initializingConnection;
+    await withTimeout(connection?.cleanup() ?? Promise.resolve(), 5_000);
+  }
+
   async stop(): Promise<void> {
     this.logger.debug("Stopping agent server...");
-
-    if (this.session) {
-      await this.cleanupSession({ completeEventStream: true });
-    } else {
-      await this.eventStreamSender?.stop();
-    }
-
-    if (this.server) {
-      this.server.close();
+    this.shutdownController.abort(new CredentialRelayError("cancelled"));
+    this.credentialRelay.stop();
+    try {
+      await withTimeout(
+        Promise.allSettled([
+          this.cleanupInitializingConnection(),
+          this.initializationPromise,
+        ]),
+        5_000,
+      );
+      await withTimeout(
+        this.session
+          ? this.cleanupSession({ completeEventStream: true })
+          : (this.eventStreamSender?.stop({ complete: false }) ??
+              Promise.resolve()),
+        5_000,
+      );
+    } finally {
+      this.server?.close();
       this.server = null;
     }
-
     this.logger.debug("Agent server stopped");
   }
 
@@ -1029,7 +1114,15 @@ export class AgentServer {
    * run from a process-level handler with no session context.
    */
   async reportFatalError(error: unknown): Promise<void> {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (error instanceof CredentialRelayError && error.code === "cancelled")
+      return;
+    const errorMessage = redactSecrets(
+      error instanceof CredentialRelayError
+        ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
+        : error instanceof Error
+          ? error.message
+          : String(error),
+    );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
     try {
@@ -1085,6 +1178,35 @@ export class AgentServer {
     }
   }
 
+  private async reportClaudeSubscriptionTokenMissing(
+    reason: string,
+  ): Promise<void> {
+    this.initializationFailureCode = "claude_credential_unavailable";
+    this.logger.warn("claude_credential_unavailable");
+    try {
+      this.broadcastEvent({
+        type: "notification",
+        timestamp: new Date().toISOString(),
+        notification: {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
+          params: {
+            runtimeAdapter: this.getRuntimeAdapter(),
+            initializationPhase: "credential_relay",
+            reason,
+            message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+          },
+        },
+      });
+      await this.eventStreamSender?.stop({ complete: false });
+    } catch (error) {
+      this.logger.error(
+        "Failed to flush events after credential relay failure",
+        error,
+      );
+    }
+  }
+
   private authenticateRequest(
     getHeader: (name: string) => string | undefined,
   ): JwtPayload {
@@ -1106,6 +1228,23 @@ export class AgentServer {
 
     const token = authHeader.slice(7);
     return validateJwt(token, this.config.jwtPublicKey);
+  }
+
+  private isConfiguredRun(payload: JwtPayload): boolean {
+    return (
+      payload.task_id === this.config.taskId &&
+      payload.run_id === this.config.runId &&
+      payload.team_id === this.config.projectId
+    );
+  }
+
+  private resolveCredentialResponse(params: CredentialResponseParams): {
+    resolved: true;
+  } {
+    if (!this.credentialRelay.resolve(params)) {
+      throw new Error("No pending credential request found");
+    }
+    return { resolved: true };
   }
 
   private async executeCommand(
@@ -1272,16 +1411,20 @@ export class AgentServer {
             commandSession.payload.run_id,
           );
 
-          const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
-            this.promptWithUpstreamRetry({
-              sessionId: acpSessionId,
-              prompt: [
-                hiddenTextBlock(
-                  "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
-                ),
-              ],
-            });
+            this.runRetryWrappedTurn(() =>
+              this.promptWithUpstreamRetry(
+                {
+                  sessionId: commandSession.acpSessionId,
+                  prompt: [
+                    hiddenTextBlock(
+                      "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
+                    ),
+                  ],
+                },
+                false,
+              ),
+            );
 
           let result: PromptResponse;
           this.suppressAdapterTurnComplete =
@@ -1384,18 +1527,20 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          this.broadcastTurnComplete(
-            result.stopReason,
-            this.promptResultTraceId(result),
-          );
+          const turnTraceId = this.promptResultTraceId(result);
+          this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
             // Relay the response to Slack. For follow-ups this is the primary
             // delivery path — the HTTP caller only handles reactions. Echo the
-            // initiating message's id so the backend can attribute the answer.
-            this.relayAgentResponse(commandSession.payload, messageId).catch(
-              (err) =>
-                this.logger.debug("Failed to relay follow-up response", err),
+            // initiating message's id so the backend can attribute the answer,
+            // and the turn's trace id so a rating on the reply names the turn.
+            this.relayAgentResponse(
+              commandSession.payload,
+              messageId,
+              turnTraceId,
+            ).catch((err) =>
+              this.logger.debug("Failed to relay follow-up response", err),
             );
           }
 
@@ -1420,6 +1565,9 @@ export class AgentServer {
           const outcome = {
             stopReason: result.stopReason,
             ...(assistantMessage && { assistant_message: assistantMessage }),
+            // The caller posts this answer itself when the relay above found no
+            // message to send, so it needs the turn's trace id on the same terms.
+            ...(turnTraceId && { trace_id: turnTraceId }),
           };
           resolveDelivery(outcome);
           return outcome;
@@ -1442,6 +1590,9 @@ export class AgentServer {
         this.logger.debug("Cancel requested", {
           acpSessionId: this.session.acpSessionId,
         });
+        if (this.isRetryWrappedSession(this.session)) {
+          this.cancelledStartupSessions.add(this.session);
+        }
         await this.session.clientConnection.cancel({
           sessionId: this.session.acpSessionId,
         });
@@ -1601,10 +1752,27 @@ export class AgentServer {
     }
   }
 
+  private async measureInitialization<T>(
+    phase: Parameters<AgentBootTracker["measure"]>[0],
+    work: () => Promise<T>,
+  ): Promise<T> {
+    this.shutdownController.signal.throwIfAborted();
+    const result = await this.bootTracker.measure(phase, work);
+    this.shutdownController.signal.throwIfAborted();
+    return result;
+  }
+
   private async initializeSession(
     payload: JwtPayload,
     sseController: SseController | null,
   ): Promise<void> {
+    this.shutdownController.signal.throwIfAborted();
+    if (sseController) {
+      this.initializingSseController = sseController;
+      const events = this.pendingEvents;
+      this.pendingEvents = [];
+      for (const event of events) this.sendSseEvent(sseController, event);
+    }
     // Race condition guard: autoInitializeSession() starts first, but while it awaits
     // newSession() (which takes ~1-2s for MCP metadata fetch), the Temporal relay connects
     // to GET /events. That handler sees this.session === null and calls initializeSession()
@@ -1630,15 +1798,16 @@ export class AgentServer {
       this.httpReadyBootMs,
       this.config.launcherToProcessMs,
     );
-    this.initializationPromise = this._doInitializeSession(
-      payload,
-      sseController,
-    );
+    this.initializationPromise = this._doInitializeSession(payload);
     const initStartedAt = Date.now();
     try {
       await this.initializationPromise;
     } catch (error) {
+      if (this.shutdownController.signal.aborted) throw error;
       this.bootTracker.markFailed();
+      if (error instanceof CredentialRelayError) {
+        this.initializationFailureCode = "claude_credential_unavailable";
+      }
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
         type: "notification",
@@ -1664,28 +1833,29 @@ export class AgentServer {
       await telemetry?.shutdown();
       throw error;
     } finally {
+      await this.cleanupInitializingConnection();
+      this.initializingConnection = null;
       this.initializingTelemetry = undefined;
       this.initializationPromise = null;
+      this.initializingSseController = null;
     }
   }
 
   /**
-   * The task's origin decides which origin-gated local tools load, so a transient failure here
-   * would silently drop report_insight from an analysis run. Retry, then give up so a task that
+   * The transport retries a rejected token but not a 5xx or a socket error, so one blip
+   * would silently degrade the session. Retry, then give up so a task or run that
    * genuinely does not exist still starts the session.
    */
-  private async fetchTaskForSessionContext(
-    taskId: string,
-  ): Promise<Task | null> {
+  private async fetchForSessionContext<T>(
+    fetch: () => Promise<T>,
+    onGiveUp: (error: unknown) => void,
+  ): Promise<T | null> {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        return await this.posthogAPI.getTask(taskId);
+        return await fetch();
       } catch (err) {
         if (attempt === 2) {
-          this.logger.warn("Failed to fetch task for session context", {
-            taskId,
-            error: err,
-          });
+          onGiveUp(err);
           return null;
         }
         await sleepWithBackoff(attempt, {
@@ -1697,10 +1867,44 @@ export class AgentServer {
     return null;
   }
 
-  private async _doInitializeSession(
-    payload: JwtPayload,
-    sseController: SseController | null,
-  ): Promise<void> {
+  /**
+   * The task's origin decides which origin-gated local tools load, so a transient failure here
+   * would silently drop report_activity from an analysis run.
+   */
+  private async fetchTaskForSessionContext(
+    taskId: string,
+  ): Promise<Task | null> {
+    return this.fetchForSessionContext(
+      () => this.posthogAPI.getTask(taskId),
+      (error) =>
+        this.logger.warn("Failed to fetch task for session context", {
+          taskId,
+          error,
+        }),
+    );
+  }
+
+  /**
+   * The run carries the session's system prompt, which newSession fixes once, so a later
+   * refresh cannot repair a run lost to a blip here. Without the run the stage is also
+   * unknown, so routing falls back to the env product.
+   */
+  private async fetchTaskRunForSessionContext(
+    taskId: string,
+    runId: string,
+  ): Promise<TaskRun | null> {
+    return this.fetchForSessionContext(
+      () => this.posthogAPI.getTaskRun(taskId, runId),
+      (error) =>
+        this.logger.warn("Failed to fetch task run for session context", {
+          taskId,
+          runId,
+          error,
+        }),
+    );
+  }
+
+  private async _doInitializeSession(payload: JwtPayload): Promise<void> {
     if (this.session) {
       await this.cleanupSession();
     }
@@ -1724,21 +1928,11 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
-    const [preTaskRun, preTask] = await this.bootTracker.measure(
+    const [preTaskRun, preTask] = await this.measureInitialization(
       "context_fetch",
       () =>
         Promise.all([
-          this.posthogAPI
-            .getTaskRun(payload.task_id, payload.run_id)
-            .catch((err) => {
-              // Without the run the stage is unknown, so routing falls back to the env product.
-              this.logger.warn("Failed to fetch task run for session context", {
-                taskId: payload.task_id,
-                runId: payload.run_id,
-                error: err,
-              });
-              return null;
-            }),
+          this.fetchTaskRunForSessionContext(payload.task_id, payload.run_id),
           this.fetchTaskForSessionContext(payload.task_id),
         ]),
     );
@@ -1746,6 +1940,8 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
+    this.runUsage = new RunUsageAccumulator();
+    this.runUsageRunId = payload.run_id;
     seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
@@ -1757,6 +1953,7 @@ export class AgentServer {
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
       aiStage: getTaskRunStateString(preTaskRun, "ai_stage"),
+      aiAgentName: getTaskRunStateString(preTaskRun, "ai_agent_name"),
       taskId: payload.task_id,
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
@@ -1794,6 +1991,7 @@ export class AgentServer {
       preTaskRun,
       "slack_thread_url",
     );
+    const runState = preTaskRun?.state;
 
     // Unconditional for the same reason as detectedPrUrl: a re-init on this
     // instance must not keep the previous run's delivery capability.
@@ -1813,13 +2011,19 @@ export class AgentServer {
     await this.installStoreSkills(
       payload.task_id,
       payload.run_id,
-      preTaskRun?.state ?? null,
+      runState ?? null,
     );
+
+    const runStateSystemPrompt =
+      claudeCodeConfigSchema.shape.systemPrompt.safeParse(
+        runState?.systemPrompt,
+      );
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
       slackThreadUrl,
       inboxReportUrl,
+      runStateSystemPrompt.success ? runStateSystemPrompt.data : undefined,
     );
     const codexInstructions =
       runtimeAdapter === "codex"
@@ -1846,6 +2050,25 @@ export class AgentServer {
       sinks: telemetry ? [telemetry] : undefined,
     });
 
+    let claudeSubscriptionToken: string | null = null;
+    if (
+      this.config.claudeModelAccess === "own-subscription" &&
+      runtimeAdapter === "claude"
+    ) {
+      try {
+        claudeSubscriptionToken = await this.credentialRelay.request(
+          "claude_subscription_token",
+        );
+      } catch (error) {
+        if (this.shutdownController.signal.aborted) throw error;
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn("Claude subscription token relay failed", { reason });
+        await this.reportClaudeSubscriptionTokenMissing(reason);
+        throw error;
+      }
+    }
+
+    this.shutdownController.signal.throwIfAborted();
     const acpConnection = createAcpConnection({
       adapter: runtimeAdapter,
       taskRunId: payload.run_id,
@@ -1856,7 +2079,14 @@ export class AgentServer {
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
       logger: this.logger,
-      claudeGatewayEnv: runtimeAdapter !== "codex" ? gatewayEnv : undefined,
+      claudeGatewayEnv:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken === null
+          ? gatewayEnv
+          : undefined,
+      claudeMachineAuth:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? { oauthToken: claudeSubscriptionToken }
+          : undefined,
       codexOptions:
         runtimeAdapter === "codex"
           ? {
@@ -1893,7 +2123,7 @@ export class AgentServer {
       },
     });
 
-    // The connection's wire taps broadcast all ACP messages via SSE (mimics local transport)
+    this.initializingConnection = acpConnection;
     this.adapterEmittedTurnComplete = false;
     const clientStream = ndJsonStream(
       acpConnection.clientStreams.writable as WritableStream<Uint8Array>,
@@ -1905,7 +2135,7 @@ export class AgentServer {
       clientStream,
     );
 
-    const initializeResult = await this.bootTracker.measure(
+    const initializeResult = await this.measureInitialization(
       "acp_initialize",
       () =>
         clientConnection.initialize({
@@ -1917,7 +2147,6 @@ export class AgentServer {
     const conversationClear =
       extractConversationClearCapability(initializeResult);
 
-    const runState = preTaskRun?.state;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
     // PostHog Desktop has not explicitly selected a mode.
@@ -1968,7 +2197,7 @@ export class AgentServer {
       ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
     };
 
-    await this.bootTracker.measure("repository_ready", () =>
+    await this.measureInitialization("repository_ready", () =>
       this.waitForRepoReady(),
     );
     const existingPrCheckoutPromise =
@@ -1986,7 +2215,7 @@ export class AgentServer {
     let effectiveSessionMeta: typeof sessionMeta & {
       nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
     } = sessionMeta;
-    const [nativeResume, sessionMcpServers] = await this.bootTracker.measure(
+    const [nativeResume, sessionMcpServers] = await this.measureInitialization(
       "session_dependencies",
       async () => {
         try {
@@ -2022,7 +2251,7 @@ export class AgentServer {
       },
     );
 
-    const acpSessionId = await this.bootTracker.measure(
+    const acpSessionId = await this.measureInitialization(
       "session_create",
       async () => {
         let sessionId: string | null = null;
@@ -2054,6 +2283,7 @@ export class AgentServer {
           }
         }
         if (!sessionId) {
+          this.shutdownController.signal.throwIfAborted();
           const restoredNativeGoal =
             this.getNativeGoalForFreshSession(runtimeAdapter);
           effectiveSessionMeta = restoredNativeGoal
@@ -2076,17 +2306,26 @@ export class AgentServer {
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
 
+    // Assigning this.session admits /command requests. Restore context and choose the startup
+    // action first so a forwarded message cannot be overtaken by a second startup decision.
+    const initialTaskMessage = await this.prepareInitialTaskMessage(
+      payload,
+      preTaskRun,
+    );
+
+    this.shutdownController.signal.throwIfAborted();
+    this.initializingConnection = null;
     this.session = {
       payload,
       acpSessionId,
       acpConnection,
       clientConnection,
-      sseController,
+      sseController: this.initializingSseController,
       deviceInfo,
       logWriter,
       telemetry,
       permissionMode: initialPermissionMode,
-      hasDesktopConnected: sseController !== null,
+      hasDesktopConnected: this.initializingSseController !== null,
       sessionMeta: effectiveSessionMeta,
     };
     this.initializingTelemetry = undefined;
@@ -2113,7 +2352,11 @@ export class AgentServer {
     this.logger.debug(
       `Agent version: ${this.config.version ?? packageJson.version}`,
     );
-    await logAgentshRuntimeInfo(this.logger);
+    // The version probe spawns a process, so it runs beside the startup turn. Its records reach
+    // the run log through the session logger installed above.
+    void logAgentshRuntimeInfo(this.logger).catch((error) =>
+      this.logger.debug("Failed to read agentsh runtime info", error),
+    );
     this.logger.debug(`Initial permission mode: ${initialPermissionMode}`);
 
     // Lifecycle handshake: clients gate "agent is ready to accept user
@@ -2161,12 +2404,17 @@ export class AgentServer {
         this.logger.debug("Failed to set task run to in_progress", err),
       );
 
-    await this.sendInitialTaskMessage(payload, preTaskRun);
+    await this.runStartupTurn(() =>
+      this.sendInitialTaskMessage(payload, initialTaskMessage),
+    );
   }
 
   private extractErrorClassification(error: unknown): {
     classification: AgentErrorClassification;
     message: string;
+    cause: string;
+    madeProgress: boolean;
+    usage?: NonNullable<PromptResponse["usage"]>;
   } {
     const message =
       error instanceof Error ? error.message : String(error ?? "");
@@ -2174,10 +2422,28 @@ export class AgentServer {
     // Prefer the structured `data` carried on RequestError if present.
     const parsed = errorWithClassificationSchema.safeParse(error);
     if (parsed.success) {
-      return { classification: parsed.data.data.classification, message };
+      // The adapter puts a safe diagnostic cause on `data.result` because the
+      // ACP message contains text for the live client.
+      const cause = sanitizeAgentErrorCause(
+        parsed.data.data.result || message,
+        parsed.data.data.classification,
+      );
+      return {
+        classification: parsed.data.data.classification,
+        message,
+        cause,
+        madeProgress: parsed.data.data.madeProgress ?? false,
+        usage: parsed.data.data.usage,
+      };
     }
 
-    return { classification: classifyAgentError(message), message };
+    const classification = classifyAgentError(message);
+    return {
+      classification,
+      message,
+      cause: sanitizeAgentErrorCause(message, classification),
+      madeProgress: false,
+    };
   }
 
   private async runOwnedTurn<T>(operation: () => Promise<T>): Promise<T> {
@@ -2192,9 +2458,38 @@ export class AgentServer {
   private async runStartupTurn<T>(operation: () => Promise<T>): Promise<T> {
     this.activeStartupTurnCount += 1;
     try {
-      return await this.runOwnedTurn(operation);
+      return await this.runRetryWrappedTurn(() => this.runOwnedTurn(operation));
     } finally {
       this.activeStartupTurnCount -= 1;
+    }
+  }
+
+  private isRetryWrappedSession(session: ActiveSession): boolean {
+    return (this.retryWrappedSessionDepth.get(session) ?? 0) > 0;
+  }
+
+  private async runRetryWrappedTurn<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const session = this.session;
+    if (session) {
+      this.retryWrappedSessionDepth.set(
+        session,
+        (this.retryWrappedSessionDepth.get(session) ?? 0) + 1,
+      );
+    }
+    try {
+      return await operation();
+    } finally {
+      if (session) {
+        const depth = this.retryWrappedSessionDepth.get(session) ?? 0;
+        if (depth <= 1) {
+          this.retryWrappedSessionDepth.delete(session);
+          this.cancelledStartupSessions.delete(session);
+        } else {
+          this.retryWrappedSessionDepth.set(session, depth - 1);
+        }
+      }
     }
   }
 
@@ -2217,19 +2512,33 @@ export class AgentServer {
    * case retries with a hidden continuation; failures where the request may
    * never have been processed re-send the original prompt instead.
    */
-  private async promptWithUpstreamRetry(request: {
-    sessionId: string;
-    prompt: ContentBlock[];
-    _meta?: Record<string, unknown>;
-  }): Promise<PromptResponse> {
+  private async promptWithUpstreamRetry(
+    request: {
+      sessionId: string;
+      prompt: ContentBlock[];
+      _meta?: Record<string, unknown>;
+    },
+    recordFailedUsage = true,
+  ): Promise<PromptResponse> {
+    const originatingSession = this.session;
+    if (
+      !originatingSession ||
+      originatingSession.acpSessionId !== request.sessionId
+    ) {
+      throw new Error("Agent session changed before the turn could be sent");
+    }
     let retries = 0;
     let continueInterruptedTurn = false;
+    let retryUsage: NonNullable<PromptResponse["usage"]> | undefined;
+    if (this.cancelledStartupSessions.delete(originatingSession)) {
+      return { stopReason: "cancelled" };
+    }
     for (;;) {
-      // Re-read the session on every attempt: it can be torn down or
-      // replaced while the retry delay is pending.
       const session = this.session;
-      if (!session) {
-        throw new Error("Agent session ended before the turn could be sent");
+      if (session !== originatingSession) {
+        throw new Error(
+          "Agent session changed before the turn could be retried",
+        );
       }
       this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
@@ -2242,23 +2551,52 @@ export class AgentServer {
               ),
             ],
           }
-        : { ...request, sessionId: session.acpSessionId };
+        : {
+            ...request,
+            sessionId: session.acpSessionId,
+            prompt:
+              retries > 0
+                ? request.prompt.map(hiddenPromptBlock)
+                : request.prompt,
+          };
       try {
-        return await session.clientConnection.prompt(attempt);
+        const response = await session.clientConnection.prompt(attempt);
+        if (this.session !== originatingSession) {
+          throw new Error(
+            "Agent session changed before the turn result was handled",
+          );
+        }
+        const usage = mergeUsage(retryUsage, response.usage ?? undefined);
+        return { ...response, ...(usage ? { usage } : {}) };
       } catch (error) {
-        const { classification, message } =
+        const { classification, message, cause, madeProgress, usage } =
           this.extractErrorClassification(error);
-        if (
-          !upstreamProviderFailureClassifications.has(classification) ||
-          retries >= MAX_UPSTREAM_TURN_RETRIES
-        ) {
+        const accumulatedUsage = mergeUsage(retryUsage, usage);
+        const retryable =
+          isRetryableUpstreamErrorClassification(classification);
+        if (!retryable || retries >= MAX_UPSTREAM_TURN_RETRIES) {
+          if (recordFailedUsage && this.session === originatingSession) {
+            await this.recordTurnUsage(
+              accumulatedUsage,
+              originatingSession.payload,
+            );
+          }
+          if (retryable && accumulatedUsage) {
+            throw new RequestError(-32603, message, {
+              classification,
+              result: cause,
+              madeProgress: continueInterruptedTurn || madeProgress,
+              usage: accumulatedUsage,
+            });
+          }
           throw error;
         }
+        retryUsage = accumulatedUsage;
         retries += 1;
         // Only a mid-response stream death guarantees the prompt reached the
         // model; connection/timeout/status failures re-send the original.
-        continueInterruptedTurn =
-          classification === "upstream_stream_terminated";
+        continueInterruptedTurn ||=
+          classification === "upstream_stream_terminated" || madeProgress;
         this.logger.warn(
           "Turn hit a transient upstream failure; retrying after a short delay",
           {
@@ -2271,6 +2609,17 @@ export class AgentServer {
         await new Promise((resolve) =>
           setTimeout(resolve, UPSTREAM_TURN_RETRY_DELAY_MS),
         );
+        if (this.session !== originatingSession) {
+          throw new Error(
+            "Agent session changed before the turn could be retried",
+          );
+        }
+        if (this.cancelledStartupSessions.delete(originatingSession)) {
+          return {
+            stopReason: "cancelled",
+            ...(retryUsage ? { usage: retryUsage } : {}),
+          };
+        }
       }
     }
   }
@@ -2280,9 +2629,10 @@ export class AgentServer {
     phase: "initial" | "resume" | "followup",
     error: unknown,
   ): Promise<TurnFailureDisposition> {
-    const { classification, message } = this.extractErrorClassification(error);
+    const { classification, message, cause, usage } =
+      this.extractErrorClassification(error);
     const isUpstreamFailure =
-      upstreamProviderFailureClassifications.has(classification);
+      isRetryableUpstreamErrorClassification(classification);
     const isTurnWithoutResponse =
       classification === "turn_ended_without_response";
     const displayMessage = isUpstreamFailure
@@ -2298,6 +2648,8 @@ export class AgentServer {
       recoverable && /^ACP connection closed$/i.test(message.trim());
     const suppressClientError =
       retryableFollowup || expectedIdleTransportClosure;
+    const activeSessionOwnsFailure =
+      this.session?.payload.run_id === payload.run_id;
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
@@ -2306,16 +2658,24 @@ export class AgentServer {
       retryableDelivery,
     });
 
+    if (phase === "followup" && activeSessionOwnsFailure) {
+      await this.recordTurnUsage(usage, payload);
+    }
+    const failureSessionStillActive =
+      this.session?.payload.run_id === payload.run_id;
+
     if (retryableDelivery) {
       return "retryable_delivery";
     }
 
-    if (!suppressClientError) {
+    if (!suppressClientError && failureSessionStillActive) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
-      this.broadcastTurnComplete("error_recoverable");
+      if (failureSessionStillActive) {
+        this.broadcastTurnComplete("error_recoverable");
+      }
       return "recoverable";
     }
 
@@ -2323,7 +2683,15 @@ export class AgentServer {
       return "retryable_followup";
     }
 
-    await this.signalTaskComplete(payload, "error", displayMessage);
+    // Keep the live-client message separate from a bounded diagnostic cause.
+    // Upstream failures need the same actionable retry guidance in persisted
+    // task state and Slack notifications.
+    const persistedMessage = isUpstreamFailure
+      ? displayMessage
+      : cause || displayMessage;
+    await this.signalTaskComplete(payload, "error", persistedMessage, {
+      errorCategory: classification,
+    });
     return "terminal";
   }
 
@@ -2346,12 +2714,10 @@ export class AgentServer {
     });
   }
 
-  private async sendInitialTaskMessage(
+  private async prepareInitialTaskMessage(
     payload: JwtPayload,
     prefetchedRun?: TaskRun | null,
-  ): Promise<void> {
-    if (!this.session) return;
-
+  ): Promise<PreparedInitialTaskMessage> {
     let taskRun = prefetchedRun ?? null;
     try {
       const refresh = await withTimeout(
@@ -2367,8 +2733,17 @@ export class AgentServer {
       });
     }
 
-    const taskRunState = taskRun?.state as Record<string, unknown> | undefined;
-    const prewarmed = taskRunState?.prewarmed === true;
+    if (!taskRun) {
+      throw new Error(
+        "Could not load task run to determine its initial prompt",
+      );
+    }
+    const taskRunState = taskRun.state;
+    const prewarmed = taskRunState.prewarmed === true;
+    const sameRunResume =
+      taskRunState.same_run_resume === true ||
+      taskRunState.handoff_resumed === true ||
+      this.getResumeRunId(taskRun) === payload.run_id;
     const hasPendingUserPrompt =
       (typeof taskRunState?.pending_user_message === "string" &&
         taskRunState.pending_user_message.trim().length > 0) ||
@@ -2390,29 +2765,54 @@ export class AgentServer {
       }
     }
 
-    // `await_user_message` is the marker the backend clears on activation. `prewarmed` is permanent
-    // provenance that outlives it, so idling on that alone would strand a run whose first message
-    // was already delivered — every later reinitialization would wait for a message nobody sends.
-    const awaitsFirstMessage = taskRunState?.await_user_message === true;
-    if (prewarmed && awaitsFirstMessage && !hasPendingUserPrompt) {
-      this.prewarmedRun = true;
-      this.logger.debug(
-        "Prewarmed run awaits its forwarded first message, skipping initial message",
-      );
+    this.prewarmedRun = prewarmed;
+    // Activation clears await_user_message when Temporal accepts the signal, before the agent
+    // receives it. Only an explicit same-run restart transfers startup ownership back to the agent.
+    const awaitsForwardedMessage =
+      prewarmed && !sameRunResume && !hasPendingUserPrompt;
+    // The forwarded message owns the startup turn only while the run waits for it. When startup
+    // sends the pending prompt itself, the next message is a normal follow-up, so a steer during
+    // that turn must reach the agent instead of being declined.
+    this.prewarmedStartupTurnPending = awaitsForwardedMessage;
+    if (awaitsForwardedMessage) {
+      return { taskRun, action: "wait" };
+    }
+
+    if (!hasPendingUserPrompt && process.env.POSTHOG_RESUME_IDLE === "1") {
+      return { taskRun, action: "idle" };
+    }
+    return {
+      taskRun,
+      action:
+        this.nativeResume || this.resumeState?.conversation.length
+          ? "resume"
+          : "initial",
+    };
+  }
+
+  private async sendInitialTaskMessage(
+    payload: JwtPayload,
+    { taskRun, action }: PreparedInitialTaskMessage,
+  ): Promise<void> {
+    if (!this.session) return;
+    if (action === "wait") {
+      this.logger.debug("Prewarmed run awaits its forwarded first message");
+      return;
+    }
+    if (action === "idle") {
+      await this.settleIdleResume(payload);
+      return;
+    }
+    if (action === "resume") {
+      if (this.nativeResume) {
+        await this.sendResumeContinuation(payload, taskRun);
+      } else {
+        await this.sendResumeMessage(payload, taskRun);
+      }
       return;
     }
 
-    if (this.nativeResume) {
-      if (await this.settleIdleResume(payload, taskRun)) return;
-      await this.sendResumeContinuation(payload, taskRun);
-      return;
-    }
-
-    if (this.resumeState && this.resumeState.conversation.length > 0) {
-      await this.sendResumeMessage(payload, taskRun);
-      return;
-    }
-
+    const prewarmed = taskRun.state.prewarmed === true;
     let promptDispatched = false;
     let releaseSelfDelivery: (() => void) | undefined;
     try {
@@ -2475,13 +2875,11 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.runStartupTurn(() =>
-        this.promptWithUpstreamRetry({
-          sessionId: acpSessionId,
-          prompt: initialPrompt,
-          ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
-        }),
-      );
+      const result = await this.promptWithUpstreamRetry({
+        sessionId: acpSessionId,
+        prompt: initialPrompt,
+        ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
+      });
 
       this.logger.debug("Initial task message completed", {
         stopReason: result.stopReason,
@@ -2494,13 +2892,11 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(
-        result.stopReason,
-        this.promptResultTraceId(result),
-      );
+      const turnTraceId = this.promptResultTraceId(result);
+      this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
-        await this.relayAgentResponse(payload);
+        await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
       await this.finalizeRunTelemetry(payload);
@@ -2521,70 +2917,71 @@ export class AgentServer {
   private async sendResumeMessage(
     payload: JwtPayload,
     taskRun: TaskRun | null,
-  ): Promise<void> {
-    if (!this.session || !this.resumeState) return;
+    reservedMessageId?: string,
+  ): Promise<boolean> {
+    if (!this.session || !this.resumeState) return false;
     const resumeState = this.resumeState;
-    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
+    return await this.runStartupTurn(() =>
+      this.runResumeTurn(
+        payload,
+        taskRun,
+        "Resume message",
+        async () => {
+          const conversationSummary = formatConversationForResume(
+            resumeState.conversation,
+          );
 
-    await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
-      const conversationSummary = formatConversationForResume(
-        resumeState.conversation,
-      );
+          const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
 
-      const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+          let resumePromptBlocks: ContentBlock[];
+          let resumePromptMeta: Record<string, unknown> | undefined;
+          let resumePromptMessageId: string | undefined;
+          if (pendingUserPrompt?.prompt.length) {
+            resumePromptMeta = pendingUserPrompt.meta;
+            resumePromptMessageId = pendingUserPrompt.messageId;
+            resumePromptBlocks = [
+              hiddenTextBlock(
+                "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                  `Here is the conversation history from the previous session:\n\n` +
+                  `${conversationSummary}\n\n` +
+                  `The user has sent a new message:\n\n`,
+              ),
+              ...pendingUserPrompt.prompt,
+              hiddenTextBlock(
+                "\n\nRespond to the user's new message above. You have full context from the previous session.",
+              ),
+            ];
+          } else {
+            resumePromptBlocks = [
+              hiddenTextBlock(
+                "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                  `Here is the conversation history from the previous session:\n\n` +
+                  `${conversationSummary}\n\n` +
+                  `Continue from where you left off. The user is waiting for your response.`,
+              ),
+            ];
+          }
 
-      let resumePromptBlocks: ContentBlock[];
-      let resumePromptMeta: Record<string, unknown> | undefined;
-      let resumePromptMessageId: string | undefined;
-      if (pendingUserPrompt?.prompt.length) {
-        resumePromptMeta = pendingUserPrompt.meta;
-        resumePromptMessageId = pendingUserPrompt.messageId;
-        resumePromptBlocks = [
-          hiddenTextBlock(
-            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-              `Here is the conversation history from the previous session:\n\n` +
-              `${conversationSummary}\n\n` +
-              `The user has sent a new message:\n\n`,
-          ),
-          ...pendingUserPrompt.prompt,
-          hiddenTextBlock(
-            "\n\nRespond to the user's new message above. You have full context from the previous session.",
-          ),
-        ];
-      } else {
-        resumePromptBlocks = [
-          hiddenTextBlock(
-            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-              `Here is the conversation history from the previous session:\n\n` +
-              `${conversationSummary}\n\n` +
-              `Continue from where you left off. The user is waiting for your response.`,
-          ),
-        ];
-      }
+          this.logger.debug("Sending resume message", {
+            taskId: payload.task_id,
+            conversationTurns: resumeState.conversation.length,
+            promptLength: promptBlocksToText(resumePromptBlocks).length,
+            hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
+          });
 
-      this.logger.debug("Sending resume message", {
-        taskId: payload.task_id,
-        conversationTurns: resumeState.conversation.length,
-        promptLength: promptBlocksToText(resumePromptBlocks).length,
-        hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-      });
-
-      return {
-        prompt: resumePromptBlocks,
-        ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
-        messageId: resumePromptMessageId,
-      };
-    });
+          return {
+            prompt: resumePromptBlocks,
+            ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
+            messageId: resumePromptMessageId,
+          };
+        },
+        reservedMessageId ? { reservedMessageId } : {},
+      ),
+    );
   }
 
-  private async settleIdleResume(
-    payload: JwtPayload,
-    taskRun: TaskRun | null,
-  ): Promise<boolean> {
-    if (!this.session || process.env.POSTHOG_RESUME_IDLE !== "1") return false;
-
-    const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
-    if (pendingUserPrompt?.prompt.length) return false;
+  private async settleIdleResume(payload: JwtPayload): Promise<void> {
+    if (!this.session) return;
 
     this.logger.debug("Idle resume settled without a turn", {
       taskId: payload.task_id,
@@ -2593,19 +2990,15 @@ export class AgentServer {
       warm: this.nativeResume?.warm,
     });
 
-    this.resumeState = null;
-    this.nativeResume = null;
-
     this.broadcastTurnComplete("end_turn");
     await this.session.logWriter.flushAll();
-    return true;
   }
 
   private async preparePrewarmedResumePrompt(
     payload: JwtPayload,
     prompt: ContentBlock[],
   ): Promise<{ prompt: ContentBlock[]; consumed: boolean }> {
-    if (!this.prewarmedRun) {
+    if (!this.prewarmedRun && process.env.POSTHOG_RESUME_IDLE !== "1") {
       return { prompt, consumed: false };
     }
 
@@ -2721,36 +3114,37 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
-    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
+    await this.runStartupTurn(() =>
+      this.runResumeTurn(
+        payload,
+        taskRun,
+        "Resume continuation",
+        async () => {
+          const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+          const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
+            ? pendingUserPrompt.prompt
+            : [
+                hiddenTextBlock(
+                  "Continue from where you left off. The user is waiting for your response.",
+                ),
+              ];
+          this.logger.debug("Sending resume continuation", {
+            taskId: payload.task_id,
+            sessionId: this.nativeResume?.sessionId,
+            warm: this.nativeResume?.warm,
+            hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
+          });
 
-    await this.runResumeTurn(
-      payload,
-      taskRun,
-      "Resume continuation",
-      async () => {
-        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
-        const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
-          ? pendingUserPrompt.prompt
-          : [
-              {
-                type: "text",
-                text: "Continue from where you left off. The user is waiting for your response.",
-              },
-            ];
-        this.logger.debug("Sending resume continuation", {
-          taskId: payload.task_id,
-          sessionId: this.nativeResume?.sessionId,
-          warm: this.nativeResume?.warm,
-          hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-        });
-
-        return {
-          prompt,
-          ...(pendingUserPrompt?.meta ? { meta: pendingUserPrompt.meta } : {}),
-          messageId: pendingUserPrompt?.messageId,
-        };
-      },
-      { retryOnOversizedPrompt: true },
+          return {
+            prompt,
+            ...(pendingUserPrompt?.meta
+              ? { meta: pendingUserPrompt.meta }
+              : {}),
+            messageId: pendingUserPrompt?.messageId,
+          };
+        },
+        { retryOnOversizedPrompt: true },
+      ),
     );
   }
 
@@ -2779,6 +3173,7 @@ export class AgentServer {
   private async retryOversizedResumeOnFreshSession(
     payload: JwtPayload,
     taskRun: TaskRun | null,
+    reservedMessageId?: string,
   ): Promise<boolean> {
     if (this.oversizedResumeRetried || !this.session) {
       return false;
@@ -2823,8 +3218,7 @@ export class AgentServer {
     }
 
     try {
-      await this.sendResumeMessage(payload, taskRun);
-      return true;
+      return await this.sendResumeMessage(payload, taskRun, reservedMessageId);
     } finally {
       this.resumeState = null;
       this.nativeResume = null;
@@ -2836,33 +3230,48 @@ export class AgentServer {
     taskRun: TaskRun | null,
     logLabel: string,
     buildPrompt: () => Promise<BuiltPrompt>,
-    opts: { retryOnOversizedPrompt?: boolean } = {},
-  ): Promise<void> {
-    if (!this.session) return;
+    opts: {
+      retryOnOversizedPrompt?: boolean;
+      reservedMessageId?: string;
+    } = {},
+  ): Promise<boolean> {
+    if (!this.session) return false;
 
     let promptDispatched = false;
+    let heldMessageId = opts.reservedMessageId;
     let releaseSelfDelivery: (() => void) | undefined;
     try {
       const builtPrompt = await buildPrompt();
 
-      this.session.logWriter.resetTurnMessages(payload.run_id);
       const acpSessionId = this.session.acpSessionId;
       if (!acpSessionId) {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      if (builtPrompt.messageId) {
+      // The fresh-session retry rebuilds the same pending message. It reuses the reservation
+      // that the failed attempt still holds, because a second reservation reads as a duplicate
+      // delivery and sends nothing.
+      if (
+        builtPrompt.messageId &&
+        builtPrompt.messageId !== opts.reservedMessageId
+      ) {
+        if (
+          this.deliveredMessageIds.has(builtPrompt.messageId) ||
+          this.inFlightMessageDeliveries.has(builtPrompt.messageId)
+        ) {
+          return false;
+        }
         releaseSelfDelivery = this.beginSelfDelivery(builtPrompt.messageId);
+        heldMessageId = builtPrompt.messageId;
       }
+      this.session.logWriter.resetTurnMessages(payload.run_id);
       promptDispatched = true;
 
-      const result = await this.runStartupTurn(() =>
-        this.promptWithUpstreamRetry({
-          sessionId: acpSessionId,
-          prompt: builtPrompt.prompt,
-          ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
-        }),
-      );
+      const result = await this.promptWithUpstreamRetry({
+        sessionId: acpSessionId,
+        prompt: builtPrompt.prompt,
+        ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
+      });
 
       this.logger.debug(`${logLabel} completed`, {
         stopReason: result.stopReason,
@@ -2879,13 +3288,11 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(
-        result.stopReason,
-        this.promptResultTraceId(result),
-      );
+      const turnTraceId = this.promptResultTraceId(result);
+      this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
-        await this.relayAgentResponse(payload);
+        await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
       await this.finalizeRunTelemetry(payload);
@@ -2894,12 +3301,18 @@ export class AgentServer {
       if (this.session) {
         await this.session.logWriter.flushAll();
       }
+      // The retry owns the outcome only when it sends a prompt. If it sends nothing, this turn
+      // must still report the failure, so the run does not stay in progress with no answer.
       if (
         opts.retryOnOversizedPrompt &&
         isPromptTooLongError(error) &&
-        (await this.retryOversizedResumeOnFreshSession(payload, taskRun))
+        (await this.retryOversizedResumeOnFreshSession(
+          payload,
+          taskRun,
+          heldMessageId,
+        ))
       ) {
-        return;
+        return true;
       }
       if (promptDispatched) {
         await this.clearPendingInitialPromptState(payload, taskRun);
@@ -2908,6 +3321,7 @@ export class AgentServer {
     } finally {
       releaseSelfDelivery?.();
     }
+    return promptDispatched;
   }
 
   private getInitialPromptOverride(taskRun: TaskRun): string | null {
@@ -3790,13 +4204,15 @@ export class AgentServer {
     prUrl?: string | null,
     slackThreadUrl?: string | null,
     inboxReportUrl?: string | null,
+    runStateSystemPrompt?: ClaudeCodeConfig["systemPrompt"],
   ): string | { append: string } {
     const cloudAppend = this.buildCloudSystemPrompt(
       prUrl,
       slackThreadUrl,
       inboxReportUrl,
     );
-    const userPrompt = this.config.claudeCode?.systemPrompt;
+    const userPrompt =
+      this.config.claudeCode?.systemPrompt ?? runStateSystemPrompt;
 
     const sessionPrompt = buildCloudSessionSystemPrompt(
       cloudAppend,
@@ -4550,10 +4966,31 @@ ${commonInstructions}
     payload: JwtPayload,
     stopReason: string,
     errorMessage?: string,
+    options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
-    if (this.session?.payload.run_id === payload.run_id) {
+    errorMessage = redactSecrets(errorMessage);
+    const currentSession = this.session;
+    const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
+    const terminalErrorMessage = errorMessage ?? "Agent error";
+    const persistedErrorMessage = options?.errorCategory
+      ? `${options.errorCategory}: ${errorMessage ?? "Agent error"}`
+      : terminalErrorMessage;
+    // The Django drain reads this contract from the S3 log. Enqueue it before
+    // the flush so the drain can report the safe classified cause.
+    if (stopReason === "error" && (!currentSession || sessionMatchesRun)) {
+      this.enqueueTaskTerminalEvent(POSTHOG_NOTIFICATIONS.ERROR, {
+        source: "agent_server",
+        stopReason,
+        message: terminalErrorMessage,
+        error: terminalErrorMessage,
+        errorCategory: options?.errorCategory,
+        error_category: options?.errorCategory,
+      });
+    }
+
+    if (sessionMatchesRun) {
       try {
-        await this.session.logWriter.flush(payload.run_id, {
+        await currentSession.logWriter.flush(payload.run_id, {
           coalesce: true,
         });
       } catch (error) {
@@ -4574,28 +5011,31 @@ ${commonInstructions}
 
     const status = "failed";
 
-    this.enqueueTaskTerminalEvent(POSTHOG_NOTIFICATIONS.ERROR, {
-      source: "agent_server",
-      stopReason,
-      error: errorMessage ?? "Agent error",
-    });
-
     try {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
-        error_message: errorMessage ?? "Agent error",
+        error_message: persistedErrorMessage,
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
     } catch (error) {
       this.logger.error("Failed to signal task completion", error);
     } finally {
-      await this.emitRtkSavings();
-      await this.eventStreamSender?.stop();
+      if (
+        (!currentSession || sessionMatchesRun) &&
+        this.session === currentSession
+      ) {
+        await this.emitRtkSavings();
+        if (this.session === currentSession) {
+          await this.eventStreamSender?.stop();
+        }
+      }
       // The run is terminal and the sandbox is torn down right after — and
       // teardown kills this exec'd process without SIGTERM, so this is the
       // last chance to end the root span and drain the OTel queues. The
       // error mirror was appended above, so the root span exports as ERROR.
-      await this.session?.telemetry?.shutdown().catch(() => {});
+      if (sessionMatchesRun) {
+        await currentSession.telemetry?.shutdown().catch(() => {});
+      }
     }
   }
 
@@ -4615,10 +5055,16 @@ ${commonInstructions}
       },
     };
     this.eventStreamSender?.enqueue(entry);
-    // Terminal events bypass the SessionLogWriter (and its sinks), so mirror
-    // them onto the OTel writer directly — a failed run is exactly what the
-    // telemetry must record.
-    this.session?.telemetry?.append(this.session.payload.run_id, entry);
+    // Persist to the session log too: the Django drain reads the terminal event
+    // from the S3 log to report the real cause of a failed run, and only the
+    // SessionLogWriter feeds that log. appendRawLine wraps the bare notification
+    // in the same {type, timestamp, notification} envelope the drain parses, and
+    // forwards it to the OTel sink — so telemetry still records the failed run
+    // without a second append here.
+    this.session?.logWriter.appendRawLine(
+      this.session.payload.run_id,
+      JSON.stringify(entry.notification),
+    );
   }
 
   private configureEnvironment({
@@ -4626,6 +5072,7 @@ ${commonInstructions}
     originProduct,
     signalReportId,
     aiStage,
+    aiAgentName,
     taskId,
     taskRunId,
     taskUserId,
@@ -4642,6 +5089,7 @@ ${commonInstructions}
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
     aiStage?: string | null;
+    aiAgentName?: string | null;
     taskId?: string | null;
     taskRunId?: string | null;
     taskUserId?: number | null;
@@ -4698,6 +5146,8 @@ ${commonInstructions}
       task_internal: isInternal,
       signal_report_id: signalReportId,
       ai_stage: resolvedStage,
+      // The team-scoped agent name; `ai_stage` stays a bounded fleet-wide tag.
+      ai_agent_name: aiAgentName,
       task_id: taskId,
       task_run_id: taskRunId,
       task_user_id: taskUserId,
@@ -5047,6 +5497,7 @@ ${commonInstructions}
   private async relayAgentResponse(
     payload: JwtPayload,
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     if (!this.session) {
       return;
@@ -5092,6 +5543,7 @@ ${commonInstructions}
         message,
         messageParts,
         messageId,
+        traceId,
       );
     } catch (error) {
       this.logger.debug("Failed to relay initial agent response to Slack", {
@@ -5426,6 +5878,7 @@ ${commonInstructions}
     // Run usage is per run: a later session on this instance (e.g. a resume
     // with a different run_id) must not inherit the previous run's totals.
     this.runUsage = new RunUsageAccumulator();
+    this.runUsageRunId = null;
     this.session = null;
   }
 
@@ -5455,11 +5908,19 @@ ${commonInstructions}
    * to the backend, merged into `TaskRun.state.token_usage`. Best-effort: a
    * reporting failure must never affect the turn outcome.
    */
-  private recordTurnUsage(usage: PromptResponse["usage"]): void {
-    if (!this.runUsage.add(usage)) return;
-    const payload = this.session?.payload;
-    if (!payload) return;
-    reportRunUsage(
+  private recordTurnUsage(
+    usage: PromptResponse["usage"],
+    payload = this.session?.payload,
+  ): Promise<void> {
+    if (!payload || this.session?.payload.run_id !== payload.run_id) {
+      return Promise.resolve();
+    }
+    if (this.runUsageRunId !== payload.run_id) {
+      this.runUsage = new RunUsageAccumulator();
+      this.runUsageRunId = payload.run_id;
+    }
+    if (!this.runUsage.add(usage)) return Promise.resolve();
+    return reportRunUsage(
       this.runUsage,
       this.posthogAPI,
       payload.task_id,
@@ -5534,10 +5995,18 @@ ${commonInstructions}
   }
 
   private broadcastEvent(event: Record<string, unknown>): void {
+    for (const redacted of this.eventRedactor.redact(event)) {
+      this.deliverEvent(redacted);
+    }
+  }
+
+  private deliverEvent(event: Record<string, unknown>): void {
     this.eventStreamSender?.enqueue(event);
 
-    if (this.session?.sseController) {
-      this.sendSseEvent(this.session.sseController, event);
+    const controller =
+      this.session?.sseController ?? this.initializingSseController;
+    if (controller) {
+      this.sendSseEvent(controller, event);
     } else {
       // Buffers events raised before a session exists yet (e.g. an MCP relay
       // request fired the instant the client subprocess starts, ahead of

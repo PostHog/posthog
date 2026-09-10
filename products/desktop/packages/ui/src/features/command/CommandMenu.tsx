@@ -21,6 +21,7 @@ import {
   SquaresFourIcon,
   SunIcon,
 } from "@phosphor-icons/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { workspaceIdSet } from "@posthog/core/command-center/eligibility";
 import { resolveService } from "@posthog/di/container";
 import {
@@ -42,13 +43,18 @@ import {
   Kbd,
   KbdGroup,
 } from "@posthog/quill";
-import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  LOOPS_FLAG,
+  PROJECT_BLUEBIRD_FLAG,
+  singleLineTitle,
+} from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type CommandMenuAction,
 } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
+import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   EDITOR_TEXT_CLASS,
@@ -60,6 +66,20 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
+import type {
+  Command,
+  CommandSection,
+} from "@posthog/ui/features/command/commandRow";
+import {
+  channelRowParts,
+  taskRowParts,
+  taskRowRecency,
+} from "@posthog/ui/features/command/commandRowFacts";
+import {
+  channelHref,
+  taskHref,
+} from "@posthog/ui/features/command/commandRowHref";
+import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
 import {
   addRecentCommand,
   matchesCommandSearch,
@@ -71,7 +91,10 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { PaletteFilterChips } from "@posthog/ui/features/command/PaletteFilterChips";
-import { sessionSubtitle } from "@posthog/ui/features/command/sessionSubtitle";
+import {
+  type ResultRow,
+  rankResultRows,
+} from "@posthog/ui/features/command/rankResultRows";
 import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { taskSearchDelay } from "@posthog/ui/features/command/taskSearchQuery";
 import {
@@ -79,11 +102,7 @@ import {
   useFeedQueryCommands,
 } from "@posthog/ui/features/command/useFeedQueryCommands";
 import { useFileSearchContext } from "@posthog/ui/features/command/useFileSearchContext";
-import {
-  type Command,
-  type CommandSection,
-  useSearchSections,
-} from "@posthog/ui/features/command/useSearchSections";
+import { useSearchRows } from "@posthog/ui/features/command/useSearchRows";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
@@ -137,6 +156,13 @@ const CreateChannelModalLazy = lazy(() =>
 );
 
 const DEFAULT_RESULT_LIMIT = 8;
+
+/** The palette hands the highlighted row itself, not its value. */
+function highlightedCommandId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  const id = (value as { id?: unknown } | null)?.id;
+  return typeof id === "string" ? id : null;
+}
 const COLLAPSED_CHIP_COUNT = 5;
 
 function PaletteQueryMirror({
@@ -232,6 +258,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const inboxAvailable = useInboxAvailable();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
+  const openBrowserTab = useOpenBrowserTab();
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
   const view = useAppView();
@@ -668,7 +695,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     spacesLayout,
   ]);
 
-  const taskSections = useMemo<CommandSection[]>(() => {
+  const taskRows = useMemo<ResultRow[]>(() => {
     const workspaceIds = workspaceIdSet(workspaces);
     const visibleTasks = tasks.filter(
       (task) =>
@@ -681,47 +708,39 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     const channelsById = new Map(
       channels.map((channel) => [channel.id, channel] as const),
     );
-    return [
-      {
-        label: "Tasks",
-        items: visibleTasks.map((task) => {
-          const channel = task.channel
-            ? channelsById.get(task.channel)
-            : undefined;
-          return {
-            id: `task-${task.id}`,
-            label: task.title,
-            // Under the spaces layout a session wears the same row everywhere:
-            // status dot, title, and a second line saying where it lives. The
-            // legacy layout keeps the trailing `#channel`.
-            detail: spacesLayout ? undefined : channel?.name,
-            subtitle: spacesLayout
-              ? sessionSubtitle({
-                  space: channel?.name,
-                  repository: task.repository,
-                  createdAt: task.created_at,
-                })
-              : undefined,
-            // Include the channel name so searching it surfaces filed tasks.
-            keywords: channel?.name,
-            icon: <TaskCommandIcon task={task} />,
-            action: "open-task" as CommandMenuAction,
-            channelId: bluebirdEnabled ? channel?.id : undefined,
-            onRun: () => {
-              closeSettingsDialog();
-              // Bluebird: a task filed to a channel opens in the channel-
-              // organized view under /website, keeping the channels chrome.
-              // Otherwise fall back to the /code task detail.
-              const channelTarget =
-                bluebirdEnabled && channel
-                  ? { channelId: channel.id }
-                  : undefined;
-              void openTask(task, channelTarget);
-            },
-          };
-        }),
-      },
-    ];
+    return visibleTasks.map((task) => {
+      const channel = task.channel ? channelsById.get(task.channel) : undefined;
+      return {
+        kind: "task" as const,
+        recency: taskRowRecency(task),
+        command: {
+          id: `task-${task.id}`,
+          label: singleLineTitle(task.title),
+          subtitle: commandRowMeta(taskRowParts(task)),
+          detail: channel
+            ? channelDisplayLabel(channel.name, channel.channelType)
+            : undefined,
+          detailPrefix: "",
+          // Include the channel name so searching it surfaces filed tasks.
+          keywords: channel?.name,
+          icon: <TaskCommandIcon task={task} />,
+          action: "open-task" as CommandMenuAction,
+          channelId: bluebirdEnabled ? channel?.id : undefined,
+          href: taskHref(task, bluebirdEnabled ? channel?.id : undefined),
+          onRun: () => {
+            closeSettingsDialog();
+            // Bluebird: a task filed to a channel opens in the channel-
+            // organized view under /website, keeping the channels chrome.
+            // Otherwise fall back to the /code task detail.
+            const channelTarget =
+              bluebirdEnabled && channel
+                ? { channelId: channel.id }
+                : undefined;
+            void openTask(task, channelTarget);
+          },
+        },
+      };
+    });
   }, [
     tasks,
     archivedTaskIds,
@@ -730,45 +749,64 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     provisioningTaskIds,
     channels,
     bluebirdEnabled,
-    spacesLayout,
     closeSettingsDialog,
   ]);
 
-  const channelSections = useMemo<CommandSection[]>(() => {
-    if (channels.length === 0) return [];
-    return [
-      {
-        label: spacesLayout ? "Spaces" : "Channels",
-        items: channels.map((channel) => ({
+  const taskSections = useMemo<CommandSection[]>(
+    () =>
+      taskRows.length > 0
+        ? [{ label: "Tasks", items: taskRows.map((row) => row.command) }]
+        : [],
+    [taskRows],
+  );
+
+  const channelRows = useMemo<ResultRow[]>(
+    () =>
+      channels.map((channel) => ({
+        kind: "channel" as const,
+        command: {
           id: `channel-${channel.id}`,
           label: channel.name,
+          subtitle: commandRowMeta(channelRowParts(channel)),
           keywords: "space channel",
           icon: channelGlyph(channel.name, {
             personal: channel.channelType === "personal",
             private: channel.channelType === "private",
             size: 12,
-            space: spacesLayout,
             className: "text-muted-foreground",
           }),
           action: "open-channel" as CommandMenuAction,
           channelId: channel.id,
+          href: channelHref(channel.id),
           onRun: () => {
             closeSettingsDialog();
             navigateToChannel(channel.id);
           },
-        })),
-      },
-    ];
-  }, [channels, closeSettingsDialog, spacesLayout]);
+        },
+      })),
+    [channels, closeSettingsDialog],
+  );
 
-  const searchSections = useSearchSections({
+  const channelSections = useMemo<CommandSection[]>(
+    () =>
+      channelRows.length > 0
+        ? [
+            {
+              label: spacesLayout ? "Spaces" : "Channels",
+              items: channelRows.map((row) => row.command),
+            },
+          ]
+        : [],
+    [channelRows, spacesLayout],
+  );
+
+  const searchRows = useSearchRows({
     remoteQuery,
     searchResults,
     tasks,
     taskSections,
     channels,
     bluebirdEnabled,
-    spacesLayout,
   });
 
   const [feedModalQuery, setFeedModalQuery] = useState<string | null>(null);
@@ -834,25 +872,56 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     remoteSearchAllowedRef.current = browsing && !scope;
   }, [mode, scope]);
 
+  const resultSections = useMemo<CommandSection[]>(() => {
+    if (!searchText.trim()) return [];
+    const matches = rankResultRows(
+      [...searchRows, ...taskRows, ...channelRows],
+      searchText,
+    ).filter((command) => matchesCommandSearch(command, searchText));
+    if (matches.length === 0) return [];
+    const items = matches.slice(0, resultLimit);
+    const hidden = matches.length - items.length;
+    if (hidden > 0) {
+      items.push({
+        id: "results-show-all",
+        label: `Show ${hidden} more`,
+        keywords: searchText,
+        icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
+        action: "show-all-matches",
+        keepOpen: true,
+        onRun: showAllMatches,
+      });
+    }
+    return [{ label: "", items }];
+  }, [
+    searchRows,
+    taskRows,
+    channelRows,
+    searchText,
+    resultLimit,
+    showAllMatches,
+  ]);
+
   const baseSections = useMemo(() => {
     const browsing = mode === "browsing" || mode === "completingKey";
+    const searching = browsing && !scope && searchText.trim().length > 0;
     const showCommands = browsing && (!scope || scope === "command");
-    const showChannels = browsing && (!scope || scope === "space");
-    const showPlainTasks = browsing && !scope;
-    const showRemoteSearch = browsing && !scope;
-    return prioritizeExactCommandMatches(
-      [
-        ...feedQuery.sections,
-        ...(showRemoteSearch ? searchSections : []),
-        ...(showCommands ? commandSections : []),
-        ...(showChannels ? channelSections : []),
-        ...(showPlainTasks ? taskSections : []),
-      ],
-      searchText,
-    );
+    const showChannels =
+      browsing && !searching && (!scope || scope === "space");
+    const showPlainTasks = browsing && !searching && !scope;
+    return [
+      ...feedQuery.sections,
+      ...(searching ? resultSections : []),
+      ...prioritizeExactCommandMatches(
+        showCommands ? commandSections : [],
+        searchText,
+      ),
+      ...(showChannels ? channelSections : []),
+      ...(showPlainTasks ? taskSections : []),
+    ];
   }, [
     feedQuery.sections,
-    searchSections,
+    resultSections,
     commandSections,
     channelSections,
     taskSections,
@@ -895,12 +964,31 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   );
 
   const highlightedId = useRef<string | null>(null);
+  // Any row with a place of its own can open in a tab, so the footer says so
+  // once rather than following the highlight, which re-renders on every move.
+  const anyRowOpensInTab = useMemo(
+    () => allCommands.some((command) => command.href),
+    [allCommands],
+  );
   const showMatchSummary = mode === "querying" || matchCount != null;
 
-  const handleSelect = (id: string | null): void => {
+  const openInNewTab = (cmd: Command): boolean => {
+    if (!cmd.href) return false;
+    track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, {
+      action_type: cmd.action,
+      channel_id: cmd.channelId,
+    });
+    openBrowserTab(cmd.href);
+    onOpenChange(false);
+    setQuery("");
+    return true;
+  };
+
+  const handleSelect = (id: string | null, newTab = false): void => {
     if (id === null) return;
     const cmd = allCommands.find((c) => c.id === id);
     if (!cmd) return;
+    if (newTab && openInNewTab(cmd)) return;
     track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, {
       action_type: cmd.action,
       channel_id: cmd.channelId,
@@ -915,6 +1003,16 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   };
 
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      const highlighted = allCommands.find(
+        (command) => command.id === highlightedId.current,
+      );
+      if (highlighted?.href) {
+        event.preventDefault();
+        openInNewTab(highlighted);
+        return;
+      }
+    }
     if (
       event.key.toLowerCase() === "s" &&
       (event.metaKey || event.ctrlKey) &&
@@ -955,7 +1053,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             autoHighlight
             keepHighlight
             onItemHighlighted={(value) => {
-              highlightedId.current = typeof value === "string" ? value : null;
+              highlightedId.current = highlightedCommandId(value);
             }}
             onValueChange={(val, eventDetails) => {
               if (typeof val !== "string") return;
@@ -1026,37 +1124,48 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             <AutocompleteList className="max-h-[60vh]">
               {(section: CommandSection) => (
                 <AutocompleteGroup key={section.label} items={section.items}>
-                  <AutocompleteLabel>{section.label}</AutocompleteLabel>
+                  {section.label && (
+                    <AutocompleteLabel>{section.label}</AutocompleteLabel>
+                  )}
                   <AutocompleteCollection>
                     {(cmd: Command) => (
                       <AutocompleteItem
                         key={cmd.id}
                         value={cmd.id}
-                        onClick={() => handleSelect(cmd.id)}
-                        className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1.5 pr-2 text-left [&>span]:w-full [&>span]:overflow-visible"
+                        title={cmd.label}
+                        onClick={(event) =>
+                          handleSelect(cmd.id, event.metaKey || event.ctrlKey)
+                        }
+                        className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1 pr-2 text-left leading-snug [&>span]:w-full [&>span]:overflow-visible"
                       >
-                        {cmd.icon}
-                        <span className="wrap-break-word min-w-0 whitespace-normal">
-                          {cmd.label}
+                        <span className="flex size-4 shrink-0 items-center justify-center opacity-80 group-data-highlighted:opacity-100">
+                          {cmd.icon}
+                        </span>
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex min-h-[18px] items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate">
+                              {cmd.label}
+                            </span>
+                            {cmd.detail && (
+                              <span className="max-w-[40%] shrink-0 truncate text-[11px] text-muted-foreground">
+                                {cmd.detailPrefix ?? "#"}
+                                {cmd.detail}
+                              </span>
+                            )}
+                            {cmd.shortcut && (
+                              <span className="flex shrink-0 items-center gap-2">
+                                {formatHotkeyParts(cmd.shortcut).map((part) => (
+                                  <Kbd key={part}>{part}</Kbd>
+                                ))}
+                              </span>
+                            )}
+                          </span>
                           {cmd.subtitle && (
-                            <span className="block truncate text-muted-foreground text-xs">
+                            <span className="truncate text-muted-foreground/70 text-xxs">
                               {cmd.subtitle}
                             </span>
                           )}
                         </span>
-                        {cmd.detail && (
-                          <span className="shrink-0 text-muted-foreground">
-                            · {cmd.detailPrefix ?? "#"}
-                            {cmd.detail}
-                          </span>
-                        )}
-                        {cmd.shortcut && (
-                          <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
-                            {formatHotkeyParts(cmd.shortcut).map((part) => (
-                              <Kbd key={part}>{part}</Kbd>
-                            ))}
-                          </span>
-                        )}
                       </AutocompleteItem>
                     )}
                   </AutocompleteCollection>
@@ -1064,7 +1173,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               )}
             </AutocompleteList>
           </Autocomplete>
-          <CommandKeyHints>
+          <CommandKeyHints newTabHint={anyRowOpensInTab}>
             {hasFilterTokens && (
               <div className="flex items-center gap-2">
                 <KbdGroup>

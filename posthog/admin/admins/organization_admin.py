@@ -249,7 +249,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         "sync_to_billing_display",
         "is_active",
         "is_not_active_reason",
-        "is_hipaa",
         "is_platform",
         "members_can_invite",
         "members_can_create_projects",
