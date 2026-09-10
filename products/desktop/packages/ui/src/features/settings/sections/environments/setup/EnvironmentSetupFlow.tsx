@@ -5,7 +5,6 @@ import {
   planEnvironmentInput,
   type SetupScope,
 } from "@posthog/core/settings/environmentSetup";
-import { Spinner } from "@posthog/quill";
 import type { SandboxCustomImage } from "@posthog/shared/domain-types";
 import { useHandleOpenTask } from "@posthog/ui/features/deep-links/useHandleOpenTask";
 import {
@@ -16,6 +15,7 @@ import { submitEnvironmentPlan } from "@posthog/ui/features/settings/sections/en
 import { useImageFromPlan } from "@posthog/ui/features/settings/sections/environments/setup/useImageFromPlan";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useRef, useState } from "react";
 
 interface EnvironmentSetupFlowProps {
@@ -55,11 +55,7 @@ export function EnvironmentSetupFlow({
     useSandboxEnvironments();
 
   if (imagesLoading || environmentsLoading) {
-    return (
-      <div className="flex h-40 items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState className="h-40" />;
   }
 
   return (

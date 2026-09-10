@@ -22,6 +22,14 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVENT_FIELDS
 
+from products.replay_vision.backend.queries.session_identity import (
+    IDENTITY_TIMESTAMP_SLACK,
+    SESSION_PERSON_IDENTITY_QUERY,
+    person_display_name,
+    person_email,
+    person_organization,
+    person_properties_from_row,
+)
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _KNOWN_FREEFORM_TAGS_DAYS,
     _KNOWN_FREEFORM_TAGS_MAX_ROWS,
@@ -46,7 +54,13 @@ from products.replay_vision.backend.temporal.team_context import (
     select_event_descriptions,
     session_custom_event_names,
 )
-from products.replay_vision.backend.temporal.types import EventTable, ScannerLlmInputs, ScannerSnapshot, SessionMetadata
+from products.replay_vision.backend.temporal.types import (
+    EventTable,
+    ScannerLlmInputs,
+    ScannerSnapshot,
+    SessionIdentity,
+    SessionMetadata,
+)
 from products.replay_vision.evals.dataset import (
     MANIFEST_NAME,
     GoldenCase,
@@ -324,6 +338,7 @@ def build_llm_inputs(
         if event_descriptions
         else {},
         distinct_id=str(distinct_id) if distinct_id else None,
+        identity=_build_identity(api, session_id, str(distinct_id) if distinct_id else None, start, end),
         metadata=SessionMetadata(
             start_time=start,
             end_time=end,
@@ -336,6 +351,36 @@ def build_llm_inputs(
             start_url=first_url or None,
             console_error_count=console_errors,
         ),
+    )
+
+
+def _build_identity(
+    api: PostHogApi, session_id: str, distinct_id: str | None, start: dt.datetime, end: dt.datetime
+) -> SessionIdentity:
+    """The identity production renders into the preamble, read through the query API.
+
+    Runs the same person query production runs, bound to the same subject, so a collected case exercises the
+    same prompt. Group names are left out: they need the project's group-type labels, and a case without them
+    still renders the block.
+    """
+    if not distinct_id:
+        return SessionIdentity()
+    rows = api.hogql(
+        SESSION_PERSON_IDENTITY_QUERY,
+        {
+            "session_id": session_id,
+            "distinct_id": distinct_id,
+            "start": (start - IDENTITY_TIMESTAMP_SLACK).isoformat(),
+            "end": (end + IDENTITY_TIMESTAMP_SLACK).isoformat(),
+        },
+    )
+    if not rows:
+        return SessionIdentity()
+    properties = person_properties_from_row(rows[0])
+    return SessionIdentity(
+        person_email=person_email(properties),
+        person_name=person_display_name(properties),
+        person_organization=person_organization(properties),
     )
 
 

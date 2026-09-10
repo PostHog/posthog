@@ -152,6 +152,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_STATE_LOCK_TTL'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
+        | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
@@ -162,7 +163,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
-        | 'EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -444,7 +444,6 @@ export function createCdpCoreServices(
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
             teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
-            teamEmailCapTeamsCreatedAfter: config.EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -528,7 +527,8 @@ export function createCdpCoreServices(
         cohortMembershipRepository,
         deps.integrationManager,
         hogFlowDuplicateObserver,
-        cdpUsageReporter
+        cdpUsageReporter,
+        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)

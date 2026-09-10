@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -56,24 +58,16 @@ class TestRenderHogQLExample(BaseTest):
         assert "2025-12-10" in result
         assert "2025-12-03" in result
 
-    @patch("django.conf.settings.DEBUG", True)
-    def test_funnel_pins_context_now_for_sub_date_ranges(self) -> None:
-        # FunnelsQuery's sub-helpers read `context.now` rather than the runner's
-        # query_date_range, so this guards the context-pinning branch of
-        # `_pin_runner_now`.
-        result = render_hogql_example(
-            {
-                "kind": "FunnelsQuery",
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview"},
-                    {"kind": "EventsNode", "event": "user signed up"},
-                ],
-                "dateRange": {"date_from": "-7d"},
-            }
-        )
+    def test_pins_context_now_as_well_as_the_date_range(self) -> None:
+        # Some runners resolve sub-ranges off `context.now` rather than off query_date_range, so
+        # both surfaces have to be pinned. A stub stands in for the runner because the branch is
+        # generic: reaching it through a real query kind ties this suite to whichever product
+        # owns that kind, and the trends case above already covers the pipeline end to end.
+        runner = SimpleNamespace(context=SimpleNamespace(now=None))
 
-        assert "2025-12-10" in result
-        assert "2025-12-03" in result
+        hogql_example_module._pin_runner_now(runner, hogql_example_module._FROZEN_DATETIME)
+
+        assert runner.context.now == hogql_example_module._FROZEN_DATETIME
 
     @patch("django.conf.settings.DEBUG", True)
     def test_render_does_not_use_freezegun(self) -> None:

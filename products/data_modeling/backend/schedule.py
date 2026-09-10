@@ -36,12 +36,10 @@ from posthog.temporal.common.search_attributes import (
 
 from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
 
-# v2 (DAG-based) schedules run this workflow; their schedule id is the bare DAG id, or
-# "{dag_id}:{interval_seconds}" for a per-cadence-tier schedule. The v1 backend
-# (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
+# A schedule id is the bare DAG id, or "{dag_id}:{interval_seconds}" for a per-cadence-tier
+# schedule, optionally followed by ":{anchor}". Parsers must handle all three shapes.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
 
 
@@ -147,26 +145,6 @@ def get_v2_saved_query_ids(
 
     nodes = Node.objects.filter(dag_id__in=v2_dag_ids, saved_query_id__isnull=False)
     return set(nodes.values_list("saved_query_id", flat=True))
-
-
-def partition_saved_queries_by_v2_schedule(
-    saved_queries: list[DataWarehouseSavedQuery],
-) -> tuple[list[DataWarehouseSavedQuery], list[DataWarehouseSavedQuery]]:
-    """Split saved queries into (v1_eligible, on_v2).
-
-    A saved query is "on v2" when any DAG it belongs to already has a `data-modeling-execute-dag`
-    schedule. v1 schedule commands should skip the on_v2 list so they do not undo migration progress.
-    """
-    if not saved_queries:
-        return [], []
-
-    v2_ids = get_v2_saved_query_ids([sq.id for sq in saved_queries])
-    if not v2_ids:
-        return list(saved_queries), []
-
-    eligible = [sq for sq in saved_queries if sq.id not in v2_ids]
-    on_v2 = [sq for sq in saved_queries if sq.id in v2_ids]
-    return eligible, on_v2
 
 
 def _deterministic_int(entity_id: uuid.UUID, salt: str) -> int:

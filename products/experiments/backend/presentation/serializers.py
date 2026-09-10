@@ -53,9 +53,9 @@ from products.experiments.backend.session_event_deltas import (
     MAX_CARD_HIGHLIGHTS,
     MAX_CARD_RECORDINGS,
     MAX_DELTA_SCAN_DAYS,
-    MAX_FALLBACK_DELTA_SCAN_DAYS,
     DeltaStrength,
     WatchCardKind,
+    WatchEmptyReason,
 )
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
@@ -1744,6 +1744,31 @@ class ExperimentSessionContextsResponseSerializer(serializers.Serializer):
     )
 
 
+class ExperimentInSessionExposureSerializer(serializers.Serializer):
+    """How the recordings tab's in-session exposure scope reads on this experiment."""
+
+    available = serializers.BooleanField(
+        help_text=(
+            "Whether the in-session exposure scope can answer for this experiment. Mirrors the recordings "
+            "query, which refuses `experiment_exposure.in_session` exactly when this is false."
+        )
+    )
+    unavailable_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the in-session scope can't answer for this experiment, worded for display next to the "
+            "disabled option. Null when available."
+        ),
+    )
+    uses_stamped_fallback = serializers.BooleanField(
+        help_text=(
+            "True when in-session evidence is the stamped `$feature/<flag_key>` property, which means the "
+            "flag was active in the session, rather than the exposure event itself being captured there. "
+            "Copy must not claim the exposure was captured in the session when this is set."
+        )
+    )
+
+
 class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
     """Request body for the session-bucket endpoint."""
 
@@ -1962,7 +1987,7 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
     )
 
 
-class ExperimentWatchArmSerializer(serializers.Serializer):
+class ExperimentWatchVariantSerializer(serializers.Serializer):
     """One variant's compared population."""
 
     key = serializers.CharField(help_text="The variant key.")
@@ -1995,14 +2020,21 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         help_text=(
             "The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. "
             "Events the variants can't be told apart on get no card at all rather than a weak one, so an empty "
-            "shelf means no difference was big enough to be sure of, not that nothing was measured. Group by "
-            "kind before presenting: a 'variant_only' card outranks every real difference by construction, and "
-            "reading the shelf in order would report it as the headline."
+            "shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also "
+            "takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the "
+            "experiment's results already answer while reading as a finding, so it is withheld. Read "
+            "empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before "
+            "presenting: a 'variant_only' card outranks every real difference by construction, and reading the "
+            "shelf in order would report it as the headline."
         ),
     )
-    arms = ExperimentWatchArmSerializer(
+    variants = ExperimentWatchVariantSerializer(
         many=True,
-        help_text="Every variant's compared population, in the flag's variant order.",
+        help_text=(
+            "Every variant the analysis compares, with its population, in the flag's variant order. "
+            "A variant the experiment excludes never appears here, because the analysis does not count it "
+            "either, so read a missing key as excluded rather than as zero people."
+        ),
     )
     multiple_variant_persons = serializers.IntegerField(
         help_text=(
@@ -2029,11 +2061,9 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     date_from = serializers.DateTimeField(
         help_text=(
             f"Start of what was actually compared. The requested window is the experiment's run window clamped "
-            f"to its most recent {MAX_DELTA_SCAN_DAYS} days ({MAX_FALLBACK_DELTA_SCAN_DAYS} when sessions are "
-            "matched on the stamped flag property, which no event name can prune a scan on), but a busy "
-            "experiment reaches the session ceiling long before that, and this reports where the compared "
-            "sessions really begin - often hours rather than days back. Display this, not the experiment's own "
-            "dates."
+            f"to its most recent {MAX_DELTA_SCAN_DAYS} days, but a busy experiment reaches the session ceiling "
+            "long before that, and this reports where the compared sessions really begin - often hours rather "
+            "than days back. Display this, not the experiment's own dates."
         )
     )
     date_to = serializers.DateTimeField(
@@ -2047,11 +2077,9 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     used_exposure_fallback = serializers.BooleanField(
         help_text=(
-            "True when the compared sessions were matched on the stamped $feature/<flag key> event property "
-            "instead of the exposure event, because the default exposure event has only ever been captured "
-            "server-side and can never match a session. The sessions then mean 'the flag was active in this "
-            "session', and the variant comes from the flag's value on each event, so a returning user can be "
-            "counted under a variant they were re-bucketed into later."
+            "Always false. The compared population is the exposed population the experiment's results count, "
+            "matched to sessions by person, so no stamped-property fallback exists any more. The field stays "
+            "for compatibility with existing readers."
         )
     )
     sessions_truncated = serializers.BooleanField(
@@ -2067,7 +2095,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "some were never considered."
         )
     )
-    min_arm_persons = serializers.IntegerField(
+    min_variant_persons = serializers.IntegerField(
         help_text=(
             "How many exposed people a variant needs before it can be compared at all. Below it a variant's "
             "cards would be noise whatever the evidence bar allows."
@@ -2087,8 +2115,32 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     too_early = serializers.BooleanField(
         help_text=(
-            "True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and "
-            "cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented "
-            "without this would read as 'the variants behaved identically'."
+            "True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and "
+            "cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would "
+            "read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: "
+            "this is also true when the variants are empty because the people exposed have no sessions we can see, "
+            "which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own."
         )
+    )
+    empty_reason = serializers.ChoiceField(
+        choices=[reason.value for reason in WatchEmptyReason],
+        allow_null=True,
+        help_text=(
+            "Why cards is empty, and null whenever cards is not empty. Report which of the four happened "
+            "rather than reporting an empty shelf, because they ask different things of the reader. "
+            "'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared "
+            "yet and the answer can still change. 'no_separation': the variants were compared and no event told "
+            "them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants "
+            "apart, but no recording behind them can be opened, so the project's session replay sampling and "
+            "retention are what decide whether this surface can ever show anything. "
+            "'no_session_linked_exposures': the experiment has exposed people and none of them has a session we "
+            "can see between date_from and date_to, so there was nothing to compare. Who counts as exposed is read "
+            "over the whole run, so the exposures themselves can predate that window: date the claim to the window "
+            "instead of reporting when anyone was exposed. Two things reach this state, and they ask for different "
+            "answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the "
+            "exposed people were last active before the window. Check which one before telling anyone to check "
+            "back, because more exposures captured the same way yield more of the same. Never fill an empty shelf "
+            "with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly "
+            "that reason."
+        ),
     )

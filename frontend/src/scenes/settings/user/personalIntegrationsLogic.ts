@@ -131,6 +131,7 @@ export interface personalIntegrationsLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -191,6 +192,7 @@ export interface personalIntegrationsLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'

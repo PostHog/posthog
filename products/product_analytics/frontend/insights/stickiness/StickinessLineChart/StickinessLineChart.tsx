@@ -32,7 +32,6 @@ import {
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
-    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessSeries,
     buildStickinessTooltipTitle,
@@ -86,8 +85,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
-    const bucketCount = currentPeriodResult?.labels?.length ?? 0
-    const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
+    const labels = currentPeriodResult?.labels ?? []
 
     const hasData = hasTrendsChartData(indexedResults)
 

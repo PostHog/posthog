@@ -171,3 +171,28 @@ export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
         timeout = setTimeout(() => func(...args), waitFor)
     }
 }
+
+export function yieldToMain(): Promise<void> {
+    return new Promise((resolve) => {
+        if (typeof (window as any).scheduler?.yield === 'function') {
+            ;(window as any).scheduler.yield().then(resolve)
+        } else if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(() => resolve(), { timeout: 50 })
+        } else {
+            setTimeout(resolve, 0)
+        }
+    })
+}
+
+export function createSliceYielder(budgetMs: number = 10): (beforeYield?: () => void) => Promise<boolean> {
+    let sliceStart = performance.now()
+    return async (beforeYield?: () => void): Promise<boolean> => {
+        if (performance.now() - sliceStart <= budgetMs) {
+            return false
+        }
+        beforeYield?.()
+        await yieldToMain()
+        sliceStart = performance.now()
+        return true
+    }
+}

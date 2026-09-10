@@ -47,6 +47,8 @@ import {
     SavedInsightsTabs,
 } from '~/types'
 
+import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
+
 export * from './insightTypesMetadata'
 
 import { ProductAnalyticsNotifications } from 'products/product_analytics/frontend/notifications/ProductAnalyticsNotifications'
@@ -62,6 +64,7 @@ export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
     productKey: ProductKey.PRODUCT_ANALYTICS,
+    emptyState: productAnalyticsEmptyState,
 }
 
 export function InsightIcon({

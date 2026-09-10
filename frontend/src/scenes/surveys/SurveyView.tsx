@@ -39,6 +39,8 @@ import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { SurveyViewRedesign } from 'scenes/surveys/SurveyViewRedesign'
+import { SurveyResponseExpandedRow } from 'scenes/surveys/SurveyViewRedesign/SurveyResponseExpandedRow'
+import { transformSurveyResponseRows } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -416,6 +418,16 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                         query={dataTableQuery}
                                         context={{
                                             columns: surveyColumnRenderers,
+                                            expandable: {
+                                                expandedRowRender: ({ result }) => (
+                                                    <SurveyResponseExpandedRow result={result} />
+                                                ),
+                                                rowExpandable: ({ result }) => !!result,
+                                                noIndent: true,
+                                            },
+                                            dataTableExportExcludedColumns: ['response', 'actions'],
+                                            dataTableRowsTransformer: (rows) =>
+                                                transformSurveyResponseRows(rows, survey),
                                             rowProps: (record: unknown) => {
                                                 // "mute" archived records
                                                 if (typeof record !== 'object' || !record || !('result' in record)) {

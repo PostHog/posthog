@@ -122,6 +122,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             "Shopify: rate limit exceeded",
             "Shopify: internal error",
             "Shopify: connection broken while reading response",
+            # `_get_shopify_access_token` raises this once its own tenacity retries (same 5-attempt
+            # budget) are exhausted for a 429/5xx from the OAuth token endpoint — the same
+            # self-recovering contract as the GraphQL messages above.
+            "Failed to retrieve Shopify access token:",
         }
 
     @property

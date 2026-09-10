@@ -7,10 +7,6 @@ vi.mock("@posthog/ui/features/inbox/components/DetailBackLink", () => ({
   DetailBackLink: () => null,
 }));
 
-vi.mock("@posthog/ui/features/inbox/components/ReportReviewersHeader", () => ({
-  ReportReviewersHeader: () => null,
-}));
-
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
   useInboxReportDismissAction: () => ({
     actionButton: null,
