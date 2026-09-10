@@ -531,6 +531,7 @@ jobs:
                         - '.semgrep/**'
                         - 'pyproject.toml'
                         - 'products/ruff.toml'
+                        - '.github/scripts/**'
                       product_yamls:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'

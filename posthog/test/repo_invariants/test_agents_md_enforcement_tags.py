@@ -12,6 +12,10 @@ LEGEND_PLACEHOLDER = "<id>"
 # the check: delete the step that reads it and the file still sits there.
 EXECUTED_CHECK_ROOTS = ("posthog/test/repo_invariants", ".github/scripts")
 
+# The rule trees ci-security.yaml loads. A rule parked anywhere else in .semgrep
+# is not loaded by a blocking job, so it cannot back a tag.
+LOADED_SEMGREP_ROOTS = (".semgrep/rules/security", ".semgrep/rules/devex")
+
 # Sections whose every rule must declare what enforces it.
 TAGGED_SECTIONS = (("## Architecture guidelines", "## Code Style"), ("## Code Style", "## User-facing copy"))
 
@@ -47,22 +51,27 @@ def _rules(agents_md: str) -> list[str]:
 
 def _semgrep_ids(repo_root: Path) -> set[str]:
     ids: set[str] = set()
-    for path in (repo_root / ".semgrep").rglob("*.y*ml"):
-        ids.update(SEMGREP_ID.findall(path.read_text(errors="ignore")))
+    for root in LOADED_SEMGREP_ROOTS:
+        for path in (repo_root / root).rglob("*.y*ml"):
+            ids.update(SEMGREP_ID.findall(path.read_text(errors="ignore")))
     return ids
 
 
 def _ruff_enforces(repo_root: Path, code: str) -> bool:
     lint = tomllib.loads((repo_root / "pyproject.toml").read_text())["tool"]["ruff"].get("lint", {})
-    if code in lint.get("ignore", []):
+    # Ruff selectors are prefixes and the longest match wins, so a category-level
+    # ignore switches off every code under it unless a longer select overrides.
+    ignored = max((e for e in lint.get("ignore", []) if code.startswith(e)), key=len, default="")
+    selected = lint.get("select", []) + lint.get("extend-select", [])
+    chosen = max((e for e in selected if code.startswith(e)), key=len, default="")
+    if ignored and len(ignored) >= len(chosen):
         return False
     # A code exempted for whole trees does not hold repo-wide, so a bare tag would
     # tell a reviewer CI covers paths where it accepts the violation.
     for config, table in ((lint, "per-file-ignores"), (_products_ruff(repo_root), "per-file-ignores")):
         if any(code in codes for codes in config.get(table, {}).values()):
             return False
-    selected = lint.get("select", []) + lint.get("extend-select", [])
-    return any(code.startswith(entry) for entry in selected)
+    return bool(chosen)
 
 
 def _products_ruff(repo_root: Path) -> dict:

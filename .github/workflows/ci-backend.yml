@@ -370,6 +370,7 @@ jobs:
                         - '.semgrep/**'
                         - 'pyproject.toml'
                         - 'products/ruff.toml'
+                        - '.github/scripts/**'
                       product_yamls:
                         # Validates owner team slugs against PostHog/posthog collaborator teams,
                         # and lints the distributed owners.yaml files (schema, conflicts, dead
