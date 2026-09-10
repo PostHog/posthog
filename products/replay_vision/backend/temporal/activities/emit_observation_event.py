@@ -1,7 +1,5 @@
 """Emit the `$recording_observed` event with the scanner output to the customer's events table."""
 
-from datetime import UTC, datetime
-
 import structlog
 from temporalio import activity
 
@@ -84,7 +82,8 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         event_name=_EVENT_NAME,
         event_source=_EVENT_SOURCE,
         distinct_id=distinct_id,
-        timestamp=datetime.now(UTC),
+        # The observation's own completion time, so retries land the event where the detail page's ±15s link looks.
+        timestamp=observation.completed_at,
         properties=properties,
         process_person_profile=False,
         # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.
