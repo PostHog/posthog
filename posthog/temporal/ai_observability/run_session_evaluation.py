@@ -345,6 +345,10 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     per-trace budget is a ceiling, not a prediction, and real traces render well under it. Deciding
     on the product turned this into a hard cliff at 251 traces regardless of how little those traces
     actually contained.
+
+    `truncate_buffer` carries the same per-trace budget, so a message is only cut where the trace
+    section already has to shrink. Left unset, the formatter applies its frontend default of 1,000
+    characters.
     """
     if not traces:
         return ""
@@ -353,6 +357,7 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
         "include_markers": False,
         "collapsed": False,
         "truncated": True,
+        "truncate_buffer": per_trace_budget,
         "include_line_numbers": True,
         "max_length": per_trace_budget,
     }

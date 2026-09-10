@@ -134,6 +134,18 @@ class TestFormatSessionForJudge:
         assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
         assert "t399" in rendered
 
+    def test_keeps_a_long_generation_output_whole(self):
+        # Each trace section gets a slice of the session budget, and a message must survive up to
+        # that slice. The frontend default cuts it at 1,000 chars, leaving a hole in the answer.
+        answer = "the answer is " + ("x" * 50_000)
+        trace = _trace("t1", cost=0, latency=0)
+        trace.events[0].properties["$ai_output_choices"] = [{"role": "assistant", "content": answer}]
+        rendered = format_session_for_judge([trace])
+
+        assert rendered is not None
+        assert answer in rendered
+        assert "chars truncated" not in rendered
+
     def test_every_trace_appears(self):
         traces = [_trace("t-alpha", cost=0, latency=0), _trace("t-beta", cost=0, latency=0)]
         rendered = format_session_for_judge(traces)

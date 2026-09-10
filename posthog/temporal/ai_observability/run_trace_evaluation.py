@@ -451,12 +451,17 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     verdict, and there's one trace serializer to maintain across the product, not a private
     fork. `include_markers=False` drops the frontend expand/collapse markers; the output is
     uniformly sampled down to `JUDGE_TRACE_MAX_CHARS` to bound judge cost and context.
+
+    `truncate_buffer` carries the same budget, so a message is only cut where the whole transcript
+    already has to shrink. Left unset, the formatter applies its frontend default of 1,000
+    characters and cuts the middle out of the answer the judge must grade.
     """
     trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
     options: FormatterOptions = {
         "include_markers": False,
         "collapsed": False,
         "truncated": True,
+        "truncate_buffer": JUDGE_TRACE_MAX_CHARS,
         "include_line_numbers": True,
         "max_length": JUDGE_TRACE_MAX_CHARS,
     }

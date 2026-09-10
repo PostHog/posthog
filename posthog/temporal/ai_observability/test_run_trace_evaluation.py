@@ -157,12 +157,16 @@ class TestFormatTraceForJudge:
 
         assert "search_docs" in transcript
 
-    def test_truncates_long_event_io(self):
-        trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "x" * 50_000})])
+    def test_keeps_a_long_event_output_whole(self):
+        # An output well inside the transcript budget must reach the judge whole. The formatter's
+        # frontend default cuts it at 1,000 chars, so the judge grades an answer with a hole in it.
+        answer = "the answer is " + ("x" * 50_000)
+        trace = create_trace([create_trace_event("$ai_generation", **{"$ai_output": answer})])
 
         transcript = format_trace_for_judge(trace)
 
-        assert "chars truncated" in transcript
+        assert answer in transcript
+        assert "chars truncated" not in transcript
 
     def test_bounds_output_to_max_chars(self):
         # 200 large generations would blow well past the cap without sampling.
