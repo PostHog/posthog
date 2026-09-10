@@ -665,6 +665,31 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
                 }
                 self.assertEqual(loaded.checkpoint, expected_checkpoint)
 
+    async def test_non_finite_floats_in_metadata_are_stored_as_null(self):
+        thread = await Conversation.objects.acreate(user=self.user, team=self.team)
+        saver = DjangoCheckpointer()
+
+        checkpoint_id = str(uuid6(clock_seq=-2))
+        checkpoint = {
+            "v": 1,
+            "ts": "2024-07-31T20:14:19.804150+00:00",
+            "id": checkpoint_id,
+            "channel_values": {},
+            "channel_versions": {},
+            "versions_seen": {},
+            "pending_sends": [],
+        }
+        # A tool that divides in ClickHouse can hand back inf or nan, which jsonb cannot store.
+        metadata = {
+            "source": "loop",
+            "writes": {"tool": {"points": [float("inf"), float("-inf"), float("nan"), 0.5]}},
+        }
+        config = {"configurable": {"thread_id": str(thread.id), "checkpoint_ns": ""}}
+        await saver.aput(config, checkpoint, metadata, {})
+
+        stored = await ConversationCheckpoint.objects.aget(id=checkpoint_id)
+        self.assertEqual(stored.metadata["writes"]["tool"]["points"], [None, None, None, 0.5])
+
     async def test_unknown_constructor_marker_returned_as_plain_dict(self):
         thread = await Conversation.objects.acreate(user=self.user, team=self.team)
         saver = DjangoCheckpointer()

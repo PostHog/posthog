@@ -170,7 +170,7 @@ DEFAULT_QUERY = """
                         round((x / viewport_width), 2) as pointer_relative_x,
                         y * scale_factor as client_y
                      from heatmaps
-                     where {predicates}
+                     where {predicates} and viewport_width > 0
                 )
             group by `pointer_target_fixed`, pointer_relative_x, client_y
             order by cnt desc

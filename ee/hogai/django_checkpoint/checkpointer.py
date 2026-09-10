@@ -1,6 +1,7 @@
 import json
 import random
 from collections.abc import AsyncIterator, Sequence
+from math import isfinite
 from typing import Any, Optional, cast
 
 from django.db import transaction
@@ -29,6 +30,17 @@ from products.posthog_ai.backend.models.assistant import (
 )
 
 
+def _replace_non_finite_floats(value: Any) -> Any:
+    """Map inf, -inf and nan to null. `json.dumps` writes them as bare tokens that jsonb rejects."""
+    if isinstance(value, float):
+        return value if isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _replace_non_finite_floats(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_non_finite_floats(item) for item in value]
+    return value
+
+
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
 
@@ -55,7 +67,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         if type_ != "msgpack":
             raise ValueError(f"Expected msgpack serialization for JSON dump, got {type_}")
         jsonable = ormsgpack.unpackb(blob, ext_hook=_msgpack_ext_hook_to_json, option=ormsgpack.OPT_NON_STR_KEYS)
-        serialized = json.dumps(jsonable, ensure_ascii=False)
+        serialized = json.dumps(_replace_non_finite_floats(jsonable), ensure_ascii=False)
         # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
         nulls_removed = serialized.replace("\\u0000", "")
         return json.loads(nulls_removed)
