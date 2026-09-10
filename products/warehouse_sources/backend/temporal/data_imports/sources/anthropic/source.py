@@ -12,9 +12,11 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     AnthropicResumeConfig,
     anthropic_source,
+    check_analytics_access,
     validate_credentials as validate_anthropic_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
+    ANALYTICS_PATH_PREFIX,
     ANTHROPIC_ENDPOINTS,
     ENDPOINT_RETIRED_ERROR,
     ENDPOINTS,
@@ -54,7 +56,9 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Anthropic Admin API key to pull your organization's Claude usage, cost, and admin data into the PostHog Data warehouse.
 
-Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console](https://console.anthropic.com/settings/admin-keys). Only organization admins can create one, and the Admin API is not available for individual accounts.""",
+Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console](https://console.anthropic.com/settings/admin-keys). Only organization admins can create one, and the Admin API is not available for individual accounts.
+
+The per-seat activity, cost, and token usage tables come from the Claude Enterprise Analytics API, which needs a different key: a Claude Enterprise key carrying the `read:analytics` scope, created by your primary owner in [claude.ai organization settings](https://claude.ai/admin-settings/api-access). A key works with one of the two APIs, so pick the one that matches the tables you want.""",
             iconPath="/static/services/anthropic.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/anthropic",
             keywords=["llm", "claude", "ai usage", "cost"],
@@ -82,6 +86,9 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Matched before the generic 403 below, because the first matching pattern supplies the
+            # message and a denial from this path is about a missing scope, not admin access.
+            f"403 Client Error: Forbidden for url: https://api.anthropic.com{ANALYTICS_PATH_PREFIX}": "This table comes from the Claude Enterprise Analytics API, which your key can't reach. Reconnect the source with a Claude Enterprise key carrying the read:analytics scope, or turn this table's sync off.",
             "401 Client Error: Unauthorized for url: https://api.anthropic.com": "Your Anthropic Admin API key is invalid or has been revoked. Create a new Admin API key in the Anthropic Console, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.anthropic.com": "Your Anthropic API key does not have organization admin access. Use an Admin API key (prefixed sk-ant-admin) created by an organization admin, then reconnect.",
             ENDPOINT_RETIRED_ERROR: "Anthropic no longer offers this table, so it can't sync. PostHog has turned its sync off for you, and any rows already imported stay in your warehouse.",
@@ -112,6 +119,28 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
+
+    def get_endpoint_permissions(
+        self,
+        config: AnthropicSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        permissions: dict[str, str | None] = dict.fromkeys(endpoints)
+        analytics_endpoints = [
+            name
+            for name in endpoints
+            if name in ANTHROPIC_ENDPOINTS and ANTHROPIC_ENDPOINTS[name].analytics_window is not None
+        ]
+        if not analytics_endpoints:
+            return permissions
+        # Every analytics endpoint needs the same scope on the same plan, so one probe answers for
+        # all of them.
+        reason = check_analytics_access(config.api_key)
+        for name in analytics_endpoints:
+            permissions[name] = reason
+        return permissions
 
     def validate_credentials(
         self,

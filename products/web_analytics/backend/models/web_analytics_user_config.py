@@ -5,8 +5,8 @@ from posthog.models.utils import UUIDModel
 
 
 class WebAnalyticsUserConfig(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     achievements_opt_out = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 

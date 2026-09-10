@@ -6,16 +6,67 @@ import {
     AssistantToolCallMessage,
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
+import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { EnhancedToolCall } from './max-constants'
 import {
     activeSceneLogicHasMaxContext,
+    dashboardToMaxContext,
+    insightToMaxContext,
     findPendingClientToolCall,
     isMultiQuestionFormMessage,
     threadEndsWithMultiQuestionForm,
 } from './utils'
 
 describe('max/utils', () => {
+    it.each(['insight', 'dashboard'] as const)(
+        'removes nested query responses from %s context without changing the source',
+        (contextType) => {
+            const source = {
+                kind: NodeKind.HogQLQuery as const,
+                query: 'SELECT 1',
+                response: { results: [[1]] },
+                values: { response: 'keep this query value' },
+            }
+            const insight: Partial<QueryBasedInsightModel> = {
+                short_id: 'test-query' as InsightShortId,
+                query: {
+                    kind: NodeKind.DataVisualizationNode,
+                    source,
+                } as DataVisualizationNode,
+            }
+            const dashboard = {
+                id: 1,
+                tiles: [{ id: 1, insight }],
+            } as DashboardType<QueryBasedInsightModel>
+            const context =
+                contextType === 'insight' ? insightToMaxContext(insight) : dashboardToMaxContext(dashboard).insights[0]
+
+            expect(context.query).toEqual({
+                kind: NodeKind.HogQLQuery as const,
+                query: 'SELECT 1',
+                values: { response: 'keep this query value' },
+            })
+            expect(source.response).toEqual({ results: [[1]] })
+        }
+    )
+
+    it('removes responses from direct queries and nested query arrays', () => {
+        const query = {
+            kind: NodeKind.TrendsQuery as const,
+            response: { results: [] },
+            series: [{ kind: NodeKind.EventsNode as const, event: '$pageview', response: { results: [] } }],
+        }
+
+        expect(insightToMaxContext({ query }).query).toEqual({
+            kind: NodeKind.TrendsQuery as const,
+            series: [{ kind: NodeKind.EventsNode as const, event: '$pageview' }],
+        })
+        expect(query.response).toEqual({ results: [] })
+        expect(query.series[0].response).toEqual({ results: [] })
+    })
+
     describe('isMultiQuestionFormMessage()', () => {
         it('returns true for AssistantMessage with create_form tool call', () => {
             const message = {

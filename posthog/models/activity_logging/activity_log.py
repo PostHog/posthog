@@ -335,6 +335,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
+    "AlertConfiguration": {
+        "schedule_start_time": "schedule start time",
+    },
     "HogFunction": {
         "execution_order": "priority",
     },
@@ -854,6 +857,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "directory",
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
+        "backfills",
     ],
     "SignalScoutConfig": [
         # Run bookkeeping, not user intent — keep it out of change detection even when it
