@@ -43,7 +43,6 @@ function runLoader({
     links: FakeLink[]
     beacons: Record<string, any>[]
     probes: string[]
-    win: Record<string, any>
 } {
     const links: FakeLink[] = []
     const beacons: Record<string, any>[] = []
@@ -98,7 +97,7 @@ function runLoader({
             abort = (): void => {}
         }
     )
-    return { ready: win.ESBUILD_CSS_READY, links, beacons, probes, win }
+    return { ready: win.ESBUILD_CSS_READY, links, beacons, probes }
 }
 
 /** A stylesheet that really applied has a sheet with rules in it. */
@@ -247,14 +246,8 @@ describe('css loader script', () => {
         expect(beacons[0].properties).toMatchObject({ $exception_level: 'error', stylesheet_attempt: 1 })
     })
 
-    it.each([
-        ['capture is opted out', { apiKey: null }, false],
-        ['the page clears the key after this script runs, as the exporter does', {}, true],
-    ])('recovers without a beacon or a probe when %s', async (_case, options, clearsKey) => {
-        const { win, links, beacons, probes } = runLoader(options)
-        if (clearsKey) {
-            win.JS_POSTHOG_API_KEY = undefined
-        }
+    it('recovers without a beacon or a probe when capture is opted out', async () => {
+        const { links, beacons, probes } = runLoader({ apiKey: null })
         links[0].dispatch('error')
         await flushProbes()
 

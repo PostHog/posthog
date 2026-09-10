@@ -20,7 +20,23 @@
                 document.documentElement.className += ' ' + window.POSTHOG_EXPORTED_DATA.rootClassName
             }
         </script>
-        {% include "head.html" %} {% if add_og_tags %}
+        {% include "head.html" %}
+        <script nonce="{{ request.csp_nonce }}">
+            // Disable tracking for shared dashboards / insights / embeds: those iframes can be
+            // embedded on our customers' sites, and tracking there would log their visitors to
+            // app.posthog.com. This runs here, before the stylesheet loader below, because that
+            // loader reports failures with the key and a bundle that clears it runs too late.
+            // The `interview` scene is the exception: it's our own hosted public page, opened by an
+            // invitee on a link we sent. We want pageviews + replay to measure the invite-to-call
+            // funnel. Require the interview payload to be present: the public `force_type=interview`
+            // query param can flip `type` on any shared resource, so checking `type` alone would let
+            // anyone enable tracking on a customer dashboard share by appending the parameter.
+            var exported = window.POSTHOG_EXPORTED_DATA
+            if (!(exported.type === 'interview' && exported.interview)) {
+                window.JS_POSTHOG_API_KEY = undefined
+            }
+        </script>
+        {% if add_og_tags %}
         <meta property="og:title" content="{{ asset_title }}" />
         <meta property="og:type" content="website" />
         <meta property="og:description" content="{{ asset_description }}" />

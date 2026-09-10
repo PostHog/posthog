@@ -18,17 +18,9 @@ import { ErrorBoundary } from '../layout/ErrorBoundary'
 
 const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 
-// Disable tracking for shared dashboards / insights / embeds — those iframes can be embedded on
-// our customers' sites, and tracking there would log their visitors to app.posthog.com.
-// The `interview` scene is the exception: it's our own hosted public page, opened by an invitee
-// on a link we sent. We want pageviews + replay to measure the invite-to-call funnel.
-// Require the interview payload to be present — the public `force_type=interview` query param
-// can flip `type` on any shared resource, so checking `type` alone would let anyone enable
-// tracking on a customer dashboard share by appending the parameter.
+// Tracking is off on every share except the interview scene. index.html clears the capture key
+// for the others before any script here runs, and explains why. This check must match that one.
 const isInterview = exportedData?.type === ExportType.Interview && !!exportedData?.interview
-if (!isInterview) {
-    window.JS_POSTHOG_API_KEY = undefined
-}
 
 // The interview URL embeds the SharingConfiguration access token (/interview/<token>/) and the
 // public start_call API path (/api/user_interviews/share/<token>/start_call/) embeds it too.

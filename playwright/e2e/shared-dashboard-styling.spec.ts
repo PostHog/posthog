@@ -72,10 +72,17 @@ test.describe('Shared dashboard styling', () => {
         const { sharingData } = await createSharedInsight(page, playwrightSetup, 'CSS Fallback Test Org')
 
         let fallbackCssLoaded = false
+        // A share can sit in an iframe on a customer's site, so the loader must not report the
+        // failure to PostHog from there. The key is set in the head and cleared by a bundle that
+        // loads after the stylesheet fails, so this catches a loader that reads it too late.
+        const captureRequests: string[] = []
         await page.route('**/static/exporter-*.css', (route) => route.abort('blockedbyclient'))
         page.on('request', (request) => {
             if (request.url().includes('/static/exporter.css')) {
                 fallbackCssLoaded = true
+            }
+            if (/\/e\/?(\?|$)/.test(request.url())) {
+                captureRequests.push(request.url())
             }
         })
 
@@ -91,6 +98,7 @@ test.describe('Shared dashboard styling', () => {
 
         expect(fallbackCssLoaded).toBe(true)
         expect(fallbackFailureLogged).toBe(true)
+        expect(captureRequests).toEqual([])
         await expect(page.locator('body.ExporterBody')).toBeVisible()
     })
 })

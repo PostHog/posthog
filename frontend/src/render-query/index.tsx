@@ -13,10 +13,8 @@ import { loadPostHogJS } from '~/loadPostHogJS'
 
 import { RenderQueryApp } from './RenderQueryApp'
 
-// Disable tracking inside render-query frames. They are expected to run on third-party sites.
-// Without this, embeds would send events to app.posthog.com.
-window.JS_POSTHOG_API_KEY = undefined
-
+// Tracking is off in render-query frames: index.html clears the capture key before any script
+// here runs, so this only sets up an opted-out posthog-js.
 loadPostHogJS()
 initKea({ replaceInitialPathInWindow: false })
 
