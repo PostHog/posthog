@@ -32,6 +32,7 @@ const listKey = (channelId: string) => [
 
 const mocks = vi.hoisted(() => ({
   file: vi.fn(),
+  listFetches: {} as Record<string, number>,
   rows: {} as Record<string, FilingResult[]>,
   unfile: vi.fn().mockResolvedValue(undefined),
 }));
@@ -42,13 +43,20 @@ vi.mock("@posthog/host-router/react", () => ({
       list: {
         mutationKey: () => FILE_KEY,
         pathFilter: () => ({ queryKey: LIST_PATH }),
+        queryFilter: ({ channelId }: { channelId: string }) => ({
+          queryKey: listKey(channelId),
+        }),
         queryOptions: (
           { channelId }: { channelId: string },
           options: object,
         ) => ({
           ...options,
           queryKey: listKey(channelId),
-          queryFn: async () => mocks.rows[channelId] ?? [],
+          queryFn: async () => {
+            mocks.listFetches[channelId] =
+              (mocks.listFetches[channelId] ?? 0) + 1;
+            return mocks.rows[channelId] ?? [];
+          },
         }),
       },
       file: {
@@ -98,6 +106,7 @@ describe("useChannelTasks", () => {
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
+    mocks.listFetches = { source: 0, dest: 0, third: 0 };
     mocks.rows = {
       source: [{ channelId: "source", taskId: "t1", createdAt: 1 }],
       dest: [{ channelId: "dest", taskId: "t2", createdAt: 2 }],
@@ -212,6 +221,25 @@ describe("useChannelTasks", () => {
     expect(applyPendingTaskFilings([], "third", filings)).toEqual([
       { channelId: "third", taskId: "t1", createdAt: 3 },
     ]);
+  });
+
+  it("refetches only the channel lists a filing changes", async () => {
+    const request = deferred<FilingResult>();
+    mocks.file.mockReturnValueOnce(request.promise);
+    const { result } = renderHook(useFilingHarness, { wrapper });
+    let filing = Promise.resolve<unknown>(undefined);
+
+    act(() => {
+      filing = result.current.mutations.fileTask("dest", "t1");
+    });
+    await act(async () => {
+      request.resolve({ channelId: "dest", taskId: "t1", createdAt: 1 });
+      await filing;
+    });
+
+    expect(mocks.listFetches.source).toBe(1);
+    expect(mocks.listFetches.dest).toBe(1);
+    expect(mocks.listFetches.third).toBe(0);
   });
 
   it("invalidates channel lists when unfiling succeeds", async () => {

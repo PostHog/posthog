@@ -78,9 +78,42 @@ export function useChannelTaskMutations() {
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
 
-  const reconcileTaskFiling = (taskId: string): Promise<unknown[]> =>
+  /**
+   * Filing moves a task, so at most two channel lists change: the one it lands
+   * in and whichever one still shows it. Every other cached channel is
+   * untouched, and someone who has browsed a lot of channels holds a lot of
+   * those.
+   */
+  const invalidateChannelLists = (
+    taskId: string,
+    channelId?: string,
+  ): Promise<unknown> => {
+    const listsShowingTask = queryClient.invalidateQueries({
+      ...trpc.channelTasks.list.pathFilter(),
+      predicate: (query) => {
+        const tasks = query.state.data as ChannelTaskRecord[] | undefined;
+        // A list still loading has no membership to check, and its in-flight
+        // request may have been sent before this mutation. Refetch rather than
+        // let a pre-mutation response land and sit fresh.
+        if (!tasks) return true;
+        return tasks.some((record) => record.taskId === taskId);
+      },
+    });
+    if (!channelId) return listsShowingTask;
+    return Promise.all([
+      listsShowingTask,
+      queryClient.invalidateQueries(
+        trpc.channelTasks.list.queryFilter({ channelId }),
+      ),
+    ]);
+  };
+
+  const reconcileTaskFiling = (
+    taskId: string,
+    channelId?: string,
+  ): Promise<unknown[]> =>
     Promise.all([
-      queryClient.invalidateQueries(trpc.channelTasks.list.pathFilter()),
+      invalidateChannelLists(taskId, channelId),
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() }),
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) }),
       queryClient.invalidateQueries({ queryKey: channelFeedQueryRoot }),
@@ -89,9 +122,10 @@ export function useChannelTaskMutations() {
   const file = useMutation(
     trpc.channelTasks.file.mutationOptions({
       scope: TASK_CHANNEL_MUTATION_SCOPE,
-      onSuccess: (_record, variables) => reconcileTaskFiling(variables.taskId),
+      onSuccess: (_record, variables) =>
+        reconcileTaskFiling(variables.taskId, variables.channelId),
       onError: (_error, variables) => {
-        void reconcileTaskFiling(variables.taskId);
+        void reconcileTaskFiling(variables.taskId, variables.channelId);
       },
     }),
   );
