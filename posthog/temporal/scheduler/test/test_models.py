@@ -5,7 +5,11 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
+from posthog.models.temporal_scheduler import (
+    TemporalSchedulerClaim,
+    TemporalSchedulerPermitPool,
+    TemporalSchedulerState,
+)
 
 
 class TestTemporalSchedulerPermitPool(TestCase):
@@ -26,6 +30,17 @@ class TestTemporalSchedulerPermitPool(TestCase):
     def test_in_flight_cannot_be_negative(self) -> None:
         with self.assertRaises(IntegrityError), transaction.atomic():
             TemporalSchedulerPermitPool.objects.create(scheduler="subscriptions", region="eu", in_flight=-1)
+
+
+class TestTemporalSchedulerState(TestCase):
+    def test_scope_is_unique_and_cursor_defaults_empty(self) -> None:
+        state = TemporalSchedulerState.objects.create(scheduler="subscriptions", region="eu")
+
+        self.assertEqual(state.discovery_cursor, "")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            TemporalSchedulerState.objects.create(scheduler="subscriptions", region="eu")
+
+        TemporalSchedulerState.objects.create(scheduler="subscriptions", region="us")
 
 
 class TestTemporalSchedulerClaim(TestCase):

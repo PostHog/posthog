@@ -23,6 +23,23 @@ class TemporalSchedulerPermitPool(models.Model):
         ]
 
 
+class TemporalSchedulerState(models.Model):
+    scheduler = models.CharField(max_length=128)
+    region = models.CharField(max_length=32)
+    discovery_cursor = models.CharField(max_length=128, default="", db_default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_temporalschedulerstate"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["scheduler", "region"],
+                name="uniq_temporal_sched_state_scope",
+            ),
+        ]
+
+
 class TemporalSchedulerClaim(models.Model):
     class Status(models.TextChoices):
         AVAILABLE = "available", "Available"
