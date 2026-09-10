@@ -211,6 +211,7 @@ function PlayerWrapper({
                         sessionRecordingId={activeSessionRecording.id}
                         matchingEventsMatchType={matchingEventsMatchType}
                         autoPlay={props.autoPlay}
+                        deepLinkFromUrl={props.updateSearchParams}
                         onRecordingDeleted={() => {
                             loadAllRecordings()
                             setSelectedRecordingId(null)

@@ -502,6 +502,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 sessionRecordingId: '2',
                 playerKey: 'test',
                 blobV2PollingDisabled: true,
+                deepLinkFromUrl: true,
             })
             logic.mount()
 
@@ -531,6 +532,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 sessionRecordingId: '2',
                 playerKey: 'test',
                 blobV2PollingDisabled: true,
+                deepLinkFromUrl: true,
             })
             logic.mount()
 
@@ -548,6 +550,24 @@ describe('sessionRecordingPlayerLogic', () => {
                 router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
             }).toFinishAllListeners()
             expect(logic.values.currentTimestamp).toBe(start + 5000)
+        })
+
+        // `timestamp` belongs to the host scene when the player is embedded in it, so an error
+        // tracking issue page must not move the player or warn about its own param.
+        it('ignores the page search params when the player does not own the URL', async () => {
+            logic.unmount()
+            router.actions.push('/error_tracking/abc', { timestamp: '2026-09-09 21:12:34.866000+07:00' })
+
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart']).toFinishAllListeners()
+
+            expect(logic.values.currentTimestamp).toBe(logic.values.sessionPlayerData.start?.valueOf())
         })
     })
 

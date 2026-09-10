@@ -39,7 +39,16 @@ describe('parseDeepLinkTime', () => {
             t: undefined,
             expected: { kind: 'timestamp', valueMs: isoMs },
         },
+        {
+            // Regression: error tracking links carry the API's space-separated `last_seen`, which
+            // the parser rejected, so the player warned and started from the beginning.
+            name: 'space-separated datetime in timestamp is an absolute timestamp',
+            timestamp: '2026-09-01 12:00:30.000000+02:00',
+            t: undefined,
+            expected: { kind: 'timestamp', valueMs: isoMs },
+        },
         { name: 'unparseable t', timestamp: undefined, t: 'not-a-time', expected: null },
+        { name: 'zone-less space-separated datetime', timestamp: '2026-09-01 10:00:30', t: undefined, expected: null },
         { name: 'zone-less datetime in t', timestamp: undefined, t: '2026-09-01T10:00:30', expected: null },
         { name: 'date-only t', timestamp: undefined, t: '2026-09-01', expected: null },
         {
