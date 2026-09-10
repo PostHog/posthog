@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronLeft, IconRevert } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconGear, IconRevert } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -55,6 +55,10 @@ export interface ComposerModelEffortPickersProps {
     /** Clears the explicit pick so the run falls back to the resolved default. Omit on a surface with no
      * configured default and the reset row falls back to the ladder's balanced notch. */
     onResetToDefault?: () => void
+    /** Takes the user to where the default itself is configured. Passed as a callback rather than a URL so
+     * the picker stays free of the app's routing, and an embedding host can send its own audience
+     * somewhere else. Omit and the row is absent. */
+    onOpenDefaultSettings?: () => void
 }
 
 interface PickerSectionProps {
@@ -102,6 +106,7 @@ export function ComposerModelEffortPickers({
     lockedRuntimeAdapter,
     isDefaultSelection = false,
     onResetToDefault,
+    onOpenDefaultSettings,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const [advanced, setAdvanced] = useState(false)
@@ -159,6 +164,9 @@ export function ComposerModelEffortPickers({
             onEffortChange(effort as ReasoningEffortEnumApi)
         }
     }
+
+    // With neither a configured default to fall back to nor a ladder to land on, there is nothing to reset to.
+    const showReset = Boolean(onResetToDefault) || stops.length > 0
 
     // Deferred until the menu has finished closing: applying mid-animation re-renders the list the user is
     // watching disappear.
@@ -278,24 +286,32 @@ export function ComposerModelEffortPickers({
                     />
                 )}
 
+                {(showReset || onOpenDefaultSettings) && <DropdownMenuSeparator />}
+
                 {/* One reset for both meanings of "default": drop the pick so the configured project/user
                     default applies where a surface knows about one, else land on the ladder's balanced
                     notch. Two rows for the two notions read as a duplicate, since only one ever acts. */}
-                {(onResetToDefault || stops.length > 0) && (
-                    <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            disabled={Boolean(onResetToDefault) && isDefaultSelection}
-                            onClick={() =>
-                                selectAndClose(
-                                    onResetToDefault ?? (() => selectStop(stops[Math.floor((stops.length - 1) / 2)]))
-                                )
-                            }
-                        >
-                            <IconRevert />
-                            Reset to default
-                        </DropdownMenuItem>
-                    </>
+                {showReset && (
+                    <DropdownMenuItem
+                        disabled={Boolean(onResetToDefault) && isDefaultSelection}
+                        onClick={() =>
+                            selectAndClose(
+                                onResetToDefault ?? (() => selectStop(stops[Math.floor((stops.length - 1) / 2)]))
+                            )
+                        }
+                    >
+                        <IconRevert />
+                        Reset to default
+                    </DropdownMenuItem>
+                )}
+
+                {/* Sits under the reset row because that's where the question arises: reverting to a default
+                    you disagree with is the moment you want to change it. */}
+                {onOpenDefaultSettings && (
+                    <DropdownMenuItem onClick={() => selectAndClose(onOpenDefaultSettings)}>
+                        <IconGear />
+                        Change default
+                    </DropdownMenuItem>
                 )}
             </DropdownMenuContent>
         </DropdownMenu>

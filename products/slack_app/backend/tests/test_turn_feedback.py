@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID, turn_feedback_block
+from products.slack_app.backend.services.slack_user_info import cache_workspace_bot_user_id
 from products.slack_app.backend.services.turn_feedback import (
     _MODAL_TEXT_ACTION_ID,
     _MODAL_TEXT_BLOCK_ID,
@@ -65,6 +66,12 @@ class TestTurnFeedback(TestCase):
         analytics = patch("products.slack_app.backend.services.turn_feedback.posthoganalytics")
         self.mock_analytics = analytics.start()
         self.addCleanup(analytics.stop)
+        bot_id = patch("products.slack_app.backend.services.turn_feedback.get_cached_bot_user_id", return_value="U_BOT")
+        bot_id.start()
+        self.addCleanup(bot_id.stop)
+        # The router's early author gate reads the workspace-level cache; pin it so the
+        # reaction tests exercise that gate whatever earlier tests left in the cache.
+        cache_workspace_bot_user_id(self.slack_team_id, "U_BOT")
 
     def _post(self, payload: dict):
         body = f"payload={json.dumps(payload)}"
@@ -77,8 +84,8 @@ class TestTurnFeedback(TestCase):
             HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
-    def _thumb_value(self, sentiment: str, run_id: str | None = None) -> str:
-        element = turn_feedback_block(self.integration.id, run_id or str(self.task_run.id))["elements"][0]
+    def _thumb_value(self, sentiment: str, run_id: str | None = None, trace_id: str | None = None) -> str:
+        element = turn_feedback_block(self.integration.id, run_id or str(self.task_run.id), trace_id)["elements"][0]
         button = "positive_button" if sentiment == "positive" else "negative_button"
         return element[button]["value"]
 
@@ -121,7 +128,51 @@ class TestTurnFeedback(TestCase):
         assert properties["task_id"] == str(self.task.id)
         # The rated answer's own message, so a thread of answers stays separable.
         assert properties["turn_id"] == "222.1"
+        assert properties["feedback_source"] == "button"
+        # A turn that reported no trace id sends the null the other clients send, never a
+        # stand-in like the session id.
+        assert properties["$ai_trace_id"] is None
         assert self.mock_slack.return_value.client.views_open.called is asks_for_a_reason
+
+    def test_a_rating_names_the_turn_the_reply_answered(self):
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+
+        response = self._pick(self._thumb_value("positive", trace_id=trace_id))
+
+        assert response.status_code == 200
+        assert self.mock_analytics.capture.call_args.kwargs["properties"]["$ai_trace_id"] == trace_id
+
+    def test_a_trace_id_that_is_not_one_of_ours_is_dropped(self):
+        # A trace id that is not the UUID the gateway mints would join nothing.
+        response = self._pick(self._thumb_value("positive", trace_id="not-a-trace-id"))
+
+        assert response.status_code == 200
+        assert self.mock_analytics.capture.call_args.kwargs["properties"]["$ai_trace_id"] is None
+
+    def test_the_reason_inherits_the_trace_id_of_the_thumb_that_asked_for_it(self):
+        # The reason arrives in a second request carrying only what the modal was opened with.
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+        self._pick(self._thumb_value("negative", trace_id=trace_id))
+        view = self.mock_slack.return_value.client.views_open.call_args.kwargs["view"]
+        self.mock_analytics.capture.reset_mock()
+
+        response = self._post(
+            {
+                "type": "view_submission",
+                "team": {"id": self.slack_team_id},
+                "user": {"id": "U_ALICE"},
+                "view": {
+                    "callback_id": view["callback_id"],
+                    "private_metadata": view["private_metadata"],
+                    "state": {"values": {_MODAL_TEXT_BLOCK_ID: {_MODAL_TEXT_ACTION_ID: {"value": "wrong dashboard"}}}},
+                },
+            }
+        )
+
+        assert response.status_code == 200
+        kwargs = self.mock_analytics.capture.call_args.kwargs
+        assert kwargs["event"] == "$ai_feedback"
+        assert kwargs["properties"]["$ai_trace_id"] == trace_id
 
     def test_a_run_from_another_project_is_not_rated(self):
         other_org = Organization.objects.create(name="OtherOrg")
@@ -173,4 +224,101 @@ class TestTurnFeedback(TestCase):
         response = self._submit_reason("   ")
 
         assert response.json()["response_action"] == "errors"
+        self.mock_analytics.capture.assert_not_called()
+
+    def _react(self, reaction: str, item_user: str = "U_BOT"):
+        body = json.dumps(
+            {
+                "type": "event_callback",
+                "team_id": self.slack_team_id,
+                "event_id": "Ev123",
+                "event": {
+                    "type": "reaction_added",
+                    "user": "U_ALICE",
+                    "reaction": reaction,
+                    "item_user": item_user,
+                    "item": {"type": "message", "channel": "C_SOURCE", "ts": "222.1"},
+                },
+            }
+        ).encode()
+        signed = sign_slack_request(body, self.signing_secret)
+        return self.client.post(
+            "/slack/event-callback/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
+        )
+
+    def _reacted_message(self, blocks: list[dict]) -> None:
+        self.mock_slack.return_value.client.conversations_replies.return_value = {
+            "messages": [{"ts": "222.1", "blocks": blocks}]
+        }
+
+    @parameterized.expand(
+        [
+            ("+1", "good", "+1"),
+            ("+1::skin-tone-3", "good", "+1"),
+            ("thumbsup", "good", "thumbsup"),
+            ("-1", "bad", "-1"),
+            ("-1::skin-tone-5", "bad", "-1"),
+            ("thumbsdown", "bad", "thumbsdown"),
+        ]
+    )
+    def test_a_thumb_reaction_reports_a_rating(self, reaction, rating, stored_reaction):
+        self._reacted_message([turn_feedback_block(self.integration.id, str(self.task_run.id))])
+
+        response = self._react(reaction)
+
+        assert response.status_code == 202
+        # The window must pin exactly the reacted message: with an open lower bound Slack
+        # ranges the whole thread and one returned row could be a different message.
+        fetch_kwargs = self.mock_slack.return_value.client.conversations_replies.call_args.kwargs
+        assert fetch_kwargs["oldest"] == fetch_kwargs["latest"] == fetch_kwargs["ts"] == "222.1"
+        assert fetch_kwargs["inclusive"] is True
+        self.mock_analytics.capture.assert_called_once()
+        kwargs = self.mock_analytics.capture.call_args.kwargs
+        assert kwargs["event"] == "$ai_metric"
+        properties = kwargs["properties"]
+        assert properties["$ai_metric_name"] == "quality"
+        assert properties["$ai_metric_value"] == rating
+        assert properties["feedback_source"] == "reaction"
+        # The skin-tone modifier never reaches the event: it is a proxy for a protected
+        # attribute on an identified person, and the metric does not need it.
+        assert properties["reaction"] == stored_reaction
+        assert properties["task_run_id"] == str(self.task_run.id)
+        assert properties["turn_id"] == "222.1"
+        # A reaction carries no trigger_id, so a bad rating cannot be asked for a reason.
+        assert not self.mock_slack.return_value.client.views_open.called
+
+    def test_a_thumb_reaction_names_the_turn_the_reply_answered(self):
+        # A reaction resolves its target by reading the posted reply's own blocks back.
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+        self._reacted_message([turn_feedback_block(self.integration.id, str(self.task_run.id), trace_id)])
+
+        response = self._react("+1")
+
+        assert response.status_code == 202
+        assert self.mock_analytics.capture.call_args.kwargs["properties"]["$ai_trace_id"] == trace_id
+
+    def test_a_non_thumb_reaction_costs_no_slack_fetch(self):
+        response = self._react("eyes")
+
+        assert response.status_code == 202
+        assert not self.mock_slack.return_value.client.conversations_replies.called
+        self.mock_analytics.capture.assert_not_called()
+
+    def test_a_thumb_on_a_human_message_costs_no_slack_fetch(self):
+        response = self._react("+1", item_user="U_SOMEONE_ELSE")
+
+        assert response.status_code == 202
+        assert not self.mock_slack.return_value.client.conversations_replies.called
+        self.mock_analytics.capture.assert_not_called()
+
+    def test_a_thumb_on_a_bot_message_without_thumbs_is_not_a_rating(self):
+        self._reacted_message([{"type": "section", "text": {"type": "mrkdwn", "text": "Working on it"}}])
+
+        response = self._react("+1")
+
+        assert response.status_code == 202
         self.mock_analytics.capture.assert_not_called()

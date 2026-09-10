@@ -128,6 +128,7 @@ export const pullRequestReports: SignalReport[] = [
         signal_count: 12,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+        implementation_pr_state: 'draft',
         is_suggested_reviewer: true,
     }),
     makeReport({
@@ -140,6 +141,7 @@ export const pullRequestReports: SignalReport[] = [
         signal_count: 31,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
+        implementation_pr_state: 'open',
     }),
     makeReport({
         title: 'perf(dashboards): paginate cohort filter resolution',
@@ -218,6 +220,7 @@ const finishedRuns: SignalReport[] = [
         signal_count: 12,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+        implementation_pr_state: 'draft',
     }),
     makeReport({
         title: 'Investigate webhook delivery failures',

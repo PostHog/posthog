@@ -262,25 +262,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert response.json()["attr"] == "query"
         assert Insight.objects.count() == insight_count_before
 
-    @patch(
-        "products.product_analytics.backend.presentation.insight_write_validation.feature_enabled_or_false",
-        return_value=True,
-    )
-    def test_accepts_filters_the_rules_reject_when_the_stored_query_still_renders(self, _flag: Any) -> None:
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "name": "Insight with a query",
-                "query": {"kind": "StickinessQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            }
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"filters": {"insight": "TRENDS", "events": []}},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-
     def test_can_list_insights_including_those_with_only_queries(self) -> None:
         self.dashboard_api.create_insight({"name": "Insight with filters"})
         self.dashboard_api.create_insight(

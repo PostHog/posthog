@@ -4,6 +4,7 @@ import { Settings } from 'luxon'
 
 import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
@@ -282,7 +283,7 @@ export class TemplateTester {
     async invoke(
         _inputs: Record<string, any>,
         _globals?: DeepPartialHogFunctionInvocationGlobals,
-        _options?: { hogFlow?: { id: string }; actionId?: string }
+        _options?: { hogFlow?: Partial<HogFlow> & { id: string }; actionId?: string }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (this.template.mapping_templates) {
             throw new Error('Mapping templates found. Use invokeMapping instead.')
@@ -312,10 +313,11 @@ export class TemplateTester {
         // Workflow-only async functions read the flow id and step id off the invocation the way
         // HogFlowFunctionsService sets them; there is no flow in this harness, so inject them.
         if (_options?.hogFlow) {
-            ;(invocation as { hogFlow?: { id: string } }).hogFlow = _options.hogFlow
+            ;(invocation as { hogFlow?: Partial<HogFlow> }).hogFlow = _options.hogFlow
         }
         if (_options?.actionId) {
             invocation.state.actionId = _options.actionId
+            invocation.state.actionStepCount = 0
         }
         const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}

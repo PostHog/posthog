@@ -104,6 +104,10 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
 Immutable lifecycle events are the only thing the deferred events destination is for.
 Deploys left that deferral: unlike the snapshots, `github_deployment_statuses` is an append-oriented, webhook-fed status history (one row per transition), so DORA reads don't need the events destination.
+When a deployment's merge SHA is absent from the PR snapshot, Health reuses workflow-run `commit_pr_number` attribution for the exact deployed commit on the same repository's default branch.
+The candidate PR must have merged into that branch, and must carry no merge commit of its own — one that names some other commit is evidence the suffix is wrong, not evidence the deploy carries that PR.
+That drops a cherry-pick: a commit forward-ported onto the default branch keeps the original subject line, so its `(#N)` suffix still names the PR it came from, which landed elsewhere.
+This fallback depends on the merge-message PR suffix and synced workflow history; unresolved deployments remain unattributed.
 Change failure rate and time-to-restore still lack an incident link, so they ship as honest deploy-status proxies — the caveat rides in the field docs (`failed_deployment_share`, `median_failed_deploy_to_next_success_seconds`), the aggregate-endpoint pattern; a typed `metric_quality` field is reserved for deep tools like `pr_lifecycle`.
 
 ## Locked decisions

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -11,7 +13,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.redis import get_client
-from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, LOOP_CONTEXT_INTERNAL_SCOPE
 
 from products.context_layer.backend.facade import api as facade
 from products.context_layer.backend.presentation.serializers import (
@@ -33,6 +35,48 @@ from products.tasks.backend.facade import api as tasks_facade
 # Ordinary task runs can land wiki commits with nothing but the writer lock
 # pacing them, so a runaway sandbox agent gets a hard daily ceiling per run.
 RUN_COMMITS_PER_DAY_CAP = 20
+
+
+def _context_actor_type(request: Request) -> Literal["user_or_api", "task_agent", "loop_agent"]:
+    access_token = get_oauth_access_token(request)
+    token_scopes = set((getattr(access_token, "scope", "") or "").split())
+    if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
+        return "loop_agent"
+    if INTERNAL_RUN_SCOPE in token_scopes:
+        return "task_agent"
+    return "user_or_api"
+
+
+def _capture_context_page_update(
+    organization_id,  # noqa: ANN001
+    request: Request,
+    *,
+    path: str,
+    channel_id: str | None,
+    is_first_version: bool,
+    content_bytes: int,
+    base_version_provided: bool,
+) -> None:
+    if channel_id is None:
+        return
+    path_parts = path.split("/")
+    if len(path_parts) != 4 or path_parts[0] != "projects" or path_parts[2] != "spaces":
+        return
+    try:
+        team_id = int(path_parts[1])
+    except ValueError:
+        return
+    actor_type = _context_actor_type(request)
+    tasks_facade.capture_context_wiki_changed(
+        organization_id=organization_id,
+        team_id=team_id,
+        channel_id=channel_id,
+        user_id=getattr(request.user, "id", None),
+        actor_type=actor_type,
+        is_first_version=is_first_version,
+        content_bytes=content_bytes,
+        base_version_provided=base_version_provided,
+    )
 
 
 def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
@@ -116,7 +160,10 @@ def _assert_run_write_in_scope(organization_id, team_id, request: Request, path:
     # Both sides resolve inside this organization's own wiki index, so a run
     # cannot reach another organization's pages even by naming its channel.
     requested_channel_id = facade.resolve_page_channel(organization_id, path)
-    if configured_channel_id == requested_channel_id:
+    if (
+        configured_channel_id == requested_channel_id
+        and facade.page_frontmatter_channel_id(content) == configured_channel_id
+    ):
         return
     if requested_channel_id is not None:
         raise denied
@@ -186,16 +233,33 @@ def _write_page(organization_id, request: Request, *, team_id=None) -> Response:
         if user and user.is_authenticated
         else None
     )
+    content = serializer.validated_data["content"]
+    channel_id = facade.page_frontmatter_channel_id(content)
+    is_first_version = False
+    if channel_id is not None:
+        try:
+            is_first_version = facade.resolve_channel_page(organization_id, channel_id) is None
+        except facade.ContextLayerStoreError:
+            pass
     try:
         head_sha = facade.write_page(
             organization_id,
             path=serializer.validated_data["path"],
-            content=serializer.validated_data["content"],
+            content=content,
             base_head=serializer.validated_data.get("base_head"),
             author=author,
         )
     except facade.ContextLayerStoreError as error:
         return _store_error_response(error)
+    _capture_context_page_update(
+        organization_id,
+        request,
+        path=serializer.validated_data["path"],
+        channel_id=channel_id,
+        is_first_version=is_first_version,
+        content_bytes=len(content.encode("utf-8")),
+        base_version_provided=serializer.validated_data.get("base_head") is not None,
+    )
     return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
 
 
@@ -455,15 +519,13 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     read_actions = ["page", "channel_page"]
     write_actions = ["update_page", "commits"]
 
-    # Which task scope each action accepts, and the provenance marker that has to
-    # come with it. A sandbox run lands commits; a context-maintaining loop run
-    # reads and rewrites its own page. Ordinary runs use organization scopes for
-    # page operations, then the write path binds them to their task channel.
-    _RUN_SCOPES = {
-        "commits": ("task:write", INTERNAL_RUN_SCOPE),
-        "page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
-        "channel_page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
-        "update_page": ("task:write", LOOP_CONTEXT_INTERNAL_SCOPE),
+    # Each task scope must come with server-minted run provenance. Page actions
+    # accept ordinary and loop runs; the write path binds each to its own target.
+    _RUN_TASK_SCOPES = {
+        "commits": "task:write",
+        "page": "task:read",
+        "channel_page": "task:read",
+        "update_page": "task:write",
     }
 
     def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
@@ -477,13 +539,17 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         deriving. One consequence of INTERNAL: a `*` (full access) token does not
         short-circuit this check, so it has to carry the organization scope too.
         """
-        required = self._RUN_SCOPES.get(self.action)
-        if required is not None:
-            task_scope, provenance_scope = required
+        task_scope = self._RUN_TASK_SCOPES.get(self.action)
+        if task_scope is not None:
             access_token = get_oauth_access_token(request)
             token_scopes = set((getattr(access_token, "scope", "") or "").split())
-            if provenance_scope in token_scopes:
-                return [task_scope, provenance_scope]
+            if self.action != "commits" and LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
+                return [task_scope, LOOP_CONTEXT_INTERNAL_SCOPE]
+            if INTERNAL_RUN_SCOPE in token_scopes:
+                required = [task_scope, INTERNAL_RUN_SCOPE]
+                if self.action in self.write_actions:
+                    required.append(CONTEXT_LAYER_INTERNAL_SCOPE)
+                return required
         if self.action in self.write_actions:
             return ["organization:write"]
         if self.action in self.read_actions:

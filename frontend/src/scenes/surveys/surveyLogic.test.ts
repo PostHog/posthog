@@ -12,6 +12,7 @@ import {
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -1300,20 +1301,35 @@ describe('survey filters', () => {
                 propertyFilters: propertyFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
     })
 
-    it('collapses newlines in question text so the generated HogQL select stays single-line', async () => {
+    it.each([true, false])('merges all captured responses with partial collection set to %s', async (enabled) => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess({ ...MULTIPLE_CHOICE_SURVEY, enable_partial_responses: enabled })
+        }).toDispatchActions(['loadSurveySuccess'])
+        const source = logic.values.dataTableQuery?.source
+        expect(source).toMatchObject({ kind: NodeKind.HogQLQuery })
+        const query = (source as { query: string }).query
+        expect(query).toContain('GROUP BY submission_key')
+        expect(query).toContain("'survey dismissed', 'survey abandoned'")
+        expect(query).toContain('argMaxIf(')
+        expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
+    })
+
+    it('keeps question text out of the generated HogQL', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
         // whose text spans multiple lines used to leak past the `--` comment appended per response
         // column, turning the trailing (often accented) text into invalid HogQL.
@@ -1333,11 +1349,9 @@ describe('survey filters', () => {
             logic.actions.loadSurveySuccess(surveyWithMultilineQuestion)
         }).toDispatchActions(['loadSurveySuccess'])
 
-        const select = (logic.values.dataTableQuery as unknown as { source: { select: string[] } }).source.select
-        // The question text is still used as the column comment...
-        expect(select.some((col) => col.includes('Déjanos'))).toBe(true)
-        // ...but every generated column expression is single-line, so the `--` comment can't leak.
-        select.forEach((col) => expect(col).not.toMatch(/[\r\n]/))
+        const query = (logic.values.dataTableQuery?.source as { query: string }).query
+        expect(query).not.toContain('Déjanos')
+        expect(query).toContain('AS answer_0')
     })
 
     it('updates query filters when property filters change', async () => {
@@ -1360,14 +1374,16 @@ describe('survey filters', () => {
                 propertyFilters: initialFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1390,14 +1406,16 @@ describe('survey filters', () => {
                 propertyFilters: updatedFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'country',
-                                value: 'US',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'country',
+                                    value: 'US',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1428,20 +1446,22 @@ describe('survey filters', () => {
                 propertyFilters: multipleFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                            {
-                                key: 'country',
-                                value: 'US',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                                {
+                                    key: 'country',
+                                    value: 'US',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1474,22 +1494,24 @@ describe('survey filters', () => {
                 propertyFilters: groupPropertyFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'name',
-                                value: 'ACME Corp',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Group,
-                                group_type_index: 0,
-                            },
-                            {
-                                key: 'industry',
-                                value: 'technology',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Group,
-                                group_type_index: 0,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'name',
+                                    value: 'ACME Corp',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Group,
+                                    group_type_index: 0,
+                                },
+                                {
+                                    key: 'industry',
+                                    value: 'technology',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Group,
+                                    group_type_index: 0,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1521,21 +1543,23 @@ describe('survey filters', () => {
                 propertyFilters: mixedFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                            {
-                                key: 'company_name',
-                                value: 'ACME Corp',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Group,
-                                group_type_index: 0,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                                {
+                                    key: 'company_name',
+                                    value: 'ACME Corp',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Group,
+                                    group_type_index: 0,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1560,22 +1584,17 @@ describe('survey filters', () => {
                 propertyFilters: propertyFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            // Survey ID property should still be present
-                            {
-                                key: SurveyEventProperties.SURVEY_ID,
-                                operator: 'exact',
-                                type: 'event',
-                                value: MULTIPLE_CHOICE_SURVEY.id,
-                            },
-                            // Our new filter should be present
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                // Our new filter should be present
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1591,15 +1610,8 @@ describe('survey filters', () => {
                 propertyFilters: [],
                 dataTableQuery: partial({
                     source: partial({
-                        // Should still have the survey ID property even with no filters
-                        properties: expect.arrayContaining([
-                            {
-                                key: SurveyEventProperties.SURVEY_ID,
-                                operator: 'exact',
-                                type: 'event',
-                                value: MULTIPLE_CHOICE_SURVEY.id,
-                            },
-                        ]),
+                        filters: { properties: [] },
+                        query: expect.stringContaining(MULTIPLE_CHOICE_SURVEY.id),
                     }),
                 }),
             })
@@ -1877,6 +1889,7 @@ describe('survey stats calculation', () => {
             logic.actions.setDismissedAndSentCount(null)
         }).toMatchValues({
             processedSurveyStats: null,
+            surveyResponseOutcomes: null,
             surveyRates: {
                 response_rate: 0.0,
                 dismissal_rate: 0.0,
@@ -1885,6 +1898,25 @@ describe('survey stats calculation', () => {
             },
         })
     })
+
+    it.each([true, false])(
+        'uses submissions for outcome percentages when counting people is %s',
+        async (countPeople) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilterSurveyStatsByDistinctId(countPeople)
+                logic.actions.setBaseStatsResults([
+                    createBaseStat(SurveyEventName.SHOWN, 100, 80),
+                    [SurveyEventName.SENT, 5, 1, MOCK_FIRST_SEEN, MOCK_LAST_SEEN, [2, 1, 2]],
+                ])
+            }).toMatchValues({
+                surveyResponseOutcomes: [
+                    { label: 'Completed', count: 2, percentage: 0.4 },
+                    { label: 'Dismissed', count: 1, percentage: 0.2 },
+                    { label: 'Abandoned', count: 2, percentage: 0.4 },
+                ],
+            })
+        }
+    )
 
     it('should calculate stats correctly when only "survey shown" events exist', async () => {
         const baseStats = [createBaseStat(SurveyEventName.SHOWN, 100, 80)]

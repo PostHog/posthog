@@ -3,13 +3,13 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
     RequestFactory,
@@ -25,13 +25,14 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import CSPMiddleware, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
+from products.canvas.backend.artifacts import CANVAS_ARTIFACT_RESPONSE_MARKER
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -201,7 +202,11 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 54
+        # 56, not 54: the app context serializes the project's tags, which costs one
+        # indexed lookup on posthog_taggeditem per page load, and the organization it
+        # serializes comes off the user's current_organization foreign key, which carries
+        # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
+        cls.base_app_num_queries = 56
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -596,7 +601,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
 
     def test_after_idle_timeout_api_requests_401(self):
         now = datetime(2024, 1, 1, 12, 0, 0)
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
@@ -606,7 +611,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
 
         # Move forward by 19
         now = now + timedelta(seconds=19)
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
@@ -615,13 +620,13 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         # Past idle timeout
         now = now + timedelta(seconds=21)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 
     def test_after_total_timeout_api_requests_401(self):
         now = datetime(2024, 1, 1, 12, 0, 0)
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
@@ -632,7 +637,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         for _ in range(4):
             # Move forward by 19 seconds 4 times for a total of 76 seconds
             now = now + timedelta(seconds=19)
-            with freeze_time(now):
+            with time_machine.travel(now, tick=False):
                 res = self.client.get("/api/users/@me")
                 assert res.status_code == 200
                 assert res.json()["email"] == "other-user@posthog.com"
@@ -642,7 +647,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
                 )
 
         now = now + timedelta(seconds=19)
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
@@ -652,17 +657,17 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         # Now even less than the idle time will take us past the total timeout
         now = now + timedelta(seconds=10)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 
     def test_after_timeout_non_admin_page_redirects_to_admin(self):
         """When session times out on a non-admin page, redirect to /admin/."""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
-        with freeze_time(now + timedelta(seconds=35)):
+        with time_machine.travel(now + timedelta(seconds=35), tick=False):
             res = self.client.get("/dashboards")
             assert res.status_code == 302
             assert res.headers["Location"] == "/admin/"
@@ -677,10 +682,10 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         third_user = User.objects.create_and_join(self.organization, email="third-user@posthog.com", password="123456")
 
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
-        with freeze_time(now + timedelta(seconds=35)):
+        with time_machine.travel(now + timedelta(seconds=35), tick=False):
             # Navigate to a different user's admin page
             res = self.client.get(f"/admin/posthog/user/{third_user.id}/change/")
             assert res.status_code == 302
@@ -695,7 +700,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     def test_explicit_logout_redirects_to_impersonated_user_admin(self):
         """When explicitly logging out via /logout, redirect to impersonated user's admin page."""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
             # Explicit logout via the main logout endpoint
@@ -722,7 +727,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     def test_loginas_logout_redirect(self, _name, query_suffix, expected_location):
         """The loginas logout endpoint redirects to a safe `next` when given, otherwise to the admin change page."""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
             res = self.client.get(f"/admin/logout/{query_suffix}")
@@ -738,10 +743,10 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         """Even when the session has expired server-side, `next` survives the middleware
         bounce so staff still land back in the PostHog app."""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             self.login_as_other_user()
 
-        with freeze_time(now + timedelta(seconds=35)):
+        with time_machine.travel(now + timedelta(seconds=35), tick=False):
             # First hit: the auto-logout middleware restores the original login and
             # bounces back to the same path, preserving ?next=/.
             res = self.client.get("/admin/logout/?next=/")
@@ -1627,7 +1632,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Ensure any remaining patches are stopped
         self.time_patcher.stop()
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_session_continues_when_not_expired(self, mock_time):
         # Initial request sets session creation time
@@ -1643,7 +1648,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_session_expires_after_total_time(self, mock_time):
         # Initial request sets session creation time
@@ -1664,7 +1669,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
             "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
         )
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_org_specific_session_timeout_from_cache(self, mock_time):
         # Set org-specific timeout in cache
@@ -1688,7 +1693,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
             "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
         )
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_session_timeout_after_switching_org_with_cache(self, mock_time):
         # Create another org with different timeout
@@ -1886,17 +1891,87 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
 
 class TestCSPMiddleware(APIBaseTest):
+    def test_replay_player_frame_carries_its_own_policy_and_reports_nothing(self):
+        # The frame exists so a recorded page stops being judged against the app policy. If the
+        # middleware branch goes, it silently inherits that policy again, along with its report-uri,
+        # and every replayed page resumes reporting a customer's site to our project.
+        response = self.client.get("/replay_player_frame/index.html")
+        assert response.status_code == 200
+        policy = response["Content-Security-Policy"]
+        assert "script-src 'none'" in policy
+        assert "img-src * data: blob:" in policy
+        assert "report-uri" not in policy
+        assert "Content-Security-Policy-Report-Only" not in response
+        assert "Reporting-Endpoints" not in response
+
+    def test_app_policy_allows_framing_the_replay_player_frame(self):
+        # The player frame is same-origin, and an http origin does not match the https: source
+        # that heatmaps need.
+        response = self.client.get("/")
+        assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
+
+    def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
+        # Shared recordings render the player for logged-out viewers.
+        self.client.logout()
+        response = self.client.get("/replay_player_frame/index.html")
+        assert response.status_code == 200
+        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player fall
+        # back to the app document.
+        assert 'id="player-frame-content"' in response.content.decode()
+
     def test_non_html_response_gets_strict_csp(self):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response["Content-Security-Policy"] == "default-src 'none'"
         assert "Content-Security-Policy-Report-Only" not in response
 
-    def test_html_response_gets_report_only_csp(self):
-        response = self.client.get("/")
+    @parameterized.expand(
+        [
+            ("app_root", "/"),
+            # No route serves this path, so the app catch-all answers it. It must keep the app
+            # policy, because the frame policy is enforced and its script-src 'none' stops the app
+            # from starting.
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame"),
+        ]
+    )
+    def test_html_response_gets_report_only_csp(self, _name, path):
+        response = self.client.get(path)
         assert response.status_code == 200
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
+
+    @parameterized.expand(
+        [
+            ("custom_policy", "/", False, "default-src 'self'", True),
+            ("canvas", "/", True, "sandbox allow-scripts; default-src 'none'", False),
+            ("custom_admin", "/admin/", False, "default-src *", True),
+            ("marked_admin", "/admin/", True, "default-src *", True),
+            ("marker_without_policy", "/", True, None, True),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_html_response_with_view_managed_csp(
+        self, _name: str, path: str, canvas_artifact: bool, policy: str | None, expects_reporting: bool
+    ) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            response = HttpResponse("<html><body>artifact</body></html>", content_type="text/html; charset=utf-8")
+            if policy is not None:
+                response["Content-Security-Policy"] = policy
+            if canvas_artifact:
+                setattr(response, CANVAS_ARTIFACT_RESPONSE_MARKER, True)
+            return response
+
+        response = CSPMiddleware(view)(RequestFactory().get(path))
+
+        if path == "/admin/":
+            assert "frame-ancestors 'none'" in response["Content-Security-Policy"]
+            assert "default-src *" not in response["Content-Security-Policy"]
+        elif policy is not None:
+            assert response["Content-Security-Policy"] == policy
+        else:
+            assert "Content-Security-Policy" not in response
+        assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
+        assert ("Reporting-Endpoints" in response) == expects_reporting
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):

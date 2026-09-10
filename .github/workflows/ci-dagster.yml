@@ -60,9 +60,9 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+            - uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28'
+                  enable-cache: false
             - run: uv run .github/scripts/check-dagster-paths.py
 
     # Job to decide if we should run dagster ci
@@ -203,6 +203,7 @@ jobs:
                         - 'products/web_analytics/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
+                        - .github/actions/setup-uv/**
                         # The test selector guards itself: selector changes run the
                         # suite (full mode), which executes its unit tests first
                         - tools/dagster_test_selection.py
@@ -243,6 +244,7 @@ jobs:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
                         - .github/workflows/ci-dagster.yml
+                        - .github/actions/setup-uv/**
                         - tools/dagster_test_selection.py
                         - tools/test_dagster_test_selection.py
 
@@ -371,29 +373,17 @@ jobs:
                   filter: blob:none
 
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28'
+                  enable-cache: false
 
-            - name: Restore test durations from cache
+            - name: Download the last published durations
               # The selector's full-run cutoff and shard sizing read .test_durations,
-              # which is not in the repo. This job runs on a GitHub-hosted runner, so
-              # the Depot-side cache misses and the fallback below is the usual path.
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .test_durations
-                  key: posthog-test-durations-${{ github.run_id }}
-                  restore-keys: |
-                      posthog-test-durations-
-
-            - name: Fall back to the last published durations
-              # .test_durations is not in the repo. The timing workflow refreshes the
-              # cache several times a day and publishes the same files as an artifact
-              # of its own runs. On a cache miss (retention lapsed, timing workflow
-              # down for two weeks) take the newest artifact; if that is gone too,
-              # pytest-split splits by count and turbo-discover sizes from file counts
-              # until the next timing run.
-              if: ${{ hashFiles('.test_durations') == '' }}
+              # which is not in the repo. The timing workflow saves it to the Actions
+              # cache from a Depot runner. GitHub-hosted jobs like this one read a
+              # separate cache store, so a cache restore here can never hit. Take the
+              # artifact the timing workflow publishes instead; if that is gone too,
+              # the selector estimates without durations until the next timing run.
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -401,7 +391,7 @@ jobs:
                   run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
                       --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
                   if [ -z "$run_id" ]; then
-                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      echo "::warning::No successful timing run, sharding without durations"
                       exit 0
                   fi
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
@@ -540,12 +530,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.github/actions/setup-uv
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -742,14 +727,22 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:
-        needs: [dagster]
+        needs: [changes, dagster]
         name: Dagster Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check matrix outcome
               run: |
+                  # Change detection gates the matrix. A failure there skips it, and this gate
+                  # reads a skip as a pass, so test its result directly. select-tests is not tested
+                  # here: an empty mode makes the matrix run in full, so a failed selector costs
+                  # runner time but never coverage.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
                   # The `needs.dagster.result` will be 'success' only if all jobs in the matrix succeeded.
                   # Otherwise, it will be 'failure'.
                   if [[ "${{ needs.dagster.result }}" != "success" && "${{ needs.dagster.result }}" != "skipped" ]]; then

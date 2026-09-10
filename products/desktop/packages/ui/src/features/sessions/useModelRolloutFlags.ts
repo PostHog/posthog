@@ -21,8 +21,16 @@ export function useModelRolloutFlags(): ModelRolloutFlags {
   const glm53 = useFeatureFlag(GLM53_MODEL_FLAG, dev);
   const glm53Flash = useFeatureFlag(GLM53_FLASH_MODEL_FLAG, dev);
   const kimi = useFeatureFlag(KIMI_MODEL_FLAG, dev);
+  // Keyed by flag, so a model's `accessFlag` from the catalog reads straight off this
+  // rather than each caller knowing which named boolean belongs to which model.
   return useMemo(
-    () => ({ deepseek, glm, glm53, glm53Flash, kimi }),
+    () => ({
+      [DEEPSEEK_MODEL_FLAG]: deepseek,
+      [GLM_MODEL_FLAG]: glm,
+      [GLM53_MODEL_FLAG]: glm53,
+      [GLM53_FLASH_MODEL_FLAG]: glm53Flash,
+      [KIMI_MODEL_FLAG]: kimi,
+    }),
     [deepseek, glm, glm53, glm53Flash, kimi],
   );
 }

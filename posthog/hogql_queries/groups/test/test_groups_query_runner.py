@@ -2,7 +2,7 @@ import datetime
 from datetime import timedelta
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -54,7 +54,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 properties={"name": f"proj{i}.inc"},
             )
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_groups_query_runner(self):
         self.create_standard_test_groups()
@@ -74,7 +74,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[1][0], {"display_name": "org1.inc", "key": "org1"})
         self.assertEqual(result.results[2][0], {"display_name": "org2.inc", "key": "org2"})
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     def test_groups_query_runner_with_numeric_name_property(self):
         # Regression: a numeric `name` property type made coalesce(properties.name, key)
         # resolve to Variant(Float64, String), which clickhouse_driver can't deserialize.
@@ -107,7 +107,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[1][0], {"display_name": "10", "key": "org1"})
         self.assertEqual(result.results[2][0], {"display_name": "20", "key": "org2"})
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_groups_query_runner_with_offset(self):
         self.create_standard_test_groups()
@@ -125,7 +125,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.columns, ["group_name"])
         self.assertEqual(result.results[0][0], {"display_name": "org2.inc", "key": "org2"})
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_groups_query_runner_with_property_columns(self):
         self.create_standard_test_groups()
@@ -148,7 +148,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[1][2], 0)
         self.assertEqual(result.results[2][2], 300)
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_search(self):
         self.create_standard_test_groups()
@@ -166,7 +166,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.columns, ["group_name"])
         self.assertEqual(result.results[0][0], {"display_name": "org2.inc", "key": "org2"})
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_search_ranking(self):
         create_group_type_mapping(
@@ -206,7 +206,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[3][0], {"display_name": "best_test_ever", "key": "contains2"})
         self.assertEqual(result.results[4][0], {"display_name": "my_test_group", "key": "contains"})
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_search_ranking_with_key_fallback(self):
         """Test search ranking when groups don't have name property and fall back to key"""
@@ -242,7 +242,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[1][0]["key"], "api_v2", "Prefix match ranked second")
         self.assertEqual(result.results[2][0]["key"], "legacy_api", "Contains match ranked last")
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_search_ordering_with_user_orderby(self):
         """Test that similarity ordering comes after user-specified orderBy, not after default created_at DESC"""
@@ -283,7 +283,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[2][0]["display_name"], "testing", "Prefix match ranked last, lowest arr")
         self.assertEqual(result.results[2][2], "100")
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_groups_query_runner_with_order_by(self):
         self.create_standard_test_groups()
@@ -341,7 +341,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[1][0], {"display_name": "org1.inc", "key": "org1"})
         self.assertEqual(result.results[2][0], {"display_name": "org0.inc", "key": "org0"})
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_groups_query_runner_with_string_property(self):
         self.create_standard_test_groups()
@@ -368,7 +368,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.columns, ["group_name"])
         self.assertEqual(result.results[0][0], {"display_name": "org0.inc", "key": "org0"})
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_groups_query_runner_with_numeric_property(self):
         self.create_standard_test_groups()
@@ -398,7 +398,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[0][2], 150)
         self.assertEqual(result.results[1][2], 300)
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_groups_query_runner_normalize_multiple_groups(self):
         create_group_type_mapping_without_created_at(
