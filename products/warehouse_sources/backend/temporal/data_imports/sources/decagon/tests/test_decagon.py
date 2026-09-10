@@ -2,6 +2,7 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -491,6 +492,40 @@ class TestAgentAssistActions:
         assert [len(b) for b in batches] == [1, 1]
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [DecagonResumeConfig(cursor="cur-1", min_timestamp=int(epoch))]
+
+    def test_a_refused_details_add_on_retries_the_walk_without_it(self) -> None:
+        # Detail export is entitled separately from the actions export, and a team without
+        # it is refused the whole request, so the table only syncs if the walk drops the
+        # param and retries.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"detail": "detail export is not enabled for this team."}, status_code=403),
+            _make_response({"events": [{"agent_name": "a"}], "has_more": False, "next_cursor": None}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="agent_assist_actions")
+
+        assert sent_params == [{"include_details": "true"}, {}]
+        assert [len(b) for b in batches] == [1]
+
+    def test_a_refused_details_add_on_stays_dropped_for_later_pages(self) -> None:
+        manager = _fresh_manager()
+        responses = [
+            _make_response({}, status_code=403),
+            _make_response({"events": [{"agent_name": "a"}], "has_more": True, "next_cursor": "cur-1"}),
+            _make_response({"events": [{"agent_name": "b"}], "has_more": False, "next_cursor": None}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="agent_assist_actions")
+
+        assert sent_params == [{"include_details": "true"}, {}, {"cursor": "cur-1"}]
+        assert [len(b) for b in batches] == [1, 1]
+
+    def test_a_403_without_add_on_params_still_fails_the_walk(self) -> None:
+        # The endpoint itself being refused must stay a failure rather than be swallowed
+        # by the retry.
+        manager = _fresh_manager()
+        responses = [_make_response({}, status_code=403), _make_response({}, status_code=403)]
+        with pytest.raises(HTTPError):
+            _drive_rows(manager, responses, endpoint="agent_assist_actions")
 
     def test_source_response_is_a_keyless_append_stream(self) -> None:
         response = decagon_source(

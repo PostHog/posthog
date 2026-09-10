@@ -91,7 +91,6 @@ export function createCache(): {
 let testMeta: any = {
     config: {},
     cache: createCache(),
-    storage: createCache(),
     global: {},
     attachments: {},
 }
@@ -100,7 +99,6 @@ export function resetMeta(meta: Record<string, any> = {}): any {
     testMeta = {
         config: {},
         cache: createCache(),
-        storage: createCache(),
         global: {},
         attachments: {},
         ...meta,

@@ -5,7 +5,7 @@ from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 from unittest import mock
 
@@ -240,7 +240,7 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with (
-            freeze_time(datetime(2023, 2, 4, 13, 37, 42)),
+            time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False),
             mock.patch.object(
                 TestQueryRunner, "_calculate", autospec=True, side_effect=_calculate_recording_clickhouse_stats
             ),
@@ -602,7 +602,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
             # in cache-only mode, returns cache miss response if uncached
             response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
             self.assertIsInstance(response, CacheMissResponse)
@@ -624,28 +624,28 @@ class TestQueryRunner(BaseTest):
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11, 42), tick=False):
             # returns fresh response if stale
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
             mock_on_commit.assert_not_called()
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 5, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11 + 5, 42), tick=False):
             # returns cached response - does not kick off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_not_called()
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42), tick=False):
             # returns cached response but kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()
 
-        with freeze_time(datetime(2023, 2, 4, 23, 55, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 23, 55, 42), tick=False):
             # returns cached response for extended time
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
@@ -653,7 +653,7 @@ class TestQueryRunner(BaseTest):
             mock_on_commit.assert_called_once()  # still once
 
         mock_on_commit.reset_mock()
-        with freeze_time(datetime(2023, 2, 5, 23, 55, 42)):
+        with time_machine.travel(datetime(2023, 2, 5, 23, 55, 42), tick=False):
             # returns cached response for extended time but finally kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
@@ -666,7 +666,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
             # in cache-only mode, returns cache miss response if uncached
             response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
             self.assertIsInstance(response, CacheMissResponse)
@@ -686,7 +686,7 @@ class TestQueryRunner(BaseTest):
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11, 42), tick=False):
             # returns fresh response if stale
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
@@ -723,12 +723,12 @@ class TestQueryRunner(BaseTest):
                 return last_refresh + timedelta(hours=24) if last_refresh else None
 
         start = datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)
-        with freeze_time(start):
+        with time_machine.travel(start, tick=False):
             OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
             )
 
-        with freeze_time(start + cache_age):
+        with time_machine.travel(start + cache_age, tick=False):
             response = OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 cache_age_seconds=1800,
@@ -739,7 +739,7 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC), tick=False):
             response = runner.run(
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 cache_age_seconds=999,
@@ -805,7 +805,7 @@ class TestQueryRunner(BaseTest):
         mock_query_cache_cls.return_value = mock_cache_manager
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
@@ -1002,7 +1002,7 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
@@ -1014,7 +1014,7 @@ class TestQueryRunner(BaseTest):
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
         # Cache is fresh (< 10 min old), so this hits the cache without recalculating
-        with freeze_time(datetime(2023, 2, 4, 13, 38, 0)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 38, 0), tick=False):
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert (
@@ -1851,9 +1851,9 @@ class TestQueryFailureCaching(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            with freeze_time("2026-01-01T00:00:00Z") as frozen:
+            with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)  # seed the cache
-                frozen.tick(timedelta(minutes=15))  # past the harness's 10-minute staleness window
+                frozen.shift(timedelta(minutes=15))  # past the harness's 10-minute staleness window
 
                 mock_calculate = self._open_breaker(runner_class, runner)
                 with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
@@ -1907,7 +1907,7 @@ class TestQueryFailureCaching(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            with freeze_time("2026-01-01T00:00:00Z") as frozen:
+            with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
                 with mock.patch.object(
                     runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()
                 ) as mock_calculate:
@@ -1923,7 +1923,7 @@ class TestQueryFailureCaching(BaseTest):
 
                 # once the backoff elapses, the next run executes (the real harness _calculate),
                 # succeeds, and closes the breaker
-                frozen.tick(BASE_BACKOFF + timedelta(seconds=1))
+                frozen.shift(BASE_BACKOFF + timedelta(seconds=1))
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 assert QueryFailureCache(runner.get_cache_key()).get_open() is None
 

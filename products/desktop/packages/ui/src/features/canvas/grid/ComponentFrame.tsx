@@ -14,6 +14,7 @@ import { useCallback, useMemo, useRef } from "react";
 import { BuiltCanvas } from "../freeform/BuiltCanvas";
 import { canvasRuntimeErrorAnalytics } from "../freeform/canvasRuntimeError";
 import { handleFreeformDataRequest } from "../freeform/freeformDataBridge";
+import { useCanvasConnectorPermission } from "../freeform/useCanvasConnectorPermission";
 import { usePinnedArtifact } from "../freeform/usePinnedArtifact";
 
 /**
@@ -46,13 +47,23 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
     suspended: false,
   });
 
+  const requestConnectorPermission = useCanvasConnectorPermission(
+    componentId,
+    renderedBuild?.sourceVersionId,
+  );
   const onDataRequest = useCallback(
     (method: string, payload: unknown) =>
       handleFreeformDataRequest(method, payload, queryClient, {
         dashboardId: componentId,
         sourceVersionId: renderedBuild?.sourceVersionId,
+        requestConnectorPermission,
       }),
-    [queryClient, componentId, renderedBuild?.sourceVersionId],
+    [
+      queryClient,
+      componentId,
+      renderedBuild?.sourceVersionId,
+      requestConnectorPermission,
+    ],
   );
 
   const capabilities = renderedBuild?.manifest

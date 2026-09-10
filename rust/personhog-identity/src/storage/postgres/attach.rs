@@ -55,11 +55,12 @@ pub(super) async fn attach_distinct_ids(
         pdi = tables.person_distinct_id,
         person = tables.person,
     );
+    let mut conn = super::acquire_timed(pool).await?;
     let written = sqlx::query(&insert_sql)
         .bind(&sorted)
         .bind(person_id)
         .bind(team_id as i32)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
     let mut outcomes: HashMap<String, AttachOutcome> = HashMap::new();
@@ -90,7 +91,7 @@ pub(super) async fn attach_distinct_ids(
     let rows = sqlx::query(&losers_sql)
         .bind(team_id as i32)
         .bind(&losers)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
     for row in rows {
         let distinct_id: String = row.try_get("distinct_id")?;
