@@ -69,7 +69,6 @@ import {
     computeScoutRollups,
     FleetSummary,
     isSettledRun,
-    pendingScoutRun,
     scoutDisplayName,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
@@ -118,10 +117,19 @@ function captureScoutConfigUpdates(
 // stay live without hammering the capped runs endpoint (desktop: 60s).
 const RUNS_REFETCH_INTERVAL_MS = 60_000
 // A manual run's row lands a beat after the POST returns, so a click starts a faster catch-up poll
-// and the page says a run is in flight well inside the 60s fleet cadence. The cap releases the
+// and the page says a run is in flight well inside the 60s fleet cadence. The timeout releases the
 // button when the row never appears — a scout the worker never picked up must not stay busy forever.
 const MANUAL_RUN_POLL_INTERVAL_MS = 3_000
-const MANUAL_RUN_POLL_ATTEMPTS = 15
+const MANUAL_RUN_WATCH_TIMEOUT_MS = 45_000
+
+/** One dispatched manual run, watched until its run row shows up in the polled window. */
+interface ManualRunWatch {
+    skillName: string
+    /** The scout's run ids at dispatch. Any id outside this set is the new run, whatever its status:
+     * a run that already failed on spawn ends the watch as surely as one that is still working. */
+    knownRunIds: Set<string>
+    expiresAt: number
+}
 // The findings feed's fixed lookback: the runs endpoint caps each page at 100 rows newest-first, so
 // covering the whole window means walking back page-by-page via a `date_to` cursor (the oldest run's
 // `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a pathologically busy
@@ -1235,11 +1243,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
-        loadScoutRunsSuccess: () => {
+        loadScoutRunsSuccess: async (_, breakpoint) => {
             // Costs follow the runs rather than a poll of their own, so a run and its cost are
             // never a cycle apart.
             if (values.isStaff) {
                 actions.loadScoutRunCosts()
+            }
+            const watches: Map<string, ManualRunWatch> = (cache.manualRunWatches ??= new Map())
+            for (const [configId, watch] of watches) {
+                const runs = values.rollups.get(watch.skillName)?.runs ?? []
+                const landed = runs.some((run) => !watch.knownRunIds.has(run.run_id))
+                if (landed || performance.now() >= watch.expiresAt) {
+                    watches.delete(configId)
+                    actions.runScoutNowFinished(configId)
+                }
             }
             const evaluatedAt = new Date(values.rosterEvaluatedAt)
             const now = new Date()
@@ -1253,6 +1270,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             if (groupChanged || pauseRecencyChanged) {
                 actions.setRosterEvaluatedAt(now.valueOf())
             }
+            if (watches.size === 0) {
+                return
+            }
+            // A dispatched run is worth a faster look than the 60s fleet cadence. The next poll's own
+            // success re-enters here, so the chain stops on its own once every watch has settled.
+            await breakpoint(MANUAL_RUN_POLL_INTERVAL_MS)
+            actions.loadScoutRuns()
         },
         setScoutTagFilter: ({ tags }) => {
             captureScoutAction({
@@ -1318,13 +1342,16 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 extra: { search_length: query.length, filter_match_count: values.rosterScouts.length },
             })
         },
-        runScoutNow: async ({ configId }, breakpoint) => {
+        runScoutNow: async ({ configId }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.runScoutNowFinished(configId)
                 return
             }
             const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
+            const knownRunIds = new Set(
+                (values.rollups.get(config?.skill_name ?? '')?.runs ?? []).map((run) => run.run_id)
+            )
             try {
                 await signalsScoutConfigRun(String(teamId), configId)
                 captureScoutAction({
@@ -1348,21 +1375,21 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.runScoutNowFinished(configId)
                 return
             }
-            // Hold the dispatched state until the scout's run row exists, so the header says a run is
-            // in flight rather than offering "Run now" again over an unchanged page.
-            const skillName = config?.skill_name
-            try {
-                for (let attempt = 0; skillName && attempt < MANUAL_RUN_POLL_ATTEMPTS; attempt++) {
-                    actions.loadScoutRuns()
-                    await breakpoint(MANUAL_RUN_POLL_INTERVAL_MS)
-                    if (pendingScoutRun(values.rollups.get(skillName), new Date())) {
-                        break
-                    }
-                }
-            } finally {
-                // Also reached when a later click breaks this wait: the run row then holds the state.
+            if (!config) {
                 actions.runScoutNowFinished(configId)
+                return
             }
+            // Hold the dispatched state until the scout's run row exists, so the header says a run is
+            // in flight rather than offering "Run now" again over an unchanged page. The watch lives in
+            // the cache and is settled by the runs poll, so one scout's dispatch cannot end another's
+            // — several rosters render a Run now button per row off this one action.
+            const watches: Map<string, ManualRunWatch> = (cache.manualRunWatches ??= new Map())
+            watches.set(configId, {
+                skillName: config.skill_name,
+                knownRunIds,
+                expiresAt: performance.now() + MANUAL_RUN_WATCH_TIMEOUT_MS,
+            })
+            actions.loadScoutRuns()
         },
         updateScoutConfig: async ({ configId, updates }) => {
             const inFlight: Set<string> = (cache.updatingScoutIds ??= new Set())

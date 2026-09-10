@@ -157,6 +157,36 @@ describe('scoutRunsWindow report channel', () => {
             expect(pendingScoutRun(rollups.get(skill), NOW)).toBeNull()
         })
 
+        // A hard-killed worker leaves a queued row with no `started_at`, and nothing reaps it for a
+        // scout whose only run path is a manual trigger. Counting it would disable the button for good.
+        it('ignores a queued run stranded past the deadline', () => {
+            const rollups = computeScoutRollups([
+                makeRun({
+                    run_id: 'stranded-queued',
+                    skill_name: skill,
+                    status: 'queued',
+                    created_at: '2026-06-27T20:00:00Z',
+                    started_at: null,
+                    completed_at: null,
+                }),
+            ])
+            expect(pendingScoutRun(rollups.get(skill), NOW)).toBeNull()
+        })
+
+        it('counts a queued run the worker has not reached yet', () => {
+            const rollups = computeScoutRollups([
+                makeRun({
+                    run_id: 'fresh-queued',
+                    skill_name: skill,
+                    status: 'queued',
+                    created_at: '2026-06-27T21:59:30Z',
+                    started_at: null,
+                    completed_at: null,
+                }),
+            ])
+            expect(pendingScoutRun(rollups.get(skill), NOW)?.run_id).toEqual('fresh-queued')
+        })
+
         it('is null for a scout with no runs in the window', () => {
             expect(pendingScoutRun(undefined, NOW)).toBeNull()
         })

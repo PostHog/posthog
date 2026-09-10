@@ -393,16 +393,25 @@ export function computeScoutRollups(runs: SignalScoutRunSummary[]): Map<string, 
 }
 
 /**
- * The scout's newest run that is still in flight, or null when nothing is running. A run past the
- * deadline is stranded rather than working, so `deriveRunOutcome` reads it as stuck and it does not
- * count here — one stranded run must not hold the scout busy for the whole window.
+ * The scout's newest run that is still in flight, or null when nothing is running. A row past the
+ * deadline is stranded rather than working, so it does not count — one dead run must not hold the
+ * scout busy for the whole window. That applies to a queued row too, which a hard-killed worker
+ * leaves behind without ever stamping `started_at`, so the age comes off `created_at` there. The
+ * backend's own in-flight gate ages both states out on the same reasoning.
  */
 export function pendingScoutRun(rollup: ScoutRollup | undefined, now: Date): SignalScoutRunSummary | null {
     const runs = rollup?.runs ?? []
     for (let index = runs.length - 1; index >= 0; index--) {
-        const outcome = deriveRunOutcome(runs[index], now)
-        if (outcome === 'running' || outcome === 'queued') {
-            return runs[index]
+        const run = runs[index]
+        const status = normalizeRunStatus(run.status)
+        if (status !== 'running' && status !== 'queued') {
+            continue
+        }
+        // An unparseable stamp cannot be aged, so it does not count either: the promise above holds
+        // unconditionally, and the backend's in-flight gate still refuses a real duplicate.
+        const since = new Date(run.started_at ?? run.created_at).getTime()
+        if (!Number.isNaN(since) && (now.getTime() - since) / 1000 < STUCK_THRESHOLD_SECONDS) {
+            return run
         }
     }
     return null

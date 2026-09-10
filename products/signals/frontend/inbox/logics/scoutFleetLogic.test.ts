@@ -724,6 +724,32 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
         })
 
+        // A run that fails on spawn is terminal before the first catch-up poll, and it is exactly the
+        // one a person wants to retry. Waiting for a running row would hold the button for 45 seconds.
+        it('clears the dispatch once a run row lands, whatever status it landed in', async () => {
+            mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'spawned', status: 'failed' })])
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
+
+            expect(logic.values.manualRunScoutIds).toEqual([])
+        })
+
+        // Several rosters render a Run now button per row off this one action, so the two dispatches
+        // must not share a cancellation.
+        it('keeps one scout pending while another scout is dispatched', async () => {
+            const OTHER = { ...BASE_CONFIG, id: 'config-2', skill_name: 'signals-scout-revenue' }
+            logic.actions.loadScoutConfigsSuccess([BASE_CONFIG, OTHER])
+            mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            logic.actions.runScoutNow(OTHER.id)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.manualRunScoutIds.sort()).toEqual([BASE_CONFIG.id, OTHER.id])
+        })
+
         it('releases the scout and reports a refusal the endpoint returned', async () => {
             const capture = posthog.capture as jest.Mock
             capture.mockClear()
