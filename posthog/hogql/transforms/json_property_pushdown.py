@@ -8,6 +8,8 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.property_metadata import PropertyMetadata, load_property_metadata
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from posthog.dataclasses import frozen
+
 _T_AST = TypeVar("_T_AST", bound=ast.AST)
 
 # JSON-string extraction calls that are equivalent to a HogQL string property access.
@@ -22,14 +24,20 @@ SWAP_TYPED_PROPERTY_TYPES = {"Numeric", "Boolean", "DateTime"}
 # Where PropertySwapper buckets a lazy-table property: ("person", None) or ("group", group_type_index).
 # None where it never retypes the property, such as `FROM groups` without a `group_id` global.
 _SwapperBucket = tuple[Literal["person", "group"], int | None] | None
-_LazyProperty = tuple[_SwapperBucket, str]
 
 
-def _matched_property_access(
-    node: ast.AST, context: HogQLContext
-) -> tuple[list[str | int], str, _SwapperBucket] | None:
-    """If `node` is `JSONExtractString(<lazy-table JSON field>, '<constant key>')`, return
-    (field_chain, key, swapper_bucket) so it can be rewritten to a property access. Otherwise return None."""
+@frozen
+class _PropertyExtract:
+    """A `JSONExtractString(<lazy-table JSON field>, '<constant key>')` call: the JSON field's chain, the key,
+    and where PropertySwapper would look the property up."""
+
+    chain: tuple[str | int, ...]
+    key: str
+    bucket: _SwapperBucket
+
+
+def _matched_property_access(node: ast.AST, context: HogQLContext) -> _PropertyExtract | None:
+    """The `_PropertyExtract` for `node` when it is a rewritable JSONExtractString call, otherwise None."""
     if not isinstance(node, ast.Call) or node.name not in STRING_EXTRACT_FUNCTIONS or len(node.args) != 2:
         return None
 
@@ -58,7 +66,7 @@ def _matched_property_access(
     if not isinstance(field_type.resolve_database_field(context), StringJSONDatabaseField):
         return None
 
-    return inner.chain, key.value, _swapper_bucket(table_type, context)
+    return _PropertyExtract(chain=tuple(inner.chain), key=key.value, bucket=_swapper_bucket(table_type, context))
 
 
 def _swapper_bucket(table_type: ast.LazyTableType | ast.LazyJoinType, context: HogQLContext) -> _SwapperBucket:
@@ -96,24 +104,24 @@ def rewrite_json_extract_to_property(node: _T_AST, context: HogQLContext) -> tup
     """
     finder = _Finder(context)
     finder.visit(node)
-    rewritable = finder.properties - _type_swapped(finder.properties, context)
+    rewritable = finder.extracts - _type_swapped(finder.extracts, context)
     if not rewritable:
         return node, False
     return cast(_T_AST, _Transformer(context, rewritable).visit(node)), True
 
 
-def _type_swapped(properties: set[_LazyProperty], context: HogQLContext) -> set[_LazyProperty]:
-    """The properties PropertySwapper will retype, resolved through its own metadata loader."""
+def _type_swapped(extracts: set[_PropertyExtract], context: HogQLContext) -> set[_PropertyExtract]:
+    """The extracts whose property PropertySwapper will retype, resolved through its own metadata loader."""
     person_names: set[str] = set()
     group_names: dict[int, set[str]] = {}
-    for bucket, name in properties:
-        if bucket is None:
+    for extract in extracts:
+        if extract.bucket is None:
             continue
-        kind, group_type_index = bucket
+        kind, group_type_index = extract.bucket
         if kind == "person":
-            person_names.add(name)
+            person_names.add(extract.key)
         elif group_type_index is not None:
-            group_names.setdefault(group_type_index, set()).add(name)
+            group_names.setdefault(group_type_index, set()).add(extract.key)
     if context.team_id is None or not (person_names or group_names):
         return set()
 
@@ -123,17 +131,17 @@ def _type_swapped(properties: set[_LazyProperty], context: HogQLContext) -> set[
         person_property_names=person_names,
         group_property_names=group_names,
     )
-    return {(bucket, name) for bucket, name in properties if _is_type_swapped(metadata, bucket, name)}
+    return {extract for extract in extracts if _is_type_swapped(metadata, extract)}
 
 
-def _is_type_swapped(metadata: PropertyMetadata, bucket: _SwapperBucket, name: str) -> bool:
-    if bucket is None:
+def _is_type_swapped(metadata: PropertyMetadata, extract: _PropertyExtract) -> bool:
+    if extract.bucket is None:
         return False
-    kind, group_type_index = bucket
+    kind, group_type_index = extract.bucket
     if kind == "person":
-        info = metadata.person_properties.get(name)
+        info = metadata.person_properties.get(extract.key)
     else:
-        info = metadata.group_properties.get(f"{group_type_index}_{name}")
+        info = metadata.group_properties.get(f"{group_type_index}_{extract.key}")
     return (info or {}).get("type") in SWAP_TYPED_PROPERTY_TYPES
 
 
@@ -141,32 +149,29 @@ class _Finder(TraversingVisitor):
     def __init__(self, context: HogQLContext):
         super().__init__()
         self.context = context
-        self.properties: set[_LazyProperty] = set()
+        self.extracts: set[_PropertyExtract] = set()
 
     def visit_call(self, node: ast.Call):
         matched = _matched_property_access(node, self.context)
         if matched is not None:
-            _chain, key, bucket = matched
-            self.properties.add((bucket, key))
+            self.extracts.add(matched)
             return
         super().visit_call(node)
 
 
 class _Transformer(CloningVisitor):
-    def __init__(self, context: HogQLContext, rewritable: set[_LazyProperty]):
+    def __init__(self, context: HogQLContext, rewritable: set[_PropertyExtract]):
         super().__init__(clear_types=True)
         self.context = context
         self.rewritable = rewritable
 
     def visit_call(self, node: ast.Call):
         matched = _matched_property_access(node, self.context)
-        if matched is not None:
-            chain, key, bucket = matched
-            if (bucket, key) in self.rewritable:
-                # JSONExtractString returns '' for a missing key; property access returns NULL. Wrap in
-                # ifNull(..., '') to keep that contract and the non-nullable String type.
-                return ast.Call(
-                    name="ifNull",
-                    args=[ast.Field(chain=[*chain, key]), ast.Constant(value="")],
-                )
+        if matched is not None and matched in self.rewritable:
+            # JSONExtractString returns '' for a missing key; property access returns NULL. Wrap in
+            # ifNull(..., '') to keep that contract and the non-nullable String type.
+            return ast.Call(
+                name="ifNull",
+                args=[ast.Field(chain=[*matched.chain, matched.key]), ast.Constant(value="")],
+            )
         return super().visit_call(node)
