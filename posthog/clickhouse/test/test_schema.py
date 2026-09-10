@@ -1,10 +1,12 @@
 import re
+import json
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
@@ -14,6 +16,7 @@ from posthog.clickhouse.schema import (
     build_query,
     get_table_name,
 )
+from posthog.models.event.person_property_mutation_sql import PERSON_PROPERTY_MUTATION_LOG_MV_SQL
 from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -62,6 +65,43 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert f"CREATE TABLE IF NOT EXISTS {KAFKA_EVENTS_NATIVE_JSON_TABLE}" in kafka_table_query
     assert f"kafka_group_name = '{CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON}'" in kafka_table_query
     assert f"FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_EVENTS_NATIVE_JSON_TABLE}" in mv_query
+
+
+@pytest.mark.parametrize(
+    "properties,expected",
+    [
+        (
+            {
+                "$set": {"nested": {"values": [True, None, 42, "雪"]}},
+                "$set_once": {"first": False},
+                "$unset": ["old"],
+                "ordinary": "discard",
+            },
+            {"$set": {"nested": {"values": [True, None, 42, "雪"]}}, "$set_once": {"first": False}, "$unset": ["old"]},
+        ),
+        ({"$unset": ["old"]}, {"$unset": ["old"]}),
+        ({"$unset": {"old": True}}, {"$unset": {"old": True}}),
+        ({"$set_once": {"first": 0}}, {"$set_once": {"first": 0}}),
+        ({"ordinary": "discard"}, None),
+    ],
+)
+def test_person_property_mutation_projection(properties: dict[str, object], expected: dict[str, object] | None) -> None:
+    select = PERSON_PROPERTY_MUTATION_LOG_MV_SQL().split("AS SELECT", 1)[1]
+    rows = sync_execute(
+        """
+        WITH kafka_person_property_mutation_log AS (
+            SELECT 42 AS team_id,
+                toUUID('0192a5c8-0000-0000-0000-000000000000') AS uuid,
+                %(properties)s AS properties,
+                now() AS _timestamp
+        )
+        SELECT """
+        + select,
+        {"properties": json.dumps(properties)},
+        team_id=42,
+        flush=False,
+    )
+    assert [json.loads(row[2]) for row in rows] == ([] if expected is None else [expected])
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:

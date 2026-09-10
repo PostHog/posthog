@@ -39,15 +39,19 @@ const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
 const AWAIT_MAX_WAIT_CEILING = Duration.fromObject({ hours: 24 })
 
+// A malformed request throws rather than returning null, so the step logs why it did not wait.
 const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     const request = (execResult as { await?: unknown } | undefined)?.await
-    if (!request || typeof request !== 'object') {
+    if (request === undefined || request === null) {
         return null
+    }
+    if (typeof request !== 'object') {
+        throw new Error(`await must be an object, got ${typeof request}`)
     }
     const { max_wait: maxWait, label } = request as { max_wait?: unknown; label?: unknown }
     const match = typeof maxWait === 'string' ? AWAIT_DURATION_REGEX.exec(maxWait) : null
     if (!match) {
-        return null
+        throw new Error(`await.max_wait must be a duration like '190m' or '2h', got ${JSON.stringify(maxWait)}`)
     }
     const requested = Duration.fromObject({ seconds: parseFloat(match[1]) * SECONDS_PER_UNIT[match[2]] })
     return {
@@ -175,8 +179,20 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
-        const awaitRequest =
-            awaitedStepsEnabled && !functionResult.error ? parseAwaitRequest(functionResult.execResult) : null
+        let awaitRequest: AwaitRequest | null = null
+        if (awaitedStepsEnabled && !functionResult.error) {
+            try {
+                awaitRequest = parseAwaitRequest(functionResult.execResult)
+            } catch (error) {
+                // The template asked to wait but the request is unusable. Continue instead of parking
+                // on a guess, and say so in the run log.
+                result.logs.push({
+                    level: 'warn',
+                    timestamp: DateTime.now(),
+                    message: `${actionIdForLogging(action)} Ignored the template's wait request: ${(error as Error).message}`,
+                })
+            }
+        }
         if (awaitRequest) {
             return this.parkForAwaitedRun(
                 invocation,

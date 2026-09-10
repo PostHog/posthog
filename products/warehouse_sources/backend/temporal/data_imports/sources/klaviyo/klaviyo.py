@@ -1,7 +1,8 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from typing import Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KLAVIYO_ENDPOINTS,
     KlaviyoEndpointConfig,
     KlaviyoFanOutConfig,
+    KlaviyoValuesReportConfig,
 )
 
 KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
@@ -478,6 +480,41 @@ def _series_rows(
             yield row
 
 
+def _get_account_timezone(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> tzinfo:
+    """Read the IANA timezone of the account the API key belongs to.
+
+    Klaviyo ignores the offset on a custom timeframe's start and end and reads both as wall-clock
+    times in this timezone, so a window computed in any other timezone is off by the difference.
+    """
+    accounts = _fetch_page(session, f"{KLAVIYO_BASE_URL}/accounts", headers, logger).get("data") or []
+    name = accounts[0].get("attributes", {}).get("timezone") if accounts else None
+    if isinstance(name, str):
+        try:
+            return ZoneInfo(name)
+        except (ValueError, ZoneInfoNotFoundError):
+            pass
+    logger.warning(f"Klaviyo: account timezone {name!r} is unknown, computing the report window in UTC")
+    return UTC
+
+
+def _build_timeframe(report: KlaviyoValuesReportConfig, now: datetime) -> tuple[dict[str, str], str]:
+    """Build a report's timeframe attribute, and the label every row records the window under.
+
+    Klaviyo takes a timeframe either as one of its predefined keys or as a custom start/end pair.
+    A window no key matches goes as the custom pair: `timeframe_weeks` calendar weeks that open on
+    a Monday, Klaviyo's first day of the week, and end at `now`, which must be in the account's
+    timezone because Klaviyo reads the pair as wall-clock times in it.
+    """
+    if report.timeframe_weeks is None:
+        assert report.timeframe_key is not None
+        return {"key": report.timeframe_key}, report.timeframe_key
+
+    end = now.replace(microsecond=0)
+    this_monday = datetime.combine(end.date() - timedelta(days=end.weekday()), datetime.min.time(), tzinfo=end.tzinfo)
+    start = this_monday - timedelta(weeks=report.timeframe_weeks - 1)
+    return {"start": start.isoformat(), "end": end.isoformat()}, f"last_{report.timeframe_weeks}_weeks"
+
+
 def _get_values_report_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -508,9 +545,11 @@ def _get_values_report_rows(
             )
             return
 
+    account_tz = _get_account_timezone(session, headers, logger) if report.timeframe_weeks is not None else UTC
+    timeframe, timeframe_label = _build_timeframe(report, datetime.now(account_tz))
     attributes: dict[str, Any] = {
         "statistics": report.statistics,
-        "timeframe": {"key": report.timeframe_key},
+        "timeframe": timeframe,
     }
     if report.group_by:
         attributes["group_by"] = report.group_by
@@ -526,7 +565,7 @@ def _get_values_report_rows(
 
     # Tagged onto every row so each row records the window (and conversion metric)
     # it was computed over.
-    common: dict[str, Any] = {"timeframe_key": report.timeframe_key}
+    common: dict[str, Any] = {"timeframe_key": timeframe_label}
     if metric_id:
         common["conversion_metric_id"] = metric_id
 

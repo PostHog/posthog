@@ -79,7 +79,9 @@ export class SharedBlobCache {
         opts: SharedBlobCacheOptions = {}
     ) {
         // Separate layouts let old and new processes coexist during a rolling deploy.
-        const prefix = `mcp:shared-blob:${namespace}:v2`
+        // The hash tag keeps the pointer, blob, and lock in one Redis Cluster slot, so
+        // a script over two of them is accepted.
+        const prefix = `mcp:shared-blob:{${namespace}}:v3`
         this.currentKey = `${prefix}:current`
         this.blobKeyPrefix = `${prefix}:blob`
         this.lockKey = `${prefix}:lock`
