@@ -37,10 +37,10 @@ from products.warehouse_sources.backend.facade.source_management import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-from . import viewset
+from . import base
 
 
-class ExternalDataSourceCDCMixin:
+class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
     def _setup_cdc_resources(
         self, adapter: CDCSourceAdapter, source_model: ExternalDataSource, payload: dict
     ) -> str | None:
@@ -53,7 +53,7 @@ class ExternalDataSourceCDCMixin:
         on failure (create flow does; enable_cdc does not).
         """
         management_mode = payload.get("cdc_management_mode", "posthog")
-        viewset.logger.info(
+        base.logger.info(
             "Setting up CDC resources for source",
             source_id=str(source_model.pk),
             source_type=source_model.source_type,
@@ -62,7 +62,7 @@ class ExternalDataSourceCDCMixin:
 
         resource_fields, error = adapter.setup_resources(source_model, payload)
         if error is not None:
-            viewset.logger.warning(
+            base.logger.warning(
                 "CDC resource setup failed",
                 source_id=str(source_model.pk),
                 source_type=source_model.source_type,
@@ -71,7 +71,7 @@ class ExternalDataSourceCDCMixin:
             )
             return error
 
-        viewset.logger.info(
+        base.logger.info(
             "CDC resources provisioned",
             source_id=str(source_model.pk),
             management_mode=management_mode,
@@ -130,7 +130,7 @@ class ExternalDataSourceCDCMixin:
 
         # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
         # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
-        source_impl = viewset.SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source_type))
         if not isinstance(source_impl, PostgresSource):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -191,7 +191,7 @@ class ExternalDataSourceCDCMixin:
                 data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
             )
         except Exception as e:
-            viewset.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
@@ -261,7 +261,7 @@ class ExternalDataSourceCDCMixin:
                 data={"message": f"Could not connect to source to check prerequisites: {e}"},
             )
         except Exception as e:
-            viewset.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not connect to source to check prerequisites: {e}"},
@@ -294,7 +294,7 @@ class ExternalDataSourceCDCMixin:
             return err
         assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
 
-        if not viewset.is_cdc_enabled_for_team(self.team):
+        if not base.is_cdc_enabled_for_team(self.team):
             return Response(
                 status=status.HTTP_403_FORBIDDEN,
                 data={"message": "CDC is not enabled for this team."},
@@ -334,7 +334,7 @@ class ExternalDataSourceCDCMixin:
                 data={"message": f"Could not connect to source to check prerequisites: {e}"},
             )
         except Exception as e:
-            viewset.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not connect to source to check prerequisites: {e}"},
@@ -354,19 +354,19 @@ class ExternalDataSourceCDCMixin:
             )
 
         # Ensure the global cleanup schedule exists. There are no CDC schemas yet (the user
-        # picks sync_type=cdc per schema afterward), so `viewset.sync_cdc_extraction_schedule` is a
+        # picks sync_type=cdc per schema afterward), so `base.sync_cdc_extraction_schedule` is a
         # no-op here — the extraction schedule is authoritatively (re)created when a schema is
         # switched to CDC. A failure here therefore can't leave a "CDC on, never runs" state:
         # the slot + config are valid and the schedule self-heals on the first CDC schema
         # toggle. Surface failures (capture, not just log) and flag them in the response.
         schedules_ok = True
         try:
-            viewset.sync_cdc_extraction_schedule(instance, create=True)
-            viewset.ensure_cdc_slot_cleanup_schedule()
+            base.sync_cdc_extraction_schedule(instance, create=True)
+            base.ensure_cdc_slot_cleanup_schedule()
         except Exception as e:
             schedules_ok = False
-            viewset.logger.exception("Could not create CDC schedules after enable_cdc", exc_info=e)
-            viewset.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            base.logger.exception("Could not create CDC schedules after enable_cdc", exc_info=e)
+            base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
 
         return Response(status=status.HTTP_200_OK, data={"success": True, "schedules_ready": schedules_ok})
 
@@ -416,27 +416,27 @@ class ExternalDataSourceCDCMixin:
             if not running_job.workflow_id:
                 continue
             try:
-                viewset.cancel_external_data_workflow(running_job.workflow_id)
+                base.cancel_external_data_workflow(running_job.workflow_id)
             except Exception as e:
-                viewset.capture_exception(e, {"source_id": str(instance.id), "workflow_id": running_job.workflow_id})
+                base.capture_exception(e, {"source_id": str(instance.id), "workflow_id": running_job.workflow_id})
 
         # Generic schedule teardown: schedule lives on our side, independent of engine.
         try:
             delete_cdc_extraction_schedule(str(instance.id))
         except Exception:
-            viewset.logger.exception("Failed to delete CDC extraction schedule", extra={"source_id": str(instance.id)})
+            base.logger.exception("Failed to delete CDC extraction schedule", extra={"source_id": str(instance.id)})
 
         # Engine-side teardown: best-effort, never blocks the disable.
         try:
             adapter.cleanup_resources(instance)
         except Exception as e:
-            viewset.logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
-            viewset.capture_exception(e, {"source_id": str(instance.id)})
+            base.logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
+            base.capture_exception(e, {"source_id": str(instance.id)})
 
         # Drop each schema's S3 change buffer: the shadow lane's files are raw customer
         # change data with no consumer once CDC is off, and nothing else expires them.
         for schema_id in cdc_schema_ids:
-            viewset.purge_buffer_prefix(instance.team_id, str(schema_id), viewset.logger)
+            base.purge_buffer_prefix(instance.team_id, str(schema_id), base.logger)
 
         with transaction.atomic():
             # Clear any broken marker (recovery contract): leaving a stale cdc_broken in
@@ -537,7 +537,7 @@ class ExternalDataSourceCDCMixin:
                 data={"message": f"Could not connect to source to repair CDC: {e}"},
             )
         except Exception as e:
-            viewset.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not repair CDC: {e}"},
@@ -618,7 +618,7 @@ class ExternalDataSourceCDCMixin:
                 },
             )
         except Exception as e:
-            viewset.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not connect to source to resume CDC: {e}"},
@@ -635,10 +635,10 @@ class ExternalDataSourceCDCMixin:
             # silent no-op that would report success while CDC never runs (same ordering as CDC repair's
             # _resume_schedules). sync builds an unpaused schedule; the explicit unpause covers the
             # already-existing-but-paused case.
-            viewset.sync_cdc_extraction_schedule(instance)
-            viewset.unpause_cdc_extraction_schedule(str(instance.id))
+            base.sync_cdc_extraction_schedule(instance)
+            base.unpause_cdc_extraction_schedule(str(instance.id))
         except Exception as e:
-            viewset.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not resume CDC: {e}"},
@@ -744,7 +744,7 @@ class ExternalDataSourceCDCMixin:
             # don't capture expected connection failures as error-tracking noise. Capture only
             # unexpected errors, which point at a bug in our status read.
             if not adapter.is_connection_error(e):
-                viewset.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+                base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not connect to source to read CDC status: {e}"},
@@ -754,11 +754,9 @@ class ExternalDataSourceCDCMixin:
         # Resume (vs Repair) so the user can restart without a full re-sync. Best-effort: a Temporal
         # hiccup must not 500 this otherwise DB-only status read, so degrade to not-paused.
         try:
-            schedule_paused = viewset.is_cdc_extraction_schedule_paused(str(instance.id))
+            schedule_paused = base.is_cdc_extraction_schedule_paused(str(instance.id))
         except Exception:
-            viewset.logger.warning(
-                "cdc_status_schedule_paused_lookup_failed", source_id=str(instance.id), exc_info=True
-            )
+            base.logger.warning("cdc_status_schedule_paused_lookup_failed", source_id=str(instance.id), exc_info=True)
             schedule_paused = False
 
         return Response(

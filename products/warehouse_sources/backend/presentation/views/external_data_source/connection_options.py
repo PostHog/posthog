@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 )
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
-from . import helpers, viewset
+from . import base, helpers
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -153,7 +153,7 @@ class DirectConnectionSourceOptionSerializer(serializers.Serializer):
     )
 
 
-class ExternalDataSourceConnectionOptionsMixin:
+class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBase):
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
     @action(
         methods=["GET"],
@@ -319,7 +319,7 @@ class ExternalDataSourceConnectionOptionsMixin:
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
-            viewset.ensure_person_join(self.team.pk, table_prefix)
+            base.ensure_person_join(self.team.pk, table_prefix)
         else:
             try:
                 managed_viewset = DataWarehouseManagedViewSet.objects.get(

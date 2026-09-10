@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-from . import helpers, viewset
+from . import base, helpers
 
 
 class IntegrationAccountSerializer(serializers.Serializer):
@@ -72,7 +72,7 @@ class AccountPickerManagementPermission(TeamMemberAdminManagementPermission):
     )
 
 
-class ExternalDataSourceOAuthAccountsMixin:
+class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -114,7 +114,7 @@ class ExternalDataSourceOAuthAccountsMixin:
             raise ValidationError("integration_id must be an integer")
 
         try:
-            source = viewset.SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+            source = base.SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
         except ValueError:
             raise ValidationError(f"Unknown source type: {source_type}")
 

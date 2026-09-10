@@ -20,7 +20,7 @@ from posthog.models.user import User
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-from . import viewset
+from . import base
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -138,7 +138,7 @@ class ResolvedStoredCredential:
     error_response: Response | None
 
 
-class ExternalDataSourceCredentialStoreMixin:
+class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase):
     @extend_schema(
         request=SourceCredentialCreateSerializer,
         responses={201: SourceCredentialSerializer},
@@ -164,7 +164,7 @@ class ExternalDataSourceCredentialStoreMixin:
                 payload[key] = value.strip()
 
         source_type_model = ExternalDataSourceType(source_type)
-        source = viewset.SourceRegistry.get_source(source_type_model)
+        source = base.SourceRegistry.get_source(source_type_model)
 
         error_response, _ = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None:
@@ -269,7 +269,7 @@ class ExternalDataSourceCredentialStoreMixin:
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
 
-        source = viewset.SourceRegistry.get_source(source_type_model)
+        source = base.SourceRegistry.get_source(source_type_model)
         oauth_field = _find_top_level_oauth_field(source.get_source_config.model_dump())
         action_phrase = (
             f"connect their {source_type} account" if oauth_field else f"enter their {source_type} connection details"

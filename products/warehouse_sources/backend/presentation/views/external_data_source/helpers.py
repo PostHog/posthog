@@ -490,7 +490,7 @@ def get_postgres_source_table_location(
     schema_name: str,
     source_schema: SourceSchema | None,
     default_schema: str | None,
-) -> tuple[str | None, str, str]:
+) -> tuple[str | None, str, str]:  # nosemgrep: tuple-return-prefer-dataclass -- grandfathered backlog
     return get_postgres_source_location(
         schema_name=schema_name,
         schema_metadata={

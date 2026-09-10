@@ -86,7 +86,7 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     api_version_deprecation_payload,
 )
 
-from . import connection_options, credential_store, helpers, viewset, webhook_setup
+from . import base, connection_options, credential_store, helpers, webhook_setup
 
 
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -956,7 +956,7 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
-class ExternalDataSourceSetupMixin:
+class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
     def _resolve_stored_credential(self, source_type: str, payload: dict) -> credential_store.ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.
 
@@ -1153,7 +1153,7 @@ class ExternalDataSourceSetupMixin:
                 if isinstance(value, str):
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
-        source = viewset.SourceRegistry.get_source(source_type_model)
+        source = base.SourceRegistry.get_source(source_type_model)
         if not is_direct_query and not source.supports_scheduled_sync:
             return Response(
                 ExternalDataSourceErrorResponseSerializer(
@@ -1204,7 +1204,7 @@ class ExternalDataSourceSetupMixin:
         except ValueError:
             cdc_adapter = None
         cdc_enabled = (
-            payload.get("cdc_enabled", False) and cdc_adapter is not None and viewset.is_cdc_enabled_for_team(self.team)
+            payload.get("cdc_enabled", False) and cdc_adapter is not None and base.is_cdc_enabled_for_team(self.team)
         )
 
         try:
@@ -1229,7 +1229,7 @@ class ExternalDataSourceSetupMixin:
             # doesn't linger half-created.
             error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
-                viewset.capture_exception(
+                base.capture_exception(
                     e,
                     {
                         "source_type": source_type,
@@ -1328,9 +1328,9 @@ class ExternalDataSourceSetupMixin:
 
             if cdc_table_names_by_schema:
                 try:
-                    with viewset.cdc_pg_connection(new_source_model) as conn:
+                    with base.cdc_pg_connection(new_source_model) as conn:
                         for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
-                            queried_pks = viewset.get_primary_key_columns(conn, db_schema, list(cdc_table_names))
+                            queried_pks = base.get_primary_key_columns(conn, db_schema, list(cdc_table_names))
                             for table_name, primary_key_columns in queried_pks.items():
                                 schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                                 if schema_name is not None:
@@ -1638,7 +1638,7 @@ class ExternalDataSourceSetupMixin:
             except Exception as e:
                 # The source is already created and its tables are configured. Losing that over a
                 # destination set the user can still fix on the Destinations tab is the worse trade.
-                viewset.logger.exception(
+                base.logger.exception(
                     "Could not attach destinations to a new source",
                     exc_info=e,
                     source_id=new_source_model.pk,
@@ -1649,19 +1649,19 @@ class ExternalDataSourceSetupMixin:
         # to sources with thousands of schemas (e.g. a Slack workspace with thousands of
         # channels).
         try:
-            schedule_errors = viewset.bulk_create_external_data_job_schedules(
+            schedule_errors = base.bulk_create_external_data_job_schedules(
                 [(active_schema, active_schema.should_sync) for active_schema in active_schemas]
             )
             for schema_id, schedule_error in schedule_errors:
                 # The source model was already created, so a partial schedule failure
                 # shouldn't fail the request — log each failure and carry on.
-                viewset.logger.exception(
+                base.logger.exception(
                     "Could not trigger external data job",
                     exc_info=schedule_error,
                     schema_id=schema_id,
                 )
         except Exception as e:
-            viewset.logger.exception("Could not trigger external data job", exc_info=e)
+            base.logger.exception("Could not trigger external data job", exc_info=e)
 
         # Per-source schema discovery schedule. Runs every 6h so newly added
         # upstream resources (Slack channels, Postgres tables, …) get picked up
@@ -1670,17 +1670,17 @@ class ExternalDataSourceSetupMixin:
         # background sync — including this discovery cadence.
         if new_source_model.supports_scheduled_sync:
             try:
-                viewset.sync_discover_schemas_schedule(new_source_model, create=True)
+                base.sync_discover_schemas_schedule(new_source_model, create=True)
             except Exception as e:
-                viewset.logger.exception("Could not create schema discovery schedule", exc_info=e)
+                base.logger.exception("Could not create schema discovery schedule", exc_info=e)
 
         # Start CDC extraction schedule if any CDC schemas are active
         if cdc_enabled:
             try:
-                viewset.sync_cdc_extraction_schedule(new_source_model, create=True)
-                viewset.ensure_cdc_slot_cleanup_schedule()
+                base.sync_cdc_extraction_schedule(new_source_model, create=True)
+                base.ensure_cdc_slot_cleanup_schedule()
             except Exception as e:
-                viewset.logger.exception("Could not create CDC schedules", exc_info=e)
+                base.logger.exception("Could not create CDC schedules", exc_info=e)
 
         if new_source_model.revenue_analytics_config_safe.enabled:
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -1688,7 +1688,7 @@ class ExternalDataSourceSetupMixin:
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
-            viewset.ensure_person_join(self.team.pk, new_source_model.prefix)
+            base.ensure_person_join(self.team.pk, new_source_model.prefix)
 
         # `source` (web/api/mcp/wizard/posthog_code) is derived from the request by report_user_action;
         # `created_via` is the caller's explicit intent (with one exception: the machine-injected `mcp`
@@ -1780,7 +1780,7 @@ class ExternalDataSourceSetupMixin:
 
         # Best-effort webhook cleanup — soft-deletes are already committed
         source_type = ExternalDataSourceType(instance.source_type)
-        source = viewset.SourceRegistry.get_source(source_type)
+        source = base.SourceRegistry.get_source(source_type)
         if isinstance(source, WebhookSource) and instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
@@ -1792,7 +1792,7 @@ class ExternalDataSourceSetupMixin:
                     api_version=source.resolve_api_version(instance.api_version),
                 )
             except Exception as e:
-                viewset.capture_exception(e)
+                base.capture_exception(e)
 
         # Best-effort external cleanup — soft-deletes are already committed
         latest_running_job = (
@@ -1801,33 +1801,33 @@ class ExternalDataSourceSetupMixin:
             .first()
         )
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
-            viewset.cancel_external_data_workflow(latest_running_job.workflow_id)
+            base.cancel_external_data_workflow(latest_running_job.workflow_id)
 
         # Delete all schema sync schedules over a single shared Temporal connection — see
         # the matching comment in `create`. Guarded so a Temporal-connect failure here
         # doesn't skip the source/discovery schedule and S3 cleanup below.
         try:
-            schedule_delete_errors = viewset.bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
+            schedule_delete_errors = base.bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
             for schema_id, schedule_delete_error in schedule_delete_errors:
-                viewset.capture_exception(schedule_delete_error, {"schema_id": schema_id})
+                base.capture_exception(schedule_delete_error, {"schema_id": schema_id})
         except Exception as e:
-            viewset.capture_exception(e)
+            base.capture_exception(e)
 
         for schema in schemas:
             try:
                 schema.delete_table()
             except Exception as e:
-                viewset.capture_exception(e)
+                base.capture_exception(e)
 
         try:
-            viewset.delete_external_data_schedule(str(instance.id))
+            base.delete_external_data_schedule(str(instance.id))
         except Exception as e:
-            viewset.capture_exception(e)
+            base.capture_exception(e)
 
         try:
-            viewset.delete_discover_schemas_schedule(str(instance.id))
+            base.delete_discover_schemas_schedule(str(instance.id))
         except Exception as e:
-            viewset.capture_exception(e)
+            base.capture_exception(e)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1853,14 +1853,14 @@ class ExternalDataSourceSetupMixin:
             )
 
         try:
-            viewset.trigger_external_data_source_workflow(instance)
+            base.trigger_external_data_source_workflow(instance)
 
         except temporalio.service.RPCError:
             # if the source schedule has been removed - trigger the schema schedules
             instance.reload_schemas()
 
         except Exception as e:
-            viewset.logger.exception("Could not trigger external data job", exc_info=e)
+            base.logger.exception("Could not trigger external data job", exc_info=e)
             raise
 
         instance.status = "Running"
@@ -1902,7 +1902,7 @@ class ExternalDataSourceSetupMixin:
         payload = resolved.payload
 
         source_type_model = ExternalDataSourceType(source_type)
-        source = viewset.SourceRegistry.get_source(source_type_model)
+        source = base.SourceRegistry.get_source(source_type_model)
 
         error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None or source_config is None:
@@ -1936,7 +1936,7 @@ class ExternalDataSourceSetupMixin:
             # `database_schema`, and `refresh_schemas`, instead of surfacing the raw driver error.
             error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
-                viewset.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+                base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
 
         if not source_schemas:
@@ -1953,7 +1953,7 @@ class ExternalDataSourceSetupMixin:
                 source_config, self.team_id, [schema.name for schema in source_schemas]
             )
         except Exception as e:
-            viewset.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             setup_permissions = {}
 
         # Some sources report a probe that couldn't run as a per-table reason rather than raising
@@ -2010,7 +2010,7 @@ class ExternalDataSourceSetupMixin:
         serializer.is_valid(raise_exception=True)
 
         source_type = serializer.validated_data["source_type"]
-        source = viewset.SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = base.SourceRegistry.get_source(ExternalDataSourceType(source_type))
         if not isinstance(source, CustomSource):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2099,7 +2099,7 @@ class ExternalDataSourceSetupMixin:
                 docs_text=docs_text,
             )
         except APIConnectionError as e:
-            viewset.capture_exception(e, {"team_id": self.team_id})
+            base.capture_exception(e, {"team_id": self.team_id})
             return Response(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 data={
@@ -2107,7 +2107,7 @@ class ExternalDataSourceSetupMixin:
                 },
             )
         except Exception as e:
-            viewset.capture_exception(e, {"team_id": self.team_id})
+            base.capture_exception(e, {"team_id": self.team_id})
             return Response(
                 status=status.HTTP_502_BAD_GATEWAY,
                 data={"message": "The manifest drafting service failed. Try again, or author the manifest manually."},

@@ -40,6 +40,8 @@ rules:
               - '**/tests/**'
               - '**/test_*.py'
               - '**/conftest.py'
+              # Grandfathered backlog of hand-assembled responses, carried by the warnings pass.
+              - 'products/warehouse_sources/backend/presentation/views/external_data_source/'
       patterns:
           - pattern-either:
                 - pattern: return Response({...}, ...)

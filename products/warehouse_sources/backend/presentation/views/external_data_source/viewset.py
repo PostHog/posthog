@@ -6,7 +6,6 @@ from typing import Any, cast
 
 from django.db.models import Prefetch
 
-import structlog
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from rest_framework import filters, serializers, viewsets
@@ -18,7 +17,6 @@ from rest_framework.response import Response
 from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 from posthog.rate_limit import (
@@ -28,31 +26,10 @@ from posthog.rate_limit import (
 )
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.data_warehouse.backend.facade.api import (
-    bulk_create_external_data_job_schedules,
-    bulk_delete_external_data_schedules,
-    cancel_external_data_workflow,
-    delete_discover_schemas_schedule,
-    delete_external_data_schedule,
-    ensure_cdc_slot_cleanup_schedule,
-    is_cdc_enabled_for_team,
-    is_cdc_extraction_schedule_paused,
-    sync_cdc_extraction_schedule,
-    sync_discover_schemas_schedule,
-    trigger_external_data_source_workflow,
-    unpause_cdc_extraction_schedule,
-)
-from products.revenue_analytics.backend.facade.api import ensure_person_join
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     latest_completed_job_prefetch,
-)
-from products.warehouse_sources.backend.facade.source_management import (
-    SourceRegistry,
-    cdc_pg_connection,
-    get_primary_key_columns,
-    purge_buffer_prefix,
 )
 
 from . import credential_store, helpers, oauth_accounts, source_setup
@@ -64,30 +41,6 @@ from .oauth_accounts import ExternalDataSourceOAuthAccountsMixin
 from .schema_operations import ExternalDataSourceSchemaOperationsMixin
 from .source_setup import ExternalDataSourceSetupMixin
 from .webhook_setup import ExternalDataSourceWebhookSetupMixin
-
-logger = structlog.get_logger(__name__)
-
-__all__ = [
-    "SourceRegistry",
-    "bulk_create_external_data_job_schedules",
-    "bulk_delete_external_data_schedules",
-    "cancel_external_data_workflow",
-    "capture_exception",
-    "cdc_pg_connection",
-    "delete_discover_schemas_schedule",
-    "delete_external_data_schedule",
-    "ensure_cdc_slot_cleanup_schedule",
-    "ensure_person_join",
-    "get_primary_key_columns",
-    "is_cdc_enabled_for_team",
-    "is_cdc_extraction_schedule_paused",
-    "logger",
-    "purge_buffer_prefix",
-    "sync_cdc_extraction_schedule",
-    "sync_discover_schemas_schedule",
-    "trigger_external_data_source_workflow",
-    "unpause_cdc_extraction_schedule",
-]
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})

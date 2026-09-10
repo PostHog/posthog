@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     RowFiltersField,
 )
 
-from . import credential_store, helpers, viewset
+from . import base, credential_store, helpers
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -143,7 +143,7 @@ class BulkSchemaSaveError(APIException):
         )
 
 
-class ExternalDataSourceSchemaOperationsMixin:
+class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase):
     def _assert_can_write_schemas(self, schemas: Iterable[ExternalDataSchema]) -> None:
         """Per-table gate for source-level endpoints that write or sync schemas.
 
@@ -179,7 +179,7 @@ class ExternalDataSourceSchemaOperationsMixin:
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
         instance: ExternalDataSource = self.get_object()
-        viewset.logger.debug(
+        base.logger.debug(
             "refresh_schemas called",
             source_id=str(instance.id),
             team_id=self.team_id,
@@ -193,7 +193,7 @@ class ExternalDataSourceSchemaOperationsMixin:
         source: AnySource | None = None
         try:
             source_type = ExternalDataSourceType(instance.source_type)
-            source = viewset.SourceRegistry.get_source(source_type)
+            source = base.SourceRegistry.get_source(source_type)
             config = source.parse_config(instance.job_inputs)
             # Explicit user action — bypass any cached schema discovery so newly added
             # upstream resources (e.g. Slack channels) appear immediately.
@@ -212,7 +212,7 @@ class ExternalDataSourceSchemaOperationsMixin:
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
-            viewset.logger.info(
+            base.logger.info(
                 "refresh_schemas fetched from source",
                 source_id=str(instance.id),
                 schema_count=len(schema_names),
@@ -220,7 +220,7 @@ class ExternalDataSourceSchemaOperationsMixin:
             )
         except Exception as e:
             error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
-            viewset.logger.exception(
+            base.logger.exception(
                 "Could not fetch schemas from source",
                 exc_info=e,
                 source_id=str(instance.id),
@@ -230,7 +230,7 @@ class ExternalDataSourceSchemaOperationsMixin:
                 is_expected_source_error=is_expected_source_error,
             )
             if not is_expected_source_error:
-                viewset.capture_exception(
+                base.capture_exception(
                     e,
                     {
                         "source_id": str(instance.id),
@@ -297,7 +297,7 @@ class ExternalDataSourceSchemaOperationsMixin:
             source_schemas_by_name = {name_substitutions.get(s.name, s.name): s for s in schemas}
             auto_enabled_names = auto_enable_new_schemas(instance, sync_result.created, source_schemas_by_name)
 
-        viewset.logger.debug(
+        base.logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
             team_id=self.team_id,
@@ -338,7 +338,7 @@ class ExternalDataSourceSchemaOperationsMixin:
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
-        source = viewset.SourceRegistry.get_source(source_type_model)
+        source = base.SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
             return Response(
@@ -386,7 +386,7 @@ class ExternalDataSourceSchemaOperationsMixin:
         except Exception as e:
             error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
-                viewset.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+                base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": error_message},
@@ -398,13 +398,13 @@ class ExternalDataSourceSchemaOperationsMixin:
                 source_config, self.team_id, [schema.name for schema in schemas]
             )
         except Exception as e:
-            viewset.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             endpoint_permissions = {schema.name: None for schema in schemas}
 
         # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
-        cdc_enabled = viewset.is_cdc_enabled_for_team(self.team)
+        cdc_enabled = base.is_cdc_enabled_for_team(self.team)
         # xmin is gated at the source-type level by the source's capability flag so it never
         # leaks to another SQL source.
         xmin_capable = source.supports_xmin
@@ -444,6 +444,7 @@ class ExternalDataSourceSchemaOperationsMixin:
         source: ExternalDataSource,
         schema_updates: list[dict[str, Any]],
         source_schemas_by_id: dict[uuid.UUID, ExternalDataSchema],
+        # nosemgrep: tuple-return-prefer-dataclass -- grandfathered backlog
     ) -> tuple[dict[str, tuple[str, str]], set[str]]:
         """Fill default sync settings into bulk-update items that ask for them.
 
@@ -468,7 +469,7 @@ class ExternalDataSourceSchemaOperationsMixin:
         names = [source_schemas_by_id[schema_update["id"]].name for schema_update in needing_defaults]
         source_impl: AnySource | None = None
         try:
-            source_impl = viewset.SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
             config = source_impl.parse_config(source.job_inputs)
             discovered = source_impl.get_schemas(
                 config, self.team_id, names=names, api_version=source_impl.resolve_api_version(source.api_version)
@@ -479,7 +480,7 @@ class ExternalDataSourceSchemaOperationsMixin:
             # them below — don't capture it as error-tracking noise. Mirrors `refresh_schemas`.
             _, is_expected_source_error = helpers._classify_refresh_schemas_error(source_impl, e)
             if not is_expected_source_error:
-                viewset.capture_exception(e)
+                base.capture_exception(e)
             reason = "could not read the source to pick default sync settings; check the source credentials"
             for schema_update in needing_defaults:
                 schema = source_schemas_by_id[schema_update["id"]]
@@ -596,7 +597,7 @@ class ExternalDataSourceSchemaOperationsMixin:
             except Exception as e:
                 if isinstance(e, ValidationError):
                     reason = _validation_error_message(e)
-                    viewset.logger.warning(
+                    base.logger.warning(
                         "bulk_update_schemas validation error during save",
                         source_id=str(source.id),
                         schema_id=str(schema.id),
@@ -604,8 +605,8 @@ class ExternalDataSourceSchemaOperationsMixin:
                 else:
                     only_validation_errors = False
                     reason = "a database error occurred while saving"
-                    viewset.capture_exception(e)
-                    viewset.logger.exception(
+                    base.capture_exception(e)
+                    base.logger.exception(
                         "bulk_update_schemas failed to persist schema",
                         source_id=str(source.id),
                         schema_id=str(schema.id),
@@ -629,8 +630,8 @@ class ExternalDataSourceSchemaOperationsMixin:
                 # log every failure (with the schema id) so the drift is visible, and remember it so
                 # the request fails below — the caller must know the batch did not fully apply.
                 post_commit_error = e
-                viewset.capture_exception(e)
-                viewset.logger.warning(
+                base.capture_exception(e)
+                base.logger.warning(
                     "bulk_update_schemas saved the schema but its Temporal schedule update failed",
                     source_id=str(source.id),
                     schema_id=str(action_schema.id),

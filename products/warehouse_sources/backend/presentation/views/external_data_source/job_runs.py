@@ -20,6 +20,8 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 )
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
+from . import base
+
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
     schema = serializers.SerializerMethodField(read_only=True)
@@ -100,7 +102,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
         ).data
 
 
-class ExternalDataSourceJobRunsMixin:
+class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
     @action(methods=["GET"], detail=True, pagination_class=None)
     @extend_schema(
         parameters=[

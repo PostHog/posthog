@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-from . import viewset
+from . import base
 
 
 class SourceSetupWebhookSerializer(serializers.Serializer):
@@ -57,7 +57,7 @@ class SourceSetupWebhookSerializer(serializers.Serializer):
     )
 
 
-class ExternalDataSourceWebhookSetupMixin:
+class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
     def _auto_register_webhook(
         self,
         source: WebhookSource,
@@ -122,7 +122,7 @@ class ExternalDataSourceWebhookSetupMixin:
                 api_version=source.resolve_api_version(instance.api_version),
             )
         except Exception as e:
-            viewset.capture_exception(e, {"source_id": source_id, "team_id": self.team_id})
+            base.capture_exception(e, {"source_id": source_id, "team_id": self.team_id})
             return failure(str(e))
 
         if not registration.success:
@@ -145,7 +145,7 @@ class ExternalDataSourceWebhookSetupMixin:
                 try:
                     sync_external_data_job_workflow(schema, create=True)
                 except Exception as e:
-                    viewset.logger.exception(
+                    base.logger.exception(
                         "Could not create sync schedule for webhook schema", exc_info=e, schema_id=str(schema.id)
                     )
 
@@ -198,14 +198,14 @@ class ExternalDataSourceWebhookSetupMixin:
         try:
             return source.webhook_creation_blocked_reason(source.parse_config(instance.job_inputs), self.team_id)
         except Exception as e:
-            viewset.capture_exception(e)
+            base.capture_exception(e)
             return None
 
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
         source_type = ExternalDataSourceType(instance.source_type)
-        source = viewset.SourceRegistry.get_source(source_type)
+        source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
             return Response(
@@ -251,7 +251,7 @@ class ExternalDataSourceWebhookSetupMixin:
                 )
                 missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
             except Exception as e:
-                viewset.capture_exception(e)
+                base.capture_exception(e)
 
         schema_mapping = {}
         if hog_function.inputs:
@@ -293,7 +293,7 @@ class ExternalDataSourceWebhookSetupMixin:
             )
 
         source_type = ExternalDataSourceType(instance.source_type)
-        source = viewset.SourceRegistry.get_source(source_type)
+        source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
             return Response(
@@ -316,7 +316,7 @@ class ExternalDataSourceWebhookSetupMixin:
                 data={"message": "Invalid source configuration", "details": getattr(e, "detail", str(e))},
             )
         except Exception as e:
-            viewset.capture_exception(e)
+            base.capture_exception(e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Failed to load source configuration or schemas"},
@@ -383,7 +383,7 @@ class ExternalDataSourceWebhookSetupMixin:
             )
 
         source_type = ExternalDataSourceType(instance.source_type)
-        source = viewset.SourceRegistry.get_source(source_type)
+        source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
             return Response(
@@ -438,7 +438,7 @@ class ExternalDataSourceWebhookSetupMixin:
                 data={"message": "Invalid source configuration", "details": getattr(e, "detail", str(e))},
             )
         except Exception as e:
-            viewset.capture_exception(e)
+            base.capture_exception(e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Failed to load source configuration"},
@@ -471,7 +471,7 @@ class ExternalDataSourceWebhookSetupMixin:
         instance: ExternalDataSource = self.get_object()
 
         source_type = ExternalDataSourceType(instance.source_type)
-        source = viewset.SourceRegistry.get_source(source_type)
+        source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
             return Response(
@@ -521,7 +521,7 @@ class ExternalDataSourceWebhookSetupMixin:
         try:
             config = source.parse_config(instance.job_inputs)
         except Exception as e:
-            viewset.capture_exception(e)
+            base.capture_exception(e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Failed to parse source configuration"},
