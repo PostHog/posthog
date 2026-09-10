@@ -1,6 +1,7 @@
 import { ArrowDownIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
+import { ActivityCanvasView } from "@posthog/ui/features/canvas/components/ActivityCanvasView";
 import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
 import { ActivityLoadingState } from "@posthog/ui/features/canvas/components/activityRows";
 import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
@@ -15,7 +16,7 @@ import {
 } from "@posthog/ui/features/sessions/sessionStore";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-export type ActivityTab = "timeline" | "artifacts" | "comments";
+export type ActivityTab = "timeline" | "artifacts" | "comments" | "canvas";
 
 // Within this much of the bottom still counts as watching the end, so a row arriving
 // mid-poll keeps following. Wide enough to survive a partially scrolled last row.
@@ -66,7 +67,7 @@ export function ActivityPanelBody({
   const isCloudSession = useSessionIsCloud(taskId);
   const conversationItems = useMemo(
     () =>
-      tab === "timeline"
+      tab === "timeline" || tab === "canvas"
         ? mergeConversationItems({
             conversationItems: buildConversationItems(events, isPromptPending)
               .items,
@@ -137,6 +138,20 @@ export function ActivityPanelBody({
       />
     );
   };
+
+  // The canvas fills the pane and scrolls itself, so it stays outside the
+  // scroller the three list tabs share.
+  if (tab === "canvas") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ActivityCanvasView
+          task={task}
+          messages={messages}
+          conversationItems={conversationItems}
+        />
+      </div>
+    );
+  }
 
   return (
     <>

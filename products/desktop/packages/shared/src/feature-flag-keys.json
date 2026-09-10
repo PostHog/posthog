@@ -1,4 +1,5 @@
 {
+  "ACTIVITY_CANVAS_FLAG": "posthog-desktop-activity-canvas",
   "ANNOUNCEMENTS_FLAG": "posthog-desktop-announcements",
   "AUTORESEARCH_FLAG": "posthog-code-autoresearch",
   "BACKGROUND_AGENT_LOGS_FLAG": "posthog-code-background-agent-logs",

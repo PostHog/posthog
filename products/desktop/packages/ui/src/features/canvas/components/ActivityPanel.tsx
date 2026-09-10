@@ -4,6 +4,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { Button, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
+import { ACTIVITY_CANVAS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import {
@@ -14,11 +15,12 @@ import { TaskSummaryRow } from "@posthog/ui/features/canvas/components/ChannelFe
 import { ThreadLoadingState } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
 import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
@@ -26,16 +28,23 @@ const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "comments", label: "Comments" },
 ] as const;
 
+const CANVAS_TAB: { key: ActivityTab; label: string } = {
+  key: "canvas",
+  label: "Canvas",
+} as const;
+
 /** The tabs are this panel's header, so the strip matches the fixed height and border of
  *  the tab bar on its left (TabbedPanel) and of the review toolbar. */
 function ActivityHeader({
   tab,
+  tabs,
   onTabChange,
   onClose,
   onToggleCollapsed,
   onOpenFull,
 }: {
   tab: ActivityTab;
+  tabs: readonly { key: ActivityTab; label: string }[];
   onTabChange: (tab: ActivityTab) => void;
   onClose?: () => void;
   onToggleCollapsed?: () => void;
@@ -62,7 +71,7 @@ function ActivityHeader({
           aria-label="Activity"
           className="h-[31px] gap-0.5 p-0 [&_.quill-tabs\_\_indicator]:z-10"
         >
-          {ACTIVITY_TABS.map((t) => (
+          {tabs.map((t) => (
             <TabsTrigger key={t.key} value={t.key} className="px-2.5">
               <span className="font-medium text-[13px]">{t.label}</span>
             </TabsTrigger>
@@ -124,6 +133,11 @@ function ActivityConversation({
 }) {
   const taskId = task.id;
   const [tab, setTab] = useState<ActivityTab>("timeline");
+  const canvasTabEnabled = useFeatureFlag(ACTIVITY_CANVAS_FLAG);
+  const tabs = useMemo(
+    () => (canvasTabEnabled ? [...ACTIVITY_TABS, CANVAS_TAB] : ACTIVITY_TABS),
+    [canvasTabEnabled],
+  );
   const handleTabChange = useCallback(
     (next: ActivityTab) => {
       setTab(next);
@@ -160,6 +174,7 @@ function ActivityConversation({
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
       <ActivityHeader
         tab={tab}
+        tabs={tabs}
         onTabChange={handleTabChange}
         onOpenFull={onOpenFull}
         onToggleCollapsed={onToggleCollapsed}

@@ -115,6 +115,14 @@ export const canvasConnectorCallInput = z.object({
 });
 export type CanvasConnectorCallInput = z.infer<typeof canvasConnectorCallInput>;
 
+// Task-activity avenue behind the `ph.taskActivity` shim. The canvas names no
+// task: the host answers for the task whose panel it is mounted in, so a canvas
+// can never read the activity of a task its viewer did not open.
+export const canvasTaskActivityInput = z.object({
+  limit: z.number().int().min(1).max(500).optional(),
+});
+export type CanvasTaskActivityInput = z.infer<typeof canvasTaskActivityInput>;
+
 export const canvasAgentRequestInputSchema = z.object({
   prompt: z.string().min(1).max(10_000),
 });
@@ -312,6 +320,7 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
       "actionInvoke",
       "agentRequest",
       "connectorCall",
+      "taskActivity",
     ]),
     payload: z.unknown(),
   }),

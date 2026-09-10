@@ -1,6 +1,12 @@
 import featureFlagKeys from "./feature-flag-keys.json" with { type: "json" };
 
 export const BILLING_FLAG = featureFlagKeys.BILLING_FLAG;
+/**
+ * Gates the activity panel's Canvas tab, where a canvas draws the task's
+ * activity in place of the built-in timeline. Requires the channels layout,
+ * which is where the panel lives.
+ */
+export const ACTIVITY_CANVAS_FLAG = featureFlagKeys.ACTIVITY_CANVAS_FLAG;
 export const CLOUD_COMPUTE_BILLING_FLAG =
   featureFlagKeys.CLOUD_COMPUTE_BILLING_FLAG;
 export const EXPERIMENT_SUGGESTIONS_FLAG =

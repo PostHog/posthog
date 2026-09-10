@@ -607,6 +607,8 @@ export interface CanvasPostHogCapabilitiesApi {
      */
     actions?: string[]
     agentRequests?: boolean
+    /** Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call. */
+    taskActivity?: boolean
 }
 
 export interface CanvasNetworkCapabilitiesApi {

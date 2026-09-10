@@ -469,6 +469,24 @@ class TestCanvasSourceAdapter(SimpleTestCase):
 
         self.assertIn("capability_missing_agent_requests", [entry["code"] for entry in diagnostics])
 
+    def test_task_activity_requires_declared_capability(self):
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: CODE + "ph.taskActivity();"},
+            capabilities={
+                "posthog": {
+                    "insights": [],
+                    "inlineQueries": False,
+                    "captureEvents": [],
+                    "taskActivity": False,
+                },
+                "network": {"origins": []},
+            },
+        )
+
+        diagnostics = validate_source_project(candidate)
+
+        self.assertIn("capability_missing_task_activity", [entry["code"] for entry in diagnostics])
+
 
 def component_meta(**overrides):
     meta = {

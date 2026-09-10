@@ -7,10 +7,7 @@ import {
   type GroupedActivityRow,
   groupActivityRows,
 } from "@posthog/core/canvas/activityGrouping";
-import {
-  buildActivityTimeline,
-  type UserMessageLike,
-} from "@posthog/core/canvas/activityTimeline";
+import { buildActivityTimeline } from "@posthog/core/canvas/activityTimeline";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import { DEFAULT_TAB_IDS } from "@posthog/core/panels/panelConstants";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
@@ -43,6 +40,7 @@ import {
 } from "@posthog/ui/features/canvas/components/activityRows";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadArtifactCard } from "@posthog/ui/features/canvas/components/ThreadPanel";
+import { toActivityUserMessages } from "@posthog/ui/features/canvas/utils/activityUserMessages";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
@@ -174,7 +172,6 @@ export function ActivityTimeline({
   }, [timeline]);
 
   const timelineRows = useMemo(() => {
-    const taskCreatedTimestamp = Date.parse(task.created_at);
     return buildActivityTimeline({
       task: {
         id: task.id,
@@ -200,22 +197,7 @@ export function ActivityTimeline({
             }
           : null,
       })),
-      userMessages: conversationItems.reduce<UserMessageLike[]>(
-        (items, item) => {
-          if (item.type === "user_message") {
-            items.push({
-              id: item.id,
-              content: item.content,
-              timestamp:
-                item.pinToTop === true && Number.isFinite(taskCreatedTimestamp)
-                  ? taskCreatedTimestamp
-                  : item.timestamp,
-            });
-          }
-          return items;
-        },
-        [],
-      ),
+      userMessages: toActivityUserMessages(conversationItems, task.created_at),
     });
   }, [task, messages, commentThreads, conversationItems]);
 

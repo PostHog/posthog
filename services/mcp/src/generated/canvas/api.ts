@@ -183,6 +183,7 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemM
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault = false
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -334,6 +335,12 @@ export const CanvasesDraftCreateBody = () => zod
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
+                            taskActivity: zod
+                                .boolean()
+                                .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault)
+                                .describe(
+                                    'Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call.'
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -932,6 +939,7 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsIte
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault = false
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -1085,6 +1093,12 @@ export const CanvasesPublishCreateBody = () => zod
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
+                            taskActivity: zod
+                                .boolean()
+                                .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault)
+                                .describe(
+                                    'Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call.'
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -1290,6 +1304,7 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsIt
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault = false
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -1442,6 +1457,12 @@ export const CanvasesValidateCreateBody = () => zod
                                 .boolean()
                                 .default(
                                     canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault
+                                ),
+                            taskActivity: zod
+                                .boolean()
+                                .default(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogTaskActivityDefault)
+                                .describe(
+                                    'Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call.'
                                 ),
                         }),
                         network: zod.object({

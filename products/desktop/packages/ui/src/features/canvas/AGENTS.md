@@ -325,3 +325,20 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
 
   Otherwise the new content cold-fetches on first expand and reintroduces the
   open jank the prefetch path exists to prevent.
+
+## The activity panel's Canvas tab
+
+- **A canvas can draw a task's activity in place of the built-in timeline.**
+  The tab is gated by `ACTIVITY_CANVAS_FLAG`; the canvas it draws is one choice
+  per person, held in `activityCanvasStore`, not one per task.
+- **The panel answers `taskActivity`, the shared bridge answers the rest.**
+  `createActivityCanvasDataRequest` routes the one method the panel owns to the
+  task whose panel the canvas is mounted in, and hands every other method to
+  `handleFreeformDataRequest` scoped to the canvas. The canvas names no task, so
+  it can never read a task its viewer did not open.
+- **A built canvas must declare `capabilities.posthog.taskActivity`.**
+  `BuiltCanvas` checks the frozen manifest before the request reaches the panel,
+  the same tier as every other canvas capability.
+- **The rows come from `buildActivityTimeline`, the same builder the drawn
+  timeline uses**, so the two surfaces cannot drift on ordering or on which
+  events count. `toCanvasTaskActivity` (core) flattens them to printable JSON.

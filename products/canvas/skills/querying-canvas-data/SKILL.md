@@ -204,6 +204,28 @@ currently restrict this query to its own space. Filtering to the current viewer 
 known numeric user id; the canvas runtime does not inject one. State these limits when the request
 depends on “this space” or “my tasks” instead of silently showing project-wide public tasks.
 
+## The task a canvas is mounted in — ph.taskActivity
+
+A canvas rendered inside a task, such as the Canvas tab of PostHog Desktop's activity panel, reads
+that task's activity with `ph.taskActivity()`. Declare `capabilities.posthog.taskActivity: true`.
+
+The canvas names no task. The host answers for the task whose panel it is mounted in, so a canvas
+can never read a task its viewer did not open. Anywhere else the call fails, so treat it as
+optional and render an explanation when it rejects.
+
+```tsx
+const { task, rows, truncated } = await ph.taskActivity({ limit: 100 })
+// task: { id, title, status, createdAt, updatedAt }
+// rows: [{ key, kind, at, title, detail, url }] — oldest first, ready to print
+```
+
+`kind` is the server event name for an event row (`run_started`, `commits_pushed`, `pr_merged`,
+`artifact_created`, and so on), else the row kind (`task_created`, `human_message`,
+`user_message`, `run_status`, `run_output_pr`). `url` is set on the rows that point somewhere:
+pull requests, pushed commits, and created canvases. `detail` is a preview, capped at 500
+characters. Poll on a timer to follow a running task; each call returns the newest rows the panel
+has.
+
 ## Runtime memory — ph.state
 
 Durable key-value storage per canvas. Declare every scope you use in `capabilities.posthog.state`

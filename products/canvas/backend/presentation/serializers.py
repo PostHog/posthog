@@ -267,6 +267,15 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
         ),
     )
     agentRequests = serializers.BooleanField(required=False, default=False)
+    # Optional so projects published before the task-activity bridge exist unchanged.
+    taskActivity = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether the canvas may read the activity of the task it is mounted beside through "
+            "ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call."
+        ),
+    )
 
 
 class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
@@ -354,6 +363,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
                 "state": [],
                 "actions": [],
                 "agentRequests": False,
+                "taskActivity": False,
             },
             "network": {"origins": []},
             "connectors": [],

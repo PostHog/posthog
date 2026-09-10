@@ -269,6 +269,12 @@ export function buildSandboxDocument(
         }
         return call("capture", { event, properties: properties ?? {}, distinctId });
       },
+      // Read the activity of the task this canvas is mounted beside: its
+      // timeline as flat, printable rows. Available only where the host runs
+      // the canvas inside a task, such as the activity panel; elsewhere it
+      // rejects. A built canvas needs \`capabilities.posthog.taskActivity\`.
+      // Returns \`{ task, rows, truncated }\`.
+      taskActivity: (opts) => call("taskActivity", { limit: opts && opts.limit }),
       // Durable key-value memory, declared in capabilities.posthog.state.
       // Scope "user" (default) is private to this viewer; "shared" is one
       // value per canvas, visible to the whole team. Values are JSON, capped
