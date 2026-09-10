@@ -21,10 +21,12 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.models import SignalReport, SignalReportAssignment
+from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment, SignalReportTask
 from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
 from products.tasks.backend.webhooks import (
+    _PR_BODY_MAX_CHARS,
     _account_type,
     _attribution_db_aliases,
     _bounded_attribution_lookup,
@@ -599,6 +601,11 @@ class TestGitHubPRWebhook(TestCase):
             "pull_request": {
                 "html_url": "https://github.com/posthog/posthog/pull/123",
                 "merged": False,
+                "draft": True,
+                "title": "fix(tasks): stop dropping the retry",
+                "body": "## Problem\n\nThe retry never fires.",
+                "labels": [{"name": "bug"}, {"name": "tasks"}],
+                "requested_reviewers": [{"login": "octocat"}],
             },
         }
 
@@ -609,6 +616,39 @@ class TestGitHubPRWebhook(TestCase):
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_created")
+        props = call_kwargs["properties"]
+        self.assertEqual(props["pr_title"], "fix(tasks): stop dropping the retry")
+        self.assertEqual(props["pr_body"], "## Problem\n\nThe retry never fires.")
+        self.assertIs(props["pr_body_truncated"], False)
+        self.assertEqual(props["pr_labels"], ["bug", "tasks"])
+        self.assertEqual(props["pr_requested_reviewers"], ["octocat"])
+        self.assertIs(props["pr_is_draft"], True)
+
+    @parameterized.expand(
+        [
+            ("at_the_cap", _PR_BODY_MAX_CHARS, False),
+            ("over_the_cap", _PR_BODY_MAX_CHARS + 1, True),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_body_is_capped(self, _name, body_length, expected_truncated, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": False,
+                "body": "b" * body_length,
+            },
+        }
+
+        self.assertEqual(self._make_webhook_request(payload).status_code, 200)
+
+        props = mock_capture.call_args[1]["properties"]
+        self.assertEqual(len(props["pr_body"]), min(body_length, _PR_BODY_MAX_CHARS))
+        self.assertIs(props["pr_body_truncated"], expected_truncated)
 
     # The pr: task-list filter reads output.pr_state, so each state-changing
     # webhook action must land the canonical state on the run that claims the PR.
@@ -1073,7 +1113,10 @@ class TestGitHubPRReviewWebhook(TestCase):
         return {
             "action": action,
             "review": {"id": 99, "state": state, "user": reviewer},
-            "pull_request": {"html_url": "https://github.com/posthog/posthog/pull/123"},
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "title": "fix(tasks): stop dropping the retry",
+            },
         }
 
     @parameterized.expand(
@@ -1106,6 +1149,7 @@ class TestGitHubPRReviewWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["pr_reviewed_by_id"], 583231)
         self.assertEqual(call_kwargs["properties"].get("pr_reviewed_by_distinct_id"), expected_property)
         self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
+        self.assertEqual(call_kwargs["properties"]["pr_title"], "fix(tasks): stop dropping the retry")
 
     @parameterized.expand(
         [
@@ -1160,6 +1204,49 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             pr_number=42,
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
+
+    def _link_task_pr(self, report: SignalReport, pr_url: str, relationship: str = "implementation") -> TaskRun:
+        task = Task.objects.create(team=report.team, title="Implementation", description="Fix a bug")
+        run = TaskRun.objects.create(team=report.team, task=task, output={"pr_url": pr_url})
+        SignalReportTask.objects.create(team=report.team, report=report, task=task, relationship=relationship)
+        return run
+
+    @parameterized.expand(
+        [
+            ("legacy_merge", True, None, "implementation", SignalReport.Status.RESOLVED),
+            ("legacy_close", False, None, "implementation", SignalReport.Status.SUPPRESSED),
+            ("claim_merge", True, SignalActorKind.AGENT, "implementation", SignalReport.Status.RESOLVED),
+            ("claim_close", False, SignalActorKind.AGENT, "implementation", SignalReport.Status.SUPPRESSED),
+            ("research", True, None, "research", SignalReport.Status.READY),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_event_falls_back_to_task_links(
+        self, _name, merged, actor_kind, relationship, expected_status, _mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        self.assignment.delete()
+        self._link_task_pr(self.report, "https://www.github.com/PostHog/posthog/pull/42/", relationship)
+        if actor_kind:
+            SignalReportAssignment.objects.for_team(self.team.id).create(
+                team=self.team, report=self.report, actor_kind=actor_kind, actor_agent="test-agent"
+            )
+
+        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as close_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._post_pr_webhook(action="closed", merged=merged)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, expected_status)
+        close_task.delay.assert_not_called()
+        if relationship == "implementation":
+            assignment = SignalReportAssignment.objects.for_team(self.team.id).get(report=self.report)
+            self.assertEqual(assignment.actor_kind, actor_kind or SignalActorKind.TASK)
+            pr = fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)]
+            self.assertEqual(pr.state, "merged" if merged else "closed")
+            self.assertIs(pr.merged, merged)
 
     def _post_pr_webhook(self, action: str, merged: bool, pr_url: str = "https://github.com/posthog/posthog/pull/42"):
         payload = {
@@ -1278,6 +1365,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             pr_number=self.assignment.pr_number,
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
+        legacy_report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        assert self.assignment.pr_url is not None
+        self._link_task_pr(legacy_report, self.assignment.pr_url)
 
         response = self._post_pr_webhook(action="closed", merged=merged)
 
@@ -1292,11 +1382,15 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(second_assignment.pr_state, expected_pr_state)
         self.assertIs(self.assignment.pr_merged, merged)
         self.assertIs(second_assignment.pr_merged, merged)
+        legacy_report.refresh_from_db()
+        self.assertEqual(legacy_report.status, expected_status)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_event_does_not_transition_assignment_for_another_pr(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
+        assert self.assignment.pr_url is not None
+        self._link_task_pr(self.report, self.assignment.pr_url)
         self.assignment.pr_url = "https://github.com/posthog/posthog/pull/99"
         self.assignment.pr_number = 99
         self.assignment.save(update_fields=["pr_url", "pr_number", "updated_at"])
@@ -1330,6 +1424,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             pr_number=self.assignment.pr_number,
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
+        legacy_other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY)
+        assert self.assignment.pr_url is not None
+        self._link_task_pr(legacy_other_report, self.assignment.pr_url)
 
         response = self._post_pr_webhook(action="closed", merged=True)
 
@@ -1342,6 +1439,8 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(self.assignment.pr_state, SignalReportAssignment.PrState.MERGED)
         self.assertEqual(other_report.status, SignalReport.Status.READY)
         self.assertEqual(other_assignment.pr_state, SignalReportAssignment.PrState.OPEN)
+        legacy_other_report.refresh_from_db()
+        self.assertEqual(legacy_other_report.status, SignalReport.Status.READY)
 
     @parameterized.expand(
         [
@@ -1411,6 +1510,8 @@ class TestExternalPRWebhook(TestCase):
                 "merged": merged,
                 "user": {"login": "octocat"},
                 "title": "Internal customer change",
+                "body": "Internal customer detail",
+                "labels": [{"name": "internal"}],
                 "base": {"ref": "main"},
                 "head": {"ref": "feature/x"},
                 "additions": 120,
@@ -1458,6 +1559,9 @@ class TestExternalPRWebhook(TestCase):
         self.assertIsNone(props["task_id"])
         self.assertIsNone(props["origin_product"])
         self.assertIsNone(props["title"])
+        # An external PR's own words are customer business context, so the keys stay null.
+        for key in ("pr_title", "pr_body", "pr_labels", "pr_requested_reviewers", "pr_is_draft"):
+            self.assertIsNone(props[key])
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")

@@ -1,6 +1,5 @@
 import asyncio
 from dataclasses import asdict
-from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -11,7 +10,7 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
-from products.data_modeling.backend.logic.node_suspension import resume_nodes
+from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -31,7 +30,7 @@ def start_node_materialization(node: Node, *, resume: bool = True) -> None:
     """
     if resume:
         # An explicit run is a request to try again, so it gets a fresh failure window.
-        resume_nodes([node], by="manual_run")
+        unsuspend_nodes([node], by="manual_run")
     inputs = MaterializeViewWorkflowInputs(
         team_id=node.team_id,
         dag_id=str(node.dag_id),
@@ -47,12 +46,7 @@ def start_node_materialization(node: Node, *, resume: bool = True) -> None:
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=10),
-                maximum_interval=timedelta(seconds=60),
-                maximum_attempts=3,
-                non_retryable_error_types=["NondeterminismError", "CancelledError"],
-            ),
+            retry_policy=RetryPolicy(maximum_attempts=1),  # retries handled within the workflow
         )
     )
 

@@ -12,7 +12,15 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, FilterLogicalOperator, SessionRecordingSidebarTab, TeamType } from '~/types'
+import {
+    Experiment,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingDurationFilter,
+    SessionRecordingSidebarTab,
+    TeamType,
+} from '~/types'
 
 import {
     experimentsInSessionExposureRetrieve,
@@ -203,6 +211,37 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         },
     },
     {
+        // Sessions matched the metric, none of them has a recording.
+        reason: ExperimentReplayListEmptyReason.MetricFilterMatchedNothing,
+        experimentId: 146,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                ...BUCKET_RESPONSE,
+                session_ids: ['bucket-session'],
+            })
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.FiltersNarrowed,
+        experimentId: 147,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        setup: (logic) =>
+            logic.actions.playlistFiltersChanged({
+                ...logic.values.recordingsFilters,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                        },
+                    ],
+                },
+            }),
+    },
+    {
         reason: ExperimentReplayListEmptyReason.EndedPastRetention,
         experimentId: 124,
         experiment: { start_date: daysAgo(200), end_date: daysAgo(60) },
@@ -211,6 +250,18 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.TooEarly,
         experimentId: 125,
         experiment: { start_date: daysAgo(1), end_date: null },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.VariantHasNone,
+        experimentId: 141,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.InSessionHasNone,
+        experimentId: 142,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setExposureScope('in_session'),
     },
     {
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
@@ -784,6 +835,35 @@ describe('experimentReplayTabLogic', () => {
         }
     )
 
+    it('reports no reason for the hidden-recordings action, and the reason for the others', async () => {
+        // `show_hidden` is offered when rows came back and the browser hid them, so the list is not
+        // empty. Sending the reason there would count a cause of emptiness against a list that had
+        // recordings, and every reason's click-through rate would be measured against it.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const empty = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 143, start_date: daysAgo(1), end_date: null } as Experiment,
+        })
+        empty.mount()
+        await expectLogic(empty).toFinishAllListeners()
+
+        empty.actions.listEmptyActionClicked('show_hidden')
+        empty.actions.listEmptyActionClicked('replay_settings')
+        await expectLogic(empty).toFinishAllListeners()
+
+        const clicks = captureSpy.mock.calls.filter(
+            ([event, properties]) =>
+                event === 'experiment recordings empty state action clicked' &&
+                (properties as any)?.experiment_id === 143
+        )
+        expect(clicks.map(([, properties]) => (properties as any).empty_reason)).toEqual([
+            null,
+            ExperimentReplayListEmptyReason.TooEarly,
+        ])
+
+        empty.unmount()
+    })
+
     it('reports a list with rows, with no reason and the facets it was narrowed by', async () => {
         // The empty reason names a plausible cause of emptiness, so on a list with rows it would
         // read as a fault the tab found. The facets match `experiment recording opened`, so an
@@ -810,6 +890,11 @@ describe('experimentReplayTabLogic', () => {
             retention_period: '90d',
             replay_opt_in: true,
             duration_filter_active: true,
+            duration_filter_key: 'active_seconds',
+            duration_filter_seconds: 5,
+            duration_filter_operator: 'gt',
+            duration_filter_count: 1,
+            duration_filter_customized: false,
             exposure_linkable: true,
             variant: 'test',
             exposure_scope: 'all_exposed',
@@ -819,6 +904,81 @@ describe('experimentReplayTabLogic', () => {
             watch_card_kind: null,
         })
         filled.unmount()
+    })
+
+    it.each([
+        {
+            name: 'a floor the viewer raised, on another duration key',
+            duration: [
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'duration',
+                    value: 60,
+                    operator: PropertyOperator.GreaterThan,
+                } as RecordingDurationFilter,
+            ],
+            expected: {
+                duration_filter_active: true,
+                duration_filter_key: 'duration',
+                duration_filter_seconds: 60,
+                duration_filter_operator: 'gt',
+                duration_filter_count: 1,
+                duration_filter_customized: true,
+            },
+        },
+        {
+            name: 'a floor the viewer removed',
+            duration: [],
+            expected: {
+                duration_filter_active: false,
+                duration_filter_key: null,
+                duration_filter_seconds: null,
+                duration_filter_operator: null,
+                duration_filter_count: 0,
+                duration_filter_customized: true,
+            },
+        },
+        {
+            name: 'a duration set with a second, stricter entry',
+            duration: [
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'active_seconds',
+                    value: 5,
+                    operator: PropertyOperator.GreaterThan,
+                } as RecordingDurationFilter,
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'active_seconds',
+                    value: 30,
+                    operator: PropertyOperator.GreaterThan,
+                } as RecordingDurationFilter,
+            ],
+            expected: {
+                duration_filter_active: true,
+                duration_filter_key: 'active_seconds',
+                duration_filter_seconds: 5,
+                duration_filter_operator: 'gt',
+                duration_filter_count: 2,
+                duration_filter_customized: true,
+            },
+        },
+    ])('reports $name on an empty list', async ({ duration, expected }) => {
+        // Replay applies its default floor to every list, so a report that only said a duration
+        // filter was present cannot tell the floor everyone gets from one the viewer chose. The
+        // viewer edits it in the playlist's own filter bar, so the report has to read that rather
+        // than the filters the tab pushed down.
+        //
+        // The last case is the fail-safe one: the reported key, threshold, and operator describe
+        // the first entry, so a set whose first entry is the default must still report as
+        // customized, and its count must say that the report names part of the set.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        logic.actions.playlistFiltersChanged({ ...logic.values.recordingsFilters, duration })
+        logic.actions.recordingsLoaded([])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 42)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 42)[0][1]).toMatchObject(expected)
     })
 
     it('tells a refused metric filter apart from one that matched nothing, once it has answered', async () => {

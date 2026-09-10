@@ -70,7 +70,7 @@ export const createExampleSlackMessageEvent = (
 ): CyclotronJobInvocationGlobals => {
     const resolvedTeamId = teamId || 1
     const projectUrl = `${window.location.origin}/project/${resolvedTeamId}`
-    const channel = filters.channel ?? 'C0123456789'
+    const channel = filters.channels?.[0] ?? 'C0123456789'
     const posterId = filters.posterIds?.[0]
     // Defaults satisfy 'anyone' and 'people' (no bot_id); each other native poster mode
     // overrides only the field its own filter reads.

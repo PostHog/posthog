@@ -21,7 +21,7 @@ import {
   hasActiveInboxFilters,
   useInboxSignalsFilterStore,
 } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import { navigateToAgents } from "@posthog/ui/router/navigationBridge";
+import { navigateToSettings } from "@posthog/ui/router/navigationBridge";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -317,7 +317,7 @@ export function ReportsInboxView(): React.JSX.Element {
       renderReport={(report) => (
         <InboxReportRow key={report.id} report={report} />
       )}
-      onConfigureAgents={navigateToAgents}
+      onConfigureAgents={() => navigateToSettings("agents")}
       onEnterTriage={() => setFocusMode(true)}
       onClearFilters={resetFilters}
       onLoadMore={loadMore}

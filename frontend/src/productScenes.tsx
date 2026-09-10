@@ -116,6 +116,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
+    MCPRegistry: () => import('../../products/mcp_registry/frontend/MCPRegistryScene'),
     McpGateway: () => import('../../products/mcp_store/frontend/gateway/McpGatewayScene'),
     McpGatewayServer: () => import('../../products/mcp_store/frontend/gateway/GatewayServerScene'),
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
@@ -160,6 +161,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     HeatmapNew: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapNewScene'),
     HeatmapRecording: () =>
         import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapRecordingScene'),
+    WizardRuns: () => import('../../products/wizard/frontend/WizardRunsScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),

@@ -187,6 +187,20 @@ export const Health: Story = {
     parameters: { pageUrl: urls.engineeringAnalyticsHealth() },
 }
 
+export const HealthWithLimitedDeploymentCoverage: Story = {
+    ...Health,
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/dora/': {
+                    ...DORA,
+                    unattributed_merged_pr_share: 0.25,
+                } satisfies DoraOverviewApi,
+            },
+        }),
+    ],
+}
+
 export const HealthWithoutAttributedPullRequests: Story = {
     render: () => <App />,
     parameters: {
@@ -202,6 +216,7 @@ export const HealthWithoutAttributedPullRequests: Story = {
                     ...DORA,
                     deployed_pr_count: 0,
                     deployed_pr_count_prev: 0,
+                    unattributed_merged_pr_share: 1,
                     median_merge_to_deploy_seconds: null,
                     median_merge_to_deploy_seconds_prev: null,
                     median_open_to_deploy_seconds: null,

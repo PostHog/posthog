@@ -7,7 +7,7 @@ from posthog.utils import generate_short_id
 
 
 class TicketView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)

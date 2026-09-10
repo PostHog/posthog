@@ -44,6 +44,7 @@ import type {
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
+    ScoutCostsApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
@@ -78,6 +79,7 @@ import type {
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
+    SignalUserAutonomyConfigCreateApi,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
@@ -87,6 +89,7 @@ import type {
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutRunsCostsParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
@@ -490,7 +493,9 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Transition a report to a new state. The model validates allowed transitions.
+ * Transition a report to a new state. The model validates allowed transitions, except that a
+ * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
+ * is a 200 that records the dismissal feedback without touching the status.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
  * fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
@@ -769,7 +774,7 @@ export const getSignalsScoutCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a scout skill and its runnable config atomically. Any valid skill name works — the config row is what makes the skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
  * @summary Create a scout
  */
 export const signalsScoutCreate = async (
@@ -842,7 +847,7 @@ export const getSignalsScoutConfigCreateUrl = (projectId: string) => {
 }
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a skill immediately, without waiting for the coordinator to auto-register it — and the way to make a skill without the `signals-scout-` prefix a scout at all. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, like creating a scout.
  * @summary Create a scout config
  */
 export const signalsScoutConfigCreate = async (
@@ -885,7 +890,7 @@ export const getSignalsScoutConfigDestroyUrl = (projectId: string, id: string) =
 }
 
 /**
- * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
+ * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
  * @summary Delete a scout config
  */
 export const signalsScoutConfigDestroy = async (
@@ -904,7 +909,7 @@ export const getSignalsScoutConfigRunUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if the project is over its Signals credits quota, daily report limit, or daily run budget (429) or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
  * @summary Run a scout now
  */
 export const signalsScoutConfigRun = async (
@@ -1031,7 +1036,7 @@ export const getSignalsScoutNotesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */
 export const signalsScoutNotesCreate = async (
@@ -1211,7 +1216,7 @@ export const getSignalsScoutEmitReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
  * @summary Author a full report for a run
  */
 export const signalsScoutEmitReport = async (
@@ -1269,6 +1274,37 @@ export const signalsScoutRecordOutput = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(recordStructuredOutputRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsCostsUrl = (projectId: string, params?: SignalsScoutRunsCostsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/costs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/costs/`
+}
+
+/**
+ * Return what every scout on this project spent on model calls over the last `window_days`, with how many runs it started, how many of those had spend attributed, and how many inbox reports it filed or added to. Cost per day, per run, and per report are derived from those numbers by the caller, so the endpoint stays a fact table and the definitions live in one place. Spend is summed from the `$ai_generation` events the runs' sandboxes produced and joined to the run rows by task run id, because a team-authored scout's generations all carry the same stage tag and so cannot name it. Cached per project for 15 minutes: the window's trailing edge moves and the newest runs may still be settling, so this is a roughly current number, not a live one. `available` is false where the internal AI observability project holding those events can't be read, so an unknown spend never reads as zero. Staff-only, same gate as the per-run cost read. Strictly team-scoped.
+ * @summary Get what each scout spent over a window
+ */
+export const signalsScoutRunsCosts = async (
+    projectId: string,
+    params?: SignalsScoutRunsCostsParams,
+    options?: RequestInit
+): Promise<ScoutCostsApi> => {
+    return apiMutator<ScoutCostsApi>(getSignalsScoutRunsCostsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1709,14 +1745,14 @@ export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
  */
 export const usersSignalAutonomyCreate = async (
     userId: string,
-    signalUserAutonomyConfigApi?: NonReadonly<SignalUserAutonomyConfigApi>,
+    signalUserAutonomyConfigCreateApi?: SignalUserAutonomyConfigCreateApi,
     options?: RequestInit
 ): Promise<SignalUserAutonomyConfigApi> => {
     return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyCreateUrl(userId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalUserAutonomyConfigApi),
+        body: JSON.stringify(signalUserAutonomyConfigCreateApi),
     })
 }
 

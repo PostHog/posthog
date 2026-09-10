@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataDestina
 # a user cannot select one until its writer ships.
 DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.POSTGRES): (str(Integration.IntegrationKind.POSTGRESQL),),
+    str(ExternalDataDestination.Type.REDSHIFT): (str(Integration.IntegrationKind.AWS_REDSHIFT),),
     str(ExternalDataDestination.Type.AZURE_BLOB): (str(Integration.IntegrationKind.AZURE_BLOB),),
 }
 

@@ -2,7 +2,7 @@ import os
 import json
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
@@ -136,7 +136,7 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 200
         assert response.json().get("id") == str(issue.id)
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     def test_issue_fetch(self):
         issue = self.create_issue(["fingerprint"])
 
@@ -221,7 +221,7 @@ class TestErrorTracking(APIBaseTest):
         assert assignee == {"id": expected_id, "type": assignee_type}
         assert isinstance(assignee["id"], expected_python_type)
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     def test_issue_update(self):
         issue = self.create_issue(["fingerprint"])
 
@@ -289,7 +289,7 @@ class TestErrorTracking(APIBaseTest):
             ("description", {"description": "Updated description"}),
         ]
     )
-    @freeze_time("2025-01-02")
+    @time_machine.travel("2025-01-02", tick=False)
     def test_issue_update_stamps_clickhouse_visible_fields(self, _name: str, fields: dict[str, str]) -> None:
         issue = self.create_issue(["fingerprint"])
 
@@ -302,7 +302,7 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.state_updated_at == datetime(2025, 1, 2, tzinfo=UTC)
 
-    @freeze_time("2025-01-02")
+    @time_machine.travel("2025-01-02", tick=False)
     def test_issue_update_does_not_stamp_unchanged_state(self) -> None:
         issue = self.create_issue(["fingerprint"])
 
@@ -1706,6 +1706,44 @@ class TestErrorTracking(APIBaseTest):
         activity = self.client.get(url)
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
+
+    def test_release_writes_strip_credentials_from_remote_url(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/releases",
+            data={
+                "version": "1.0.0",
+                "project": "my-project",
+                "hash_id": "test-hash-123",
+                "metadata": {
+                    "git": {
+                        "commit_id": "abc123",
+                        "remote_url": "https://user:password@example.com/repository.git?token=query#token=fragment",
+                    }
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        release = ErrorTrackingRelease.objects.get(team=self.team, hash_id="test-hash-123")
+        assert release.metadata == {"git": {"commit_id": "abc123", "remote_url": "https://example.com/repository.git"}}
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/releases/{release.id}",
+            data={
+                "metadata": {
+                    "git": {
+                        "commit_id": "def456",
+                        "remote_url": "//x-access-token:secret@example.com/repository.git?access_token=query-secret",
+                    }
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        release.refresh_from_db()
+        assert release.metadata == {"git": {"commit_id": "def456", "remote_url": "//example.com/repository.git"}}
 
     def test_fetch_release_by_hash_id(self) -> None:
         release = ErrorTrackingRelease.objects.create(

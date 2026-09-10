@@ -2400,6 +2400,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'How credit is split across touchpoints when a person saw several campaigns before converting.\n\n\* `first_touch` - First Touch\n\* `last_touch` - Last Touch\n\* `linear` - Linear\n\* `time_decay` - Time Decay\n\* `position_based` - Position Based'
                     ),
+                filter_test_accounts: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether marketing analytics drops traffic matching the project's test-account filters. Off by default."
+                    ),
                 campaign_name_mappings: zod
                     .record(zod.string(), zod.record(zod.string(), zod.array(zod.string())))
                     .describe('Mapping of integration type to canonical campaign name to the aliases folded into it.')

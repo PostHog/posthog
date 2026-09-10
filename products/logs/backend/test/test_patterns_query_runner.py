@@ -3,7 +3,7 @@ import re
 import json
 import datetime as dt
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -44,7 +44,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = PatternsQueryRunner(team=self.team, query=query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         return response.results
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_mines_templates_from_clickhouse(self) -> None:
         self._insert(
             [
@@ -83,7 +83,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(results["sparkline_buckets"]) == 24
         assert sum(by_template["User <*> not found"]["sparkline"]) == 3
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_sets_sampled_and_caps_scanned_count_above_the_limit(self) -> None:
         self._insert([self._log(f"request {i} handled") for i in range(20)])
 
@@ -95,7 +95,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # total_count reports the full window size even though the sample is capped.
         assert results["total_count"] == 20
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_sampled_runs_are_deterministic(self) -> None:
         # The sample hashes each row's immutable uuid rather than using rand(), so the same
         # window + filters must mine identical patterns on every run. Guards against
@@ -110,7 +110,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert first["patterns"] == second["patterns"]
         assert first["scanned_count"] == second["scanned_count"]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_scan_budget_bounds_eligible_rows_via_time_slices(self) -> None:
         # 60 rows, one per minute across a 1h window; a budget of 30 with 6 slices makes only
         # half the window eligible. No hash sampling kicks in (pool < sample limit), so the
@@ -185,7 +185,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_sample_divisor_rounds_up_to_keep_sample_within_limit(self, total: int, expected: int) -> None:
         assert _sample_divisor(total, sample_limit=10) == expected
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_respects_service_filter(self) -> None:
         self._insert(
             [self._log("auth check passed", service="api") for _ in range(3)]
@@ -199,7 +199,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         services_seen = {svc for p in results["patterns"] for svc in p["services"]}
         assert services_seen == {"api"}
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_empty_window_returns_no_patterns(self) -> None:
         results = self._run()
 

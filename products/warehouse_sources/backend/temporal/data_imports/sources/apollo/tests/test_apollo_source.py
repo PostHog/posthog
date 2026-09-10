@@ -34,6 +34,12 @@ class TestApolloSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_vendor_error for key in non_retryable_errors)
 
+    def test_retryable_errors_match_rate_limit_raise(self):
+        # The string fetch_page re-raises after exhausting its Retry-After backoff.
+        observed_error = "Apollo API error (retryable): status=429, url=https://api.apollo.io/api/v1/contacts/search"
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 

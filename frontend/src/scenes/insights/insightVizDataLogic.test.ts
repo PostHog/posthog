@@ -2,7 +2,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -29,6 +28,11 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import {
+    funnelInvalidExclusionError,
+    funnelResult,
+} from 'products/product_analytics/frontend/insights/funnels/__mocks__/funnelDataLogicMocks'
 
 import { insightDataLogic } from './insightDataLogic'
 
