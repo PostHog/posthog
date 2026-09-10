@@ -374,6 +374,42 @@ class TestPrinter(BaseTest):
         printed = self._select("select [1, 2, 3][1:3]")
         self.assertIn("arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))", printed)
 
+    @parameterized.expand(
+        [
+            (
+                "non_constant_result",
+                "select transform(event, ['a', 'b'], [event, 'y'], 'z') from events",
+                "multiIf(equals(events.event, %(hogql_val_0)s), events.event, "
+                "equals(events.event, %(hogql_val_1)s), %(hogql_val_2)s, %(hogql_val_3)s)",
+            ),
+            (
+                "non_constant_match",
+                "select transform(event, [event, 'b'], ['x', 'y'], 'z') from events",
+                "multiIf(equals(events.event, events.event), %(hogql_val_0)s, "
+                "equals(events.event, %(hogql_val_1)s), %(hogql_val_2)s, %(hogql_val_3)s)",
+            ),
+            (
+                "without_default",
+                "select transform(event, ['a'], [upper(event)]) from events",
+                "multiIf(equals(events.event, %(hogql_val_0)s), upper(events.event), events.event)",
+            ),
+            (
+                "constant_arrays_keep_transform",
+                "select transform(event, ['a', 'b'], ['x', 'y'], 'z') from events",
+                "transform(events.event, [%(hogql_val_0)s, %(hogql_val_1)s], "
+                "[%(hogql_val_2)s, %(hogql_val_3)s], %(hogql_val_4)s)",
+            ),
+        ]
+    )
+    def test_transform_falls_back_to_multi_if(self, _name: str, query: str, expected: str):
+        self.assertIn(expected, self._select(query))
+
+    def test_transform_with_non_constant_arrays_executes_on_clickhouse(self):
+        # ClickHouse rejects a `transform` whose match or result array is not constant, even over no rows.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("select transform(event, ['a', 'b'], [event, 'y'], 'z') from events", context)
+        self.assertEqual(sync_execute(sql, context.values), [])
+
     def test_try_cast_non_postgres_error(self):
         self._assert_query_error(
             "select try_cast(1 as Int64)",

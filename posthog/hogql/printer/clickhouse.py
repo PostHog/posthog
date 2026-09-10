@@ -911,7 +911,33 @@ class ClickHousePrinter(BasePrinter):
             if parse_sql_runtime_type(type_arg.value).family == "unknown":
                 raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
 
+        if node.name.lower() == "transform":
+            multi_if = self._transform_as_multi_if(node)
+            if multi_if is not None:
+                return self.visit(multi_if)
+
         return super().visit_call(node)
+
+    def _transform_as_multi_if(self, node: ast.Call) -> ast.Call | None:
+        # ClickHouse rejects a `transform` whose match or result array holds a column or a computed value.
+        # A `multiIf` chain has no such limit, so print that instead of letting the query fail.
+        if len(node.args) not in (3, 4):
+            return None
+        source, matches, results = node.args[:3]
+        if not isinstance(matches, ast.Array) or not isinstance(results, ast.Array):
+            return None
+        if not matches.exprs or len(matches.exprs) != len(results.exprs):
+            return None
+        if all(isinstance(expr, ast.Constant) for expr in [*matches.exprs, *results.exprs]):
+            return None
+
+        args: list[ast.Expr] = []
+        for match, result in zip(matches.exprs, results.exprs):
+            args.append(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=source, right=match))
+            args.append(result)
+        # A three-argument `transform` returns the source value when nothing matches.
+        args.append(node.args[3] if len(node.args) == 4 else source)
+        return ast.Call(name="multiIf", args=args)
 
     def visit_array_slice(self, node: ast.ArraySlice):
         array_str = self.visit(node.array)
