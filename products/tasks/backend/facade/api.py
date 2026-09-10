@@ -2300,6 +2300,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        # The OpenAI queue the run's Codex turns join; `priority` costs more than standard.
+        "service_tier",
         "claude_model_access",
         "claude_subscription_user_id",
         "rtk_effective",
