@@ -163,9 +163,13 @@ def start_recalculation_for_experiment(
     try:
         start_metrics_recalculation_workflow(recalculation_id, str(experiment.team.organization_id))
     except Exception as e:
-        ExperimentMetricsRecalculation.objects.for_team(experiment.team_id).filter(id=recalculation_id).update(
-            status=ExperimentMetricsRecalculation.Status.FAILED
-        )
+        # start_workflow can raise after the server accepted the start, so only roll back a row the
+        # workflow provably never touched: still PENDING with no query_to (mirrors the API rollback).
+        ExperimentMetricsRecalculation.objects.for_team(experiment.team_id).filter(
+            id=recalculation_id,
+            status=ExperimentMetricsRecalculation.Status.PENDING,
+            query_to__isnull=True,
+        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
         messages.error(request, f"Created the row but failed to start the workflow (marked failed): {e}")
         return HttpResponseRedirect(fallback_url)
 
