@@ -1,5 +1,6 @@
 import json
 import uuid
+import tracemalloc
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -184,6 +185,23 @@ class TestFormatTraceForJudge:
 
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
         assert "SAMPLED VIEW" in transcript
+
+    @pytest.mark.parametrize("event_count,message_count", [(50, 1), (1, 50)])
+    def test_oversized_messages_do_not_allocate_the_full_transcript(self, event_count: int, message_count: int) -> None:
+        content = "start " + "x" * 500_000 + " end"
+        messages = [{"role": "user", "content": content} for _ in range(message_count)]
+        trace = create_trace([create_trace_event(**{"$ai_input": messages}) for _ in range(event_count)])
+
+        tracemalloc.start()
+        try:
+            transcript = format_trace_for_judge(trace)
+            _, peak_bytes = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        assert "chars truncated" in transcript
+        assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
+        assert peak_bytes < 10_000_000
 
     def test_marks_errored_events(self):
         trace = create_trace(

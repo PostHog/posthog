@@ -151,6 +151,28 @@ class TestFormatSessionForJudge:
         assert " end" in rendered
         assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
 
+    @pytest.mark.parametrize("budget_delta", [-1, 0])
+    def test_session_budget_includes_trace_headers_and_separators(self, budget_delta: int) -> None:
+        traces = [_trace("t-alpha", cost=0, latency=0), _trace("t-beta", cost=0, latency=0)]
+        content = "start " + "x" * 2_000 + " critical evidence " + "y" * 2_000 + " end"
+        traces[0].events[0].properties["$ai_input"] = [{"role": "user", "content": content}]
+        expected = format_session_for_judge(traces)
+        assert expected is not None
+
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.JUDGE_SESSION_MAX_CHARS",
+            len(expected) + budget_delta,
+        ):
+            rendered = format_session_for_judge(traces)
+
+        assert rendered is not None
+        assert "t-beta" in rendered
+        if budget_delta < 0:
+            assert "chars truncated" in rendered
+            assert "critical evidence" not in rendered
+        else:
+            assert rendered == expected
+
 
 @freeze_time(FROZEN_NOW)
 class TestCountSessionEvents:

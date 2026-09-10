@@ -50,6 +50,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
 )
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
+    RenderBudgetExceeded,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
@@ -358,13 +359,23 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
             "max_length": per_trace_budget if truncated else None,
         }
         sections: list[str] = []
+        rendered_length = 0
         for index, trace in enumerate(traces, start=1):
+            header = f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n"
+            rendered_length += len(header) + (2 if sections else 0)
+            if not truncated:
+                options["max_render_length"] = JUDGE_SESSION_MAX_CHARS - rendered_length
             trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
-            text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-            sections.append(f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n{text}")
-        rendered = "\n\n".join(sections)
-        if len(rendered) <= JUDGE_SESSION_MAX_CHARS:
-            return rendered
+            try:
+                text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
+            except RenderBudgetExceeded:
+                break
+            sections.append(header + text)
+            rendered_length += len(text)
+        else:
+            rendered = "\n\n".join(sections)
+            if len(rendered) <= JUDGE_SESSION_MAX_CHARS:
+                return rendered
     return None
 
 

@@ -78,6 +78,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
 )
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
+    RenderBudgetExceeded,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
@@ -456,11 +457,15 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
         "truncated": False,
         "include_line_numbers": True,
         "max_length": None,
+        "max_render_length": JUDGE_TRACE_MAX_CHARS,
     }
-    text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-    if len(text) <= JUDGE_TRACE_MAX_CHARS:
+    try:
+        text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
         return text
+    except RenderBudgetExceeded:
+        pass
 
+    del options["max_render_length"]
     options["truncated"] = True
     options["max_length"] = JUDGE_TRACE_MAX_CHARS
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)

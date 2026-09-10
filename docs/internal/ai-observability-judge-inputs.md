@@ -13,6 +13,7 @@ They do not change with the selected judge model.
 ## Trace and session formatting
 
 Trace and session evaluations first render a text representation with message truncation and line sampling disabled.
+This attempt stops when the text exceeds the budget, before assembling the complete oversized transcript in memory.
 If the complete rendered transcript fits its budget, the evaluation uses that text.
 For sessions, this check includes every trace and the separators between traces, so a large trace can use space left by smaller traces.
 
