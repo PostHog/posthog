@@ -1196,12 +1196,12 @@ def test_examples_key_layout_is_per_feature_set():
 
 
 # Before every snapshot the tests build, so a vector counts as present unless a test says otherwise.
-LANDED_EARLY = pd.Timestamp("2026-08-01T00:00:00Z")
+LANDED_EARLY = datetime.datetime(2026, 8, 1, tzinfo=datetime.UTC)
 # The end of D0, the moment a D0 example or a D0 score is built as of.
-SNAPSHOT_END = pd.Timestamp("2026-08-11T00:00:00Z")
+SNAPSHOT_END = datetime.datetime(2026, 8, 11, tzinfo=datetime.UTC)
 
 
-def _report_vectors(vectors: dict[str, object], landed: pd.Timestamp = LANDED_EARLY) -> Extras:
+def _report_vectors(vectors: dict[str, object], landed: datetime.datetime = LANDED_EARLY) -> Extras:
     """The report-vector side input, shaped like the dt=D `inbox_report_embeddings` snapshot."""
     frame = pd.DataFrame(
         {EMBEDDING_COLUMN: list(vectors.values()), EMBEDDING_INSERTED_AT_COLUMN: [landed] * len(vectors)},
