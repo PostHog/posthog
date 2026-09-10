@@ -25,8 +25,7 @@
 #
 # ---------------------------------------------------------
 #
-# Digest-pinned because the runtime `node` binary is copied out of this stage, replacing a
-# GPG-verified download.
+# Digest-pinned because the runtime stage copies its `node` binary out of this stage.
 FROM node:24.13.0-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -300,8 +299,7 @@ RUN apt-get update && \
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl3=3.0.*" \
     "libjemalloc2" \
-    # sklearn's OpenMP kernels, xgboost and numba's omppool link libgomp.so.1 and
-    # vendor no copy of it. The old base supplied it through gcc.
+    # sklearn, xgboost and numba link libgomp.so.1 and vendor no copy of it.
     "libgomp1" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -309,8 +307,7 @@ RUN apt-get update && \
 # Note: no MS SQL ODBC driver is installed — the data-warehouse MSSQL source uses pymssql, which
 # bundles FreeTDS in its wheel and does not use msodbcsql18/unixodbc (there is no pyodbc in the tree).
 
-# Only the `node` binary is used at runtime (the plugin transpiler subprocess), so take it from
-# node-base rather than fetching and verifying a second copy of the same release. Note: the dev-only
+# Only the `node` binary is used at runtime (the plugin transpiler subprocess). Note: the dev-only
 # `create_channel_definitions_file` management command shells out to `npx prettier` to regenerate a
 # checked-in file; it is not run in this image.
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
