@@ -102,6 +102,7 @@ export function useDiscussReport({
         // Routes the per-report cap: a discussion must not consume the
         // report's one-live-implementation (PR) gate.
         signalReportTaskRelationship: "discussion",
+        signalReportDiscussionQuestion: question?.trim() ?? "",
         // Files the session in the report's space so it shows in that
         // space's Sessions tab; without it the task belongs to no space.
         channelId: channelId ?? undefined,

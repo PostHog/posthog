@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     _ORG_PERMISSION_REASON,
     ORG_SCOPED_ENDPOINTS,
+    REPOSITORY_NOT_ACCESSIBLE_REASON,
     GithubEgressIdentity,
     GithubResumeConfig,
     check_org_endpoint_permission,
@@ -131,6 +132,17 @@ GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
 # template lands `body[eventType]` as the row and these nest the object under a different key
 # (`alert` for the code-scanning/Dependabot/secret-scanning alerts, `forkee` for forks), so each
 # needs its own reshaping branch before its webhook rows would match what the poll path writes.
+
+
+_REPOSITORY_ACCESS_GUIDANCE = "Check the spelling and that your token has read access."
+
+
+def _join_validation_failures(failures: list[str]) -> str:
+    """Join the per-repository failures, with one next step for the whole list rather than one each."""
+    joined = "; ".join(failures)
+    if any(REPOSITORY_NOT_ACCESSIBLE_REASON in failure for failure in failures):
+        return f"{joined}. {_REPOSITORY_ACCESS_GUIDANCE}"
+    return joined
 
 
 @SourceRegistry.register
@@ -645,9 +657,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 # A 401 is token-level — probing further repos yields the same answer.
                 if message == "Invalid personal access token":
                     return False, message
-                failures.append(message or f"Repository '{repository}' not found or not accessible")
+                failures.append(message or f"Repository '{repository}' {REPOSITORY_NOT_ACCESSIBLE_REASON}")
             if failures:
-                return False, "; ".join(failures)
+                return False, _join_validation_failures(failures)
             return True, None
         except Exception as e:
             # `_get_access_token` and the OAuth mixin raise deterministic config/credential errors
@@ -946,7 +958,6 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             inputs.s3_folder_name if isinstance(inputs.s3_folder_name, str) and inputs.s3_folder_name else None
         )
         response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)
-
         return github_source(
             personal_access_token=access_token,
             repository=repository,
@@ -958,6 +969,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            reconcile_since=inputs.last_synced_at,
             webhook_source_manager=webhook_source_manager,
             egress_identity=egress_identity,
             response_name=response_name,

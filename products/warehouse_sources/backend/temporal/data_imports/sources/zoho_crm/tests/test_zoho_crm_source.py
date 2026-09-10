@@ -51,6 +51,13 @@ class TestZohoCRMSource:
         assert self.source.default_version == "v8"
         assert self.source.api_docs_url.startswith("https://")
 
+    def test_non_json_response_message_matches_non_retryable_error(self) -> None:
+        # The classifier matches a prefix, so the variable URL must not stop the match.
+        raised = "Non-JSON response from https://www.zohoapis.com/crm/v8/Leads"
+        matches = [friendly for key, friendly in self.source.get_non_retryable_errors().items() if key in raised]
+
+        assert matches and matches[0] is not None
+
     def test_source_config_documents_scopes_the_requests_require(self) -> None:
         # `settings.modules.READ` is the easy one to drop, because nothing in the sync path uses it:
         # it exists only so `validate_credentials` can probe /settings/modules. Zoho answers that

@@ -79,6 +79,10 @@ STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 # PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
 # when a legitimate dependency host is missing — never a way to open the sandbox wide.
 STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
+# Models the reviewer's per-run gateway token may call, comma-separated; empty leaves the token
+# unpinned. Set per region in charts (temporal-worker-stamphog); pin every model the Agent SDK
+# uses in a review, including its small utility model.
+STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS = get_list(get_from_env("STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS", ""))
 # The in-product "Publish to community" flow runs as its own dedicated GitHub App, installed on the
 # PostHog/community-skills repo alone. It does not fall back to the core GITHUB_APP_* App above,
 # which is installed across the whole PostHog org: a dedicated App cannot reach another repository
@@ -180,6 +184,13 @@ PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
 # Unlayer (server-side email design → HTML rendering for message templates)
 UNLAYER_API_KEY = get_from_env("UNLAYER_API_KEY", "")
 UNLAYER_API_BASE_URL = get_from_env("UNLAYER_API_BASE_URL", "https://api.unlayer.com")
+
+# Outbound budget for one Browserless fleet, shared by every caller pointed at it. Browserless
+# meters concurrent sessions, and a session is held for the whole page load, so these count
+# browser loads rather than API calls. Sized above normal draw: the budget is there to stop one
+# consumer exhausting the fleet, not to pace healthy traffic.
+BROWSERLESS_EGRESS_PER_MINUTE_BUDGET = get_from_env("BROWSERLESS_EGRESS_PER_MINUTE_BUDGET", 120, type_cast=int)
+BROWSERLESS_EGRESS_HOURLY_BUDGET = get_from_env("BROWSERLESS_EGRESS_HOURLY_BUDGET", 2000, type_cast=int)
 
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")

@@ -60,7 +60,6 @@ from products.replay_vision.backend.models.vision_alert import (
 )
 from products.replay_vision.backend.observation_formatting import describe_output
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.vision_actions.synthesis import apply_observation_predicate
 from products.replay_vision.backend.temporal.vision_alerts.constants import (
     CLEANUP_BATCH_SIZE,
     MATCH_DESCRIPTOR_MAX_CHARS,
@@ -71,6 +70,7 @@ from products.replay_vision.backend.temporal.vision_alerts.constants import (
     MAX_MATCHES_PER_BUNDLE,
     NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
 )
+from products.replay_vision.backend.temporal.vision_alerts.observation_predicate import apply_observation_predicate
 
 logger = structlog.get_logger(__name__)
 

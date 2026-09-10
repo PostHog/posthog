@@ -138,7 +138,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -189,6 +193,30 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
@@ -326,7 +354,11 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsUpdateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -377,6 +409,30 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
@@ -521,7 +577,9 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
         start_date: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -572,6 +630,30 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
