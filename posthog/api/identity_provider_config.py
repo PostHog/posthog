@@ -1,4 +1,5 @@
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from django.db import transaction
 from django.db.models import Q
@@ -206,8 +207,6 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
         return self._validate_id_jag_url(value)
 
     def validate_oidc_issuer_url(self, value: str) -> str:
-        from urllib.parse import urlsplit
-
         normalized = value.strip()
         if normalized:
             parsed = urlsplit(normalized)
