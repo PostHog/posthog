@@ -476,12 +476,13 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     non_retryable_error_types=[],
                 ),
             )
-            await _start_claimed_subscription_children(page.subscriptions, inputs.region)
+            region = page.region or inputs.region or "local"
+            await _start_claimed_subscription_children(page.subscriptions, region)
             if page.next_discovery_cursor is not None:
                 advanced = await temporalio.workflow.execute_activity(
                     advance_subscription_scheduler_cursor_activity,
                     AdvanceSubscriptionSchedulerCursorInputs(
-                        region=inputs.region,
+                        region=region,
                         expected_discovery_cursor=page.expected_discovery_cursor,
                         next_discovery_cursor=page.next_discovery_cursor,
                     ),
@@ -761,6 +762,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # Defer the re-raise until after the finally block — see note below.
 
         finally:
+            delivery_failed_before_record_update = caught_error is not None
             # Finalize delivery record with whatever state we have
             if delivery_id is not None:
                 try:
@@ -798,7 +800,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             if (
                 delivery_id is not None
                 and temporalio.workflow.patched("subscription-delivery-failure-notification-2026-08")
-                and (caught_error is not None or delivery_failed_without_exception)
+                and (delivery_failed_before_record_update or delivery_failed_without_exception)
                 and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
             ):
                 try:
@@ -819,13 +821,17 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # just-auto-disabled sub doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 try:
-                    await temporalio.workflow.execute_activity(
+                    advance_result = await temporalio.workflow.execute_activity(
                         advance_next_delivery_date,
                         inputs.subscription_id,
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
-                    schedule_advanced = True
+                    schedule_advanced = (
+                        advance_result is not False
+                        if temporalio.workflow.patched("subscription-scheduler-advance-result-v1")
+                        else True
+                    )
                 except Exception as schedule_error:
                     temporalio.workflow.logger.exception(
                         "advance_next_delivery_date failed (schedule update is best-effort when a prior error exists)"
@@ -1029,6 +1035,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             final_status = DeliveryStatus.FAILED
 
         finally:
+            delivery_failed_before_record_update = caught_error is not None
             if delivery_id is not None:
                 try:
                     await temporalio.workflow.execute_activity(
@@ -1058,7 +1065,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             if (
                 delivery_id is not None
                 and temporalio.workflow.patched("subscription-delivery-failure-notification-2026-08")
-                and caught_error is not None
+                and delivery_failed_before_record_update
                 and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
             ):
                 try:
@@ -1079,13 +1086,17 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 try:
-                    await temporalio.workflow.execute_activity(
+                    advance_result = await temporalio.workflow.execute_activity(
                         advance_next_delivery_date,
                         inputs.subscription_id,
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
-                    schedule_advanced = True
+                    schedule_advanced = (
+                        advance_result is not False
+                        if temporalio.workflow.patched("subscription-scheduler-advance-result-v1")
+                        else True
+                    )
                 except Exception as schedule_error:
                     temporalio.workflow.logger.exception(
                         "advance_next_delivery_date failed (schedule update is best-effort when a prior error exists)"
