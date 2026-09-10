@@ -27,10 +27,11 @@ let reportedError: { code: string; detail: string } | null = null
  * connection would hold `loginLogic`, `login2FALogic` and `passwordResetLogic` mounted on pages that
  * do not use them, and their state would carry over from one visit to the next. String keys let this
  * logic hear the actions without the connection. A kea action type is `<action name as words>
- * (<logic path>)`, so renaming an action or moving its logic changes the string, and the listener
- * tests then fail.
+ * (<logic path>)`, so renaming an action or changing its logic's path changes the string.
+ * `loginTelemetryLogic.test.ts` reads each type off the real logic and fails when a string no longer
+ * matches, when an action is renamed, or when a logic's module moves.
  */
-const LISTENED_ACTIONS = {
+export const LISTENED_ACTIONS = {
     submitLoginRequest: 'submit login request (scenes.authentication.login.loginLogic)',
     loginError: 'set general error (scenes.authentication.login.loginLogic)',
     codeVerificationFailure: 'submit code verification failure (scenes.authentication.login.loginLogic)',
