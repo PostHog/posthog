@@ -97,6 +97,7 @@ class TestFindings(SimpleTestCase):
             (
                 FindingKind.NO_EVENT_FILTER,
                 None,
+                None,
                 (
                     "Queries are fastest when they name a fixed set of events. This query has no event filter, so it "
                     "reads every event you have ever sent, which is slow. If the question is about specific events, "
@@ -106,14 +107,27 @@ class TestFindings(SimpleTestCase):
             (
                 FindingKind.EVENT_FILTER_NOT_USED,
                 FindingReason.IN_OR,
+                "properties.plan = 'pro' OR event = 'upgrade'",
                 (
                     "Queries are fastest when they name a fixed set of events. This query names events only inside an "
-                    "OR with another condition, so that filter cannot be used and it still reads every event, which "
-                    "is slow. Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`."
+                    "OR with another condition (`properties.plan = 'pro' OR event = 'upgrade'`), so that filter cannot "
+                    "be used and it still reads every event, which is slow. Put the event filter outside the OR: "
+                    "`WHERE event IN ('…') AND (… OR …)`."
+                ),
+            ),
+            (
+                FindingKind.EVENT_FILTER_NOT_USED,
+                FindingReason.NEGATED,
+                None,
+                (
+                    "Queries are fastest when they explicitly enumerate the events they want. This query only excludes "
+                    "events, so that filter cannot be used and it still reads most events, which is slow. Explicitly "
+                    "enumerate the events you want instead."
                 ),
             ),
             (
                 FindingKind.NO_START_DATE,
+                None,
                 None,
                 (
                     "Queries are fastest when they start from a recent date. This query has no start date, so it "
@@ -124,6 +138,7 @@ class TestFindings(SimpleTestCase):
             (
                 FindingKind.PERSONS_JOIN,
                 None,
+                None,
                 (
                     "Queries are fastest when they take person details from the events table. This query joins the "
                     "persons table, so every run reads every person in your project, which is slow. Read person "
@@ -132,12 +147,13 @@ class TestFindings(SimpleTestCase):
             ),
         ]
     )
-    def test_message_pairs_the_lead_with_its_advice(
-        self, kind: FindingKind, reason: FindingReason | None, expected: str
+    def test_message_pairs_the_lead_with_its_advice_and_quotes_the_clause(
+        self, kind: FindingKind, reason: FindingReason | None, clause: str | None, expected: str
     ) -> None:
         warning = build_warning(
             kind=kind,
             reason=reason,
+            clause=clause,
             measurements=ScanMeasurements(rows_read=8_400_000_000, duration_ms=19_000, person_rows=150_000_000),
         )
 

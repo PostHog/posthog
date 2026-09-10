@@ -55,7 +55,8 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.IN_OR): _Copy(
         lead=(
             "Queries are fastest when they name a fixed set of events. This query names events only inside an OR "
-            "with another condition, so that filter cannot be used and it still reads every event, which is slow."
+            "with another condition{clause}, so that filter cannot be used and it still reads every event, which "
+            "is slow."
         ),
         advice="Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`.",
         fix=(
@@ -67,7 +68,7 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.WRAPPED): _Copy(
         lead=(
             "Queries are fastest when they compare `event` directly to fixed names. This query wraps `event` in a "
-            "function, so that filter cannot be used and it still reads every event, which is slow."
+            "function{clause}, so that filter cannot be used and it still reads every event, which is slow."
         ),
         advice="Compare `event` directly to the names.",
         fix=(
@@ -79,7 +80,7 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.NEGATED): _Copy(
         lead=(
             "Queries are fastest when they explicitly enumerate the events they want. This query only excludes "
-            "events, so that filter cannot be used and it still reads most events, which is slow."
+            "events{clause}, so that filter cannot be used and it still reads most events, which is slow."
         ),
         advice="Explicitly enumerate the events you want instead.",
         fix=(
@@ -91,7 +92,8 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.DYNAMIC): _Copy(
         lead=(
             "Queries are fastest when they compare `event` to fixed names. This query compares `event` to another "
-            "column or a subquery, so that filter cannot be used and it still reads every event, which is slow."
+            "column or a subquery{clause}, so that filter cannot be used and it still reads every event, which is "
+            "slow."
         ),
         advice="Compare `event` to fixed names.",
         fix=(
@@ -103,7 +105,7 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.NOT_PRUNED): _Copy(
         lead=(
             "Queries are fastest when they compare `event` directly to fixed names. This query has an event "
-            "filter, but it could not be used, so it still read every event, which is slow."
+            "filter{clause}, but it could not be used, so it still read every event, which is slow."
         ),
         advice="Compare `event` directly to fixed names, outside any OR.",
         fix="Compare `event` directly to fixed event names, outside any OR. Change nothing else.",
@@ -121,8 +123,8 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     (FindingKind.NO_START_DATE, FindingReason.COLUMN): _Copy(
         lead=(
             "Queries are fastest when they start from a fixed date. This query's start date comes from another "
-            "column, so older data cannot be skipped and it reads everything back to the beginning, which is "
-            "slow."
+            "column{clause}, so older data cannot be skipped and it reads everything back to the beginning, which "
+            "is slow."
         ),
         advice="Compare `timestamp` to a fixed date, for example `timestamp >= now() - interval 30 day`.",
         fix="Compare `timestamp` to a fixed start date instead of another column. Change nothing else.",
@@ -195,10 +197,12 @@ def build_warning(
     evidence: str | None = None,
 ) -> QueryScanWarning:
     copy = _COPY[(kind, reason)]
+    # The clause is the person's own text, so it sits inside the sentence that describes it.
+    lead = copy.lead.format(clause=f" (`{clause}`)" if clause else "")
     return QueryScanWarning(
         kind=kind,
         reason=reason,
-        message=f"{copy.lead} {copy.advice}",
+        message=f"{lead} {copy.advice}",
         fix=copy.fix,
         clause=clause,
         evidence=evidence,
