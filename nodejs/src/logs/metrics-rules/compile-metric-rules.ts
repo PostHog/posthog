@@ -9,7 +9,7 @@ export const MAX_GROUP_BY_KEYS = 5
 export type MetricRuleSource = 'logs' | 'spans'
 
 /** Top-level keys usable as span group-by dimensions (log-only keys like severity_text excluded). */
-export const SPAN_GROUP_BY_TOP_LEVEL_KEYS = new Set(['service_name', 'name', 'status_code'])
+export const SPAN_GROUP_BY_TOP_LEVEL_KEYS = new Set(['service_name', 'name', 'status_code', 'kind'])
 
 /** Top-level keys usable as log group-by dimensions (span-only keys like name/status_code excluded). */
 export const LOG_GROUP_BY_TOP_LEVEL_KEYS = new Set(['service_name', 'severity_text', 'event_name'])

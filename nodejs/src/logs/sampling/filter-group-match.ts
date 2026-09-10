@@ -24,6 +24,7 @@ const PROPERTY_FILTER_TYPE_LOG = 'log'
 const PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE = 'log_attribute'
 const PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE = 'log_resource_attribute'
 const PROPERTY_FILTER_TYPE_SPAN_ATTRIBUTE = 'span_attribute'
+const PROPERTY_FILTER_TYPE_SPAN_RESOURCE_ATTRIBUTE = 'span_resource_attribute'
 
 /**
  * Hard ceiling on filter-group nesting depth. The drop-rules UI surfaces at
@@ -117,9 +118,21 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         if (key === 'name') {
             return (record as { name?: string | null }).name ?? decodedAttr(record.attributes, key)
         }
+        if (key === 'kind') {
+            const kind = (record as { kind?: number | null }).kind
+            return kind == null ? decodedAttr(record.attributes, key) : String(kind)
+        }
     }
 
-    if (filter.type === PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE) {
+    if (
+        filter.type === PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE ||
+        filter.type === PROPERTY_FILTER_TYPE_SPAN_RESOURCE_ATTRIBUTE
+    ) {
+        // Span resource attributes live on the same resource_attributes map (a span
+        // arrives as a LogRecord through the shared Avro decode path). Without this
+        // branch a span_resource_attribute leaf fell through to the untyped fallback,
+        // which reads span *attributes* first — so a same-named span attribute would
+        // shadow the resource attribute the filter asked for.
         return decodedAttr(record.resource_attributes, key)
     }
     if (filter.type === PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE || filter.type === PROPERTY_FILTER_TYPE_SPAN_ATTRIBUTE) {

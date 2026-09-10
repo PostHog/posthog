@@ -117,7 +117,62 @@ describe('span-based metric rules', () => {
             const tallies = createBatchTallies()
             tallyRecords(rules, [spanRecord()], tallies, NOW_MS)
             const entries = [...tallies.byRule.get('span-rule-1')!.values()]
-            expect(entries[0]!.labelValues).toEqual(['GET /checkout', '2'])
+            expect(entries[0]!.labelValues).toEqual(['GET /checkout', 'ERROR'])
+        })
+
+        it('labels status_code with the OTel enum name, falling back to the raw value for unknown codes', () => {
+            const rules = compileMetricRules([spanRuleRow({ filter_group: null, group_by: ['status_code'] })])
+            const tallies = createBatchTallies()
+            tallyRecords(
+                rules,
+                [spanRecord({ status_code: 0 }), spanRecord({ status_code: 1 }), spanRecord({ status_code: 99 })],
+                tallies,
+                NOW_MS
+            )
+            const labels = [...tallies.byRule.get('span-rule-1')!.values()].map((e) => e.labelValues[0])
+            expect(labels).toEqual(['UNSET', 'OK', '99'])
+        })
+
+        it('accepts kind as a span group-by key and labels it with the OTel kind name', () => {
+            const rules = compileMetricRules([spanRuleRow({ filter_group: null, group_by: ['kind'] })])
+            expect(rules).toHaveLength(1)
+            const tallies = createBatchTallies()
+            tallyRecords(rules, [spanRecord({ kind: 2 }), spanRecord({ kind: 3 })], tallies, NOW_MS)
+            const labels = [...tallies.byRule.get('span-rule-1')!.values()].map((e) => e.labelValues[0])
+            expect(labels).toEqual(['SERVER', 'CLIENT'])
+        })
+
+        it('measures staleness from end_time, so a long-running span that just ended still tallies', () => {
+            // A 25-minute batch-job span: start is older than MAX_RECORD_AGE_MS but the span
+            // ended just now. Gating on start time would drop it and truncate the latency
+            // tail a duration_ms rule exists to show.
+            const rules = compileMetricRules([spanRuleRow({ value_attribute: SPAN_VALUE_DURATION_MS })])
+            const tallies = createBatchTallies()
+            tallyRecords(
+                rules,
+                [spanRecord({ timestamp: (NOW_MS - 25 * 60 * 1000) * 1000, end_time: NOW_MS * 1000 })],
+                tallies,
+                NOW_MS
+            )
+            const entries = [...tallies.byRule.get('span-rule-1')!.values()]
+            expect(entries).toHaveLength(1)
+        })
+
+        it('still drops a replayed span whose end_time is older than the staleness window', () => {
+            const rules = compileMetricRules([spanRuleRow()])
+            const tallies = createBatchTallies()
+            tallyRecords(
+                rules,
+                [
+                    spanRecord({
+                        timestamp: (NOW_MS - 60 * 60 * 1000) * 1000,
+                        end_time: (NOW_MS - 30 * 60 * 1000) * 1000,
+                    }),
+                ],
+                tallies,
+                NOW_MS
+            )
+            expect(tallies.byRule.get('span-rule-1')).toBeUndefined()
         })
     })
 })

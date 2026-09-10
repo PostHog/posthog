@@ -99,7 +99,7 @@ class TestLogsMetricRuleSerializerValidation(SimpleTestCase):
     def test_span_rule_accepts_span_top_level_group_by_keys(self):
         s = self._serializer(
             source="spans",
-            group_by=["service_name", "name", "status_code", "attributes.http.route"],
+            group_by=["service_name", "name", "status_code", "kind", "attributes.http.route"],
         )
         assert s.is_valid(), s.errors
 
@@ -118,6 +118,7 @@ class TestLogsMetricRuleSerializerValidation(SimpleTestCase):
         [
             ("name", ["name"]),
             ("status_code", ["status_code"]),
+            ("kind", ["kind"]),
         ]
     )
     def test_log_rule_rejects_span_only_group_by_keys(self, _label, group_by):

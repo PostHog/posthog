@@ -226,6 +226,38 @@ describe('matchFilterGroup', () => {
             const g = group({ values: [{ key: 'name', type: 'span_attribute', operator: 'exact', value: 'GET /x' }] })
             expect(matchFilterGroup(g, baseRecord({ attributes: { name: 'GET /x' } }))).toBe(true)
         })
+        it('span_attribute kind reads the span column', () => {
+            const g = group({ values: [{ key: 'kind', type: 'span_attribute', operator: 'exact', value: '2' }] })
+            const span = baseRecord({}) as LogRecord & { kind: number }
+            span.kind = 2
+            expect(matchFilterGroup(g, span)).toBe(true)
+            const other = baseRecord({}) as LogRecord & { kind: number }
+            other.kind = 3
+            expect(matchFilterGroup(g, other)).toBe(false)
+        })
+        it('span_attribute kind falls back to the attribute map when the column is unset', () => {
+            const g = group({ values: [{ key: 'kind', type: 'span_attribute', operator: 'exact', value: '2' }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { kind: '2' } }))).toBe(true)
+        })
+        it('span_resource_attribute reads the resource map only, not a same-named span attribute', () => {
+            // Regression: without a dedicated branch this leaf fell through to the untyped
+            // fallback, which reads span attributes first — so a span attribute named like
+            // the resource attribute shadowed it.
+            const g = group({
+                values: [
+                    {
+                        key: 'deployment.environment',
+                        type: 'span_resource_attribute',
+                        operator: 'exact',
+                        value: 'staging',
+                    },
+                ],
+            })
+            expect(
+                matchFilterGroup(g, baseRecord({ resource_attributes: { 'deployment.environment': 'staging' } }))
+            ).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ attributes: { 'deployment.environment': 'staging' } }))).toBe(false)
+        })
     })
 
     describe('wire-encoded attribute values', () => {

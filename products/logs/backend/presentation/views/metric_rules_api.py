@@ -133,7 +133,9 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
             f"metric series. For `source=logs` rules allowed: {', '.join(METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS)}; "
             f"for `source=spans` rules allowed: {', '.join(METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS)}; for either, "
             "map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, "
-            "request IDs) — excess series are dropped at ingestion."
+            "request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is "
+            "high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so "
+            "grouping by `name` can overflow the per-rule series cap on its own."
         ),
     )
     # `source` collides with DRF's Field.source typing (the attribute lookup), hence the ignore.
