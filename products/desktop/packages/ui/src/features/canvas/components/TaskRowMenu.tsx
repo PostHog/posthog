@@ -224,7 +224,7 @@ function TaskRowMenuItems({
               onSelect={(channelId) =>
                 menu.kind === "canvas"
                   ? menu.onFile?.(channelId)
-                  : fileToChannel(channelId, menu.id, menu.title)
+                  : fileToChannel(channelId, menu.id)
               }
             />
           </MenuSubFlyout>

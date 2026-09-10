@@ -148,7 +148,7 @@ export function useTaskContextMenu() {
             await onHandoff?.();
             break;
           case "file-to-channel":
-            await fileTaskToChannel(intent.channelId, task.id, task.title);
+            await fileTaskToChannel(intent.channelId, task.id);
             break;
           case "external-app": {
             const effectivePath = resolveExternalAppPath(

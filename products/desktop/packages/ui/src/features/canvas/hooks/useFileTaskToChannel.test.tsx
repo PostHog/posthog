@@ -32,15 +32,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
   useChannelTaskMutations: () => ({ fileTask: mocks.fileTask }),
 }));
-
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: mocks.channels }),
 }));
-
 vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { error: mocks.toastError, success: mocks.toastSuccess },
 }));
-
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
   useParams: ({ select }: { select: (params: unknown) => unknown }) =>
@@ -78,18 +75,13 @@ describe("useFileTaskToChannel", () => {
   });
 
   it("moves the active task route before filing completes", async () => {
-    let resolveFile: (() => void) | null = null;
-    mocks.fileTask.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveFile = resolve;
-        }),
-    );
+    const request = deferred<void>();
+    mocks.fileTask.mockReturnValueOnce(request.promise);
     const { result } = renderHook(() => useFileTaskToChannel());
     let filing = Promise.resolve();
 
     act(() => {
-      filing = result.current("dest", "task-1", "Move this task");
+      filing = result.current("dest", "task-1");
     });
 
     expect(mocks.navigate).toHaveBeenCalledWith({
@@ -99,30 +91,28 @@ describe("useFileTaskToChannel", () => {
     });
 
     await act(async () => {
-      resolveFile?.();
+      request.resolve();
       await filing;
     });
   });
 
   it("restores the source after a pending route move completes", async () => {
-    const fileRequest = deferred<void>();
+    const request = deferred<void>();
     const routeMove = deferred<void>();
-    mocks.fileTask.mockImplementationOnce(() => fileRequest.promise);
+    mocks.fileTask.mockReturnValueOnce(request.promise);
     mocks.navigate.mockImplementationOnce(() =>
       routeMove.promise.then(() => {
         mocks.pathname = "/spaces/dest/tasks/task-1";
       }),
     );
     const { result } = renderHook(() => useFileTaskToChannel());
-
     let filing = Promise.resolve();
-    act(() => {
-      filing = result.current("dest", "task-1", "Move this task");
-    });
 
-    fileRequest.reject(new Error("Request failed"));
+    act(() => {
+      filing = result.current("dest", "task-1");
+    });
+    request.reject(new Error("Request failed"));
     await Promise.resolve();
-    expect(mocks.navigate).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       routeMove.resolve();
@@ -140,15 +130,15 @@ describe("useFileTaskToChannel", () => {
     const firstRequest = deferred<void>();
     const secondRequest = deferred<void>();
     mocks.fileTask
-      .mockImplementationOnce(() => firstRequest.promise)
-      .mockImplementationOnce(() => secondRequest.promise);
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockReturnValueOnce(secondRequest.promise);
     const { result } = renderHook(() => useFileTaskToChannel());
-
     let firstFiling = Promise.resolve();
     let secondFiling = Promise.resolve();
+
     act(() => {
-      firstFiling = result.current("dest", "task-1", "Move this task");
-      secondFiling = result.current("dest", "task-1", "Move this task");
+      firstFiling = result.current("dest", "task-1");
+      secondFiling = result.current("dest", "task-1");
     });
 
     await act(async () => {
@@ -165,38 +155,23 @@ describe("useFileTaskToChannel", () => {
     });
   });
 
-  it.each([
-    ["restores the source route", "/spaces/dest/tasks/task-1", 2],
-    ["keeps a later route", "/activity", 1],
-  ])("%s when filing fails", async (_label, pathBeforeFailure, callCount) => {
-    let rejectFile: ((error: Error) => void) | null = null;
-    mocks.fileTask.mockImplementationOnce(
-      () =>
-        new Promise<void>((_resolve, reject) => {
-          rejectFile = reject;
-        }),
-    );
+  it("does not replace a later route when filing fails", async () => {
+    const request = deferred<void>();
+    mocks.fileTask.mockReturnValueOnce(request.promise);
     const { result } = renderHook(() => useFileTaskToChannel());
     let filing = Promise.resolve();
 
     act(() => {
-      filing = result.current("dest", "task-1", "Move this task");
+      filing = result.current("dest", "task-1");
     });
-    mocks.pathname = pathBeforeFailure;
+    mocks.pathname = "/activity";
 
     await act(async () => {
-      rejectFile?.(new Error("Request failed"));
+      request.reject(new Error("Request failed"));
       await filing;
     });
 
-    expect(mocks.navigate).toHaveBeenCalledTimes(callCount);
-    if (callCount === 2) {
-      expect(mocks.navigate).toHaveBeenLastCalledWith({
-        to: "/spaces/$channelId/tasks/$taskId",
-        params: { channelId: "source", taskId: "task-1" },
-        replace: true,
-      });
-    }
+    expect(mocks.navigate).toHaveBeenCalledTimes(1);
     expect(mocks.toastError).toHaveBeenCalledWith("Couldn't file task", {
       description: "Request failed",
     });

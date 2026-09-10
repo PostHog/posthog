@@ -5,6 +5,11 @@ import {
   SPACE_QUERY_GC_TIME_MS,
   SPACE_QUERY_STALE_TIME_MS,
 } from "./spaceQueryPolicy";
+import {
+  latestPendingTaskFilings,
+  type PendingTaskFiling,
+  usePendingTaskFilings,
+} from "./usePendingTaskFilings";
 
 // Feeds are multiplayer: poll fast enough that a teammate's new task card and
 // run-status flips feel live without a dedicated push channel.
@@ -13,6 +18,18 @@ export const channelFeedQueryRoot = ["channel-feed"] as const;
 
 export function channelFeedQueryKey(channelId: string | undefined) {
   return [...channelFeedQueryRoot, channelId ?? "none"] as const;
+}
+
+export function filterTasksByPendingFilings(
+  tasks: Task[],
+  channelId: string | undefined,
+  pendingFilings: PendingTaskFiling[],
+): Task[] {
+  const latestByTask = latestPendingTaskFilings(pendingFilings);
+  return tasks.filter((task) => {
+    const filing = latestByTask.get(task.id);
+    return !filing || filing.channelId === channelId;
+  });
 }
 
 /**
@@ -42,12 +59,15 @@ export function useChannelFeed(channelId: string | undefined): {
       staleTime: SPACE_QUERY_STALE_TIME_MS,
     },
   );
+  const pendingFilings = usePendingTaskFilings();
   const tasks = useMemo(
     () =>
-      [...(query.data ?? [])].sort((a, b) =>
-        a.created_at.localeCompare(b.created_at),
-      ),
-    [query.data],
+      filterTasksByPendingFilings(
+        [...(query.data ?? [])],
+        channelId,
+        pendingFilings,
+      ).sort((a, b) => a.created_at.localeCompare(b.created_at)),
+    [channelId, pendingFilings, query.data],
   );
   return { tasks, isLoading: query.isLoading };
 }

@@ -22,7 +22,7 @@ function latestRouteFilingsFor(router: object): Map<string, symbol> {
  */
 export function useFileTaskToChannel(options?: {
   enabled?: boolean;
-}): (channelId: string, taskId: string, taskTitle: string) => Promise<void> {
+}): (channelId: string, taskId: string) => Promise<void> {
   const { fileTask } = useChannelTaskMutations();
   const { channels } = useChannels(options);
   const navigate = useNavigate();
