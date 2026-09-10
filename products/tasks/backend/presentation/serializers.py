@@ -2053,9 +2053,9 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Return a basic payload with heavy fields dropped, for surfaces that render only a summary "
-            "of each task. Defaults to false. Currently this omits the description body, which dominates "
-            "the list payload; the search parameter still matches description text server-side."
+            "With true, return basic list rows for summary surfaces: each row omits the full description "
+            "and includes description_preview, its first 1000 characters. Defaults to false, which returns "
+            "full task rows with description. The search parameter still matches description text server-side."
         ),
     )
     search = serializers.CharField(
