@@ -145,7 +145,7 @@ def create_event_definitions_count_sql(
     """
     source_sql = _event_definitions_source_sql(event_type, is_enterprise, conditions)
     if bounded:
-        return bounded_count_sql(source_sql)
+        return bounded_count_sql(source_sql, "posthog_eventdefinition.name")
     return f"SELECT count(*) {source_sql}"
 
 
@@ -444,16 +444,18 @@ class EventDefinitionViewSet(
             "count_cap": LARGE_PROJECT_COUNT_CAP,
             **search_kwargs,
         }
-        has_explicit_ordering = "ordering" in self.request.GET
+        # Only a field the endpoint can order by counts as an explicit ordering. The events table sends
+        # `ordering=event`, which nothing serves, and it must still get the large-project default.
+        requested_ordering = self._requested_ordering()
         order_expressions: list[tuple[str, Literal["ASC", "DESC"]]]
-        if large_project and not has_explicit_ordering:
+        if large_project and not requested_ordering:
             # Nothing indexes `last_seen_at`, so the default recency order sorts every definition the
             # project has for each page. Name order pages straight from the unique index instead.
             order_expressions = [("name", "ASC")]
         else:
-            order_expressions = self._ordering_params_from_request()
+            order_expressions = self._stable_ordering(requested_ordering)
 
-        if has_search_terms and not has_explicit_ordering:
+        if has_search_terms and not requested_ordering:
             order_expressions = [("length(name)", "ASC"), *order_expressions]
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
@@ -553,12 +555,11 @@ class EventDefinitionViewSet(
             return []
         return [tag for tag in decoded if isinstance(tag, str)]
 
-    def _ordering_params_from_request(
-        self,
-    ) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+    def _requested_ordering(self) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+        """The `?ordering=` fields this endpoint can serve, in request order. Unknown fields are dropped."""
         order_direction: Literal["ASC", "DESC"]
 
-        results = []
+        results: list[tuple[str, Literal["ASC", "DESC"]]] = []
 
         # API client can send more than one ordering
         orderings = self.request.GET.getlist("ordering")
@@ -573,16 +574,22 @@ class EventDefinitionViewSet(
 
                 results.append((order, order_direction))
 
-        if not results:
-            results = [("last_seen_at::date", "DESC"), ("name", "ASC")]
+        return results
+
+    @staticmethod
+    def _stable_ordering(
+        order_expressions: list[tuple[str, Literal["ASC", "DESC"]]],
+    ) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+        if not order_expressions:
+            order_expressions = [("last_seen_at::date", "DESC"), ("name", "ASC")]
 
         # `name` is unique per project, so it is the tiebreaker that keeps SQL LIMIT/OFFSET paging
         # stable. An explicit `?ordering=` without it can order tied rows differently per page, so a
         # row is paged twice or skipped.
-        if not any(expression == "name" for expression, _ in results):
-            results.append(("name", "ASC"))
+        if not any(expression == "name" for expression, _ in order_expressions):
+            order_expressions = [*order_expressions, ("name", "ASC")]
 
-        return results
+        return order_expressions
 
     @extend_schema(
         description=(
