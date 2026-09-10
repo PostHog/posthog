@@ -316,6 +316,7 @@ path = "products.subscriptions"
 depends_on = [
     "posthog",
     "products.experiments",
+    "products.product_analytics",
     "products.tasks",
 ]
 layer = "modules"

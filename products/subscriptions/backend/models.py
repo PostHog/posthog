@@ -101,4 +101,62 @@ class ProactivePreparedArtifact(TeamScopedRootMixin, UUIDModel):
     adopted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TeamScopedRootMixin.Meta):
-        indexes = [models.Index(fields=["team", "status", "created_at"])]
+        indexes = [
+            models.Index(fields=["team", "status", "created_at"]),
+            models.Index(
+                fields=["updated_at", "id"],
+                condition=models.Q(adopted_at__isnull=True),
+                name="subs_artifact_reconcile_idx",
+            ),
+        ]
+
+
+class ProactiveRecommendationOutcome(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IMPROVED = "improved", "Improved"
+        REGRESSED = "regressed", "Regressed"
+        INCONCLUSIVE = "inconclusive", "Inconclusive"
+        UNAVAILABLE = "unavailable", "Unavailable"
+
+    class Direction(models.TextChoices):
+        INCREASE = "increase", "Increase"
+        DECREASE = "decrease", "Decrease"
+
+    class FailureCode(models.TextChoices):
+        BASELINE_UNAVAILABLE = "baseline_unavailable", "Baseline unavailable"
+        INSIGHT_NOT_FOUND = "insight_not_found", "Insight not found"
+        INSIGHT_AUTHORITY_CHANGED = "insight_authority_changed", "Insight authority changed"
+        QUERY_ERROR = "query_error", "Query error"
+        RESPONSE_UNSUPPORTED = "response_unsupported", "Response unsupported"
+        ZERO_BASELINE = "zero_baseline", "Zero baseline"
+        FLAT_MOVEMENT = "flat_movement", "Flat movement"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    artifact = models.OneToOneField(ProactivePreparedArtifact, on_delete=models.CASCADE, related_name="outcome")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    measurement_spec = models.JSONField(null=True, blank=True)
+    metric_name = models.CharField(max_length=300, null=True, blank=True)
+    expected_metric_movement = models.CharField(max_length=1000, null=True, blank=True)
+    direction = models.CharField(max_length=16, choices=Direction.choices, null=True, blank=True)
+    baseline_value = models.DecimalField(max_digits=30, decimal_places=10, null=True, blank=True)
+    observed_value = models.DecimalField(max_digits=30, decimal_places=10, null=True, blank=True)
+    delta = models.DecimalField(max_digits=30, decimal_places=10, null=True, blank=True)
+    baseline_from = models.DateField(null=True, blank=True)
+    baseline_to = models.DateField(null=True, blank=True)
+    due_at = models.DateTimeField(null=True, blank=True)
+    observed_from = models.DateTimeField(null=True, blank=True)
+    observed_to = models.DateTimeField(null=True, blank=True)
+    failure_code = models.CharField(max_length=128, choices=FailureCode.choices, null=True, blank=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        indexes = [
+            models.Index(fields=["due_at"]),
+            models.Index(
+                fields=["updated_at", "id"],
+                condition=models.Q(status="pending", due_at__isnull=False),
+                name="subs_outcome_dispatch_idx",
+            ),
+        ]

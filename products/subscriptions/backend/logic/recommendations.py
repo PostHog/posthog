@@ -108,6 +108,11 @@ _RECOMMENDATION_OUTPUT_SCHEMA: dict[str, object] = {
                         "maxItems": _MAX_CITATION_IDS,
                         "items": {"type": "string", "minLength": 1, "maxLength": _MAX_CITATION_ID_CHARS},
                     },
+                    "measurement_call_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": _MAX_CITATION_ID_CHARS,
+                    },
                 },
             },
         },
@@ -167,6 +172,7 @@ def read_recommendation_generation(
             allowed_citation_ids=set(citation_metadata),
             citation_metadata=citation_metadata,
             degradations=_research_degradations(staged_result.completed_mcp_calls),
+            measurement_calls=staged_result.completed_mcp_calls,
         )
     except ValueError:
         return RecommendationGenerationState(status="failed", failure_code="invalid_output")
@@ -283,6 +289,7 @@ def parse_recommendation_result(
     allowed_citation_ids: set[str],
     citation_metadata: Mapping[str, RecommendationCitation] | None = None,
     degradations: tuple[RecommendationDegradation, ...] = (),
+    measurement_calls: tuple[CompletedMCPCallEvidence, ...] = (),
 ) -> RecommendationResult:
     """Validate a task result without accepting model-supplied semantic keys.
 
@@ -298,7 +305,7 @@ def parse_recommendation_result(
 
     recommendations: list[Recommendation] = []
     for raw_recommendation in raw_recommendations:
-        recommendation = _parse_recommendation(raw_recommendation)
+        recommendation = _parse_recommendation(raw_recommendation, measurement_calls)
         if not set(recommendation.citation_ids).issubset(allowed_citation_ids):
             continue
         recommendations.append(recommendation)
@@ -313,10 +320,13 @@ def parse_recommendation_result(
         recommendations=tuple(recommendations),
         citations=tuple(metadata[citation_id] for citation_id in referenced_ids if citation_id in metadata),
         degradations=degradations,
+        completed_mcp_calls=measurement_calls,
     )
 
 
-def _parse_recommendation(raw_recommendation: object) -> Recommendation:
+def _parse_recommendation(
+    raw_recommendation: object, measurement_calls: tuple[CompletedMCPCallEvidence, ...]
+) -> Recommendation:
     if not isinstance(raw_recommendation, dict):
         raise ValueError("each recommendation must be an object")
 
@@ -348,6 +358,7 @@ def _parse_recommendation(raw_recommendation: object) -> Recommendation:
     target = _required_text(raw_recommendation, "target")
     metric_name = _required_text(raw_recommendation, "metric_name")
     metric_direction = _required_text(raw_recommendation, "metric_direction")
+    normalized_citation_ids = tuple(citation_ids)
     return Recommendation(
         kind=cast(RecommendationKind, kind),
         title=_required_text(raw_recommendation, "title"),
@@ -359,11 +370,28 @@ def _parse_recommendation(raw_recommendation: object) -> Recommendation:
         metric_name=metric_name,
         metric_direction=metric_direction,
         expected_metric_movement=_required_text(raw_recommendation, "expected_metric_movement"),
-        citation_ids=tuple(citation_ids),
+        citation_ids=normalized_citation_ids,
         semantic_key=_semantic_key(
             kind=kind, target=target, metric_name=metric_name, metric_direction=metric_direction
         ),
+        measurement_call_id=_measurement_call_id(raw_recommendation, normalized_citation_ids, measurement_calls),
     )
+
+
+def _measurement_call_id(
+    raw_recommendation: dict[str, object],
+    citation_ids: tuple[str, ...],
+    calls: tuple[CompletedMCPCallEvidence, ...],
+) -> str | None:
+    candidate = raw_recommendation.get("measurement_call_id")
+    if not isinstance(candidate, str) or candidate not in citation_ids:
+        return None
+    eligible_calls = [
+        call
+        for call in calls
+        if call.citation_id == candidate and call.tool_name == "insight-query" and call.arguments is not None
+    ]
+    return candidate if len(eligible_calls) == 1 else None
 
 
 def _required_text(value: dict[object, object], field: str) -> str:

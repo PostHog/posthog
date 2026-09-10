@@ -35,6 +35,17 @@ def _recommendation(*, citation_ids: list[str]) -> dict[str, object]:
     }
 
 
+def _measurement_call(
+    *, citation_id: str = "mcp:insight", tool_name: str = "insight-query", arguments: dict[str, object] | None = None
+) -> CompletedMCPCallEvidence:
+    return CompletedMCPCallEvidence(
+        citation_id=citation_id,
+        tool_name=tool_name,
+        arguments=arguments,
+        result={"value": 12},
+    )
+
+
 def test_parse_recommendation_result_keeps_grounded_recommendations() -> None:
     result = parse_recommendation_result(
         {"recommendations": [_recommendation(citation_ids=["report"])]},
@@ -85,6 +96,55 @@ def test_parse_recommendation_result_rejects_an_oversized_text_field() -> None:
 
     with pytest.raises(ValueError, match="title"):
         parse_recommendation_result({"recommendations": [recommendation]}, allowed_citation_ids={"report"})
+
+
+def test_parse_recommendation_result_keeps_eligible_measurement_call_id() -> None:
+    recommendation = _recommendation(citation_ids=["mcp:insight"])
+    recommendation["measurement_call_id"] = "mcp:insight"
+
+    result = parse_recommendation_result(
+        {"recommendations": [recommendation]},
+        allowed_citation_ids={"mcp:insight"},
+        measurement_calls=(_measurement_call(arguments={"query": {"kind": "TrendsQuery"}}),),
+    )
+
+    assert result.recommendations[0].measurement_call_id == "mcp:insight"
+
+
+@pytest.mark.parametrize(
+    ("citation_ids", "measurement_call_id", "calls"),
+    [
+        (["report"], "mcp:insight", (_measurement_call(arguments={"query": {}}),)),
+        (
+            ["mcp:other"],
+            "mcp:other",
+            (_measurement_call(citation_id="mcp:other", tool_name="execute-sql", arguments={}),),
+        ),
+        (["mcp:insight"], "mcp:insight", (_measurement_call(arguments=None),)),
+        (["mcp:insight"], "mcp:insight", ()),
+        (
+            ["mcp:insight"],
+            "mcp:insight",
+            (_measurement_call(arguments={}), _measurement_call(arguments={"query": {}})),
+        ),
+    ],
+    ids=["uncited", "non-insight", "missing-arguments", "missing-call", "ambiguous-call"],
+)
+def test_parse_recommendation_result_normalizes_ineligible_measurement_call_id_to_none(
+    citation_ids: list[str],
+    measurement_call_id: str,
+    calls: tuple[CompletedMCPCallEvidence, ...],
+) -> None:
+    recommendation = _recommendation(citation_ids=citation_ids)
+    recommendation["measurement_call_id"] = measurement_call_id
+
+    result = parse_recommendation_result(
+        {"recommendations": [recommendation]},
+        allowed_citation_ids={"report", "mcp:insight", "mcp:other"},
+        measurement_calls=calls,
+    )
+
+    assert result.recommendations[0].measurement_call_id is None
 
 
 def test_start_recommendation_generation_uses_the_fixed_pulse_analysis_posture(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,6 +249,7 @@ def test_read_recommendation_generation_accepts_only_bound_completed_evidence(mo
                 CompletedMCPCallEvidence(
                     citation_id="mcp:call-1",
                     tool_name="insight-query",
+                    arguments={"query": {"kind": "TrendsQuery"}},
                     result={"value": 12},
                 ),
             ),
@@ -214,6 +275,15 @@ def test_read_recommendation_generation_accepts_only_bound_completed_evidence(mo
     assert state.status == "completed"
     assert state.result is not None
     assert state.result.recommendations[0].citation_ids == ("mcp:call-1",)
+    assert state.result.recommendations[0].measurement_call_id is None
+    assert state.result.completed_mcp_calls == (
+        CompletedMCPCallEvidence(
+            citation_id="mcp:call-1",
+            tool_name="insight-query",
+            arguments={"query": {"kind": "TrendsQuery"}},
+            result={"value": 12},
+        ),
+    )
     assert state.result.citations == (RecommendationCitation(id="mcp:call-1", title="PostHog MCP: insight-query"),)
 
 

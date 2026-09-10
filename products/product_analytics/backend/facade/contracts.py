@@ -12,10 +12,30 @@ loses a field surfaces at the facade boundary instead of further down the caller
 (``facade.models``, ``facade.queries``); as they convert, their contracts land here too.
 """
 
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class SavedInsightIdentity:
+    """The stable identity of a live saved insight scoped to one team."""
+
+    id: int
+    short_id: str
+    team_id: int
+    last_modified_at: datetime
+
+
+@dataclass(frozen=True)
+class SavedInsightMeasurement:
+    """One bounded total read from a saved insight the caller already froze."""
+
+    status: str
+    value: Decimal | None = None
 
 
 @dataclass(frozen=True)

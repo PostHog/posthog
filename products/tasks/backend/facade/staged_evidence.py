@@ -15,6 +15,7 @@ _MAX_LOG_BYTES = 2 * 1024 * 1024
 _MAX_LOG_LINE_CHARS = 64 * 1024
 _MAX_CALLS = 32
 _MAX_RESULT_BYTES = 64 * 1024
+_MAX_ARGUMENT_BYTES = 32 * 1024
 _POSTHOG_TOOL_PREFIX = "mcp__posthog__"
 _TOOL_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 _EXEC_COMMAND_PATTERN = re.compile(r"^call --json ([^\s]+) (.+)$", re.DOTALL)
@@ -25,6 +26,7 @@ class CompletedMCPCallEvidence:
     citation_id: str
     tool_name: str
     result: dict[str, object]
+    arguments: dict[str, object] | None = None
 
 
 def parse_completed_posthog_mcp_calls(log: str) -> tuple[CompletedMCPCallEvidence, ...]:
@@ -105,19 +107,24 @@ def _completed_call(
     raw_input = _raw_input(update, start)
     if raw_input is None:
         return None
-    tool_name = _direct_tool_name(update, start)
-    if tool_name is None:
-        command = raw_input.get("command")
-        if not isinstance(command, str):
+    wrapper = _wrapper_call(raw_input)
+    if wrapper is not None:
+        tool_name, raw_arguments = wrapper
+    else:
+        direct_tool_name = _direct_tool_name(update, start)
+        if direct_tool_name is None:
             return None
-        match = _EXEC_COMMAND_PATTERN.fullmatch(command.strip())
-        if match is None or not _TOOL_NAME_PATTERN.fullmatch(match.group(1)) or _json_object(match.group(2)) is None:
-            return None
-        tool_name = match.group(1)
+        tool_name = direct_tool_name
+        raw_arguments = raw_input
     result = _result(update, start)
     if result is None or not _within_result_budget(result):
         return None
-    return CompletedMCPCallEvidence(citation_id=f"mcp:{tool_call_id}", tool_name=tool_name, result=result)
+    return CompletedMCPCallEvidence(
+        citation_id=f"mcp:{tool_call_id}",
+        tool_name=tool_name,
+        result=result,
+        arguments=_normalized_arguments(raw_arguments),
+    )
 
 
 def _raw_input(update: dict[str, object], start: dict[str, object] | None) -> dict[str, object] | None:
@@ -142,6 +149,16 @@ def _direct_tool_name(update: dict[str, object], start: dict[str, object] | None
             if _TOOL_NAME_PATTERN.fullmatch(tool_name):
                 return tool_name
     return None
+
+
+def _wrapper_call(raw_input: dict[str, object]) -> tuple[str, object] | None:
+    command = raw_input.get("command")
+    if not isinstance(command, str):
+        return None
+    match = _EXEC_COMMAND_PATTERN.fullmatch(command.strip())
+    if match is None or not _TOOL_NAME_PATTERN.fullmatch(match.group(1)):
+        return None
+    return match.group(1), _json_object(match.group(2))
 
 
 def _result(update: dict[str, object], start: dict[str, object] | None) -> dict[str, object] | None:
@@ -189,3 +206,16 @@ def _within_result_budget(result: dict[str, object]) -> bool:
         return len(json.dumps(result, separators=(",", ":")).encode("utf-8")) <= _MAX_RESULT_BYTES
     except (TypeError, ValueError, OverflowError):
         return False
+
+
+def _normalized_arguments(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        compact = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        if len(compact.encode("utf-8")) > _MAX_ARGUMENT_BYTES:
+            return None
+        normalized = json.loads(compact)
+    except (TypeError, ValueError, OverflowError, json.JSONDecodeError):
+        return None
+    return cast(dict[str, object], normalized) if isinstance(normalized, dict) else None

@@ -11,15 +11,22 @@ Saved query variables and insight-view tracking cross as data: callers pass a te
 project's root team, because that is the team ``RootTeamMixin.save()`` writes the rows against.
 """
 
+import math
 from collections.abc import Collection, Mapping
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import QuerySet
 
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
+from products.product_analytics.backend.facade.contracts import (
+    InsightVariableDefinition,
+    SavedInsightIdentity,
+    SavedInsightMeasurement,
+)
+from products.product_analytics.backend.facade.models import resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -41,6 +48,91 @@ def _to_variable_definition(variable: InsightVariable) -> InsightVariableDefinit
 def insight_variables_for_team(team_id: int) -> list[InsightVariableDefinition]:
     """Every saved query variable on the team's project, ordered by name."""
     return [_to_variable_definition(variable) for variable in logic.insight_variables_for_team(team_id)]
+
+
+def saved_insight_identity(*, team_id: int, reference: str | int) -> SavedInsightIdentity | None:
+    """Resolve one live saved insight without exposing its model across the product boundary."""
+
+    insight = resolve_insight_by_id_or_short_id(
+        Insight.objects.filter(team_id=team_id, saved=True, deleted=False), reference
+    )
+    if insight is None or insight.team_id != team_id or insight.deleted or not insight.saved:
+        return None
+    return SavedInsightIdentity(
+        id=insight.id,
+        short_id=insight.short_id,
+        team_id=insight.team_id,
+        last_modified_at=insight.last_modified_at,
+    )
+
+
+def measure_saved_insight_trends(
+    *,
+    team_id: int,
+    insight_id: int,
+    short_id: str,
+    last_modified_at: datetime,
+    frozen_query: Mapping[str, object],
+    date_from: datetime,
+    date_to: datetime,
+) -> SavedInsightMeasurement:
+    """Read one frozen Trends total after re-checking saved-insight authority.
+
+    The supplied query is a canonical snapshot with no date range. This boundary owns
+    the saved/deleted/team/version checks and is the sole place a cross-product caller
+    can invoke the blocking query service for a saved insight.
+    """
+    insight = (
+        Insight.objects_including_soft_deleted.filter(
+            id=insight_id,
+            team_id=team_id,
+            saved=True,
+            deleted=False,
+        )
+        .only("id", "short_id", "team_id", "last_modified_at")
+        .first()
+    )
+    if insight is None:
+        return SavedInsightMeasurement(status="insight_not_found")
+    if insight.short_id != short_id or insight.last_modified_at != last_modified_at:
+        return SavedInsightMeasurement(status="insight_authority_changed")
+
+    from pydantic import ValidationError
+
+    from posthog.schema import DateRange, TrendsQuery
+
+    from posthog.api.services.query import process_query_model
+
+    try:
+        query = TrendsQuery.model_validate(frozen_query)
+    except ValidationError:
+        return SavedInsightMeasurement(status="response_unsupported")
+    if query.dateRange is not None:
+        return SavedInsightMeasurement(status="response_unsupported")
+    query = query.model_copy(
+        update={"dateRange": DateRange(date_from=date_from.date().isoformat(), date_to=date_to.date().isoformat())}
+    )
+    try:
+        response = process_query_model(insight.team, query, insight_id=insight.id)
+    except Exception:
+        return SavedInsightMeasurement(status="query_error")
+    value = _finite_single_trends_total(response)
+    if value is None:
+        return SavedInsightMeasurement(status="response_unsupported")
+    return SavedInsightMeasurement(status="success", value=value)
+
+
+def _finite_single_trends_total(response: object) -> Decimal | None:
+    results = getattr(response, "results", None)
+    if results is None and isinstance(response, Mapping):
+        results = response.get("results")
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], Mapping):
+        return None
+    count = results[0].get("count")
+    if isinstance(count, bool) or not isinstance(count, (int, float)) or not math.isfinite(count):
+        return None
+    value = Decimal(str(count))
+    return value if value.is_finite() else None
 
 
 def insight_variables_by_ids(team_id: int, ids: Collection[str | UUID]) -> list[InsightVariableDefinition]:
