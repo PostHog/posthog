@@ -10,7 +10,7 @@ def fetch_scored_sessions_page_sql(replay_events_table: str = SESSION_REPLAY_EVE
     %(cursor_team_id)s, %(page_size)s.
 
     There is deliberately no opted-in-team filter: exported rows are
-    joined downstream by session pseudonym against session data that
+    pseudonymized and only ever joined downstream against session data that
     exists solely for opted-in teams, so rows from other teams join to
     nothing. Inlining the opted-in id list here (twice) also blew past
     ClickHouse's 1 MiB max_query_size once enough teams opted in.

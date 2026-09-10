@@ -96,7 +96,7 @@ fn svg_data_uri() -> String {
 
 fn collection() -> ImageCollection {
     ImageCollection {
-        team_id: "a".repeat(32),
+        pseudo_team: "a".repeat(32),
         content_key: "0123456789abcdef0123456789abcdef".to_string(),
     }
 }

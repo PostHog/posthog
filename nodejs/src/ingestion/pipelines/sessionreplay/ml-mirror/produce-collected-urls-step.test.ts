@@ -10,7 +10,7 @@ import { CollectedUrl } from './parse-and-anonymize-step'
 import { CollectedUrlsMessage, createProduceCollectedUrlsStep } from './produce-collected-urls-step'
 
 describe('produceCollectedUrlsStep', () => {
-    const TEAM_ID = '42'
+    const PSEUDO_TEAM = 'a'.repeat(32)
     const CAPTURED_AT = 1_700_000_000_000
     let queued: { key: string; value: Buffer }[][]
     let outputs: IngestionOutputs<MlImageFetchOutput>
@@ -31,7 +31,7 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     function collected(hash: string, host: string, url: string, domain = host): CollectedUrl {
-        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, teamId: TEAM_ID, url, host, domain }
+        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, pseudoTeam: PSEUDO_TEAM, url, host, domain }
     }
 
     function decode(batch: { key: string; value: Buffer }[]) {
@@ -233,8 +233,8 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     test.each([
-        ['inline image', `image:${TEAM_ID}:h1xxxxxxxxxxxxxxxxxxxx`],
-        ['legacy team-scoped URL', `imageurl:${'a'.repeat(32)}:h1xxxxxxxxxxxxxxxxxxxx`],
+        ['inline image', `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
+        ['legacy team-scoped URL', `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
     ])('refuses to produce a %s ref', async (_name, ref) => {
         const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100 })
 
@@ -243,7 +243,7 @@ describe('produceCollectedUrlsStep', () => {
             collectedUrls: [
                 {
                     ref,
-                    teamId: TEAM_ID,
+                    pseudoTeam: PSEUDO_TEAM,
                     url: 'https://img.example.com/a.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -263,8 +263,8 @@ describe('produceCollectedUrlsStep', () => {
             collectedUrls: [
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
-                    ref: `image:${TEAM_ID}:h2xxxxxxxxxxxxxxxxxxxx`,
-                    teamId: TEAM_ID,
+                    ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    pseudoTeam: PSEUDO_TEAM,
                     url: 'https://img.example.com/inlined.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -338,7 +338,7 @@ describe('produceCollectedUrlsStep', () => {
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
                     ref: `imageurl:h2xxxxxxxxxxxxxxxxxxxx`,
-                    teamId: otherTeam,
+                    pseudoTeam: otherTeam,
                     url: 'https://img.example.com/b.png',
                     host: 'img.example.com',
                     domain: 'img.example.com',

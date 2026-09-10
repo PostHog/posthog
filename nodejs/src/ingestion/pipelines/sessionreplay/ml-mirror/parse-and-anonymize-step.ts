@@ -29,6 +29,7 @@ import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
     PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
     PSEUDONYM_IMAGE_URL_KEY,
+    PSEUDONYM_TEAM,
     pseudonymize,
 } from './pseudonymize'
 
@@ -55,7 +56,7 @@ const DLQ_REASONS = new Set([
 
 /** An original image the addon collected for the out-of-band scrub lane, ready to produce. */
 export interface CollectedImage {
-    /** `image:<teamId>:<hash>`, the Kafka key the scrub consumer indexes the bytes under. */
+    /** `image:<pseudoTeam>:<hash>` — the Kafka key the scrub consumer indexes the bytes under. */
     ref: string
     bytes: Buffer
 }
@@ -70,7 +71,8 @@ export interface CollectedImage {
 export interface CollectedUrl {
     /** `imageurl:<hash>` stored in the mirrored line's namespaced ref attribute. */
     ref: string
-    teamId: string
+    /** The team pseudonym remains transport metadata until the fetch topic moves to its global schema. */
+    pseudoTeam: string
     url: string
     /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
     host: string
@@ -119,7 +121,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
     // Cache the team values rather than re-deriving them for every message. The content key keys
     // the inline image hash. The URL key is global and does not use this cache.
     interface TeamImageKeys {
-        teamId: string
+        pseudoTeam: string
         contentKey?: string
     }
     const teamKeysCache = new Map<number, TeamImageKeys>()
@@ -129,20 +131,22 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         }
         let keys = teamKeysCache.get(teamId)
         if (!keys) {
-            const teamIdString = String(teamId)
+            const pseudoTeam = pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_TEAM, String(teamId))
             const contentKey = pseudonymize(
                 imageCollection.pseudonymSecret,
                 PSEUDONYM_IMAGE_CONTENT_KEY,
                 String(teamId)
             )
-            // Reject refs the consumer cannot parse so images fall back to inline scrubbing.
-            if (!isImageRef(imageRef(teamIdString, hashImageBytes(contentKey, Buffer.alloc(0))))) {
-                logger.error('🖼️', 'ml_image_scrub_team_id_shape_invalid', { teamId })
-                MlMirrorMetrics.incrementMlImageTeamIdInvalid()
+            // The consumer regex-validates every ref and silently drops non-matches, so a pseudonym
+            // format drift would zero the lane with no signal. Refuse to embed a ref the consumer
+            // would drop — those messages fall back to the inline blur, loudly.
+            if (!isImageRef(imageRef(pseudoTeam, hashImageBytes(contentKey, Buffer.alloc(0))))) {
+                logger.error('🖼️', 'ml_image_scrub_pseudo_team_shape_invalid', { teamId })
+                MlMirrorMetrics.incrementMlImagePseudoTeamInvalid()
                 return undefined
             }
             keys = {
-                teamId: teamIdString,
+                pseudoTeam,
                 contentKey: imageCollection.collectImages ? contentKey : undefined,
             }
             teamKeysCache.set(teamId, keys)
@@ -172,7 +176,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             result = await getRustAnonymizer().anonymizeKafkaPayload(
                 message.value,
                 contentEncoding,
-                teamKeys?.teamId,
+                teamKeys?.pseudoTeam,
                 teamKeys?.contentKey,
                 globalUrlKey
             )
@@ -284,9 +288,9 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         }
 
         const collectedImages = teamKeys?.contentKey
-            ? unpackCollectedImages(teamKeys.teamId, meta, result.images)
+            ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images)
             : undefined
-        const collectedUrls = globalUrlKey && teamKeys ? unpackCollectedUrls(teamKeys.teamId, meta) : undefined
+        const collectedUrls = globalUrlKey && teamKeys ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
         recordImageSources(meta)
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
@@ -309,7 +313,7 @@ function recordImageSources(meta: AnonymizeMeta): void {
  * never a blocked message.
  */
 function unpackCollectedImages(
-    teamId: string,
+    pseudoTeam: string,
     meta: AnonymizeMeta,
     packed: Buffer | null
 ): CollectedImage[] | undefined {
@@ -323,7 +327,7 @@ function unpackCollectedImages(
             continue
         }
         images.push({
-            ref: imageRef(teamId, entry.hash),
+            ref: imageRef(pseudoTeam, entry.hash),
             bytes: packed.subarray(entry.offset, entry.offset + entry.len),
         })
     }
@@ -338,13 +342,13 @@ function unpackCollectedImages(
  * that carry one describes an image-heavy page, and this number exists to size a topic that
  * carries all the traffic.
  */
-function unpackCollectedUrls(teamId: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
+function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
     const urls: CollectedUrl[] = []
     const domains = new Set<string>()
     for (const entry of meta.urls ?? []) {
         urls.push({
             ref: urlRef(entry.hash),
-            teamId,
+            pseudoTeam,
             url: entry.url,
             host: entry.host,
             domain: entry.domain,

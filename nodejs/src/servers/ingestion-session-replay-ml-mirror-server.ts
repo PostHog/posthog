@@ -129,7 +129,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
 
         const s3Client = buildSessionRecordingS3Client(this.config)
         const bucket = this.config.SESSION_RECORDING_V2_S3_BUCKET
-        const prefix = this.config.SESSION_RECORDING_ML_S3_PREFIX
+        const prefix = this.config.SESSION_RECORDING_V2_S3_PREFIX
 
         const pseudonymSecret = await resolvePseudonymKey(this.config)
 

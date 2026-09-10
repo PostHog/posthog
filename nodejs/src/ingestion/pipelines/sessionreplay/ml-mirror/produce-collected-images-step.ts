@@ -22,7 +22,7 @@ const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
  * Produce collected original images to the scrub topic as a fire-and-forget side effect, keyed by
- * their `image:<teamId>:<hash>` ref. Delivery is deliberately not awaited and never blocks or
+ * their `image:<pseudoTeam>:<hash>` ref. Delivery is deliberately not awaited and never blocks or
  * fails the message: the mirrored lines already carry the refs, and a ref whose image never lands
  * is defined as equivalent to a placeholder for training joins.
  */

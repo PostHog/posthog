@@ -67,7 +67,7 @@ def _write_pages(pages: list[list[tuple[int, str, datetime, float]]]) -> bytes:
 
 
 class TestPartitionParquet:
-    def test_preserves_team_ids_and_pseudonymizes_sessions_across_pages(self) -> None:
+    def test_pseudonymizes_ids_and_round_trips_across_pages(self) -> None:
         started_at = datetime(2026, 7, 4, 12, 30, tzinfo=UTC)
         session_id = "0197d1cf-13d0-7c07-a301-d2e19a7c2a55"
         body = _write_pages([[(42, session_id, started_at, 0.75)], [(43, "another-session", started_at, 0.25)]])
@@ -76,8 +76,7 @@ class TestPartitionParquet:
         assert table.num_rows == 2
         row = table.to_pylist()[0]
         assert row["session_id"] == "5f004a2baeeb5c761c6ba2c70730961c"
-        assert row["team_id"] == "42"
-        assert table.to_pylist()[1]["team_id"] == "43"
+        assert row["team_id"] == "a424b2c7c7d5b495e6479d058e5f751c"
         assert row["started_at"] == started_at
         assert row["surfacing_score"] == pytest.approx(0.75)
         assert session_id not in body.decode("latin-1")

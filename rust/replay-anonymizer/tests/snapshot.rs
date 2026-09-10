@@ -868,12 +868,15 @@ fn collect_payload() -> String {
 fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
     use base64::Engine;
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-    let team_id = "42".to_string();
+    let pseudo_team = "0123456789abcdef0123456789abcdef".to_string();
     let content_key = "fedcba9876543210fedcba9876543210".to_string();
     let png = base64::engine::general_purpose::STANDARD
         .decode(COLLECT_PNG_B64)
         .unwrap();
-    let expected_ref = image_ref(&team_id, &hash_image_bytes(content_key.as_bytes(), &png));
+    let expected_ref = image_ref(
+        &pseudo_team,
+        &hash_image_bytes(content_key.as_bytes(), &png),
+    );
 
     // Both image policies: collection must take precedence over the parallel worker pool — a
     // collected image needs no blur, so it must come back as a ref, never a pool token.
@@ -888,7 +891,7 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
                     image_policy,
                 },
                 Some(ImageCollection {
-                    team_id: team_id.clone(),
+                    pseudo_team: pseudo_team.clone(),
                     content_key: content_key.clone(),
                 }),
             )
@@ -980,7 +983,7 @@ fn image_collection_svg_stays_on_the_inline_scrub_path() {
         &mut bytes,
         AnonymizeOpts::default(),
         Some(ImageCollection {
-            team_id: "0123456789abcdef0123456789abcdef".to_string(),
+            pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
             content_key: "fedcba9876543210fedcba9876543210".to_string(),
         }),
     )

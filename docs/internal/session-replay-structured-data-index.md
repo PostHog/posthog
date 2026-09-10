@@ -5,21 +5,19 @@ Use it to find candidate labels and block locations without downloading DOM payl
 The native anonymizer extracts metadata after scrubbing and passes it beside the serialized recording bytes.
 The ordinary replay ingestion path does not extract this index.
 
-See [ML mirror team IDs](session-replay-ml-team-ids.md) for the dataset version and rollout requirements.
-
 ## Storage and lookup
 
 The existing metadata sink writes the index to the same bucket as block metadata.
-Its prefix is `<block-metadata-prefix>-replay-index/v2/`.
+Its prefix is `<block-metadata-prefix>-replay-index/v1/`.
 For the default prefix, files have this form:
 
 ```text
-block-metadata-replay-index/v2/kind=json_ld/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
-block-metadata-replay-index/v2/kind=full_snapshot/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
-block-metadata-replay-index/v2/kind=page/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
+block-metadata-replay-index/v1/kind=json_ld/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
+block-metadata-replay-index/v1/kind=full_snapshot/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
+block-metadata-replay-index/v1/kind=page/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
 ```
 
-Each row identifies a raw team ID and a pseudonymous session, the recording window, an event timestamp, and a zero-based event index within the decompressed block.
+Each row identifies a pseudonymous team and session, the recording window, an event timestamp, and a zero-based event index within the decompressed block.
 The block key and inclusive byte range locate the independently compressed block.
 Timestamps use doubles so fractional milliseconds survive an exact join.
 Window IDs match the IDs in the scrubbed recording lines.

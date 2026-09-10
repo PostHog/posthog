@@ -705,7 +705,7 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
+                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         );
@@ -732,7 +732,7 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
+                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         )
@@ -787,7 +787,7 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
+                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         );

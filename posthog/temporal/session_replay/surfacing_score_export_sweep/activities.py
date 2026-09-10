@@ -1,8 +1,9 @@
 """Activities: plan the (day × hash bucket) fan-out, then per partition fetch → pseudonymize → Parquet → S3 put.
 
-Team IDs remain raw so data preparation can join analytics events.
-Session IDs use the ML mirror's pseudonym scheme.
-Training datasets must join these scores to opted-in mirror sessions.
+All scored sessions are exported, pseudonymized with the ML mirror's exact
+pseudonym scheme, so exported ids join onto `block-metadata` — which only
+exists for AI-training opted-in orgs (the mirror's gate) — and nothing else.
+Rows from non-opted-in teams are opaque pseudonyms that join to nothing.
 Object keys are deterministic, so retries and the re-export window overwrite;
 an empty partition still writes an empty object so deleted sessions drop out
 rather than going stale.
@@ -35,6 +36,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize import (
     PSEUDONYM_SESSION,
+    PSEUDONYM_TEAM,
     PseudonymKeyFingerprintMismatchError,
     PseudonymKeyNotConfiguredError,
     is_pseudonym_key_configured,
@@ -138,7 +140,7 @@ def _page_table(rows: list[_ScoredRow], secret: bytes) -> pa.Table:
         records.append(
             {
                 "session_id": pseudonymize(secret, PSEUDONYM_SESSION, session_id),
-                "team_id": str(team_id),
+                "team_id": pseudonymize(secret, PSEUDONYM_TEAM, str(team_id)),
                 "started_at": started_at,
                 "surfacing_score": float(score),
             }
