@@ -174,6 +174,32 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
         assert first_result.job_ids == second_result.job_ids
         assert mock_sync_execute.call_count == len(first_result.job_ids)
 
+    @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
+    def test_dau_metric_shares_precompute_jobs_with_count_metric(self, mock_sync_execute):
+        feature_flag = self.create_feature_flag(key="shared-mean-metric-events-jobs")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+        # ID-valued math stores the same rows as a count metric, so the build
+        # queries must hash the same and share jobs instead of building twice.
+        count_metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+        dau_metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.DAU))
+
+        count_result = self._build_runner(experiment, count_metric)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, count_metric)
+        )
+        dau_result = self._build_runner(experiment, dau_metric)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, dau_metric)
+        )
+
+        assert count_result.ready is True
+        assert dau_result.ready is True
+        assert count_result.job_ids == dau_result.job_ids
+        # Only the count run executed INSERTs; the dau run reused its jobs.
+        assert mock_sync_execute.call_count == len(count_result.job_ids)
+
     @parameterized.expand(
         [
             ("count_default_math", EventsNode(event="purchase"), True),
@@ -198,8 +224,18 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
                 True,
             ),
             (
-                "unique_session_id_valued",
+                "unique_session",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.UNIQUE_SESSION),
+                True,
+            ),
+            (
+                "dau",
+                EventsNode(event="purchase", math=ExperimentMetricMathType.DAU),
+                True,
+            ),
+            (
+                "unique_group",
+                EventsNode(event="purchase", math=ExperimentMetricMathType.UNIQUE_GROUP, math_group_type_index=1),
                 False,
             ),
             (
