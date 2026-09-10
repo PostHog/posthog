@@ -406,8 +406,7 @@ class TestAuditFlagFilters(BaseTest):
         counts = self._divergence_counts(report)
         assert counts == {shape_id: 1 if shape_id in expected else 0 for shape_id in DIVERGENCE_SHAPES}
         for shape_id in expected:
-            entry = next(e for e in report["roundtrip_divergences"] if e["shape_id"] == shape_id)
-            assert entry["sample_flag_ids"] == [flag.id]
+            assert self._divergence(report, shape_id)["sample_flag_ids"] == [flag.id]
 
     def test_roundtrip_divergence_counts_flag_once_per_shape(self) -> None:
         self._create_flag(
