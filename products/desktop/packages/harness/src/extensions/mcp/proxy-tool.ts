@@ -281,9 +281,10 @@ async function findUnwrappedCallTarget(
     requiredParams.length > 0 &&
     requiredParams.every((name) => keys.has(name));
 
+  const candidates: Array<{ piName: string; serverName: string }> = [];
   for (const tool of bridge.getSearchableTools()) {
     if (matches(tool.requiredParams)) {
-      return { piName: tool.piName, serverName: tool.serverName };
+      candidates.push({ piName: tool.piName, serverName: tool.serverName });
     }
   }
 
@@ -296,11 +297,14 @@ async function findUnwrappedCallTarget(
     if (!cached) continue;
     for (const tool of cached.tools) {
       if (matches(tool.requiredParams)) {
-        return { piName: tool.name, serverName: server.name };
+        candidates.push({ piName: tool.name, serverName: server.name });
       }
     }
   }
-  return undefined;
+  // Generic required keys (`id`, `query`, `command`) match several tools,
+  // and a confident hint for the wrong one sends the retry to the wrong
+  // operation. Name a tool only when the arguments point at exactly one.
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 /**
