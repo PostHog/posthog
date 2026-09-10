@@ -430,6 +430,7 @@ const PINNED_PROPERTIES_CONFIG: UserCustomerAnalyticsConfigApi = {
     ],
 }
 const PINNED_EXPANSION_SELECTOR = '[data-attr="account-pinned-properties-expansion"]'
+const PINNED_FIELD_SELECTOR = '[data-attr="account-property-row"]'
 const PINNED_ROW_PARAMETERS = {
     featureFlags: [
         FEATURE_FLAGS.CUSTOMER_ANALYTICS,
@@ -437,7 +438,7 @@ const PINNED_ROW_PARAMETERS = {
         FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE,
     ],
     testOptions: {
-        waitForSelector: `${PINNED_EXPANSION_SELECTOR} dl`,
+        waitForSelector: `${PINNED_EXPANSION_SELECTOR} ${PINNED_FIELD_SELECTOR}`,
         viewport: { width: 1440, height: 900 },
     },
 }
@@ -501,17 +502,21 @@ async function assertPinnedValues(expansion: HTMLElement): Promise<void> {
         ['Active', 'No'],
     ]
     await waitFor(() => {
-        const labels = Array.from(expansion.querySelectorAll('dt'), (label) => label.textContent)
-        const values = Array.from(expansion.querySelectorAll('dd'))
-        if (JSON.stringify(labels) !== JSON.stringify(expected.map(([label]) => label))) {
-            throw new Error('Expansion must show only pinned properties in saved order')
+        const fields = expansion.querySelectorAll<HTMLElement>(PINNED_FIELD_SELECTOR)
+        if (fields.length !== expected.length) {
+            throw new Error('Expansion must show only pinned properties')
         }
-        for (const [index, [, value]] of expected.entries()) {
-            within(values[index]).getByText(value)
+        for (const [index, [label, value]] of expected.entries()) {
+            const field = within(fields[index])
+            field.getByText(label)
+            field.getByText(value)
         }
     })
-    if (within(expansion).queryByText('This value is not pinned') || expansion.querySelector('input, button')) {
-        throw new Error('Pinned properties must remain read-only and exclude unpinned values')
+    if (
+        within(expansion).queryByText('Unpinned property') ||
+        within(expansion).queryByText('This value is not pinned')
+    ) {
+        throw new Error('Pinned properties must exclude unpinned content')
     }
 }
 
@@ -550,16 +555,23 @@ export const RowExpandedNoPinnedProperties: Story = {
     render: () => <App />,
     parameters: {
         ...PINNED_ROW_PARAMETERS,
-        testOptions: { waitForSelector: `${PINNED_EXPANSION_SELECTOR} a` },
+        testOptions: {
+            waitForSelector: `${PINNED_EXPANSION_SELECTOR} [data-attr="account-pin-properties-empty"]`,
+        },
     },
     decorators: pinnedRowDecorators({ [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: { pinned_properties: [] } }),
     play: async ({ canvasElement }) => {
         const expansion = await expandPinnedRow(canvasElement)
-        await within(expansion).findByText('No pinned properties.')
-        if (!expansion.querySelector(`a[href$="${urls.customerAnalyticsAccount('acc-1')}"]`)) {
-            throw new Error('Empty expansion must link to the account detail')
+        await within(expansion).findByRole('button', { name: 'Pin properties' })
+        within(expansion).getByText('Pin the account details you use most.')
+        within(expansion).getByText('Properties')
+        if (
+            within(expansion).queryByLabelText('Configure pinned properties') ||
+            within(expansion).queryByRole('link')
+        ) {
+            throw new Error('Empty expansion must offer the Pin properties button without a gear or link')
         }
-        if (expansion.querySelector('dl')) {
+        if (expansion.querySelector(PINNED_FIELD_SELECTOR)) {
             throw new Error('Empty expansion must not show unpinned properties')
         }
     },
@@ -572,12 +584,16 @@ export const RowExpandedPinnedPropertiesError: Story = {
         testOptions: { waitForSelector: `${PINNED_EXPANSION_SELECTOR} button` },
     },
     decorators: pinnedRowDecorators({
-        [ACCOUNT_PROPERTY_VALUES_ENDPOINT]: [500, { detail: 'Could not load account properties.' }],
+        [ACCOUNT_PROPERTY_VALUES_ENDPOINT]: [500, { detail: 'Could not load pinned properties.' }],
     }),
     play: async ({ canvasElement }) => {
         const expansion = await expandPinnedRow(canvasElement)
-        await within(expansion).findAllByText('Try again')
-        if (within(expansion).queryByText('No pinned properties.') || expansion.querySelector('dl')) {
+        await within(expansion).findByText('Could not load pinned properties.')
+        await within(expansion).findAllByRole('button', { name: 'Try again' })
+        if (
+            expansion.querySelector('[data-attr="account-pin-properties-empty"]') ||
+            expansion.querySelector(PINNED_FIELD_SELECTOR)
+        ) {
             throw new Error('A failed property request must not render empty or partial values')
         }
     },
