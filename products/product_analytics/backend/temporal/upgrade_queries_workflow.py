@@ -7,7 +7,8 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.product_analytics.upgrade_queries_activities import (
+
+from products.product_analytics.backend.temporal.upgrade_queries_activities import (
     GetInsightsToMigrateActivityInputs,
     MigrateInsightsBatchActivityInputs,
     get_insights_to_migrate,
