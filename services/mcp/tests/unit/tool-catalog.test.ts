@@ -47,6 +47,7 @@ vi.mock('@/tools', () => ({
     TOOL_MAP: {
         'tool-a': () => makeToolBase('tool-a'),
         'tool-b': () => makeToolBase('tool-b'),
+        'tool-d': () => makeToolBase('tool-d'),
     },
 }))
 
@@ -60,6 +61,10 @@ const DEFINITIONS: Record<string, FakeDefinition> = {
     'tool-a': fakeDef({ required_scopes: ['project:read'] }),
     'tool-b': fakeDef({ feature: 'insights', annotations: { ...fakeDef().annotations, readOnlyHint: true } }),
     'gen-tool-c': fakeDef({ required_scopes: ['action:write'] }),
+    'tool-d': fakeDef({
+        required_scopes: ['action:write'],
+        annotations: { ...fakeDef().annotations, destructiveHint: true },
+    }),
 }
 
 vi.mock('@/tools/toolDefinitions', () => ({
@@ -178,7 +183,26 @@ describe('ToolCatalog', () => {
         it('should return all tools when no filters applied', () => {
             const tools = catalog.getFilteredTools({ scopes: ['project:read', 'action:write'] })
             const names = tools.map((t) => t.name).sort()
-            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b'])
+            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b', 'tool-d'])
+        })
+
+        it('should group tools by read-only, write, and destructive actions', () => {
+            const tools = catalog.getFilteredTools({ scopes: ['project:read', 'action:write'] })
+            const names = tools.map((t) => t.name)
+            expect(names).toEqual(['tool-b', 'tool-a', 'gen-tool-c', 'tool-d'])
+        })
+
+        it('should place destructive tools last when both read-only and destructive hints are set', () => {
+            const originalReadOnlyHint = DEFINITIONS['tool-d'].annotations.readOnlyHint
+            try {
+                DEFINITIONS['tool-d'].annotations.readOnlyHint = true
+
+                const tools = catalog.getFilteredTools({ scopes: ['project:read', 'action:write'] })
+                const names = tools.map((t) => t.name)
+                expect(names).toEqual(['tool-b', 'tool-a', 'gen-tool-c', 'tool-d'])
+            } finally {
+                DEFINITIONS['tool-d'].annotations.readOnlyHint = originalReadOnlyHint
+            }
         })
 
         it('should exclude tools by name', () => {
@@ -187,7 +211,7 @@ describe('ToolCatalog', () => {
                 excludeTools: ['tool-b'],
             })
             const names = tools.map((t) => t.name).sort()
-            expect(names).toEqual(['gen-tool-c', 'tool-a'])
+            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-d'])
         })
 
         it('should filter by scopes', () => {
