@@ -5,8 +5,8 @@ Surveys spans several repos (the monorepo plus `posthog-js`, `posthog-ios`,
 clones in different places. This registry records where each maintainer's checkouts live so
 a repo is found once and reused — no re-cloning every session.
 
-GitHub stays the source of truth for _where the code lives_ (see the Repos table in
-SKILL.md). The registry is purely a local cache of _where this maintainer cloned it_.
+GitHub is the source of truth for where the code lives (see the repository table in
+[Contributing survey changes](contributing-surveys.md)). The registry is purely a local cache of _where this maintainer cloned it_.
 
 ## The registry file
 

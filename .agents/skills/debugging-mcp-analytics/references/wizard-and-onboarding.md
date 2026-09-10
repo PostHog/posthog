@@ -116,7 +116,7 @@ Do not confuse these; they have different audiences and different release mechan
    Consumed by PostHog Desktop and PostHog AI. **Not** by `posthog-cli` — that is channel 2.
 
 Two lookalikes are **not** MCP-analytics skills:
-`products/managed_migrations/skills/testing-mcp-tools-locally/` and
+`.agents/skills/testing-mcp-tools-locally/` and
 `.agents/skills/implementing-mcp-tools/`. Both concern building and testing PostHog's own MCP
 server tools, not analyzing MCP usage.
 
