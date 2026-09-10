@@ -85,7 +85,9 @@ Get it from the user context or from `org-members-list`.
 Slack setup requires an OAuth flow in the browser — it cannot be done via MCP.
 
 **Microsoft Teams** requires the full webhook URL of the target channel in `target_value`.
-The user creates that URL with the Workflows app in the channel they want reports in.
+The user adds the Workflows app to the channel they want reports in, then picks the template
+for posting to a channel when a webhook request is received.
+A URL from a different template saves without an error, but the report never reaches the channel.
 There is no Teams integration to look up — no `integration_id` is needed.
 A saved URL only ever reads back as its host, so you cannot copy one from an existing subscription.
 
@@ -224,7 +226,7 @@ When the user doesn't specify details:
 - **Duplicate check**: If a subscription already exists for the same insight/dashboard and channel, inform the user and offer to update it rather than creating a duplicate
 - **Slack not connected**: If a Slack subscription is requested but no Slack integration exists, explain that Slack must be connected in [Project settings > Integrations](/settings/integrations) first, then offer email as an alternative. Do not attempt to create the subscription — it will fail with a validation error
 - **Slack integration wrong team**: The Slack integration must belong to the same PostHog team. If `integrations-list` returns Slack integrations but creation still fails, the integration may be misconfigured
-- **Teams webhook URL rejected**: The URL must be an `https` Microsoft Teams webhook URL. If creation fails on `target_value`, ask the user to create the webhook again with the Workflows app in the target channel and paste the full URL
+- **Teams webhook URL rejected**: The URL must be an `https` Microsoft Teams webhook URL. If creation fails on `target_value`, ask the user to create the webhook again in the target channel with the Workflows app, using the template for posting to a channel when a webhook request is received, then paste the full URL
 - **Teams URL on update**: To keep the saved URL, leave `target_value` out. To change it, send the full new URL — the masked host value is rejected
 - **Webhook delivery**: Generic webhook delivery is not a supported channel. `target_type` accepts only `email`, `slack`, and `teams`. If the user asks to post to their own webhook, offer Teams when that is the destination, or email or Slack otherwise
 - **Dashboard insights**: Dashboard subscriptions require at least 1 and at most 10 insights selected via `dashboard_export_insights`. If the user doesn't specify which insights, fetch the dashboard with `dashboard-get` and select up to the first 10 insights from its tiles

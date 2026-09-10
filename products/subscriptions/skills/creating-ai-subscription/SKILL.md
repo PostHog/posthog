@@ -121,12 +121,14 @@ returns). Build it in three steps:
 
 ## Teams target
 
-`target_value` must be the full webhook URL of the channel you want reports in. The user creates
-that URL with the Workflows app in that channel, then pastes it back to you. There is no Teams
-integration to look up, so leave `integration_id` out.
+`target_value` must be the full webhook URL of the channel you want reports in. The user adds the
+Workflows app to that channel, picks the template for posting to a channel when a webhook request
+is received, then pastes the URL back to you. A URL from a different template saves without an
+error, but the report never reaches the channel. There is no Teams integration to look up, so
+leave `integration_id` out.
 
 The URL must be `https`. If `subscriptions-create` rejects `target_value`, the URL is not a Teams
-webhook — ask the user to create it again with the Workflows app and paste the whole URL. On a
+webhook — ask the user to create it again with the same template and paste the whole URL. On a
 later update, omit `target_value` to keep the saved URL, because the API reads it back as its host
 only and rejects that masked value.
 
