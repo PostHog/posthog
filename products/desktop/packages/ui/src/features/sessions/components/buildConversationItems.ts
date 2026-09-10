@@ -8,6 +8,7 @@ import {
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
+import { isSessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -167,6 +168,7 @@ export interface ItemBuilder {
    *  permission request — and the resolving tool_call_update replays the raw
    *  plan-less input, so the plan is re-applied after every merge. */
   recoveredPlans: Map<string, string>;
+  pendingAgentStart: number | null;
 }
 
 export function createItemBuilder(): ItemBuilder {
@@ -186,6 +188,7 @@ export function createItemBuilder(): ItemBuilder {
     isBackgroundTurnActive: false,
     runStartedRunIds: new Set(),
     recoveredPlans: new Map(),
+    pendingAgentStart: null,
   };
 }
 
@@ -276,9 +279,17 @@ function markThoughtCompletionInItems(
   }
 }
 
+function flushAgentStart(b: ItemBuilder) {
+  const ts = b.pendingAgentStart;
+  if (ts === null) return;
+  b.pendingAgentStart = null;
+  pushItem(b, { sessionUpdate: "status", status: "agent_started" }, ts);
+}
+
 function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   const turn = b.currentTurn;
   if (!turn) return;
+  flushAgentStart(b);
   turn.itemCount++;
   b.items.push({
     type: "session_update",
@@ -911,6 +922,11 @@ function handleRuntimeStatus(
 ): void {
   ensureImplicitTurn(b, timestamp);
 
+  if (isSessionStartupPhase(status.status)) {
+    b.pendingAgentStart ??= timestamp;
+    return;
+  }
+
   if (status.status === "refusal" || status.status === "refusal_fallback") {
     pushItem(b, {
       sessionUpdate: "status",
@@ -1342,6 +1358,7 @@ function appendTextChunk(
   ts: number,
 ) {
   if (update.content.type !== "text") return;
+  flushAgentStart(b);
 
   const lastItem = b.items[b.items.length - 1];
   if (

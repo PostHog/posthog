@@ -1,4 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -27,20 +30,69 @@ MAX_APPLICATIONS = 1000
 # (max applications × max metric paths × the 7-day metric window) lands well above it.
 MAX_FANOUT_REQUESTS = 100_000
 
-# The Controller's time-windowed endpoints filter server-side on epoch-ms `start-time` /
-# `end-time` (`time-range-type=BETWEEN_TIMES`), so the row's `startTimeInMillis` is the
-# only reliable incremental cursor. There is no `updated-since` filter on any endpoint.
-TIME_WINDOW_INCREMENTAL_FIELDS: list[IncrementalField] = [
-    {
-        "label": "startTimeInMillis",
-        "type": IncrementalFieldType.Integer,
-        "field": "startTimeInMillis",
-        "field_type": IncrementalFieldType.Integer,
-    },
+# The Controller caps `events` and `request-snapshots` responses at 600 rows and offers no
+# cursor to page past that, so a window that comes back full is assumed truncated and gets
+# bisected until each half fits (see `_get_window_rows`).
+MAX_ROWS_PER_TIME_WINDOW = 600
+
+# Bounds on that bisection: stop splitting once a window is under a minute (a minute that
+# still overflows 600 rows cannot be recovered by splitting further), and cap the extra
+# requests one top-level window may cost so a firehose application can't monopolize a worker.
+MIN_WINDOW_SPLIT_MS = 60 * 1000
+MAX_WINDOW_SPLITS = 64
+
+# Event types synced when the user leaves the "Event types" field empty: deployments,
+# restarts, config changes, application errors, diagnostic sessions and the health rule
+# violation state transitions. `event-types` is a required parameter with no "all" value,
+# and the Controller rejects the whole request if any type is unknown, so the default
+# stays on long-standing types and users add the rest themselves.
+DEFAULT_EVENT_TYPES = [
+    "APPLICATION_DEPLOYMENT",
+    "APP_SERVER_RESTART",
+    "APPLICATION_CONFIG_CHANGE",
+    "APPLICATION_ERROR",
+    "DIAGNOSTIC_SESSION",
+    "CUSTOM",
+    "POLICY_OPEN_WARNING",
+    "POLICY_OPEN_CRITICAL",
+    "POLICY_UPGRADED",
+    "POLICY_DOWNGRADED",
+    "POLICY_CLOSE_WARNING",
+    "POLICY_CLOSE_CRITICAL",
 ]
 
+# `event-types` rides in the query string, so an unbounded list would also build an
+# unbounded URL. Well past the number of event types the Controller defines.
+MAX_EVENT_TYPES = 200
 
-@dataclass
+# `severities` is required too, and every severity is wanted for an event history.
+EVENT_SEVERITIES = "INFO,WARN,ERROR"
+
+# `/metrics` returns only the immediate children of a path, so browsing the tree costs one
+# request per folder. The hierarchy is unbounded (a folder per tier, node and business
+# transaction), so bound both how deep the walk goes and what it may spend per application.
+METRIC_TREE_MAX_DEPTH = 3
+METRIC_TREE_MAX_REQUESTS_PER_APPLICATION = 100
+
+
+# The Controller's time-windowed endpoints filter server-side on epoch-ms `start-time` /
+# `end-time` (`time-range-type=BETWEEN_TIMES`), so each endpoint's own epoch-ms start field
+# is the only reliable incremental cursor. There is no `updated-since` filter on any endpoint.
+def time_window_incremental_fields(field_name: str) -> list[IncrementalField]:
+    return [
+        {
+            "label": field_name,
+            "type": IncrementalFieldType.Integer,
+            "field": field_name,
+            "field_type": IncrementalFieldType.Integer,
+        },
+    ]
+
+
+TIME_WINDOW_INCREMENTAL_FIELDS: list[IncrementalField] = time_window_incremental_fields("startTimeInMillis")
+
+
+@frozen
 class AppdynamicsEndpointConfig:
     name: str
     """Stream name shown to the user."""
@@ -55,6 +107,16 @@ class AppdynamicsEndpointConfig:
     """Endpoint requires `time-range-type=BETWEEN_TIMES` with epoch-ms start/end params."""
     is_metric_data: bool = False
     """Metric-data responses nest `metricValues` per metric; rows are flattened out of them."""
+    is_events: bool = False
+    """Events requests carry the required `event-types` list configured on the source."""
+    is_metric_tree: bool = False
+    """Walk the metric hierarchy folder by folder instead of reading one list response."""
+    result_cap: int | None = None
+    """Rows the endpoint returns per request at most. A window at the cap is bisected."""
+    extra_params: dict[str, Any] = field(default_factory=dict)
+    """Static query params this endpoint always sends."""
+    sends_output_json_param: bool = True
+    """Controller REST defaults to XML; the alerting API serves JSON and has no such param."""
     default_lookback_days: int = 30
     """First-sync / full-refresh window for time-windowed endpoints."""
     window_chunk_days: int = 7
@@ -115,6 +177,61 @@ APPDYNAMICS_ENDPOINTS: dict[str, AppdynamicsEndpointConfig] = {
             "Metric time series for the metric paths configured on the source (defaults to "
             "'Overall Application Performance|*'). One row per metric per interval. "
             "Only syncs the last 7 days on initial sync."
+        ),
+    ),
+    "events": AppdynamicsEndpointConfig(
+        name="events",
+        path="/controller/rest/applications/{application_id}/events",
+        primary_keys=["application_id", "id"],
+        fan_out_over_applications=True,
+        time_windowed=True,
+        is_events=True,
+        incremental_fields=time_window_incremental_fields("eventTime"),
+        default_lookback_days=30,
+        window_chunk_days=1,
+        result_cap=MAX_ROWS_PER_TIME_WINDOW,
+        extra_params={"severities": EVENT_SEVERITIES},
+        description=(
+            "Application events (deployments, restarts, config changes, errors, diagnostic "
+            "sessions and health rule violation state changes) synced by their event time. "
+            "Syncs the event types configured on the source. Only syncs the last 30 days on "
+            "initial sync."
+        ),
+    ),
+    "request_snapshots": AppdynamicsEndpointConfig(
+        name="request_snapshots",
+        path="/controller/rest/applications/{application_id}/request-snapshots",
+        primary_keys=["application_id", "id"],
+        fan_out_over_applications=True,
+        time_windowed=True,
+        incremental_fields=time_window_incremental_fields("serverStartTime"),
+        default_lookback_days=3,
+        window_chunk_days=1,
+        result_cap=MAX_ROWS_PER_TIME_WINDOW,
+        extra_params={"maximum-results": MAX_ROWS_PER_TIME_WINDOW},
+        description=(
+            "Transaction snapshots for slow, stalled and error requests, synced by the time "
+            "the request started on the server. Only syncs the last 3 days on initial sync."
+        ),
+    ),
+    "health_rules": AppdynamicsEndpointConfig(
+        name="health_rules",
+        path="/controller/alerting/rest/v1/applications/{application_id}/health-rules",
+        primary_keys=["application_id", "id"],
+        fan_out_over_applications=True,
+        sends_output_json_param=False,
+        description="Health rules defined for each application, resolving the rule names on health rule violations.",
+    ),
+    "metrics": AppdynamicsEndpointConfig(
+        name="metrics",
+        path="/controller/rest/applications/{application_id}/metrics",
+        primary_keys=["application_id", "path"],
+        fan_out_over_applications=True,
+        is_metric_tree=True,
+        description=(
+            "Metric paths available in each application's metric browser, one row per folder "
+            "or metric. Use a path from here in the source's metric paths setting to sync its "
+            "time series into metric_data."
         ),
     ),
 }

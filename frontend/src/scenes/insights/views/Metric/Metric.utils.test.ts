@@ -6,6 +6,7 @@ import {
     computeMetricChange,
     computeMetricSummary,
     computeMetricSummaryChange,
+    formatMetricLabel,
     getMetricChangeTooltip,
     type MetricSeriesSummary,
     MetricSummary,
@@ -268,5 +269,26 @@ describe('getMetricChangeTooltip', () => {
 
     it.each(cases)('$name', ({ summary, hasComparison, interval, expected }) => {
         expect(getMetricChangeTooltip(summary, hasComparison, interval)).toBe(expected)
+    })
+})
+
+describe('formatMetricLabel', () => {
+    const cases: { name: string; label: string; expected: string }[] = [
+        { name: 'day bucket reads without the year', label: '2026-09-02', expected: 'September 2' },
+        {
+            name: 'sub-day bucket keeps its time, so every hour of a day reads differently',
+            label: '2026-09-02 13:00:00',
+            expected: 'September 2, 13:00',
+        },
+        {
+            name: 'midnight of a sub-day bucket still shows the time',
+            label: '2026-09-02 00:00:00',
+            expected: 'September 2, 00:00',
+        },
+        { name: 'text dayjs cannot parse passes through', label: 'Chrome', expected: 'Chrome' },
+    ]
+
+    it.each(cases)('$name', ({ label, expected }) => {
+        expect(formatMetricLabel(label)).toBe(expected)
     })
 })

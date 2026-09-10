@@ -90,3 +90,13 @@ export const GroupedBarWithNegativeValues: Story = {
             chartSettings: baseSettings,
         }),
 }
+
+export const HorizontalBar: Story = {
+    render: () =>
+        render({
+            xData,
+            yData: positiveSeries,
+            visualizationType: ChartDisplayType.ActionsBarValue,
+            chartSettings: { ...baseSettings, showValuesOnSeries: true },
+        }),
+}

@@ -1460,6 +1460,68 @@ class TestDirectPostgresQuery(APIBaseTest):
         mock_connect.assert_not_called()
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_execute_direct_postgres_query_surfaces_connect_time_host_rejection_as_user_error(self, mock_connect):
+        # A host can pass the validation-layer check and still be rejected at connect time, because
+        # each check resolves the host again and a short-TTL record can answer public then private.
+        # That connect-time rejection must reach the user as an ExposedHogQLError (a 4xx that the
+        # query runner does not capture), not a bare Exception captured as a platform failure.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+            HostNotAllowedError,
+            HostResolution,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        host_rejection = HostNotAllowedError(
+            "Database host not allowed: This host points to an internal or private IP address, "
+            "which PostHog can't reach. Use a host that's reachable from the public internet."
+        )
+        # Validation passes (host resolves public); the connect-time tunnel open rejects it.
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.resolve_safe_host",
+                return_value=HostResolution(connect_host="db.example.com", error=None),
+            ),
+            patch.object(PostgresSource, "with_ssh_tunnel", side_effect=host_rejection),
+        ):
+            with self.assertRaises(ExposedHogQLError) as error:
+                executor.execute()
+
+        self.assertEqual(str(error.exception), str(host_rejection))
+        mock_connect.assert_not_called()
+
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_exposes_database_errors(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,

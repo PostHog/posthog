@@ -312,8 +312,15 @@ export interface maxThreadLogicActions {
     clearSandboxAttachments: () => {
         value: true
     } // posthogAiContextLogic
-    bootstrapSandboxRun: (payload: { justCreatedRun?: boolean; runId: string; taskId: string; traceId?: string }) => {
+    bootstrapSandboxRun: (payload: {
+        justCreatedRun?: boolean
+        retainedMessage?: string
+        runId: string
+        taskId: string
+        traceId?: string
+    }) => {
         justCreatedRun?: boolean | undefined
+        retainedMessage?: string | undefined
         runId: string
         taskId: string
         traceId?: string | undefined
