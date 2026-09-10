@@ -6,9 +6,10 @@ copy. Nothing needs staging or a swap.
 
 Connection handling comes from batch exports' Azure Blob destination:
 
-- `_strip_leading_whitespace` plus `MalformedConnectionStringError` turn a connection string
-  with a space after a `;` into an error that says what to fix, instead of a raw SDK
-  `ValueError`.
+- `validate_azure_blob_connection_string` plus `MalformedConnectionStringError` turn a
+  malformed connection string into an error that says what to fix, instead of a raw SDK
+  `ValueError`. It also rejects endpoints pointing outside the account, so the string cannot
+  aim the client at an internal address.
 - The client tuning is theirs too. `read_timeout` is the one that matters: the SDK default is
   60 seconds, which a single large block can exceed on a slow link.
 - `_is_authorization_failure_response_error` is what separates "the credentials cannot write
@@ -39,11 +40,12 @@ import pyarrow as pa
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 
+from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
+
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     MalformedConnectionStringError,
     _get_azure_blob_integration,
     _is_authorization_failure_response_error,
-    _strip_leading_whitespace,
 )
 from products.batch_exports.backend.temporal.destinations.constants import AZURE_BLOB_SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
@@ -203,13 +205,17 @@ class AzureBlobDestinationWriter:
         integration = await _get_azure_blob_integration(self._ctx.integration_id, self._ctx.team_id)
 
         try:
+            await asyncio.to_thread(validate_azure_blob_connection_string, integration.connection_string)
             service = BlobServiceClient.from_connection_string(
-                conn_str=_strip_leading_whitespace(integration.connection_string),
+                conn_str=integration.connection_string,
                 max_single_put_size=MAX_SINGLE_PUT_SIZE,
                 max_block_size=MAX_BLOCK_SIZE,
                 read_timeout=READ_TIMEOUT_SECONDS,
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
+                permit_redirects=False,
             )
+        except EndpointNotAllowedError:
+            raise
         except ValueError:
             raise MalformedConnectionStringError()
 
