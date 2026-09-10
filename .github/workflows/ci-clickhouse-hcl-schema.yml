@@ -98,7 +98,13 @@ jobs:
               if: steps.app-token.outcome == 'success'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  POSTHOG_REF: ${{ github.event.pull_request.head.sha }}
+                  # The merge ref, not the head sha. cloud-infra vendors layers
+                  # from this ref while its own layers track posthog master, so a
+                  # head that predates a master-side layer change composes against
+                  # a cloud-infra that already expects it, and every unrebased PR
+                  # goes red for a change it does not contain. The merge ref is
+                  # what the PR actually lands as.
+                  POSTHOG_REF: refs/pull/${{ github.event.pull_request.number }}/merge
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   set -euo pipefail
