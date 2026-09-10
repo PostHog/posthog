@@ -561,11 +561,9 @@ function mapItem(
       status: mapStatus(item.status),
       ...(content ? { content } : {}),
       ...(meta ? { _meta: meta } : {}),
-      // rawOutput lets the desktop MCP Apps host render UI resources, not just
-      // text. The server controls every field here, so bound-and-strip keeps
-      // oversized and null-padded results out of stored transcripts and
-      // McpAppsService events on every delivery path, including ones that skip
-      // `toCallToolResult` (which stays the owner of app validity).
+      // rawOutput feeds the desktop MCP Apps host, and every field is
+      // server-controlled, so it must be bounded here for the delivery
+      // paths that skip `toCallToolResult`.
       ...(item.type === "mcpToolCall" && item.result != null
         ? { rawOutput: boundPersistedMcpResult(item.result) }
         : {}),

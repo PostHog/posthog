@@ -64,7 +64,6 @@ export type McpProxyDetails =
       server: string;
       tool: string;
       piName: string;
-      /** Host classification + result fields a host UI needs to render a UI app (see McpCallDetails). */
       posthog?: McpCallDetails["posthog"];
     };
 
@@ -352,9 +351,8 @@ async function callOrConnect(
       server: owner,
       tool: meta.mcpName,
       piName: name,
-      // Same channel the directly-registered tools write (tool-bridge), so a
-      // host classifies proxy-routed calls and renders their UI apps the same
-      // way. Without this, a proxy-only host never learns which MCP tool ran.
+      // Same envelope the directly-registered tools write, so a host renders
+      // proxy-routed calls' UI apps the same way.
       posthog: mcpCallDetails(owner, meta.mcpName, {
         structuredContent,
         _meta,

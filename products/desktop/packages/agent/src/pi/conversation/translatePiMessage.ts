@@ -56,11 +56,8 @@ interface PiToolExecutionResult {
   details?: unknown;
 }
 
-// The schemas below derive from the one declaration of the envelope the
-// pi harness writes on a tool result's `details` (tool-bridge.ts), so the
-// read side and the write side cannot drift apart. The schema stays
-// lenient: sibling keys (the proxy tool's kind, piName, ...) are stripped,
-// and `result` is now a known key, so it survives parsing.
+// Derive from the harness's one declaration of this envelope
+// (tool-bridge.ts) so the read side cannot drift from the write side.
 const mcpResultMetaSchema: z.ZodType<McpResultMeta> = z.object({
   structuredContent: z.record(z.string(), z.unknown()).optional(),
   _meta: z.record(z.string(), z.unknown()).optional(),
@@ -287,8 +284,6 @@ export function createPiMessageTranslator(): PiMessageTranslator {
         (resultMeta.structuredContent !== undefined ||
           resultMeta._meta !== undefined)
       ) {
-        // The server controls these fields, so bound them before rawOutput
-        // reaches the session transcript and cloud persistence.
         toolCall.rawOutput = boundPersistedMcpResult({
           content: result.content,
           ...resultMeta,
