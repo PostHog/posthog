@@ -1,5 +1,13 @@
-import { Warning } from "@phosphor-icons/react";
-import { Box, Button, Callout, Flex, Text } from "@radix-ui/themes";
+import {
+  Button,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@posthog/quill";
+import { sleepingHog } from "@posthog/ui/assets/hedgehogs";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 export interface ErrorBoundaryProps {
@@ -66,26 +74,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
     if (this.props.fallback) return this.props.fallback;
 
     return (
-      <Box p="4">
-        <Callout.Root color="red" size="2">
-          <Callout.Icon>
-            <Warning weight="fill" />
-          </Callout.Icon>
-          <Callout.Text>
-            <Flex direction="column" gap="2">
-              <Text className="font-medium">Something went wrong</Text>
-              <Text className="text-[13px] text-gray-11">
-                {error.message || "An unexpected error occurred"}
-              </Text>
-              <Flex gap="2" mt="2">
-                <Button size="1" variant="soft" onClick={this.handleRetry}>
-                  Try again
-                </Button>
-              </Flex>
-            </Flex>
-          </Callout.Text>
-        </Callout.Root>
-      </Box>
+      <Empty className="h-full min-h-64 border-0 p-4" role="alert">
+        <EmptyHeader>
+          <EmptyMedia className="mb-2">
+            <img src={sleepingHog} alt="" className="h-auto w-64 max-w-full" />
+          </EmptyMedia>
+          <EmptyTitle>Something went wrong</EmptyTitle>
+          <EmptyDescription className="break-words">
+            {error.message || "An unexpected error occurred"}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button size="default" variant="primary" onClick={this.handleRetry}>
+            Try again
+          </Button>
+        </EmptyContent>
+      </Empty>
     );
   }
 }
