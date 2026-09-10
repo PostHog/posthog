@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import cast
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -91,7 +91,7 @@ class BaseRelatedActorsTest(ABC, ClickhouseTestMixin, APIBaseTest):
         raise NotImplementedError()
 
 
-@freeze_time("2025-03-01T12:00:00Z")
+@time_machine.travel("2025-03-01T12:00:00Z", tick=False)
 class TestRelatedPersonsQuery(BaseRelatedActorsTest):
     def run_query(self) -> list:
         return RelatedActorsQuery(team=self.team, group_type_index=0, id="org:1").run()
@@ -144,7 +144,7 @@ class TestRelatedPersonsQuery(BaseRelatedActorsTest):
         assert len(ids) == 1
 
 
-@freeze_time("2025-03-01T12:00:00Z")
+@time_machine.travel("2025-03-01T12:00:00Z", tick=False)
 class TestRelatedGroupsQuery(BaseRelatedActorsTest):
     def run_query(self) -> list:
         return RelatedActorsQuery(team=self.team, group_type_index=None, id=str(self.person.uuid)).run()

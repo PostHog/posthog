@@ -7,7 +7,7 @@ the helpers directly so they're independent of Temporal harnessing.
 
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -50,7 +50,7 @@ class InvestigationTestCase(BaseTest):
         investigation_status: str | None = None,
         investigation_verdict: str | None = None,
     ) -> AlertCheck:
-        with freeze_time(at):
+        with time_machine.travel(at, tick=False):
             return AlertCheck.objects.create(
                 alert_configuration=self.alert,
                 state=state,
@@ -219,7 +219,7 @@ class TestInvestigationCooldown(InvestigationTestCase):
         self._make_check(at=_EPISODE_START, investigation_status=InvestigationStatus.DONE)
         check = self._make_check(at=_EPISODE_START + timedelta(hours=1))
 
-        with freeze_time(_EPISODE_START + timedelta(hours=1)):
+        with time_machine.travel(_EPISODE_START + timedelta(hours=1), tick=False):
             assert claim_investigation_slot(self.alert, check)
 
 
@@ -227,7 +227,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
     def test_claims_when_no_recent_investigation(self) -> None:
         check = self._make_check(at=_EPISODE_START)
 
-        with freeze_time(_EPISODE_START):
+        with time_machine.travel(_EPISODE_START, tick=False):
             assert claim_investigation_slot(self.alert, check)
 
         check.refresh_from_db()
@@ -238,7 +238,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(minutes=10), investigation_status=InvestigationStatus.DONE)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert not claim_investigation_slot(self.alert, new_check)
 
         new_check.refresh_from_db()
@@ -249,7 +249,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(hours=2), investigation_status=InvestigationStatus.DONE)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert claim_investigation_slot(self.alert, new_check)
 
         new_check.refresh_from_db()
@@ -267,7 +267,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(minutes=10), investigation_status=blocking_status)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert not claim_investigation_slot(self.alert, new_check)
 
     @parameterized.expand(
@@ -281,7 +281,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(minutes=10), investigation_status=terminal_status)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert claim_investigation_slot(self.alert, new_check)
 
     @parameterized.expand(
@@ -299,7 +299,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(minutes=30), investigation_status=in_flight_status)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert not claim_investigation_slot(self.alert, new_check)
 
         new_check.refresh_from_db()
@@ -321,5 +321,5 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         )
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert claim_investigation_slot(self.alert, new_check)

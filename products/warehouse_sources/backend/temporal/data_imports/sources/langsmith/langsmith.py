@@ -2,8 +2,9 @@ import re
 import json
 import hashlib
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.settings import (
     DEFAULT_BASE_URL,
     LANGSMITH_ENDPOINTS,
+    RUNS_HEAVY_SELECT_FIELDS,
     RUNS_SELECT_FIELDS,
     LangSmithEndpointConfig,
 )
@@ -42,6 +44,11 @@ REPEATED_CURSOR_ERROR = "LangSmith returned a repeated pagination cursor"
 # Raised (and registered non-retryable) when a page body exceeds MAX_RESPONSE_BYTES. The same page
 # is re-requested on every retry, so the cap is hit again deterministically — stop immediately.
 RESPONSE_TOO_LARGE_ERROR = "LangSmith API returned an oversized response"
+
+# Raised (and registered non-retryable) when the host returns oversized pagination data: a cursor
+# past MAX_CURSOR_BYTES, or an id set past MAX_SESSION_IDS_BYTES / MAX_DATASET_IDS_BYTES while
+# scoping a query. Every retry walks the same pages and collects the same oversized data.
+PAGINATION_TOO_LARGE_ERROR = "LangSmith returned oversized pagination data"
 
 # Raised (and registered non-retryable) when a single runs page stays over MAX_RESPONSE_BYTES even at
 # the minimum limit. A page that big has runs with very large inputs/outputs; halving the page can't
@@ -89,6 +96,11 @@ MAX_SESSION_IDS_BYTES = 2 * 1024 * 1024
 # scope the examples query. A user-controlled host could otherwise stream unbounded dataset ids.
 MAX_DATASET_IDS_BYTES = 2 * 1024 * 1024
 
+# Bound what one log line can carry out of a page. The host chooses how many runs it returns and
+# how long each id is, so an unbounded line lets it turn a warning into an oversized log event.
+MAX_LOGGED_RUN_IDS = 5
+MAX_LOGGED_RUN_ID_CHARS = 64
+
 
 class LangSmithRetryableError(Exception):
     pass
@@ -101,9 +113,25 @@ class LangSmithHostNotAllowedError(Exception):
 
 
 class LangSmithResponseTooLargeError(Exception):
-    """The host returned a body larger than `MAX_RESPONSE_BYTES` — refused before buffering it all."""
+    """The host returned a body larger than `MAX_RESPONSE_BYTES` — refused before buffering it all.
 
-    pass
+    `get_non_retryable_errors` matches on message text, so the sentinel is prefixed here rather than
+    at the raise site: a message without it is retried for the whole activity budget.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(f"{RESPONSE_TOO_LARGE_ERROR}: {detail}")
+
+
+class LangSmithPaginationTooLargeError(Exception):
+    """The host returned oversized pagination data: a cursor, or the ids collected to scope a query.
+
+    Separate from `LangSmithResponseTooLargeError` because the runs page shrinker catches that one,
+    and shrinking a page cannot fix either of these limits. Same sentinel prefixing as above.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(f"{PAGINATION_TOO_LARGE_ERROR}: {detail}")
 
 
 class LangSmithPageLimitError(Exception):
@@ -138,7 +166,7 @@ def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES
     for chunk in response.iter_content(chunk_size=READ_CHUNK_BYTES):
         buffer.extend(chunk)
         if len(buffer) > cap:
-            raise LangSmithResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} (> {cap} bytes)")
+            raise LangSmithResponseTooLargeError(f"body over {cap} bytes")
     return bytes(buffer)
 
 
@@ -362,6 +390,26 @@ def _fetch_page(
         return json.loads(raw) if raw else None
 
 
+def _runs_select_fields(config: LangSmithEndpointConfig, enabled_columns: list[str] | None) -> list[str]:
+    """The `select` to send to runs/query for the columns the schema keeps.
+
+    MAX_RESPONSE_BYTES is enforced while the body is read, so a column the pipeline drops after the
+    fetch still costs its bytes on the wire. The primary key and the partition key are kept whatever
+    the user picked, because the merge and the Delta layout need them. `None` and an empty list mean
+    what they mean to `apply_enabled_columns_projection`: every column, and only the required ones.
+    """
+    if enabled_columns is None:
+        return list(RUNS_SELECT_FIELDS)
+    required = {*config.primary_keys, *([config.partition_key] if config.partition_key else [])}
+    wanted = {*enabled_columns} | required
+    return [name for name in RUNS_SELECT_FIELDS if name in wanted]
+
+
+def _bounded_run_ids(runs: list[Any]) -> list[str]:
+    """A sample of run ids, capped in count and length, for a log line."""
+    return [str(run.get("id"))[:MAX_LOGGED_RUN_ID_CHARS] for run in runs[:MAX_LOGGED_RUN_IDS] if isinstance(run, dict)]
+
+
 def _fetch_runs_page(
     session: requests.Session,
     url: str,
@@ -376,19 +424,45 @@ def _fetch_runs_page(
     A legitimate workspace with large prompt payloads can push a full page past MAX_RESPONSE_BYTES.
     Halving the page and retrying the same cursor lets the sync move forward without skipping runs.
     Returns the page data and the limit that fetched it, so the caller keeps the shrunk size for the
-    next pages. Raises LangSmithRunsPageTooLargeError when even a single-run page is oversized.
+    next pages.
+
+    One run over the cap on its own cannot be halved further, so the last attempt re-requests it
+    without the heavy fields: the row lands with null inputs/outputs instead of ending the table.
+    That narrowed response is also the only way to learn the run id, because an oversized body is
+    refused before it can be parsed. Raises LangSmithRunsPageTooLargeError when it is oversized too.
     """
+    heavy_fields_dropped = False
     while True:
         page_body = {**body, "limit": limit}
+        if heavy_fields_dropped:
+            page_body["select"] = [name for name in body["select"] if name not in RUNS_HEAVY_SELECT_FIELDS]
         if page_cursor:
             page_body["cursor"] = page_cursor
         try:
-            return _fetch_page(session, url, headers, logger, json_body=page_body), limit
+            data = _fetch_page(session, url, headers, logger, json_body=page_body)
         except LangSmithResponseTooLargeError:
-            if limit <= MIN_RUNS_PAGE_SIZE:
+            if limit > MIN_RUNS_PAGE_SIZE:
+                limit = max(MIN_RUNS_PAGE_SIZE, limit // 2)
+                logger.warning(
+                    f"LangSmith runs page exceeded the response cap; retrying same cursor with limit={limit}"
+                )
+                continue
+            if heavy_fields_dropped or not any(name in body["select"] for name in RUNS_HEAVY_SELECT_FIELDS):
                 raise LangSmithRunsPageTooLargeError(RUNS_PAGE_TOO_LARGE_ERROR)
-            limit = max(MIN_RUNS_PAGE_SIZE, limit // 2)
-            logger.warning(f"LangSmith runs page exceeded the response cap; retrying same cursor with limit={limit}")
+            heavy_fields_dropped = True
+            logger.warning(
+                "LangSmith run exceeded the response cap at the minimum page size; retrying the same cursor without "
+                f"{', '.join(RUNS_HEAVY_SELECT_FIELDS)}"
+            )
+            continue
+
+        if heavy_fields_dropped:
+            runs = data.get("runs", []) if isinstance(data, dict) else []
+            logger.warning(
+                f"LangSmith imported {len(runs)} run(s) without {', '.join(RUNS_HEAVY_SELECT_FIELDS)} because they "
+                f"exceeded the response cap: run_ids={_bounded_run_ids(runs)}"
+            )
+        return data, limit
 
 
 def _list_session_ids(
@@ -421,9 +495,9 @@ def _list_session_ids(
             ids.append(row_id)
             ids_bytes += len(row_id.encode())
             if ids_bytes > MAX_SESSION_IDS_BYTES:
-                raise LangSmithResponseTooLargeError(
-                    f"LangSmith returned an oversized set of tracing-project ids "
-                    f"(> {MAX_SESSION_IDS_BYTES} bytes) while scoping the runs query"
+                raise LangSmithPaginationTooLargeError(
+                    f"the set of tracing-project ids went over {MAX_SESSION_IDS_BYTES} bytes "
+                    f"while scoping the runs query"
                 )
         if len(rows) < config.page_size:
             break
@@ -467,9 +541,8 @@ def _list_dataset_ids(
             ids.append(row_id)
             ids_bytes += len(row_id.encode())
             if ids_bytes > MAX_DATASET_IDS_BYTES:
-                raise LangSmithResponseTooLargeError(
-                    f"LangSmith returned an oversized set of dataset ids "
-                    f"(> {MAX_DATASET_IDS_BYTES} bytes) while scoping the examples query"
+                raise LangSmithPaginationTooLargeError(
+                    f"the set of dataset ids went over {MAX_DATASET_IDS_BYTES} bytes while scoping the examples query"
                 )
         if len(rows) < config.page_size:
             break
@@ -532,6 +605,7 @@ def _get_runs_rows(
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    select_fields: list[str],
 ) -> Iterator[Any]:
     """Page through POST /runs/query with the body cursor.
 
@@ -557,7 +631,7 @@ def _get_runs_rows(
         return
 
     body: dict[str, Any] = {
-        "select": RUNS_SELECT_FIELDS,
+        "select": select_fields,
         # Ascending by start time so cursor pagination walks forward deterministically from the
         # window bound. The watermark still only persists at job end (sort_mode="desc") since we
         # can't verify the ordering guarantee across every LangSmith deployment.
@@ -597,9 +671,7 @@ def _get_runs_rows(
 
         # Reject an absurdly large cursor before it's echoed back or remembered.
         if len(next_cursor.encode()) > MAX_CURSOR_BYTES:
-            raise LangSmithResponseTooLargeError(
-                f"LangSmith returned an oversized pagination cursor (> {MAX_CURSOR_BYTES} bytes)"
-            )
+            raise LangSmithPaginationTooLargeError(f"the runs cursor went over {MAX_CURSOR_BYTES} bytes")
 
         # A host that hands back a cursor it already gave us (or the one we just sent) is looping;
         # retrying would re-hit it, so fail for good instead of spinning until the activity timeout.
@@ -796,6 +868,7 @@ def get_rows(
     team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    enabled_columns: list[str] | None = None,
 ) -> Iterator[Any]:
     config = LANGSMITH_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
@@ -810,10 +883,12 @@ def get_rows(
     # carry secrets or personal data the name-based scrubber won't recognize.
     session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
 
+    pager: Callable[..., Iterator[Any]]
     if config.scoped_by_dataset:
         pager = _get_examples_rows
     elif config.pagination == "cursor":
-        pager = _get_runs_rows
+        # Bound here because only runs has a server-side select to narrow.
+        pager = partial(_get_runs_rows, select_fields=_runs_select_fields(config, enabled_columns))
     else:
         pager = _get_offset_rows
     yield from pager(
@@ -841,6 +916,7 @@ def langsmith_source(
     team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    enabled_columns: Optional[list[str]] = None,
 ) -> SourceResponse:
     config = LANGSMITH_ENDPOINTS[endpoint]
 
@@ -855,6 +931,7 @@ def langsmith_source(
             team_id=team_id,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            enabled_columns=enabled_columns,
         ),
         primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,
