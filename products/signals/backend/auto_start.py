@@ -24,6 +24,7 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
+from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -385,6 +386,7 @@ def _create_implementation_task_if_absent(
     base_branch: str | None,
     billing_exempt_reason: str | None = None,
     steering: ReportSteering = NO_STEERING,
+    free_trial_enabled: bool | None = None,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -434,6 +436,9 @@ def _create_implementation_task_if_absent(
             repository=repository,
             branch=base_branch,
             signal_report_id=report_id,
+            # Resolved by the caller outside this lock, like `agent_runtime` above, so the
+            # create-time free-trial gate makes no flag request while the report row is locked.
+            free_trial_enabled=free_trial_enabled,
             # `full` scopes so the implementation agent can log its work on the report (notes,
             # code references) via the task:write artefact tools, plus the scratchpad so what it
             # learned about the codebase outlives the run.
@@ -448,6 +453,7 @@ def _create_implementation_task_if_absent(
             runtime_adapter=agent_runtime.runtime_adapter,
             model=agent_runtime.model,
             reasoning_effort=agent_runtime.reasoning_effort,
+            service_tier=agent_runtime.service_tier,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
@@ -816,6 +822,21 @@ async def maybe_autostart_implementation_task(
         )
         return
 
+    # Free trial gate: a trial org gets reports, not pull requests, so no implementation task on
+    # any path. The report stays ready and gets its PR after the trial, on the next re-evaluation
+    # or by hand. The gate sits after the runner resolution because a report with no runner opens
+    # no pull request anyway, so counting it would overstate what the trial held back.
+    on_free_trial = await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(team)
+    if on_free_trial:
+        capture_signal_report_free_trial_paused(team, report_id=report_id, stage="autostart")
+        logger.info(
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="org on self-driving free trial",
+        )
+        return
+
     base_branch = team_config.base_branch_for(repository) if team_config else None
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
@@ -843,6 +864,9 @@ async def maybe_autostart_implementation_task(
         base_branch=base_branch,
         billing_exempt_reason=billing_exempt_reason,
         steering=steering,
+        # The verdict resolved above, so the create-time gate re-reads no flag while it holds the
+        # report row lock.
+        free_trial_enabled=on_free_trial,
     )
     if not created:
         # Another evaluation won the race and already created the implementation task.

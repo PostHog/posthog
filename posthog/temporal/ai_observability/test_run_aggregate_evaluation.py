@@ -15,12 +15,15 @@ from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    INGESTION_LAG_MARGIN_SECONDS,
     MAX_SETTLE_POLLS_PER_RUN,
     CheckSessionSettledInputs,
     CheckTraceSettledInputs,
+    FindQuietPointInputs,
     RunAggregateEvaluationInputs,
     RunAggregateEvaluationWorkflow,
     SettlePlan,
+    _quiet_point,
     check_session_settled_activity,
     check_trace_settled_activity,
     resolve_poll_interval,
@@ -248,7 +251,13 @@ def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[
         calls.append("execute_session")
         return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
 
+    @activity.defn(name="find_evaluation_quiet_point_activity")
+    async def mock_find_quiet_point(inputs: FindQuietPointInputs) -> str:
+        calls.append("quiet_point")
+        return QUIET_POINT
+
     all_activities = {
+        "find_evaluation_quiet_point_activity": mock_find_quiet_point,
         "fetch_evaluation_activity": mock_fetch_evaluation,
         "execute_trace_hog_eval_activity": mock_execute_trace_hog,
         "emit_trace_evaluation_event_activity": mock_emit,
@@ -271,6 +280,35 @@ def _workflow_inputs(settle: dict[str, Any], **overrides: Any) -> RunAggregateEv
     }
     defaults.update(overrides)
     return RunAggregateEvaluationInputs(**defaults)
+
+
+QUIET_POINT = "2026-08-01T12:20:00+00:00"
+
+
+class TestQuietPoint:
+    @pytest.mark.parametrize(
+        "case,offsets,expected_offset",
+        [
+            # A gap of at least the quiet period ends the read one quiet period after the last
+            # event before it, which is where the live poll would have settled.
+            ("a gap in the middle", [0, 60, 3600], 60 + 1800 + INGESTION_LAG_MARGIN_SECONDS),
+            # Silence after the last event, so the read ends one quiet period after it.
+            ("no gap at all", [0, 60, 120], 120 + 1800 + INGESTION_LAG_MARGIN_SECONDS),
+            # Every gap is shorter than the quiet period until the ceiling.
+            ("activity all the way to the ceiling", [0, 1200, 2400, 3600, 4800, 6000, 7200], 7200),
+            ("no events", [], 7200),
+        ],
+    )
+    def test_reads_stop_where_an_inactivity_poll_would_have_settled(
+        self, case: str, offsets: list[int], expected_offset: int
+    ) -> None:
+        window_start = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        quiet = timedelta(seconds=1800 + INGESTION_LAG_MARGIN_SECONDS)
+        cap = window_start + timedelta(seconds=7200)
+
+        point = _quiet_point([window_start + timedelta(seconds=offset) for offset in offsets], window_start, quiet, cap)
+
+        assert point == window_start + timedelta(seconds=expected_offset)
 
 
 class TestRunAggregateEvaluationWorkflow:
@@ -298,6 +336,98 @@ class TestRunAggregateEvaluationWorkflow:
         assert result["verdict"] is True
         assert elapsed >= timedelta(seconds=600)
         assert elapsed < timedelta(seconds=900)
+
+    @pytest.mark.asyncio
+    async def test_anchor_timestamp_skips_the_settle_window(self):
+        calls: list[str] = []
+        anchor = "2026-08-01T12:00:00+00:00"
+        window_starts: list[str] = []
+        window_ends: list[str | None] = []
+
+        @activity.defn(name="execute_trace_hog_eval_activity")
+        async def mock_execute_trace_hog(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+            calls.append("execute")
+            window_starts.append(inputs.window_start)
+            window_ends.append(inputs.window_end)
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunAggregateEvaluationWorkflow],
+                activities=[
+                    *_mock_activities(calls, exclude={"execute_trace_hog_eval_activity"}),
+                    mock_execute_trace_hog,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                start = await env.get_current_time()
+                result = await env.client.execute_workflow(
+                    RunAggregateEvaluationWorkflow.run,
+                    _workflow_inputs(
+                        {"strategy": "fixed_window", "window_seconds": 1800},
+                        anchor_timestamp=anchor,
+                        backfill_id="bf-1",
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                elapsed = (await env.get_current_time()) - start
+
+        assert calls == ["fetch", "execute", "emit", "telemetry"]
+        assert result["verdict"] is True
+        assert window_starts == [datetime.fromisoformat(anchor).isoformat()]
+        # Bounded to the span the live path would have covered from the anchor, so the grade does
+        # not sweep in everything that arrived between the anchor and now.
+        assert window_ends == [
+            (datetime.fromisoformat(anchor) + timedelta(seconds=1800 + INGESTION_LAG_MARGIN_SECONDS)).isoformat()
+        ]
+        # Far below the 1800s window, so the settle sleep cannot have run. The slack absorbs the
+        # test environment skipping an idle activity timeout.
+        assert elapsed < timedelta(seconds=900)
+
+    @pytest.mark.asyncio
+    async def test_a_backfilled_inactivity_unit_reads_to_its_quiet_point(self):
+        calls: list[str] = []
+        anchor = "2026-08-01T12:00:00+00:00"
+        window_ends: list[str | None] = []
+
+        @activity.defn(name="execute_trace_hog_eval_activity")
+        async def mock_execute_trace_hog(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+            calls.append("execute")
+            window_ends.append(inputs.window_end)
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunAggregateEvaluationWorkflow],
+                activities=[
+                    *_mock_activities(calls, exclude={"execute_trace_hog_eval_activity"}),
+                    mock_execute_trace_hog,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    RunAggregateEvaluationWorkflow.run,
+                    _workflow_inputs(
+                        {"strategy": "inactivity", "quiet_period_seconds": 1800, "max_age_seconds": 7200},
+                        anchor_timestamp=anchor,
+                        backfill_id="bf-1",
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        # The quiet point, not the maximum age: reading to the ceiling would grade a transcript
+        # the live path never saw.
+        assert window_ends == [QUIET_POINT]
+        assert "check_trace_settled" not in calls
+        assert calls[0] == "quiet_point"
 
     @pytest.mark.asyncio
     async def test_inactivity_settles_after_one_quiet_period_when_silent(self):

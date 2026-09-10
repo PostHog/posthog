@@ -16275,8 +16275,11 @@ export namespace Schemas {
        * * `native` - Native
        * * `mcp` - Mcp */
       kind: ConnectorKindEnum;
-      /** True when the caller has a usable connection to this provider. */
-      connected: boolean;
+      /**
+         * True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.
+         * @nullable
+         */
+      connected: boolean | null;
       /** In-app path where the caller connects this provider. */
       connect_path: string;
       /** Tools the caller's connection exposes, sorted by name. */
@@ -25294,6 +25297,9 @@ export namespace Schemas {
      * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource
+     * * `GoogleAdSense` - GoogleAdSense
+     * * `Sequenzy` - Sequenzy
+     * * `Skio` - Skio
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -26631,6 +26637,9 @@ export namespace Schemas {
       Tenjin: 'Tenjin',
       Folk: 'Folk',
       Cybersource: 'Cybersource',
+      GoogleAdSense: 'GoogleAdSense',
+      Sequenzy: 'Sequenzy',
+      Skio: 'Skio',
     } as const;
 
     /**
@@ -27981,7 +27990,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28327,6 +28339,14 @@ export namespace Schemas {
     export interface DeliveryConfig {
       /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
       post_all_insights_in_main_message?: boolean;
+      /** AI prompt subscriptions only: include generated chart images. Defaults to true when omitted. */
+      include_images?: boolean;
+      /** AI prompt subscriptions only: include report feedback links. Defaults to true when omitted. */
+      include_feedback?: boolean;
+      /** AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. */
+      include_manage_link?: boolean;
+      /** AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted. */
+      include_posthog_hint?: boolean;
     }
 
     /**
@@ -30015,7 +30035,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -31351,6 +31374,12 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       suggested_prompts?: string[];
+      /**
+         * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+         * @maxLength 200
+         * @nullable
+         */
+      idempotency_key?: string | null;
     }
 
     export interface EmitReportResponse {
@@ -31381,6 +31410,8 @@ export namespace Schemas {
          * @nullable
          */
       remediation: string | null;
+      /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
+      idempotent_replay: boolean;
     }
 
     export interface EndExperiment {
@@ -36629,7 +36660,7 @@ export namespace Schemas {
     export interface ExperimentSessionEventDeltaResponse {
       /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the experiment's results already answer while reading as a finding, so it is withheld. Read empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
       cards: ExperimentWatchCard[];
-      /** Every variant's compared population, in the flag's variant order. */
+      /** Every variant the analysis compares, with its population, in the flag's variant order. A variant the experiment excludes never appears here, because the analysis does not count it either, so read a missing key as excluded rather than as zero people. */
       variants: ExperimentWatchVariant[];
       /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
       multiple_variant_persons: number;
@@ -36640,13 +36671,13 @@ export namespace Schemas {
       multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum;
       /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
       metric_events: string[];
-      /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days (2 when sessions are matched on the stamped flag property, which no event name can prune a scan on), but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
+      /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days, but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
       date_from: string;
       /** End of what was compared: the experiment's end date, or now while it runs. */
       date_to: string;
       /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
       filter_test_accounts: boolean;
-      /** True when the compared sessions were matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', and the variant comes from the flag's value on each event, so a returning user can be counted under a variant they were re-bucketed into later. */
+      /** Always false. The compared population is the exposed population the experiment's results count, matched to sessions by person, so no stamped-property fallback exists any more. The field stays for compatibility with existing readers. */
       used_exposure_fallback: boolean;
       /** True when the experiment had more exposed sessions in the requested window than one comparison covers, so the most recent ones were used and date_from is later than the experiment's own window. Every variant is still covered over the same stretch of time. */
       sessions_truncated: boolean;
@@ -36658,9 +36689,9 @@ export namespace Schemas {
       max_card_recordings: number;
       /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
       dropped_duplicate_cards: number;
-      /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because no exposure in the window carried a session, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
+      /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because the people exposed have no sessions we can see, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
       too_early: boolean;
-      /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': people were exposed between date_from and date_to, and not one exposure carried a session id, so there was nothing to compare. Only that window was checked, so say so. It is how exposure is captured rather than a wait: exposures captured from a client-side SDK carry a session and exposures captured server-side do not, so more of the same capture yields more of the same. Point at capturing exposure from a client-side SDK before telling anyone to check back. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+      /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the experiment has exposed people and none of them has a session we can see between date_from and date_to, so there was nothing to compare. Who counts as exposed is read over the whole run, so the exposures themselves can predate that window: date the claim to the window instead of reporting when anyone was exposed. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people were last active before the window. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
        *
        * * `too_early` - too_early
        * * `no_separation` - no_separation
@@ -36984,6 +37015,63 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    /**
+     * Typed account properties: external-system ids. Role assignments live under `relationships`.
+     */
+    export type ExternalAccountProperties = {[key: string]: unknown};
+
+    export interface ExternalAccountAssignment {
+      /** PostHog user id of the assigned user. */
+      user_id: number;
+      /** Email address of the assigned user. */
+      email: string;
+    }
+
+    /**
+     * Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted.
+     */
+    export type ExternalAccountRelationships = {[key: string]: ExternalAccountAssignment[]};
+
+    /**
+     * Every team custom property definition keyed by name, with the account's active value or null.
+     */
+    export type ExternalAccountCustomProperties = {[key: string]: unknown};
+
+    export interface ExternalAccount {
+      /** Account UUID. */
+      id: string;
+      /**
+         * External account key — the group key the account is linked to.
+         * @nullable
+         */
+      external_id: string | null;
+      /** Human-readable account name. */
+      name: string;
+      /**
+         * When the account churned, or null if it has not churned.
+         * @nullable
+         */
+      churned_at: string | null;
+      /**
+         * When Track Rules ignored the account, or null if it is tracked.
+         * @nullable
+         */
+      ignored_at: string | null;
+      /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
+      properties: ExternalAccountProperties;
+      /** Tag names on the account, sorted alphabetically. */
+      tags: string[];
+      /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
+      relationships: ExternalAccountRelationships;
+      /** Every team custom property definition keyed by name, with the account's active value or null. */
+      custom_properties: ExternalAccountCustomProperties;
+    }
+
+    export interface ExternalAccountError {
+      /** What went wrong with the request. */
+      error: string;
     }
 
     export interface ExternalAccountListAssignment {
@@ -38763,7 +38851,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -40134,7 +40225,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -44126,6 +44220,7 @@ export namespace Schemas {
      * * `site_app` - Site App
      * * `transformation` - Transformation
      * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination
      */
     export type HogFunctionTypeEnum = typeof HogFunctionTypeEnum[keyof typeof HogFunctionTypeEnum];
 
@@ -44139,6 +44234,7 @@ export namespace Schemas {
       SiteApp: 'site_app',
       Transformation: 'transformation',
       TransformationLog: 'transformation_log',
+      LegacyDestination: 'legacy_destination',
     } as const;
 
     /**
@@ -44350,7 +44446,8 @@ export namespace Schemas {
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
        * * `transformation` - Transformation
-       * * `transformation_log` - Transformation Log */
+       * * `transformation_log` - Transformation Log
+       * * `legacy_destination` - Legacy Destination */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -65475,7 +65572,8 @@ export namespace Schemas {
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
        * * `transformation` - Transformation
-       * * `transformation_log` - Transformation Log */
+       * * `transformation_log` - Transformation Log
+       * * `legacy_destination` - Legacy Destination */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -79981,6 +80079,7 @@ export namespace Schemas {
       model?: string;
       runtime_adapter?: string;
       reasoning_effort?: string;
+      service_tier?: string;
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
@@ -80078,6 +80177,7 @@ export namespace Schemas {
       model?: string;
       runtime_adapter?: string;
       reasoning_effort?: string;
+      service_tier?: string;
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
@@ -81804,7 +81904,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -83191,7 +83294,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -84560,7 +84666,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -92506,6 +92615,13 @@ export namespace Schemas {
      * @maxItems 50
      */
     cohort_ids: number[];
+    };
+
+    export type CustomerAnalyticsExternalAccountRetrieveParams = {
+    /**
+     * External account key: the group key the account is linked to.
+     */
+    external_id: string;
     };
 
     export type CustomerAnalyticsExternalAccountsRetrieveParams = {

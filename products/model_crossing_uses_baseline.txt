@@ -20,9 +20,11 @@
 # access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
-# A new line needs a doctrine amendment, not a baseline edit.
 #
-# Regenerate: bin/hogli product:crossings --all --write-baseline
+# Regenerate after a removal: bin/hogli product:crossings --all --write-baseline
+# That command refuses to write when the scan holds a line this file does not. A coupling that
+# must stand is a hand-edited line here, together with the amendment in products/architecture.md
+# § Wiring couplings that permits it, because a reviewer can see both.
 access_control.Role approvals.ApprovalPolicy.bypass_roles reverse-accessor(bypass_policies) 1
 access_control.Role posthog.Organization.default_role reverse-accessor(default_for_organizations) 1
 actions.Action cdp.PluginConfig.match_action reverse-accessor(plugin_configs) 1
@@ -321,7 +323,6 @@ product_analytics.Insight posthog.models.file_system.unfiled_file_saver in-colle
 product_analytics.Insight posthog.models.product_intent.product_intent instance-many(filter) 2
 product_analytics.Insight posthog.models.resource_transfer.visitors.insight other(Return) 1
 product_analytics.Insight posthog.models.sharing_configuration passed-as-class(cast) 1
-product_analytics.Insight posthog.temporal.product_analytics.upgrade_queries_activities instance-many(filter) 1
 product_analytics.Insight products.actions.backend.api.action instance-many(extra) 1
 product_analytics.Insight products.alerts.backend.max_tools instance-many(filter) 1
 product_analytics.Insight products.alerts.backend.max_tools passed-as-class(cast) 1

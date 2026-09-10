@@ -670,6 +670,30 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
+    def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
+        response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.json_schema == {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
+                "score": {"type": "number"},
+            },
+            "required": ["verdict", "score"],
+        }
+        prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
+        assert "verdict (string), score (number)" in prompt
+        assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
+
+    def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:
+        response = self._post({"output_fields": {"final_message": "string"}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "output_fields"
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
     def test_includes_the_triggering_event_in_the_agent_prompt(self) -> None:
         response = self._post(
             {"event": {"event": "$slack_message_received", "properties": {"text": "Database latency alert fired"}}}
@@ -985,6 +1009,10 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
                 {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
                 "slack_context",
             ),
+            ("output_field_unknown_type", {"prompt": "p", "output_fields": {"verdict": "object"}}, "output_fields"),
+            ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
+            ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
+            ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
             (
                 "slack_context_bad_integration_id",
                 {

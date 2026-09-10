@@ -3310,6 +3310,7 @@ export type SignalScoutRunSummaryApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    service_tier?: string
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
@@ -3426,6 +3427,7 @@ export type SignalScoutRunDetailApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    service_tier?: string
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
@@ -3775,6 +3777,12 @@ export interface EmitReportRequestApi {
      * @items.maxLength 200
      */
     suggested_prompts?: string[]
+    /**
+     * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+     * @maxLength 200
+     * @nullable
+     */
+    idempotency_key?: string | null
 }
 
 export interface EmitReportResponseApi {
@@ -3805,6 +3813,8 @@ export interface EmitReportResponseApi {
      * @nullable
      */
     remediation: string | null
+    /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
+    idempotent_replay: boolean
 }
 
 /**

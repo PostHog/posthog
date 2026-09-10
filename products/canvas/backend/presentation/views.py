@@ -27,7 +27,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
-from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
+from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
@@ -36,6 +36,7 @@ from products.canvas.backend.facade.api import (
     canvas_connectors_enabled,
     connector_listings,
     default_layout,
+    native_connector_listings,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
     validate_layout,
@@ -89,6 +90,7 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import code_access_required_response
 
 logger = structlog.get_logger(__name__)
 
@@ -1758,8 +1760,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             )
         verb_payload = entry.payload_serializer(data=payload.validated_data["payload"])
         verb_payload.is_valid(raise_exception=True)
+        if entry.starts_cloud_run:
+            if access_response := code_access_required_response(request, self.organization):
+                return access_response
         try:
             result = entry.execute(self.team_id, user.id, canvas, verb_payload.validated_data)
+        except CanvasActionDenied as error:
+            return error.response
         except ValueError as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         # Every execution is audited: the trigger names the verb, the activity
@@ -1790,7 +1797,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         ],
         responses={
             200: CanvasConnectorsResponseSerializer,
-            403: OpenApiResponse(description="Connectors are not enabled for this team, or the caller is a sandbox."),
+            403: OpenApiResponse(description="Connectors are not enabled for this team."),
         },
     )
     @action(methods=["GET"], detail=False, url_path="connectors")
@@ -1798,21 +1805,17 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         """List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
 
         Authoring agents read this to write ph.connectors.call sites and the
-        matching capabilities.connectors declarations.
+        matching capabilities.connectors declarations. Sandbox tokens receive
+        only static native tools, with no connection lookup or MCP installation data.
         """
         user = self._connector_actor(request)
-        if user is None:
-            return Response(
-                {"detail": "The connector catalog is a viewer surface; sandbox tokens cannot read it."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         if not canvas_connectors_enabled(self.team):
             return Response(
                 {"detail": "Canvas connectors are not enabled for this team."}, status=status.HTTP_403_FORBIDDEN
             )
         raw_hosts = request.query_params.get("mcp_hosts")
         mcp_hosts = [host.strip() for host in raw_hosts.split(",") if host.strip()] if raw_hosts else None
-        listings = connector_listings(self.team_id, user.id, mcp_hosts)
+        listings = native_connector_listings() if user is None else connector_listings(self.team_id, user.id, mcp_hosts)
         return Response(CanvasConnectorsResponseSerializer(instance={"connectors": listings}).data)
 
     @extend_schema(
