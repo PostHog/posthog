@@ -29,8 +29,8 @@ class VerificationRecord(BaseModel, frozen=True):
     mode: str
     # Verdicts in draw order; the first entry is the pass that triggered verification.
     draws: list[MonitorVerdict]
-    # The verdict the majority of draws supports. `served_verdict` is what `model_output` carries: the same value
-    # under `enforce`, the first draw under `shadow`.
+    # The verdict verification settled on: the first pass when the second draw agrees, else the dissent.
+    # `served_verdict` is what `model_output` carries: the same value under `enforce`, the first draw under `shadow`.
     resolved_verdict: MonitorVerdict
     served_verdict: MonitorVerdict
     skipped_reason: str | None = None

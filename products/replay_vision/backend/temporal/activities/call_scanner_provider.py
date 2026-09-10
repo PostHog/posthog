@@ -60,7 +60,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner, MonitorVerdict
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
@@ -456,58 +456,55 @@ async def _verify_positive_verdict(
     cache: Any | None,
     model: str,
 ) -> tuple[MonitorLlmResponse, VerificationRecord]:
-    """Re-draw the core step until a majority of up to three draws settles a `yes` verdict.
+    """Re-draw the core step once; a `yes` is served only when the second draw agrees.
+
+    Replay Vision optimizes for precision, not recall: a finding it presents must hold up, and a missed one costs
+    less than a wrong one. So a single dissenting draw is enough to drop the `yes`, and the dissent (its verdict and
+    its reasoning) is what gets served. No third draw breaks the tie in favour of the finding.
 
     Every draw is a fresh conversation over the same cached video and preamble, so it never sees the first pass or
     its reasoning. Verification only ever tightens a scan that already succeeded: without a cache, without time left
-    in the activity budget, or when a draw fails for any reason, the first verdict stands and the record says why.
+    in the activity budget, or when the draw fails for any reason, the first verdict stands and the record says why.
     """
     draws = [first]
     skipped_reason: str | None = None
     if cache is None:
         skipped_reason = "no_cache"
     else:
-        # Draw 2 confirms the first pass; draw 3 runs only when draw 2 disagrees.
-        for index in (2, 3):
-            # An activity timeout fires outside the `except` below and fails the whole scan, first verdict included.
-            # Capping each draw at the remaining budget turns that into a `draw_failed` the first pass survives.
-            budget = _remaining_verify_budget_seconds()
-            if budget is not None and budget <= 0:
-                skipped_reason = "no_budget"
-                break
-            verify_step = replace(core_step, name=f"{STEP_CORE}_verify_{index}")
+        # An activity timeout fires outside the `except` below and fails the whole scan, first verdict included.
+        # Capping the draw at the remaining budget turns that into a `draw_failed` the first pass survives.
+        budget = _remaining_verify_budget_seconds()
+        if budget is not None and budget <= 0:
+            skipped_reason = "no_budget"
+        else:
+            verify_step = replace(core_step, name=f"{STEP_CORE}_verify_2")
             try:
                 outputs = await asyncio.wait_for(run(steps=[verify_step], cache_name=cache.name), timeout=budget)
                 draw = outputs[verify_step.name]
                 if not isinstance(draw, MonitorLlmResponse):
                     raise TypeError(f"verify draw returned {type(draw).__name__}")
+                draws.append(draw)
             except Exception as exc:
                 logger.warning(
                     "replay_vision.call_scanner_provider.verify_draw_failed",
                     model=model,
-                    draw=index,
                     error_type=type(exc).__name__,
                     exc_info=True,
                 )
                 skipped_reason = "draw_failed"
-                break
-            draws.append(draw)
-            if len(draws) == 2 and draw.verdict == first.verdict:
-                break
 
-    resolved = first.verdict if skipped_reason else _majority_verdict(draws, scanner)
-    served = next(draw for draw in draws if draw.verdict == resolved) if mode == "enforce" else first
+    # The dissent, when there is one, is the last draw; otherwise the first pass stands.
+    resolved_draw = draws[-1]
+    served = resolved_draw if mode == "enforce" else first
     if skipped_reason:
         outcome = skipped_reason
-    elif len(draws) == 2:
-        outcome = "agreed"
     else:
-        outcome = "tiebreak_kept" if resolved == first.verdict else "tiebreak_flipped"
+        outcome = "agreed" if resolved_draw.verdict == first.verdict else "flipped"
     record_verification_outcome(scanner_type=scanner.scanner_type.value, mode=mode, outcome=outcome)
     record = VerificationRecord(
         mode=mode,
         draws=[draw.verdict for draw in draws],
-        resolved_verdict=resolved,
+        resolved_verdict=resolved_draw.verdict,
         served_verdict=served.verdict,
         skipped_reason=skipped_reason,
     )
@@ -524,15 +521,6 @@ def _remaining_verify_budget_seconds() -> float | None:
         return None
     elapsed = (timezone.now() - info.started_time).total_seconds()
     return info.start_to_close_timeout.total_seconds() - elapsed - _VERIFY_BUDGET_RESERVE_SECONDS
-
-
-def _majority_verdict(draws: list[MonitorLlmResponse], scanner: MonitorScanner) -> MonitorVerdict:
-    ((verdict, count),) = Counter(draw.verdict for draw in draws).most_common(1)
-    if count > 1 or len(draws) == 1:
-        return verdict
-    # Three distinct verdicts have no majority, so the answer is `inconclusive`. A draw can only say `inconclusive`
-    # when the scanner allows it (`validate_semantics` rejects it otherwise), so the fallback is a guard, not a path.
-    return "inconclusive" if scanner.allow_inconclusive else draws[0].verdict
 
 
 async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:

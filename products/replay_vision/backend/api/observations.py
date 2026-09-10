@@ -122,7 +122,7 @@ class ScannerSnapshotSerializer(serializers.Serializer):
         help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
     )
     verify_positives = serializers.CharField(
-        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (extra draws recorded only), or `enforce` (majority served).",
+        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees).",
     )
 
 
@@ -130,14 +130,14 @@ class VerificationRecordSerializer(serializers.Serializer):
     """Mirrors `temporal.types.VerificationRecord` for OpenAPI generation."""
 
     mode = serializers.CharField(
-        help_text="Verify-positives mode the scan ran with: `shadow` records the extra draws only, `enforce` serves their majority.",
+        help_text="Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict.",
     )
     draws = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Monitor verdicts in draw order. The first entry is the pass that triggered verification.",
+        help_text="Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran.",
     )
     resolved_verdict = serializers.CharField(
-        help_text="The verdict the majority of draws supports.",
+        help_text="The verdict verification settled on: the first pass when the second draw agrees, else the dissent.",
     )
     served_verdict = serializers.CharField(
         help_text="The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`.",

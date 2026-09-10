@@ -529,13 +529,12 @@ class TestVerifyPositives:
         [
             ("shadow", ["yes", "yes"], False, "yes", "yes", "agreed"),
             ("enforce", ["yes", "yes"], False, "yes", "yes", "agreed"),
-            ("enforce", ["yes", "no", "no"], False, "no", "no", "tiebreak_flipped"),
-            ("shadow", ["yes", "no", "no"], False, "no", "yes", "tiebreak_flipped"),
-            ("enforce", ["yes", "no", "yes"], False, "yes", "yes", "tiebreak_kept"),
-            ("enforce", ["yes", "no", "inconclusive"], True, "inconclusive", "inconclusive", "tiebreak_flipped"),
+            ("enforce", ["yes", "no"], False, "no", "no", "flipped"),
+            ("shadow", ["yes", "no"], False, "no", "yes", "flipped"),
+            ("enforce", ["yes", "inconclusive"], True, "inconclusive", "inconclusive", "flipped"),
         ],
     )
-    async def test_majority_of_up_to_three_draws_settles_the_verdict(
+    async def test_a_yes_stands_only_when_the_second_draw_agrees(
         self,
         mode: str,
         draws: list[str],
@@ -546,41 +545,33 @@ class TestVerifyPositives:
     ) -> None:
         run = await self._scan(mode=mode, answers=list(draws), allow_inconclusive=allow_inconclusive)
         finalized = cast(MonitorOutput, run.outcome.finalized)
-        # `enforce` serves the whole winning draw, reasoning included, not just its verdict.
+        # `enforce` serves the whole settled draw, reasoning included, not just its verdict.
         assert (finalized.verdict, finalized.reasoning) == (served, f"because {served}")
         assert run.outcome.verification == VerificationRecord(
             mode=mode, draws=cast(Any, draws), resolved_verdict=cast(Any, resolved), served_verdict=cast(Any, served)
         )
-        assert len(run.calls) == len(draws) + 1
+        # One first pass, one verify draw, the cache deletion. A dissent never triggers a third draw.
+        assert len(run.calls) == 3
         assert run.counted == {(mode, outcome_label): 1.0}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "answers,reason",
+        "failure",
         [
-            (["yes", ScannerFailureError("rejected", kind=FailureKind.VALIDATION_FAILED)], "draw_failed"),
-            (
-                ["yes", "no", APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}})],
-                "draw_failed",
-            ),
+            ScannerFailureError("rejected", kind=FailureKind.VALIDATION_FAILED),
+            APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}}),
             # `asyncio.wait_for` raises this when a draw runs past the activity budget.
-            (["yes", TimeoutError()], "draw_failed"),
+            TimeoutError(),
         ],
     )
-    async def test_a_failed_draw_keeps_the_first_verdict_and_never_raises(
-        self, answers: list[str | Exception], reason: str
-    ) -> None:
-        run = await self._scan(mode="enforce", answers=answers)
+    async def test_a_failed_draw_keeps_the_first_verdict_and_never_raises(self, failure: Exception) -> None:
+        run = await self._scan(mode="enforce", answers=["yes", failure])
         assert cast(MonitorOutput, run.outcome.finalized).verdict == "yes"
         assert run.outcome.verification == VerificationRecord(
-            mode="enforce",
-            draws=cast(Any, [answer for answer in answers if isinstance(answer, str)]),
-            resolved_verdict="yes",
-            served_verdict="yes",
-            skipped_reason=reason,
+            mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="draw_failed"
         )
-        assert len(run.calls) == len(answers) + 1
-        assert run.counted == {("enforce", reason): 1.0}
+        assert len(run.calls) == 3
+        assert run.counted == {("enforce", "draw_failed"): 1.0}
 
     @pytest.mark.asyncio
     async def test_without_a_cache_the_first_pass_stands(self) -> None:
@@ -634,11 +625,10 @@ class TestVerifyPositives:
 
     @pytest.mark.asyncio
     async def test_verify_draws_are_blind_core_only_turns_over_the_live_cache(self) -> None:
-        run = await self._scan(mode="enforce", answers=["yes", "no", "yes"], emits_signals=True)
+        run = await self._scan(mode="enforce", answers=["yes", "no"], emits_signals=True)
         assert run.calls == [
             {"steps": ["core", "signals"], "cache_name": "caches/abc"},
             {"steps": ["core_verify_2"], "cache_name": "caches/abc"},
-            {"steps": ["core_verify_3"], "cache_name": "caches/abc"},
             "delete_cache",
         ]
 
