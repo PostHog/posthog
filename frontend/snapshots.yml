@@ -8369,9 +8369,13 @@ snapshots:
     scenes-app-mcp-analytics-dashboard-cards--share-by-harness--light:
         hash: v1.k794b7964.c5eae070d2b0728ce676a8248650123f9a153ec8a9b9052f119d28b82e112e75.CdS-40DZGyT0t1Th9qh7g6Cc9Dgt__lEEujO7OXp4IM
     scenes-app-mcp-analytics-dashboard-cards--share-by-model--dark:
-        hash: v1.k794b7964.2f0702727631d366626ada3b05a29aa35a38e2ab6495b14d0198bfe9626d2c5f.vh5EqJBpgcXlHKjjr50kY5VCzz3b7CimCShtrtPwhgA
+        hash: v1.k794b7964.f1cd0d50270811709b21860ec24f74dbc4a0ccce9841fc41b4cecabcd97ca447.S1pSjSh-DsFc_Onzdgc7zvj6g4n5Q5YROMGTKnp3iuc
     scenes-app-mcp-analytics-dashboard-cards--share-by-model--light:
-        hash: v1.k794b7964.6059600b90c53e9214bc20fc930577c239541b7172e097d854591353b29eb564.gryNsgZ8H3NIhX1-ff-ghkbtYmdbT-0lO4crLeaP9Jw
+        hash: v1.k794b7964.40b706717d21cabf7fc288b6531698ee207368c6b3fb83a6b66ca6acfe2af6df.2Xva50fHqEd4vwrvAvd5-8wBy1icz-LK_EgpRSjO0Eg
+    scenes-app-mcp-analytics-dashboard-cards--share-by-model-narrow--dark:
+        hash: v1.k794b7964.1565523b8bf28f1b9e9da27d78ac894e48190990f52542bc29a056ddec18bbad.wcFDEppca70quTjgH2H8u2NzA6c0GteoGLnViMcQ2E0
+    scenes-app-mcp-analytics-dashboard-cards--share-by-model-narrow--light:
+        hash: v1.k794b7964.bafbff928ee418e609247d0bb7d9c380056d1c1415800545ca69c3e77679b526.ySislSzbxIwQSNIVnbQKs-69P8F70MmLOzvlq9Yi2fQ
     scenes-app-mcp-analytics-missing-capabilities-preview--example-reports--dark:
         hash: v1.k794b7964.e1dfe15b20b22dec1f74881db821597e40d534cf0c9773fc032948311de642f7.iAS_FuPfykHZ7rjy90ExdGbsAT1eKhSIwVLvxUg1aGM
     scenes-app-mcp-analytics-missing-capabilities-preview--example-reports--light:
