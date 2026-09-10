@@ -35,10 +35,11 @@ function StripState({
         logic.actions.showStrip()
         logic.actions.setCollapsed(collapsed)
         if (refreshing) {
+            const baseline = mockScoutSuggestionSet()
             logic.actions.startRefreshPolling({
                 startedAt: Date.now(),
-                baselineGeneratedAt: null,
-                baselineStatus: null,
+                baselineGeneratedAt: baseline.generated_at,
+                baselineStatus: baseline.status,
             })
         }
         return () => logic.actions.refreshFinished()
