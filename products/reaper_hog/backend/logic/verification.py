@@ -42,6 +42,7 @@ class ClusterView:
     rank: ClusterRank
     files: tuple[str, ...]
     hits: tuple[Hit, ...]
+    owner: str | None = None
 
 
 @frozen
@@ -164,6 +165,7 @@ def cluster_view(cluster: ReaperCluster) -> ClusterView:
         rank=ClusterRank(cluster.rank),
         files=tuple(cluster.files),
         hits=tuple(latest_by_scout[scout] for scout in sorted(latest_by_scout)),
+        owner=cluster.owner,
     )
 
 

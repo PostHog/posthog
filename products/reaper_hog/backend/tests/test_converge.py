@@ -2,6 +2,7 @@ from products.reaper_hog.backend.facade.enums import BlockedReason, ClusterRank,
 from products.reaper_hog.backend.logic.artefacts import Hit
 from products.reaper_hog.backend.logic.constants import MAX_DIRECTORY_LINES, MAX_REFERENCE_FILES
 from products.reaper_hog.backend.logic.converge import cluster_hash, converge
+from products.reaper_hog.backend.logic.owners import parse_codeowners
 
 
 def _hit(scout: ScoutName, root: str = "k", *, decisive: bool = False, files: list[str] | None = None) -> Hit:
@@ -49,3 +50,13 @@ def test_oversize_clusters_are_blocked_but_kept() -> None:
     assert flag.blocked_reason == BlockedReason.OVERSIZE
     assert flag.strong is False
     assert big.blocked_reason == BlockedReason.OVERSIZE
+
+
+def test_owner_comes_from_codeowners_when_rules_are_given() -> None:
+    rules = parse_codeowners("products/a/ @PostHog/a\nproducts/b/ @PostHog/b\n")
+
+    (draft,) = converge(
+        [_hit(ScoutName.FLAGS, files=["products/a/x.py", "products/a/y.py", "products/b/z.py"])], owner_rules=rules
+    )
+
+    assert draft.owner == "@PostHog/a"

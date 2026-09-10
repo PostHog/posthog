@@ -14,15 +14,18 @@ from products.reaper_hog.backend.logic.inventory import (
     record_scan,
     upsert_inventory,
 )
+from products.reaper_hog.backend.logic.owners import CODEOWNERS_PATH, OwnerRule, parse_codeowners
 from products.reaper_hog.backend.logic.repo import RepoIndex
 from products.reaper_hog.backend.logic.scouts.archaeology import ArchaeologyScout
 from products.reaper_hog.backend.logic.scouts.base import Scout, ScoutContext
 from products.reaper_hog.backend.logic.scouts.experiments import ExperimentsScout
 from products.reaper_hog.backend.logic.scouts.flags import FlagsScout
+from products.reaper_hog.backend.logic.scouts.scenes import ScenesScout
+from products.reaper_hog.backend.logic.scouts.static import StaticScout
 from products.reaper_hog.backend.logic.summary import render_summary
 from products.reaper_hog.backend.models import ReaperArtefact
 
-SCOUTS: tuple[Scout, ...] = (FlagsScout(), ExperimentsScout(), ArchaeologyScout())
+SCOUTS: tuple[Scout, ...] = (FlagsScout(), ExperimentsScout(), ArchaeologyScout(), ScenesScout(), StaticScout())
 
 
 @frozen
@@ -59,7 +62,7 @@ def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> Sca
         with team_scope(request.team_id):
             abandon_scan(inventory)
         raise
-    drafts = converge(hits)
+    drafts = converge(hits, owner_rules=_owner_rules(repo))
 
     with team_scope(request.team_id):
         outcome = record_scan(inventory, drafts, head_sha=head_sha, now=now)
@@ -77,3 +80,10 @@ def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> Sca
         outcome=outcome,
         note=note,
     )
+
+
+def _owner_rules(repo: RepoIndex) -> tuple[OwnerRule, ...]:
+    path = repo.root / CODEOWNERS_PATH
+    if not path.is_file():
+        return ()
+    return parse_codeowners(path.read_text())

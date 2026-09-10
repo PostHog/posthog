@@ -4,12 +4,17 @@ from enum import StrEnum
 class RootKind(StrEnum):
     FLAG = "flag"
     DIRECTORY = "directory"
+    SCENE = "scene"
+    FILE = "file"
+    SYMBOL = "symbol"
 
 
 class ScoutName(StrEnum):
     FLAGS = "flags"
     EXPERIMENTS = "experiments"
     ARCHAEOLOGY = "archaeology"
+    SCENES = "scenes"
+    STATIC = "static"
 
 
 class ClusterStatus(StrEnum):
