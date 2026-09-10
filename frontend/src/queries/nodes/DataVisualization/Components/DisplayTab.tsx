@@ -67,8 +67,10 @@ export const DisplayTab = (): JSX.Element => {
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
     const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
+    const isHorizontalBarChart = effectiveVisualizationType === ChartDisplayType.ActionsBarValue
     // Scatter and box plots have a single Y axis, so there is no separate right axis to configure.
     const isSingleAxisChart = isScatterPlot || isBoxPlot
+    const supportsRightYAxis = !isSingleAxisChart && !isHorizontalBarChart
     const isLineChart =
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
@@ -80,7 +82,11 @@ export const DisplayTab = (): JSX.Element => {
             effectiveVisualizationType === ChartDisplayType.ActionsStackedBar)
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
-        const leftPlaceholder = isSingleAxisChart ? 'Y-axis label' : 'Left Y-axis label'
+        const leftPlaceholder = isHorizontalBarChart
+            ? 'X-axis label'
+            : supportsRightYAxis
+              ? 'Left Y-axis label'
+              : 'Y-axis label'
         const labelPlaceholder = name === 'leftYAxisSettings' ? leftPlaceholder : 'Right Y-axis label'
 
         return (
@@ -373,11 +379,13 @@ export const DisplayTab = (): JSX.Element => {
                                             </div>
                                         )}
                                         <div className="flex flex-col gap-1">
-                                            <LemonLabel>X-axis label</LemonLabel>
+                                            <LemonLabel>
+                                                {isHorizontalBarChart ? 'Y-axis label' : 'X-axis label'}
+                                            </LemonLabel>
                                             <LemonInput
                                                 data-attr="data-visualization-x-axis-label-input"
                                                 value={chartSettings.xAxisLabel ?? ''}
-                                                placeholder="X-axis label"
+                                                placeholder={isHorizontalBarChart ? 'Y-axis label' : 'X-axis label'}
                                                 onChange={(value) => {
                                                     updateChartSettings({ xAxisLabel: value })
                                                 }}
@@ -385,7 +393,11 @@ export const DisplayTab = (): JSX.Element => {
                                         </div>
                                         <LemonSwitch
                                             className="flex-1 w-full"
-                                            label="Show X-axis tick labels"
+                                            label={
+                                                isHorizontalBarChart
+                                                    ? 'Show Y-axis tick labels'
+                                                    : 'Show X-axis tick labels'
+                                            }
                                             checked={chartSettings.showXAxisTicks ?? true}
                                             onChange={(value) => {
                                                 updateChartSettings({ showXAxisTicks: value })
@@ -397,7 +409,11 @@ export const DisplayTab = (): JSX.Element => {
                                             <>
                                                 <LemonSwitch
                                                     className="flex-1 w-full"
-                                                    label="Show X-axis border"
+                                                    label={
+                                                        isHorizontalBarChart
+                                                            ? 'Show Y-axis border'
+                                                            : 'Show X-axis border'
+                                                    }
                                                     checked={chartSettings.showXAxisBorder ?? true}
                                                     onChange={(value) => {
                                                         updateChartSettings({ showXAxisBorder: value })
@@ -405,7 +421,11 @@ export const DisplayTab = (): JSX.Element => {
                                                 />
                                                 <LemonSwitch
                                                     className="flex-1 w-full"
-                                                    label="Show Y-axis border"
+                                                    label={
+                                                        isHorizontalBarChart
+                                                            ? 'Show X-axis border'
+                                                            : 'Show Y-axis border'
+                                                    }
                                                     checked={chartSettings.showYAxisBorder ?? true}
                                                     onChange={(value) => {
                                                         updateChartSettings({ showYAxisBorder: value })
@@ -454,13 +474,12 @@ export const DisplayTab = (): JSX.Element => {
                     !isPieChart
                         ? {
                               key: 'left-y-axis',
-                              header: isSingleAxisChart ? 'Y-axis' : 'Left Y-axis',
+                              header: isHorizontalBarChart ? 'X-axis' : supportsRightYAxis ? 'Left Y-axis' : 'Y-axis',
                               className: 'p-2 flex flex-col gap-2',
                               content: renderYAxisSettings('leftYAxisSettings'),
                           }
                         : null,
-                    // A scatter has one gutter per axis, so there is no second Y axis to configure.
-                    !isPieChart && !isSingleAxisChart
+                    !isPieChart && supportsRightYAxis
                         ? {
                               key: 'right-y-axis',
                               header: 'Right Y-axis',
