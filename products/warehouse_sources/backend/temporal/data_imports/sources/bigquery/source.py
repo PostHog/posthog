@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
+    BIGQUERY_INVALID_TOKEN_URI_ERROR,
     BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
@@ -75,6 +76,9 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
             # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
             "Unable to load PEM file": BIGQUERY_INVALID_KEY_FILE_ERROR,
+            # Raised before any request when the key file's token endpoint is not Google's. The key
+            # file is the problem, so retrying cannot help; the user must re-upload an unedited key.
+            BIGQUERY_INVALID_TOKEN_URI_ERROR: BIGQUERY_INVALID_TOKEN_URI_ERROR,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
             # row-filtered reads) needs write access on the dataset those tables live in. When the

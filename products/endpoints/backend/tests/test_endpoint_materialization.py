@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
@@ -1826,7 +1826,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "interval": "day",
         }
 
-        with freeze_time("2026-04-20T12:00:00Z"):
+        with time_machine.travel("2026-04-20T12:00:00Z", tick=False):
             endpoint = create_endpoint_with_version(
                 name="relative_dates_stay_fresh",
                 team=self.team,
@@ -1848,7 +1848,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             assert saved_query is not None
             self.assertIn("2026-04-20", saved_query.query["query"])
 
-        with freeze_time("2026-04-30T12:00:00Z"):
+        with time_machine.travel("2026-04-30T12:00:00Z", tick=False):
             prepare_executable_query(saved_query)
 
             saved_query.refresh_from_db()

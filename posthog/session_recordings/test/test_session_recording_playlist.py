@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import MagicMock, patch
@@ -397,7 +397,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
 
-        with freeze_time("2022-01-02"):
+        with time_machine.travel("2022-01-02", tick=False):
             response_one = self.client.post(
                 f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
             )
@@ -490,7 +490,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert "short_id" in create_response.json(), create_response.json()
         short_id = create_response.json()["short_id"]
 
-        with freeze_time("2022-01-02"):
+        with time_machine.travel("2022-01-02", tick=False):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
                 {
@@ -966,7 +966,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         new=MagicMock(return_value=False),
     )
     @snapshot_postgres_queries
-    @freeze_time("2025-01-01T12:00:00Z")
+    @time_machine.travel("2025-01-01T12:00:00Z", tick=False)
     def test_filters_playlist_by_type(self):
         # Prime the expiring-playlist cache so its cold-start scan (which builds the
         # warehouse HogQL Database and emits a DataWarehouseSavedQuery lookup) stays

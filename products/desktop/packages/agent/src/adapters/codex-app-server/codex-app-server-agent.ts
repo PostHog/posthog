@@ -74,7 +74,7 @@ import {
   type AppServerClientHandlers,
   type AppServerRpc,
 } from "./app-server-client";
-import { handleServerRequest } from "./approvals";
+import { handleServerRequest, networkApprovalOptions } from "./approvals";
 import {
   buildSdkSessionParams,
   buildTurnCompleteParams,
@@ -278,6 +278,7 @@ export interface CodexAppServerAgentOptions {
   processOptions: CodexAppServerProcessOptions;
   model?: string;
   reasoningEffort?: string;
+  serviceTier?: string;
   gatewayModels?: ReadonlyArray<ModelInfo>;
   processCallbacks?: ProcessSpawnedCallback;
   logger?: Logger;
@@ -298,6 +299,12 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private readonly onStructuredOutput?: (
     output: Record<string, unknown>,
   ) => Promise<void>;
+  /**
+   * OpenAI service tier sent on thread setup. Codex validates it against the
+   * model catalogue and sends the request untiered when the model doesn't
+   * advertise it, so an unsupported tier degrades rather than failing.
+   */
+  private readonly serviceTier?: string;
   /** Codex-specific guidance injected at spawn time; replayed per-thread. */
   private readonly developerInstructions?: string;
   private readonly contextWiki?: ContextWikiEnv;
@@ -368,6 +375,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       options.gatewayModels,
     );
     this.onStructuredOutput = options.onStructuredOutput;
+    this.serviceTier = options.serviceTier;
     this.developerInstructions = options.processOptions.developerInstructions;
     this.contextWiki = options.processOptions.contextWiki;
     this.gatewayConfigured = Boolean(options.processOptions.apiBaseUrl);
@@ -708,6 +716,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       {
         model: this.config.model,
         cwd: params.cwd,
+        ...(this.serviceTier ? { serviceTier: this.serviceTier } : {}),
         ...(params.threadId ? { threadId: params.threadId } : {}),
         ...(developerInstructions ? { developerInstructions } : {}),
         ...(config ? { config } : {}),
@@ -2368,6 +2377,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const availableDecisions = Array.isArray(detail.availableDecisions)
       ? detail.availableDecisions
       : [];
+    const networkOptions = isFileChange
+      ? []
+      : networkApprovalOptions(availableDecisions);
     const offeredRememberDecision =
       availableDecisions.find(
         (d) =>
@@ -2454,6 +2466,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
                 },
               ]
             : []),
+          ...networkOptions.map(({ option }) => option),
           { optionId: "reject", name: "Reject", kind: "reject_once" },
           {
             optionId: "reject_with_feedback",
@@ -2464,6 +2477,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ],
       });
       if (response.outcome.outcome === "selected") {
+        const selectedOptionId = response.outcome.optionId;
+        const networkOption = networkOptions.find(
+          ({ option }) => option.optionId === selectedOptionId,
+        );
+        if (networkOption) {
+          return { decision: networkOption.decision };
+        }
         if (response.outcome.optionId === "allow_always" && rememberDecision) {
           // Echo codex's "approve and remember" decision so it applies the proposed amendment.
           return { decision: rememberDecision };

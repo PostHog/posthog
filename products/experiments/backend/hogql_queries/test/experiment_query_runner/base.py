@@ -56,7 +56,7 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         if use_precomputation:
             self._clean_preaggregation_data()
             # Disable TTL merges so ClickHouse 26.3 doesn't immediately drop
-            # rows whose expires_at is in the past (due to freeze_time).
+            # rows whose expires_at is in the past (due to the frozen clock).
             for table_name in (
                 SHARDED_EXPERIMENT_EXPOSURES_TABLE(),
                 SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(),

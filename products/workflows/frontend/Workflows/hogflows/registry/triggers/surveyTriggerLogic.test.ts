@@ -27,6 +27,8 @@ describe('surveyTriggerLogic', () => {
     function useSetupMocks({
         surveys = [] as Survey[],
         moreSurveys = [] as Survey[],
+        searchResults = [] as Survey[],
+        surveysById = {} as Record<string, Survey>,
         responseCounts = {} as Record<string, number>,
         listError = false,
         moreListError = false,
@@ -38,7 +40,11 @@ describe('surveyTriggerLogic', () => {
                     if (listError) {
                         return [500, { detail: 'Server error' }]
                     }
-                    const offset = Number(new URL(request.url).searchParams.get('offset') || 0)
+                    const params = new URL(request.url).searchParams
+                    if (params.get('search')) {
+                        return [200, { results: searchResults, count: searchResults.length }]
+                    }
+                    const offset = Number(params.get('offset') || 0)
                     if (offset > 0) {
                         if (moreListError && !loadMoreCalled) {
                             loadMoreCalled = true
@@ -50,6 +56,10 @@ describe('surveyTriggerLogic', () => {
                 },
                 '/api/projects/:team_id/surveys/responses_count/': () => {
                     return [200, responseCounts]
+                },
+                '/api/projects/:team_id/surveys/:id/': ({ params }) => {
+                    const survey = surveysById[params.id as string]
+                    return survey ? [200, survey] : [404, { detail: 'Not found' }]
                 },
             },
         })
@@ -168,7 +178,7 @@ describe('surveyTriggerLogic', () => {
         })
     })
 
-    describe('search filtering', () => {
+    describe('search', () => {
         it('returns all surveys when search term is empty', async () => {
             const surveys = makeSurveys(3)
             useSetupMocks({ surveys })
@@ -182,27 +192,28 @@ describe('surveyTriggerLogic', () => {
             })
         })
 
-        it('filters surveys by name (case-insensitive)', async () => {
-            const alpha = makeSurvey({ name: 'Alpha Survey' })
-            const beta = makeSurvey({ name: 'Beta Questionnaire' })
-            const gamma = makeSurvey({ name: 'gamma survey' })
-            useSetupMocks({ surveys: [alpha, beta, gamma] })
+        it('searches server-side so surveys beyond the loaded pages are reachable', async () => {
+            const loaded = makeSurveys(20)
+            const oldSurvey = makeSurvey({ name: 'Quarterly product feedback' })
+            useSetupMocks({ surveys: loaded, searchResults: [oldSurvey] })
 
             logic = surveyTriggerLogic()
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadSurveysSuccess'])
 
             await expectLogic(logic, () => {
-                logic.actions.setSearchTerm('survey')
-            }).toMatchValues({
-                searchTerm: 'survey',
-                filteredSurveys: [alpha, gamma],
+                logic.actions.setSearchTerm('NPS')
             })
+                .toDispatchActions(['searchSurveys', 'searchSurveysSuccess'])
+                .toMatchValues({
+                    searchTerm: 'NPS',
+                    filteredSurveys: [oldSurvey],
+                })
         })
 
         it('returns empty array when no surveys match search', async () => {
             const surveys = makeSurveys(3)
-            useSetupMocks({ surveys })
+            useSetupMocks({ surveys, searchResults: [] })
 
             logic = surveyTriggerLogic()
             logic.mount()
@@ -210,29 +221,63 @@ describe('surveyTriggerLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setSearchTerm('nonexistent')
-            }).toMatchValues({
-                filteredSurveys: [],
             })
+                .toDispatchActions(['searchSurveysSuccess'])
+                .toMatchValues({
+                    filteredSurveys: [],
+                })
         })
 
-        it('resets filtered results when search term is cleared', async () => {
+        it('resets to the loaded surveys when search term is cleared', async () => {
             const surveys = makeSurveys(3)
-            useSetupMocks({ surveys })
+            const other = makeSurvey({ name: 'Other' })
+            useSetupMocks({ surveys, searchResults: [other] })
 
             logic = surveyTriggerLogic()
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadSurveysSuccess'])
 
-            logic.actions.setSearchTerm('Survey 1')
-            await expectLogic(logic).toMatchValues({
-                filteredSurveys: [surveys[0]],
-            })
+            logic.actions.setSearchTerm('Other')
+            await expectLogic(logic)
+                .toDispatchActions(['searchSurveysSuccess'])
+                .toMatchValues({
+                    filteredSurveys: [other],
+                })
 
             await expectLogic(logic, () => {
                 logic.actions.setSearchTerm('')
             }).toMatchValues({
                 filteredSurveys: surveys,
             })
+        })
+    })
+
+    describe('resolving a configured survey by id', () => {
+        // A trigger can point at any survey, so the picker has to resolve one outside its loaded pages
+        // and tell "still fetching" apart from "deleted" — the banner and the select label both depend on it.
+        it.each([
+            ['fetches a survey that is not in the loaded pages', true],
+            ['records a null entry when the survey no longer exists', false],
+        ])('%s', async (_name, exists) => {
+            const configured = makeSurvey({ id: 'configured-survey', name: 'Quarterly product feedback' })
+            useSetupMocks({
+                surveys: makeSurveys(20),
+                surveysById: exists ? { 'configured-survey': configured } : {},
+            })
+
+            logic = surveyTriggerLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSurveysSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveyById('configured-survey')
+            })
+                .toDispatchActions(['loadSurveyByIdSuccess'])
+                .toMatchValues({
+                    selectedSurveys: { 'configured-survey': exists ? configured : null },
+                })
+
+            expect(logic.values.surveysById['configured-survey']).toEqual(exists ? configured : undefined)
         })
     })
 

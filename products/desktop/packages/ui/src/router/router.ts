@@ -2,6 +2,8 @@ import {
   createHashHistory,
   createRouter as createTanStackRouter,
 } from "@tanstack/react-router";
+import { recordNavigationSettled } from "../shell/analytics";
+import { createNavigationTiming } from "./navigationTiming";
 import { RouteNotFound } from "./RouteNotFound";
 import { RoutePending } from "./RoutePending";
 import { isReportPath } from "./reportNavigation";
@@ -9,6 +11,7 @@ import { setRouter } from "./routerRef";
 import { routeTree } from "./routeTree.gen";
 
 const reportSourceEntries = new Set<string>();
+const navigationTiming = createNavigationTiming();
 
 export const router = createTanStackRouter({
   routeTree,
@@ -35,9 +38,17 @@ export const router = createTanStackRouter({
 });
 
 router.subscribe("onBeforeLoad", ({ fromLocation, toLocation }) => {
+  navigationTiming.start();
   if (fromLocation?.state.__TSR_key && isReportPath(toLocation.pathname)) {
     reportSourceEntries.add(fromLocation.state.__TSR_key);
   }
+});
+
+router.subscribe("onResolved", () => {
+  navigationTiming.settle((durationMs, visibilityAtSettle) => {
+    const route = router.state.matches.at(-1)?.routeId;
+    if (route) recordNavigationSettled(durationMs, route, visibilityAtSettle);
+  });
 });
 
 // Publish the instance to the leaf ref so imperative callers reach it without a
