@@ -112,9 +112,19 @@ const REASON_CASES: ReasonCase[] = [
         actions: [],
     },
     {
+        // Under the in-session default this is the one reason that can be empty while all sessions
+        // has rows, so it is the only actionless reason that has to offer the way back.
         reason: ExperimentReplayListEmptyReason.TooEarly,
         experimentId: 203,
         experiment: { start_date: daysAgo(1), end_date: null },
+        copy: 'The same people can already have recordings of their other sessions',
+        actions: ['experiment-recordings-empty-all-sessions'],
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 214,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => logic.actions.setExposureScope('all_exposed'),
         copy: 'The experiment started 1 day ago',
         actions: [],
     },
@@ -177,6 +187,9 @@ const REASON_CASES: ReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
         experimentId: 207,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        // Under the in-session default an unexplained empty list is attributed to the narrowing
+        // instead, so this residue only shows on the wider scope.
+        setup: (logic) => logic.actions.setExposureScope('all_exposed'),
         copy: 'A session can be missing for a few reasons',
         actions: ['experiment-recordings-empty-retention-docs', 'experiment-recordings-empty-ad-blocker-docs'],
     },
@@ -192,7 +205,6 @@ const REASON_CASES: ReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.InSessionHasNone,
         experimentId: 211,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        setup: (logic) => logic.actions.setExposureScope('in_session'),
         copy: 'No recordings of the sessions the exposure happened in',
         actions: ['experiment-recordings-empty-all-sessions'],
     },

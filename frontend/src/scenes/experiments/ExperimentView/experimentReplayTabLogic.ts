@@ -188,6 +188,11 @@ export interface ExperimentRecordingsListEmptyContext {
     retentionWindowDays: number
     /** Null when the list holds every variant. */
     variantKey: string | null
+    /**
+     * The scope the list actually ran under. A reason that can be empty under the narrower scope
+     * while the wider one has rows needs this to know whether to offer the way back.
+     */
+    exposureScope: ExperimentReplayExposureScope
 }
 
 /**
@@ -641,6 +646,7 @@ export interface experimentReplayTabLogicMeta {
         listEmptyContext: (
             currentTeam: TeamPublicType | TeamType | null,
             effectiveVariantKey: string | null,
+            effectiveExposureScope: ExperimentReplayExposureScope,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
         filterContext: (
@@ -928,11 +934,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 selectWatchCard: (state: string | null, { card }) => (card ? card.variant : state),
             },
         ],
-        // Persisted like the variant facet. The default shows exposed persons' whole journey
-        // from first exposure, matching the population the analysis counts; 'in_session'
-        // narrows out the long tail of their sessions that never touch the feature under test.
+        // The tab answers what an exposed person did on the pages under test at the moment they
+        // entered the experiment, and the session the exposure happened in is the one that shows
+        // that. Their later sessions are the metrics view's question, one click away on the control.
         exposureScope: [
-            'all_exposed' as ExperimentReplayExposureScope,
+            'in_session' as ExperimentReplayExposureScope,
             { persist: true },
             {
                 setExposureScope: (_, { scope }) => scope,
@@ -1251,16 +1257,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         listEmptyContext: [
-            (s) => [s.currentTeam, s.effectiveVariantKey, (_, props) => props.experiment],
+            (s) => [s.currentTeam, s.effectiveVariantKey, s.effectiveExposureScope, (_, props) => props.experiment],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 effectiveVariantKey: string | null,
+                effectiveExposureScope: ExperimentReplayExposureScope,
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
                 endDate: experiment.end_date ?? null,
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
+                exposureScope: effectiveExposureScope,
             }),
         ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so

@@ -259,12 +259,14 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.InSessionHasNone,
         experimentId: 142,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        setup: (logic) => logic.actions.setExposureScope('in_session'),
     },
     {
+        // The residue only shows on the wider scope: under the in-session default an otherwise
+        // unexplained empty list is attributed to the narrowing.
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
         experimentId: 127,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setExposureScope('all_exposed'),
     },
     {
         // Still running past the retention period: its retained days are inside retention, so this
@@ -272,6 +274,7 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
         experimentId: 128,
         experiment: { start_date: daysAgo(60), end_date: null },
+        setup: (logic) => logic.actions.setExposureScope('all_exposed'),
     },
 ]
 
@@ -320,7 +323,7 @@ describe('experimentReplayTabLogic', () => {
         expect(recordingsFilters.filter_test_accounts).toBe(true)
         // All facet: the population is the server-resolved exposure filter, and nothing
         // event-shaped stands in for it in the filter tree.
-        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
+        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, in_session: true })
         expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
@@ -373,15 +376,34 @@ describe('experimentReplayTabLogic', () => {
 
         const { recordingsFilters } = logic.values
         expect(recordingsFilters.date_from).toBe('2026-01-01T00:00:00Z')
-        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
+        expect(recordingsFilters.experiment_exposure).toEqual({
+            experiment_id: 42,
+            variant: 'test',
+            in_session: true,
+        })
     })
 
-    it('defaults to all sessions and narrows when in-session exposure is available', async () => {
+    it('mounts on in-session and narrows once the check confirms, without anyone touching the control', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
 
-        logic.actions.setExposureScope('in_session')
+        expect(logic.values.exposureScope).toBe('in_session')
         expect(logic.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, in_session: true })
+    })
+
+    it('keeps a deliberate all-sessions choice across a remount, over the new default', async () => {
+        // Only a reducer-driven change is stored, so a viewer who moved the control keeps their
+        // choice while everyone else follows the code default.
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setExposureScope('all_exposed')
+        logic.unmount()
+
+        const remounted = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        remounted.mount()
+        await expectLogic(remounted).toFinishAllListeners()
+
+        expect(remounted.values.exposureScope).toBe('all_exposed')
+        expect(remounted.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
+        remounted.unmount()
     })
 
     it('holds the in-session narrowing out of the query until the availability check lands', async () => {
@@ -394,7 +416,6 @@ describe('experimentReplayTabLogic', () => {
         )
         const pending = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 51 } as Experiment })
         pending.mount()
-        pending.actions.setExposureScope('in_session')
 
         expect(pending.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 51 })
         // The playlist waits too: mounted now it would fire the all-sessions listing only to
@@ -422,7 +443,6 @@ describe('experimentReplayTabLogic', () => {
         const unavailable = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 52 } as Experiment })
         unavailable.mount()
         await expectLogic(unavailable).toFinishAllListeners()
-        unavailable.actions.setExposureScope('in_session')
 
         expect(unavailable.values.exposureInSessionUnavailableReason).not.toBeNull()
         expect(unavailable.values.effectiveExposureScope).toBe('all_exposed')
@@ -438,7 +458,6 @@ describe('experimentReplayTabLogic', () => {
         const failed = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 54 } as Experiment })
         failed.mount()
         await expectLogic(failed).toFinishAllListeners()
-        failed.actions.setExposureScope('in_session')
 
         expect(failed.values.exposureInSessionUnavailableReason).toBeNull()
         expect(failed.values.effectiveExposureScope).toBe('all_exposed')
@@ -464,26 +483,28 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.recordingsLoaded([{ id: 'rec-1' } as SessionRecordingType], true)
 
-        logic.actions.setExposureScope('in_session')
+        logic.actions.setExposureScope('all_exposed')
         await expectLogic(logic).toFinishAllListeners()
         expect(scopeChanges()).toHaveLength(1)
         expect(scopeChanges()[0][1]).toMatchObject({
             experiment_id: 42,
-            from: 'all_exposed',
-            to: 'in_session',
+            from: 'in_session',
+            to: 'all_exposed',
             via: 'control',
             list_result_count: 1,
             list_empty_reason: null,
         })
 
-        logic.actions.setExposureScope('in_session')
+        logic.actions.setExposureScope('all_exposed')
         await expectLogic(logic).toFinishAllListeners()
         expect(scopeChanges()).toHaveLength(1)
 
+        logic.actions.setExposureScope('in_session')
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setExposureScope('all_exposed', 'empty_state')
         await expectLogic(logic).toFinishAllListeners()
-        expect(scopeChanges()).toHaveLength(2)
-        expect(scopeChanges()[1][1]).toMatchObject({ from: 'in_session', to: 'all_exposed', via: 'empty_state' })
+        expect(scopeChanges()).toHaveLength(3)
+        expect(scopeChanges()[2][1]).toMatchObject({ from: 'in_session', to: 'all_exposed', via: 'empty_state' })
     })
 
     it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {
@@ -697,12 +718,13 @@ describe('experimentReplayTabLogic', () => {
             variant_count: 2,
             metric_count: 2,
             linkable_metric_count: 1,
-            exposure_scope: 'all_exposed',
+            exposure_scope: 'in_session',
             in_session_available: true,
             in_session_unavailable_reason: null,
             // The hold in front of the first list row, which is what the flip's cost is read from.
+            // Under the in-session default the playlist waits on every open, not only for opt-ins.
             checks_settled_ms: expect.any(Number),
-            playlist_held: false,
+            playlist_held: true,
         })
 
         // The check is shared with the metrics tab and reloads when the experiment's metrics change,
@@ -910,7 +932,7 @@ describe('experimentReplayTabLogic', () => {
             duration_filter_customized: false,
             exposure_linkable: true,
             variant: 'test',
-            exposure_scope: 'all_exposed',
+            exposure_scope: 'in_session',
             metric_filter_mode: 'fired_all',
             selected_metric_count: 0,
             is_bucketed: false,
@@ -1042,6 +1064,12 @@ describe('experimentReplayTabLogic', () => {
         // and an exposure event captured without a session id is the likeliest cause in it.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, $feature_flag_called: false })
+        // The backend refuses the in-session scope for exactly this experiment, so the list runs on
+        // all sessions and the residue keeps its own reason rather than reading as the narrowing.
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
+            available: false,
+            unavailable_reason: "This experiment's exposures are recorded outside the browser.",
+        })
         const unlinkable = experimentReplayTabLogic({
             experiment: { ...EXPERIMENT, id: 112, start_date: daysAgo(10), end_date: null } as Experiment,
         })
