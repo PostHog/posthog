@@ -2019,6 +2019,42 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             )
         self.assertTrue(Task.objects.filter(id=dto.id).exists())
 
+    @parameterized.expand([("implementation", True), ("discussion", False)])
+    def test_run_task_refuses_an_existing_report_implementation_on_trial(self, relationship, expect_refusal):
+        # The create-time gate cannot see a task that already existed when sales turned the flag
+        # on. Starting or retrying that task opens the pull request the trial promises to withhold,
+        # and bills the trial org for it. A discussion opens none, so it keeps running.
+        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report_id=report.id,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
+        )
+
+        with (
+            self._on_trial(),
+            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"),
+        ):
+            if expect_refusal:
+                with self.assertRaises(FreeTrialPullRequestRefused) as raised:
+                    facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+                self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
+                self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "task_run"})
+            else:
+                result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+                assert result is not None and result.error is None
+        self.assertEqual(task.runs.exists(), not expect_refusal)
+
     def test_create_and_run_task_refuses_pr_session_on_trial(self):
         # The facade backstop behind every PR-opening self-driving caller, with its own stage.
         from products.signals.backend.free_trial import FreeTrialPullRequestRefused

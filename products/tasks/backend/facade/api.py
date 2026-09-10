@@ -2646,11 +2646,12 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
 
 
 def enforce_self_driving_free_trial(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
-    """Refuse to create a PR-opening self-driving task while the team's org is on a Self-driving
-    free trial: a trial org gets reports, not pull requests, on any path (the auto-start gate in
-    products/signals/backend/auto_start.py holds the pipeline back the same way). Emits
-    `signal_report_free_trial_paused` at ``stage``. Raises ``FreeTrialPullRequestRefused`` (402,
-    code ``self_driving_free_trial``) so clients can show the trial message.
+    """Refuse to create or start a PR-opening self-driving task while the team's org is on a
+    Self-driving free trial: a trial org gets reports, not pull requests, on any path (the
+    auto-start gate in products/signals/backend/auto_start.py holds the pipeline back the same
+    way). Emits `signal_report_free_trial_paused` at ``stage``. Raises
+    ``FreeTrialPullRequestRefused`` (402, code ``self_driving_free_trial``) so clients can show
+    the trial message.
     """
     from products.signals.backend.free_trial import (  # noqa: PLC0415 — cross-product read kept off the api import path
         FreeTrialPullRequestRefused,
@@ -7211,10 +7212,12 @@ def run_task(
 
     Returns ``None`` if the task isn't found/visible (the view raises 404). Otherwise a
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
-    gate (429) is applied by the view before calling this.
+    gate (429) is applied by the view before calling this. A report implementation raises
+    ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
     """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
+        is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
         get_task_run_artifacts_by_id,
@@ -7238,6 +7241,17 @@ def run_task(
         else None
     )
     if report_id_for_slot_check is not None:
+        # Free trial gate: the create-time gate refuses a new implementation, but a task created
+        # before sales turned the flag on can still be started or retried from here, and its pull
+        # request bills the trial org. Only the implementation relationship opens one, so a
+        # discussion keeps running. Outside the transaction below, because the flag read does
+        # network I/O and must not hold the report row lock.
+        if is_report_implementation_task(team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)):
+            enforce_self_driving_free_trial(
+                Team.objects.select_related("organization").get(id=team_id),
+                report_id=report_id_for_slot_check,
+                stage="task_run",
+            )
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
         # its runs all failed, so another implementation may hold it by now. Refusing here also
         # avoids the sandbox and repository lookups a doomed run would otherwise do first. The
