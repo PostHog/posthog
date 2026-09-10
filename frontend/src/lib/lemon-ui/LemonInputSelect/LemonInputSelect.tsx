@@ -543,7 +543,9 @@ export function LemonInputSelect<T = string>({
             return
         }
         if (hasCustomValue) {
-            _onActionItem(inputValue.trim(), null)
+            // Keep the input as typed when an option holds it verbatim, because a leading or
+            // trailing space is part of that value and trimming it breaks an exact-match filter.
+            _onActionItem(optionMaps.keySet.has(inputValue) ? inputValue : inputValue.trim(), null)
         } else {
             setInputValue('')
         }

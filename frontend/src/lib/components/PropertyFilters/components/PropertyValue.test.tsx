@@ -325,6 +325,32 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('keeps a trailing space on a suggested value when the person clicks away', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    staticValues={[{ name: 'Hedgebox Inc ' }]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.paste('Hedgebox Inc ')
+        await user.click(document.body)
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Hedgebox Inc '])
+        })
+    })
+
     it('allows text when a polymorphic property overrides a globally inferred numeric type', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/current_value': {
