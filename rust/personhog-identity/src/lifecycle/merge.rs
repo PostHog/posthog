@@ -39,7 +39,6 @@ use futures::stream::{self, StreamExt};
 use personhog_common::persons::person_uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::postgres::PgPool;
 use tonic::{Code, Status};
 use uuid::Uuid;
 
@@ -51,8 +50,8 @@ use personhog_proto::personhog::types::v1::{
 use crate::config::IdentityTables;
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
-    STEP_COMPLETED,
+    advance_step_in_tx, complete_op_in_tx, Engine, EnginePools, LabeledPool, OpDriver, OpRow,
+    SagaError, Tx, STEP_ABORTED, STEP_COMPLETED,
 };
 
 // Derived from the shared enum so the op-type string cannot drift from
@@ -132,12 +131,12 @@ pub struct MergeSourceEntry {
 }
 
 /// Whether another driver advanced or settled the op past our step.
-async fn op_moved_on(pool: &PgPool, op: &OpRow) -> Result<bool, SagaError> {
+async fn op_moved_on(pool: &LabeledPool, op: &OpRow) -> Result<bool, SagaError> {
     let current = sqlx::query!(
         r#"SELECT step, completed_at FROM lifecycle_op WHERE op_id = $1"#,
         op.op_id
     )
-    .fetch_optional(pool)
+    .fetch_optional(pool.inner())
     .await?;
     Ok(match current {
         // A vanished row was completed and garbage-collected.
@@ -362,7 +361,7 @@ impl MergeOpExecutor {
             "#,
             op_id
         )
-        .fetch_optional(self.engine.pool())
+        .fetch_optional(self.engine.pools().fast.inner())
         .await
         .map_err(|e| Status::internal(format!("database error: {e}")))
     }
@@ -384,7 +383,8 @@ impl MergeOpExecutor {
     pub async fn discard_claim_abort(&self, op_id: Uuid) -> Result<(), Status> {
         let mut tx = self
             .engine
-            .pool()
+            .pools()
+            .fast
             .begin()
             .await
             .map_err(|e| Status::internal(format!("discard begin failed: {e}")))?;
@@ -456,7 +456,7 @@ impl OpDriver for MergeDriver {
         MergeStep::Started.as_str()
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, pools: &EnginePools, op: &OpRow) -> Result<(), SagaError> {
         let step = MergeStep::parse(&op.step).ok_or_else(|| {
             SagaError::CorruptState(format!(
                 "merge op {} is on unknown step '{}'",
@@ -464,11 +464,11 @@ impl OpDriver for MergeDriver {
             ))
         })?;
         match step {
-            MergeStep::Started => self.claim(pool, op).await,
-            MergeStep::Claimed => self.seal(pool, op).await,
-            MergeStep::SourcesSealed => self.fold(pool, op).await,
-            MergeStep::DocumentFolded => flip(pool, &self.tables, op).await,
-            MergeStep::Flipped => self.complete(pool, op).await,
+            MergeStep::Started => self.claim(&pools.fast, op).await,
+            MergeStep::Claimed => self.seal(&pools.fast, op).await,
+            MergeStep::SourcesSealed => self.fold(&pools.fast, op).await,
+            MergeStep::DocumentFolded => flip(&pools.heavy, &self.tables, op).await,
+            MergeStep::Flipped => self.complete(&pools.fast, op).await,
         }
     }
 }
@@ -584,7 +584,7 @@ impl MergeDriver {
     /// still-mergeable source person via the mark index — all in one
     /// transaction. Nothing outside this op's own rows is mutated, so the
     /// abort branch can end the op in the same commit.
-    async fn claim(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn claim(&self, pool: &LabeledPool, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
         let team_id = op.team_id as i32;
         // Conflict reasons emit only after a commit (see record_conflicts).
@@ -963,7 +963,7 @@ impl MergeDriver {
     /// source, so the orphan clears via the leader's ghost-fence healer on
     /// the next rejected write (or a partition handoff) — the same class
     /// the takeover scan can mint, bounded the same way.
-    async fn seal(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn seal(&self, pool: &LabeledPool, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
         let sources = sqlx::query!(
             r#"
@@ -973,7 +973,7 @@ impl MergeDriver {
             op.op_id,
             ROLE_SOURCE,
         )
-        .fetch_all(pool)
+        .fetch_all(pool.inner())
         .await?;
 
         let mut sealed: Vec<(i64, SealedSnapshot)> = Vec::new();
@@ -1150,7 +1150,7 @@ impl MergeDriver {
     /// before the flip, so unwinding is safe; post-flip refusals park.
     async fn abort_refused(
         &self,
-        pool: &PgPool,
+        pool: &LabeledPool,
         op: &OpRow,
         from_step: MergeStep,
         status: &Status,
@@ -1163,7 +1163,7 @@ impl MergeDriver {
             op.op_id,
             ROLE_SOURCE,
         )
-        .fetch_all(pool)
+        .fetch_all(pool.inner())
         .await?;
         let pairs: Vec<(i64, Uuid)> = live.iter().map(|s| (s.person_id, s.person_uuid)).collect();
 
@@ -1339,7 +1339,7 @@ impl MergeDriver {
     /// landed in between (see FoldPersonDocumentRequest.op_id in the
     /// proto). The folded document persists on the target row: the
     /// terminal outcome's survivor, durable without ever re-folding.
-    async fn fold(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn fold(&self, pool: &LabeledPool, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
         let target = target_row(pool, op).await?;
         let sources = sqlx::query!(
@@ -1352,7 +1352,7 @@ impl MergeDriver {
             ROLE_SOURCE,
             STATUS_SEALED,
         )
-        .fetch_all(pool)
+        .fetch_all(pool.inner())
         .await?;
 
         // The fold verifies each snapshot's identity and orders by the
@@ -1491,13 +1491,13 @@ struct TargetRow {
     person_uuid: Uuid,
 }
 
-async fn target_row(pool: &PgPool, op: &OpRow) -> Result<TargetRow, SagaError> {
+async fn target_row(pool: &LabeledPool, op: &OpRow) -> Result<TargetRow, SagaError> {
     let row = sqlx::query!(
         "SELECT person_id, person_uuid FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
         op.op_id,
         ROLE_TARGET,
     )
-    .fetch_one(pool)
+    .fetch_one(pool.inner())
     .await?;
     Ok(TargetRow {
         person_id: row.person_id,
@@ -1519,7 +1519,7 @@ fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
 /// hash-key overrides target-wins, scrub and tombstone the source person
 /// rows at their exact death versions, and clear the target's mark. The
 /// source marks stay: they are the fences' durable record until release.
-async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+async fn flip(pool: &LabeledPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
     let mut tx = pool.begin().await?;
 
@@ -1799,7 +1799,7 @@ impl MergeDriver {
     /// release ack, because to the leader a `deleted` mark means "the
     /// death document already exists; absorb the retry". Flipping first
     /// would make the first-ever release absorb and never produce.
-    async fn complete(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn complete(&self, pool: &LabeledPool, op: &OpRow) -> Result<(), SagaError> {
         let sources = sqlx::query!(
             r#"
             SELECT person_id, person_uuid, sealed as "sealed!" FROM lifecycle_op_person
@@ -1809,7 +1809,7 @@ impl MergeDriver {
             ROLE_SOURCE,
             STATUS_SEALED,
         )
-        .fetch_all(pool)
+        .fetch_all(pool.inner())
         .await?;
 
         let release_calls: Vec<_> = sources

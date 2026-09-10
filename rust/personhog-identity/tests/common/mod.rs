@@ -97,7 +97,7 @@ impl TestContext {
     /// explicit lease_expires_at values instead of waiting this out.
     pub fn engine(&self) -> personhog_identity::lifecycle::engine::Engine {
         personhog_identity::lifecycle::engine::Engine::new(
-            self.pool.clone(),
+            personhog_identity::lifecycle::engine::EnginePools::shared(self.pool.clone()),
             personhog_identity::lifecycle::engine::EngineConfig {
                 lease: std::time::Duration::from_secs(300),
                 execute_timeout: std::time::Duration::from_secs(10),

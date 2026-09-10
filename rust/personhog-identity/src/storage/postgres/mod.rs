@@ -22,17 +22,17 @@ use crate::storage::error::StorageResult;
 use crate::storage::types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
-const POOL_LABEL: &str = "primary";
+pub const POOL_LABEL: &str = "primary";
 
 /// Wait for a pool connection. Connection churn shows up here while
 /// every other layer reads idle.
 const DB_POOL_ACQUIRE_DURATION: &str = "personhog_identity_db_pool_acquire_duration_ms";
 
-fn record_acquire(start: Instant) {
+fn record_acquire(pool_label: &'static str, start: Instant) {
     common_metrics::histogram(
         DB_POOL_ACQUIRE_DURATION,
         &[
-            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), current_client_name().to_string()),
             ("method".to_string(), current_method_name().to_string()),
         ],
@@ -44,15 +44,22 @@ fn record_acquire(start: Instant) {
 pub(super) async fn acquire_timed(pool: &PgPool) -> sqlx::Result<PoolConnection<Postgres>> {
     let start = Instant::now();
     let conn = pool.acquire().await;
-    record_acquire(start);
+    record_acquire(POOL_LABEL, start);
     conn
 }
 
 /// Begin a primary transaction, recording the acquire wait it contains.
 pub(super) async fn begin_timed(pool: &PgPool) -> sqlx::Result<Transaction<'_, Postgres>> {
+    begin_timed_on(pool, POOL_LABEL).await
+}
+
+pub(crate) async fn begin_timed_on<'p>(
+    pool: &'p PgPool,
+    pool_label: &'static str,
+) -> sqlx::Result<Transaction<'p, Postgres>> {
     let start = Instant::now();
     let tx = pool.begin().await;
-    record_acquire(start);
+    record_acquire(pool_label, start);
     tx
 }
 

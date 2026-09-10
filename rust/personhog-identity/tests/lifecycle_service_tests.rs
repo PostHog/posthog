@@ -29,7 +29,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
         .connect_lazy("postgres://unused:unused@localhost:1/unused")
         .expect("lazy pool never connects");
     let engine = Arc::new(Engine::new(
-        pool.clone(),
+        personhog_identity::lifecycle::engine::EnginePools::shared(pool.clone()),
         EngineConfig {
             lease: Duration::from_secs(1),
             execute_timeout: Duration::from_secs(1),

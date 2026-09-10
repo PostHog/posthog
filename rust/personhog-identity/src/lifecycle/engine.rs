@@ -23,6 +23,7 @@ use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde_json::Value;
 use sqlx::postgres::PgPool;
+use sqlx::{Postgres, Transaction};
 use tonic::Status;
 use uuid::Uuid;
 
@@ -176,7 +177,7 @@ pub trait OpDriver: Send + Sync {
     fn op_type(&self) -> &'static str;
     /// The step a freshly created op row starts on.
     fn initial_step(&self) -> &'static str;
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError>;
+    async fn run_step(&self, pools: &EnginePools, op: &OpRow) -> Result<(), SagaError>;
 }
 
 #[derive(Clone, Debug)]
@@ -195,18 +196,66 @@ pub struct EngineConfig {
     pub gc_batch_limit: i64,
 }
 
-pub struct Engine {
+pub const HEAVY_POOL_LABEL: &str = "heavy";
+
+/// A pool with the label its acquire waits report under.
+#[derive(Clone)]
+pub struct LabeledPool {
     pool: PgPool,
+    label: &'static str,
+}
+
+impl LabeledPool {
+    pub fn new(pool: PgPool, label: &'static str) -> Self {
+        Self { pool, label }
+    }
+
+    pub fn inner(&self) -> &PgPool {
+        &self.pool
+    }
+
+    pub(crate) async fn begin(&self) -> sqlx::Result<Transaction<'_, Postgres>> {
+        crate::storage::postgres::begin_timed_on(&self.pool, self.label).await
+    }
+}
+
+/// The saga pools, split by how long a statement holds its connection.
+/// Short statements share the primary pool with the reads; the few whose
+/// cost scales with the person's footprint get the heavy pool, so a long
+/// flip cannot hold every connection a resolve needs.
+#[derive(Clone)]
+pub struct EnginePools {
+    pub fast: LabeledPool,
+    pub heavy: LabeledPool,
+}
+
+impl EnginePools {
+    /// One pool for both classes; for tests and single-pool deployments.
+    pub fn shared(pool: PgPool) -> Self {
+        let fast = LabeledPool::new(pool, crate::storage::postgres::POOL_LABEL);
+        Self {
+            heavy: fast.clone(),
+            fast,
+        }
+    }
+}
+
+pub struct Engine {
+    pools: EnginePools,
     config: EngineConfig,
 }
 
 impl Engine {
-    pub fn new(pool: PgPool, config: EngineConfig) -> Self {
-        Self { pool, config }
+    pub fn new(pools: EnginePools, config: EngineConfig) -> Self {
+        Self { pools, config }
     }
 
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
+    pub fn pools(&self) -> &EnginePools {
+        &self.pools
+    }
+
+    fn fast(&self) -> &PgPool {
+        self.pools.fast.inner()
     }
 
     /// Create the op if it is new, then drive it to a terminal step and
@@ -252,7 +301,7 @@ impl Engine {
             driver.initial_step(),
             request,
         )
-        .execute(&self.pool)
+        .execute(self.fast())
         .await?
         .rows_affected()
             > 0;
@@ -302,7 +351,7 @@ impl Engine {
         if row.completed_at.is_some() {
             return Ok(row);
         }
-        driver.run_step(&self.pool, &row).await?;
+        driver.run_step(&self.pools, &row).await?;
         self.load(op_id).await?.ok_or_else(|| {
             SagaError::CorruptState(format!("op {op_id} vanished while being driven"))
         })
@@ -418,7 +467,7 @@ impl Engine {
                 }
             }
 
-            if let Err(err) = driver.run_step(&self.pool, &row).await {
+            if let Err(err) = driver.run_step(&self.pools, &row).await {
                 // Attributable escalation: a persistently failing op (a
                 // corrupt row, a wedged leader call) shows up as this
                 // counter climbing for one op_type/kind, not as generic
@@ -507,7 +556,7 @@ impl Engine {
             "#,
             op_id
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.fast())
         .await
     }
 
@@ -550,7 +599,7 @@ impl Engine {
             self.config.lease.as_secs_f64(),
             unpark,
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.fast())
         .await
     }
 
@@ -576,7 +625,7 @@ impl Engine {
             attempt,
             reason,
         )
-        .execute(&self.pool)
+        .execute(self.fast())
         .await?
         .rows_affected()
             > 0;
@@ -614,7 +663,7 @@ impl Engine {
             self.config.lease.as_secs_f64(),
             attempt,
         )
-        .execute(&self.pool)
+        .execute(self.fast())
         .await?;
         Ok(result.rows_affected() > 0)
     }
@@ -625,7 +674,7 @@ impl Engine {
             op_id,
             attempt,
         )
-        .execute(&self.pool)
+        .execute(self.fast())
         .await?;
         Ok(())
     }
@@ -649,7 +698,7 @@ impl Engine {
             self.config.lease.as_secs_f64(),
             SWEEP_BATCH_SIZE,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(self.fast())
         .await?;
 
         let mut resumed = 0u32;
@@ -684,7 +733,7 @@ impl Engine {
         match sqlx::query_scalar!(
             r#"SELECT count(*) AS "count!" FROM lifecycle_op WHERE completed_at IS NULL AND parked_at IS NOT NULL"#
         )
-        .fetch_one(&self.pool)
+        .fetch_one(self.fast())
         .await
         {
             Ok(parked) => common_metrics::gauge(OPS_PARKED, &[], parked as f64),
@@ -711,7 +760,7 @@ impl Engine {
             retention.as_secs_f64(),
             self.config.gc_batch_limit,
         )
-        .execute(&self.pool)
+        .execute(self.pools.heavy.inner())
         .await?;
         Ok(result.rows_affected())
     }

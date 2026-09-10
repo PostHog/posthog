@@ -1020,7 +1020,10 @@ async fn a_stale_drivers_fold_refusal_defers_instead_of_unfencing_the_new_owners
     // could land and be destroyed. The stale drive defers to the row.
     let err = h
         .driver
-        .run_step(&h.ctx.pool, &stale_row)
+        .run_step(
+            &personhog_identity::lifecycle::engine::EnginePools::shared(h.ctx.pool.clone()),
+            &stale_row,
+        )
         .await
         .expect_err("the stale drive defers rather than settling");
     assert!(matches!(err, SagaError::Busy));
@@ -1082,7 +1085,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
     .expect("insert parked op");
 
     let sweep_engine = Engine::new(
-        h.ctx.pool.clone(),
+        personhog_identity::lifecycle::engine::EnginePools::shared(h.ctx.pool.clone()),
         personhog_identity::lifecycle::engine::EngineConfig {
             lease: std::time::Duration::from_secs(3600),
             execute_timeout: std::time::Duration::from_secs(10),

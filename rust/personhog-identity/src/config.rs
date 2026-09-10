@@ -49,6 +49,22 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
 
+    /// Max connections for the heavy pool: the merge flip, the delete
+    /// unmap, and lifecycle GC, whose cost scales with the person's
+    /// footprint. Kept small so they cannot hold every connection the
+    /// short queries on the primary pool need.
+    #[envconfig(default = "5")]
+    pub heavy_max_pg_connections: u32,
+
+    /// Statement timeout for the heavy pool (ms). Longer than the primary
+    /// pool because a flip over many distinct ids legitimately takes
+    /// seconds.
+    #[envconfig(default = "30000")]
+    pub heavy_statement_timeout_ms: u64,
+
+    #[envconfig(default = "10")]
+    pub heavy_acquire_timeout_secs: u64,
+
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
     /// to skip server-side warming entirely.
@@ -214,6 +230,18 @@ impl Config {
 
     pub fn acquire_timeout(&self) -> Duration {
         Duration::from_secs(self.acquire_timeout_secs)
+    }
+
+    pub fn heavy_acquire_timeout(&self) -> Duration {
+        Duration::from_secs(self.heavy_acquire_timeout_secs)
+    }
+
+    pub fn heavy_statement_timeout(&self) -> Option<u64> {
+        if self.heavy_statement_timeout_ms == 0 {
+            None
+        } else {
+            Some(self.heavy_statement_timeout_ms)
+        }
     }
 
     pub fn idle_timeout(&self) -> Option<Duration> {

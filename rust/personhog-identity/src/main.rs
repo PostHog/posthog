@@ -10,6 +10,7 @@ use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetric
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentityServer;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycleServer;
+use sqlx::PgPool;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -23,11 +24,13 @@ use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
 use personhog_identity::lifecycle::engine::Engine;
+use personhog_identity::lifecycle::engine::{EnginePools, LabeledPool, HEAVY_POOL_LABEL};
 use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
+use personhog_identity::storage::postgres::POOL_LABEL;
 
 common_alloc::used!();
 
@@ -47,6 +50,28 @@ fn create_storage(config: &Config) -> Arc<PostgresIdentityStorage> {
     tracing::info!("Created primary database pool");
 
     Arc::new(PostgresIdentityStorage::new(primary_pool, config.tables()))
+}
+
+fn create_heavy_pool(config: &Config) -> PgPool {
+    let heavy_pool_config = PoolConfig {
+        min_connections: config
+            .min_pg_connections
+            .min(config.heavy_max_pg_connections),
+        max_connections: config.heavy_max_pg_connections,
+        acquire_timeout: config.heavy_acquire_timeout(),
+        idle_timeout: config.idle_timeout(),
+        test_before_acquire: false,
+        statement_timeout_ms: config.heavy_statement_timeout(),
+        pool_name: Some(HEAVY_POOL_LABEL.to_string()),
+    };
+    let pool = get_pool_with_config(&config.primary_database_url, heavy_pool_config)
+        .expect("Failed to create heavy database pool");
+    tracing::info!(
+        max_connections = config.heavy_max_pg_connections,
+        statement_timeout_ms = config.heavy_statement_timeout_ms,
+        "Created heavy database pool"
+    );
+    pool
 }
 
 #[tokio::main]
@@ -162,6 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let storage = create_storage(&config);
+    let heavy_pool = create_heavy_pool(&config);
 
     // Pre-warm the DB connection pool before accepting traffic.
     // connect_lazy() starts with zero connections; without this, the first
@@ -207,11 +233,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     spawn_pool_monitor(
-        vec![MonitoredPool {
-            pool: storage.primary_pool.clone(),
-            label: "primary".to_string(),
-            max_connections: config.max_pg_connections,
-        }],
+        vec![
+            MonitoredPool {
+                pool: storage.primary_pool.clone(),
+                label: "primary".to_string(),
+                max_connections: config.max_pg_connections,
+            },
+            MonitoredPool {
+                pool: heavy_pool.clone(),
+                label: HEAVY_POOL_LABEL.to_string(),
+                max_connections: config.heavy_max_pg_connections,
+            },
+        ],
         Duration::from_secs(config.pool_monitor_interval_secs),
     );
 
@@ -223,7 +256,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // property writes.
     let lifecycle_leader: Arc<dyn LifecycleLeader> = property_writer.clone();
     let engine = Arc::new(Engine::new(
-        storage.primary_pool.clone(),
+        EnginePools {
+            fast: LabeledPool::new(storage.primary_pool.clone(), POOL_LABEL),
+            heavy: LabeledPool::new(heavy_pool, HEAVY_POOL_LABEL),
+        },
         config.lifecycle_engine_config(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
