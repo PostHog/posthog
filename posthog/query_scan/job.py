@@ -1,0 +1,297 @@
+"""The query scan job, kept out of Celery so a test can call it directly.
+
+The trigger printed the run's SQL; this asks ClickHouse how it planned to read it, reads the
+findings and granule shares off the plan, and stores the result in the scan slot. It runs on the
+offline pool, once per query per slot lifetime, and runs EXPLAINs only.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from time import perf_counter
+from typing import Any
+
+import structlog
+from celery.exceptions import SoftTimeLimitExceeded
+
+from posthog.schema import QueryScanStatus, QueryScanWarning
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
+from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
+from posthog.models.team.team import Team
+from posthog.ph_client import ph_scoped_capture
+from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
+from posthog.query_scan.explain import QueryPlan, TimestampBounds, parse_query_plan
+from posthog.query_scan.findings import ScanMeasurements, ScanThresholds
+from posthog.query_scan.flag import get_query_scan_flag
+from posthog.query_scan.slot import QueryScanSlot, set_done
+
+logger = structlog.get_logger(__name__)
+
+# `EXPLAIN` runs each `IN (subquery)` to build its set before planning; this aborts such a read at
+# once so the stubbed SQL can be tried instead. ClickHouse reports it as code 158.
+EXPLAIN_MAX_ROWS = 1000
+EXPLAIN_MAX_SECONDS = 10
+TOO_MANY_ROWS_CODE = 158
+
+
+@frozen
+class Execution:
+    """One printed execution of the run, as the trigger enqueued it."""
+
+    sql: str
+    stubbed_sql: str
+    subqueries: tuple[str, ...]
+    values: dict[str, Any]
+    rows_read: int
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> Execution:
+        return cls(
+            sql=payload["sql"],
+            stubbed_sql=payload["stubbed_sql"],
+            subqueries=tuple(payload.get("subqueries") or ()),
+            values=payload.get("values") or {},
+            rows_read=payload.get("rows_read") or 0,
+        )
+
+
+@frozen
+class QueryScanJob:
+    """One run to analyze, as the trigger printed it."""
+
+    team: Team
+    cache_key: str
+    executions: tuple[Execution, ...]
+    rows_read: int
+    duration_ms: int
+    trigger: str
+    query_kind: str | None
+    open_filters_placeholder: bool
+    killed: bool = False
+
+
+@frozen(eq=False)
+class _Merged:
+    """The one slot the job writes from the several executions it analyzed."""
+
+    findings: list[QueryScanWarning]
+    explain_ok: bool
+    range_share: float | None
+    project_share: float | None
+
+    def finding_kinds(self) -> list[str]:
+        return [str(finding.kind) for finding in self.findings]
+
+
+def run_query_scan(job: QueryScanJob) -> None:
+    """Analyze one run and store the result. Never raises, and never retries: the next slow
+    run of the same query enqueues a new job."""
+    started = perf_counter()
+    try:
+        _run(job, started)
+    except SoftTimeLimitExceeded:
+        # The task handles its own timeout; letting it propagate leaves the pending slot to expire.
+        raise
+    except Exception as error:
+        capture_exception(error, {"team_id": job.team.pk, "cache_key": job.cache_key, "context": "query_scan_job"})
+
+
+def _run(job: QueryScanJob, started: float) -> None:
+    flag = get_query_scan_flag(job.team)
+    if flag is None:
+        # The flag went off between the enqueue and now. Leave the pending slot to expire.
+        return
+    thresholds = ScanThresholds(event_ratio=flag.event_ratio, persons_ratio=flag.persons_ratio)
+    measurements = ScanMeasurements(rows_read=job.rows_read, duration_ms=job.duration_ms)
+
+    # The team's whole data on the initiator shard, run once for every execution's share.
+    team_granules = _denominator_granules(
+        _explain(
+            "SELECT count() FROM events WHERE team_id = %(scan_team_id)s", {"scan_team_id": job.team.pk}, job.team.pk
+        )
+    )
+    range_cache: dict[tuple[int | None, int | None], int | None] = {}
+
+    results: list[QueryScanResult] = []
+    for execution in job.executions:
+        outer = _outer_plan(execution, job.team.pk)
+        subqueries = tuple(
+            plan
+            for plan in (_subquery_plan(sql, execution.values, job.team.pk) for sql in execution.subqueries)
+            if plan is not None
+        )
+        range_granules = _range_granules(job.team.pk, outer, team_granules, range_cache)
+        results.append(
+            analyze(
+                PlanSet(outer=outer, subqueries=subqueries, team_granules=team_granules, range_granules=range_granules),
+                thresholds,
+                query_kind=job.query_kind or "",
+                open_filters_placeholder=job.open_filters_placeholder,
+                measurements=measurements,
+            )
+        )
+
+    merged = _merge(results, job.executions)
+    set_done(
+        job.team.pk,
+        job.cache_key,
+        QueryScanSlot(
+            status=QueryScanStatus.DONE,
+            analyzed_at=datetime.now(UTC).isoformat(),
+            query_kind=job.query_kind,
+            rows_read=job.rows_read,
+            duration_ms=job.duration_ms,
+            range_share=merged.range_share,
+            project_share=merged.project_share,
+            explain_ok=merged.explain_ok,
+            findings=tuple(merged.findings),
+            killed=job.killed,
+            thresholds=flag.thresholds_fingerprint,
+        ),
+    )
+    _report(job, merged, flag_event_ratio=flag.event_ratio, job_ms=round((perf_counter() - started) * 1000))
+
+
+def _outer_plan(execution: Execution, team_id: int) -> QueryPlan | None:
+    """The plan for the run's outer query. Tries the exact SQL first, and the stubbed SQL when the
+    exact one begins reading an ``IN`` set. None when EXPLAIN failed for any other reason."""
+    rows, hit_row_limit = _explain(execution.sql, execution.values, team_id)
+    if hit_row_limit:
+        rows, _ = _explain(execution.stubbed_sql, execution.values, team_id)
+    if rows is None:
+        return None
+    return parse_query_plan(rows[0][0])
+
+
+def _subquery_plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan | None:
+    """The plan for one stubbed subquery, or None when its EXPLAIN did not return a plan."""
+    rows, _ = _explain(sql, values, team_id)
+    if rows is None:
+        return None
+    return parse_query_plan(rows[0][0])
+
+
+def _range_granules(
+    team_id: int,
+    outer: QueryPlan | None,
+    team_granules: int | None,
+    cache: dict[tuple[int | None, int | None], int | None],
+) -> int | None:
+    """The team's granules over the run's date range, cached per distinct bounds.
+
+    With no timestamp bound the range is all time, so the range denominator is the team denominator.
+    """
+    events_read = outer.events_read() if outer is not None else None
+    bounds = events_read.timestamp_bounds() if events_read is not None else TimestampBounds(lower=None, upper=None)
+    if bounds.lower is None and bounds.upper is None:
+        return team_granules
+    key = (bounds.lower, bounds.upper)
+    if key not in cache:
+        cache[key] = _denominator_granules(_explain_range(team_id, bounds))
+    return cache[key]
+
+
+def _explain_range(team_id: int, bounds: TimestampBounds) -> tuple[list[Any] | None, bool]:
+    conditions = ["team_id = %(scan_team_id)s"]
+    values: dict[str, Any] = {"scan_team_id": team_id}
+    if bounds.lower is not None:
+        conditions.append("timestamp >= toDateTime(%(scan_lower)s)")
+        values["scan_lower"] = bounds.lower
+    if bounds.upper is not None:
+        conditions.append("timestamp < toDateTime(%(scan_upper)s)")
+        values["scan_upper"] = bounds.upper
+    return _explain("SELECT count() FROM events WHERE " + " AND ".join(conditions), values, team_id)
+
+
+def _denominator_granules(explained: tuple[list[Any] | None, bool]) -> int | None:
+    rows, _ = explained
+    if rows is None:
+        return None
+    events_read = parse_query_plan(rows[0][0]).events_read()
+    return events_read.selected_granules() if events_read is not None else None
+
+
+def _explain(sql: str, values: dict[str, Any], team_id: int) -> tuple[list[Any] | None, bool]:
+    """EXPLAIN the SQL on the offline pool. Returns the rows and whether it aborted on the row
+    limit (code 158); rows is None on that abort and on every other failure, which reads as
+    "the plan told us nothing" and fails the analysis closed."""
+    try:
+        with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY_SCAN):
+            # nosemgrep: clickhouse-fstring-param-audit - sql is compiled from the HogQL AST by the printer, and its values stay parameterized
+            rows = sync_execute(
+                f"EXPLAIN indexes = 1, json = 1 {sql}",
+                values,
+                settings={"max_rows_to_read": EXPLAIN_MAX_ROWS, "max_execution_time": EXPLAIN_MAX_SECONDS},
+                workload=Workload.OFFLINE,
+                team_id=team_id,
+                readonly=True,
+            )
+        return rows, False
+    except SoftTimeLimitExceeded:
+        # Never swallow the task's timeout as an explain failure; the task leaves the slot pending.
+        raise
+    except Exception as error:
+        if getattr(error, "code", None) == TOO_MANY_ROWS_CODE:
+            return None, True
+        logger.warning("query_scan_explain_failed", team_id=team_id, exc_info=True)
+        return None, False
+
+
+def _merge(results: list[QueryScanResult], executions: tuple[Execution, ...]) -> _Merged:
+    """One slot from the executions the job analyzed: findings deduplicated by kind and reason, and
+    the shares from the execution that read the most rows."""
+    findings: list[QueryScanWarning] = []
+    seen: set[tuple[str, str]] = set()
+    for result in results:
+        for finding in result.findings:
+            key = (str(finding.kind), str(finding.reason))
+            if key not in seen:
+                seen.add(key)
+                findings.append(finding)
+
+    heaviest = _heaviest_result(results, executions)
+    return _Merged(
+        findings=findings,
+        explain_ok=any(result.explain_ok for result in results),
+        range_share=heaviest.range_share if heaviest is not None else None,
+        project_share=heaviest.project_share if heaviest is not None else None,
+    )
+
+
+def _heaviest_result(results: list[QueryScanResult], executions: tuple[Execution, ...]) -> QueryScanResult | None:
+    if not results:
+        return None
+    return max(zip(results, executions), key=lambda pair: pair[1].rows_read)[0]
+
+
+def _report(job: QueryScanJob, merged: _Merged, *, flag_event_ratio: float, job_ms: int) -> None:
+    """Send `query scan analyzed`, findings or not. A run with no findings records an expensive
+    query no check explains yet, which is what says which check to write next."""
+    properties = {
+        "cache_key": job.cache_key,
+        "query_kind": job.query_kind,
+        "trigger": job.trigger,
+        "rows_read": job.rows_read,
+        "duration_ms": job.duration_ms,
+        "range_share": merged.range_share,
+        "project_share": merged.project_share,
+        "event_ratio": flag_event_ratio,
+        "explain_ok": merged.explain_ok,
+        "finding_kinds": merged.finding_kinds(),
+        "killed": job.killed,
+        "job_ms": job_ms,
+    }
+    # A Celery worker can exit before the global client's background flush runs, so this event
+    # needs a client that is flushed here.
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(job.team.uuid),
+            event="query scan analyzed",
+            properties=properties,
+            groups=groups(job.team.organization, job.team),
+        )

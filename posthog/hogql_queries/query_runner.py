@@ -166,7 +166,14 @@ from posthog.query_cache.failures import (
     Budget,
     QueryFailureRecord,
 )
-from posthog.query_scan.flag import get_query_scan_flag
+from posthog.query_scan.flag import QueryScanFlag, get_query_scan_flag
+from posthog.query_scan.serve import attach_scan_slot
+from posthog.query_scan.trigger import (
+    FLAG_OFF as QUERY_SCAN_FLAG_OFF,
+    NO_PRINCIPAL as QUERY_SCAN_NO_PRINCIPAL,
+    is_analyzable_principal,
+    maybe_trigger_query_scan,
+)
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
@@ -2276,6 +2283,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         )
                         if results:
                             cache_tracking_props = {}
+                            # Cached from the fresh run that produced these results, so the numbers
+                            # describe that run rather than this one, which touched no ClickHouse.
+                            # Read before serving, which can take the field off the response.
+                            cached_query_scan = getattr(results, "query_scan", None)
                             if isinstance(results, CachedResponse):
                                 if (not trigger or not trigger.startswith("warming")) and results.query_metadata:
                                     log_event_usage_from_query_metadata(
@@ -2298,10 +2309,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                                     cache_hit=True,
                                     **cache_tracking_props,
                                 )
+                                self._serve_query_scan(results, user)
                             else:
                                 slo.tag(execution_path="cache_miss", cache_hit=False)
-
-                            cached_query_scan = getattr(results, "query_scan", None)
 
                             query_executed_props = {
                                 "insight_id": insight_id,
@@ -2330,7 +2340,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # cache_hit is left unset on this path: either the caller passed
                     # CALCULATE_BLOCKING_ALWAYS (cache skipped) or the cache returned nothing.
                     slo.tag(execution_path="blocking", calculation_trigger=trigger)
-                    return self._execute_and_cache_blocking(
+                    fresh_response = self._execute_and_cache_blocking(
                         cache_key=cache_key,
                         cache_manager=cache_manager,
                         execution_mode=execution_mode,
@@ -2341,6 +2351,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         start_time=start_time,
                         analytics_props=analytics_props,
                     )
+                    # A fresh run of a query analyzed earlier still has a done slot, so this is
+                    # where its findings reach the recomputed response.
+                    self._serve_query_scan(fresh_response, user)
+                    return fresh_response
                 except Exception as exc:
                     if getattr(exc, "served_from_query_failure_cache", False):
                         # ClickHouse was never touched; the original failure was already
@@ -2438,6 +2452,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         category=classify_query_error(e),
                         error_type=clickhouse_error_type(e),
                     ).inc()
+                if (
+                    query_scan_flag is not None
+                    and classify_query_error(e) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+                ):
+                    # Every retry of a query ClickHouse stops dies the same way, so this is the
+                    # only run that can ever carry the advice to the person.
+                    self._analyze_killed_run(
+                        e,
+                        flag=query_scan_flag,
+                        stats=query_stats,
+                        cache_key=cache_key,
+                        user=user,
+                    )
                 raise
             finally:
                 query_duration_seconds = perf_counter() - query_start
@@ -2494,19 +2521,43 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     w.model_dump() for w in warnings_accumulator.values()
                 ] + other_warnings
 
-            # Stored with the results, so a cache hit carries the numbers of the run that produced
-            # them. Guarded like `warnings` above.
-            if query_scan_flag is not None and query_stats is not None and "query_scan" in CachedResponse.model_fields:
-                fresh_response_dict["query_scan"] = {
-                    "mode": query_scan_flag.mode,
-                    "rows_read": query_stats.rows_read,
-                    "duration_ms": round(query_stats.duration_ms),
-                }
-
             # Don't cache debug queries with errors and export queries
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
-            if not has_error and self.limit_context != LimitContext.EXPORT:
+            cacheable = not has_error and self.limit_context != LimitContext.EXPORT
+
+            # Stored with the results, so a cache hit carries the numbers of the run that produced
+            # them. Guarded like `warnings` above.
+            # Skipped entirely for an unflagged team, which keeps the query serialization the
+            # enqueue needs off every other team's path.
+            scan = QUERY_SCAN_FLAG_OFF
+            if query_scan_flag is not None and query_stats is not None and "query_scan" in CachedResponse.model_fields:
+                if not is_analyzable_principal(user):
+                    # The summary describes the project's data volume, which a shared-link viewer
+                    # reads from outside the project, so it stays off their response.
+                    scan = QUERY_SCAN_NO_PRINCIPAL
+                else:
+                    query_scan: dict[str, Any] = {
+                        "mode": query_scan_flag.mode,
+                        "rows_read": query_stats.rows_read,
+                        "duration_ms": round(query_stats.duration_ms),
+                    }
+                    fresh_response_dict["query_scan"] = query_scan
+                    scan = maybe_trigger_query_scan(
+                        flag=query_scan_flag,
+                        stats=query_stats,
+                        team_id=self.team.pk,
+                        # Dashboard and tile overrides are already applied here, so the cache key
+                        # is the right identity for the analysis.
+                        cache_key=cache_key,
+                        query=self.query,
+                        trigger="fresh",
+                        cacheable=cacheable,
+                    )
+                    if scan.triggered:
+                        query_scan["status"] = "pending"
+
+            if cacheable:
                 cache_manager.store_result(
                     response=fresh_response_dict,
                     # This would be a possible place to decide to not ever keep this cache warm
@@ -2534,6 +2585,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "has_error": has_error,
                 "clickhouse_rows_read": query_stats.rows_read if query_stats else None,
                 "clickhouse_duration_ms": round(query_stats.duration_ms) if query_stats else None,
+                "query_scan_triggered": scan.triggered,
+                "query_scan_skipped_reason": scan.skipped_reason,
             }
             report_user_or_team_action(
                 "query executed",
@@ -2545,6 +2598,68 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
             return CachedResponse(**fresh_response_dict)
+
+    def _serve_query_scan(self, response: Any, user: Optional[User]) -> None:
+        """Fold the stored analysis into an outgoing response, or take the field off it for a
+        reader the run was not analyzed for.
+
+        A cached body written for a real user still carries the summary, so a shared-link viewer
+        of the same insight would otherwise be served the project's data volume from the cache.
+        """
+        if is_analyzable_principal(user):
+            attach_scan_slot(self.team, response)
+        elif getattr(response, "query_scan", None) is not None:
+            response.query_scan = None
+
+    def _analyze_killed_run(
+        self,
+        error: Exception,
+        *,
+        flag: QueryScanFlag,
+        stats: Optional[QueryStats],
+        cache_key: str,
+        user: Optional[User],
+    ) -> None:
+        """Enqueue the analysis for a run ClickHouse stopped, and put the scan summary on the
+        exception so the API layers above can serve it with the error.
+
+        The error is re-raised unchanged whatever happens here, so nothing in this method may
+        replace the failure the person needs to see.
+        """
+        if not is_analyzable_principal(user):
+            # Same gate as the fresh path: the summary must not ride out on an error body a
+            # shared link renders.
+            return
+        if stats is None or round(stats.duration_ms) < flag.floor_ms:
+            # Same floor as the fresh path: below it no slot is ever written.
+            return
+        try:
+            scan = maybe_trigger_query_scan(
+                flag=flag,
+                stats=stats,
+                team_id=self.team.pk,
+                cache_key=cache_key,
+                query=self.query,
+                trigger="killed",
+                # A killed run has no result to cache, so only the export exclusion applies.
+                cacheable=self.limit_context != LimitContext.EXPORT,
+                killed=True,
+            )
+            if not scan.triggered and scan.skipped_reason != "slot_exists":
+                # With no slot behind this cache key the scan endpoint answers 404.
+                return
+            query_scan: dict[str, Any] = {
+                "mode": flag.mode,
+                "rows_read": stats.rows_read,
+                "duration_ms": round(stats.duration_ms),
+                "killed": True,
+            }
+            if scan.triggered:
+                query_scan["status"] = "pending"
+            error.query_scan = query_scan  # type: ignore[attr-defined]
+            error.cache_key = cache_key  # type: ignore[attr-defined]
+        except Exception as scan_error:
+            capture_exception(scan_error, {"team_id": self.team.pk, "context": "query_scan_killed_run"})
 
     def get_api_queries_concurrency_limit(self):
         """
