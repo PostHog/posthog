@@ -2,6 +2,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.activity import revoke_other_sessions
 
 
 def reconcile_email_claim_credentials(
@@ -41,3 +42,5 @@ def reconcile_email_claim_credentials(
 
     if update_fields:
         user.save(update_fields=update_fields)
+
+    revoke_other_sessions(user, keep_session_key=None)

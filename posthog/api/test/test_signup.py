@@ -20,6 +20,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 from webauthn.helpers import bytes_to_base64url
 
@@ -43,6 +44,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.backend import SessionStore
+from posthog.session.models import Session
 from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -2025,6 +2027,10 @@ class TestPasskeySignupAPI(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     def test_verify_email_from_other_session_deletes_pre_registered_passkey(self):
         user = self._passkey_signup_capturing_code("passkey_squat@posthog.com")
+        stale_client = APIClient()
+        stale_client.force_login(user)
+        stale_session_key = stale_client.session.session_key
+        assert stale_session_key is not None
         # The same squat works when the squatter signed up with a password instead of a passkey.
         user.set_password(VALID_TEST_PASSWORD)
         user.save()
@@ -2063,6 +2069,7 @@ class TestPasskeySignupAPI(APIBaseTest):
         self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
         self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
         self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
+        self.assertFalse(Session.objects.filter(session_key=stale_session_key).exists())
 
     @pytest.mark.skip_on_multitenancy
     def test_password_signup_generates_random_uuid(self):
