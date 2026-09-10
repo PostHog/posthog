@@ -34,7 +34,7 @@ class TestCheckAgentActiveFlag:
             stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
             async_to_sync(stream.set_agent_active)(flag_value)
 
-        result = async_to_sync(activity_environment.run)(
+        result: bool | None = async_to_sync(activity_environment.run)(
             check_agent_active_flag, CheckAgentActiveFlagInput(run_id=run_id, team_id=1)
         )
 

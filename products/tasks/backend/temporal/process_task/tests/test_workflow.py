@@ -2328,8 +2328,7 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._agent_heartbeat_active is True
 
         await workflow.agent_state_changed(False)
-        assert workflow._agent_heartbeat_active is False
-        assert workflow._end_of_turn_received is True
+        assert (workflow._agent_heartbeat_active, workflow._end_of_turn_received) == (False, True)
 
     @pytest.mark.parametrize(
         "activity_result, expected",
