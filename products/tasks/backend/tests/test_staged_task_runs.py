@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import uuid4
 
 import pytest
@@ -54,7 +55,7 @@ class TestStagedTaskRuns(TestCase):
         self,
         *,
         disabled_tools: tuple[str, ...] = PULSE_DISABLED_TOOLS,
-        network_egress: str = "posthog_mcp_only",
+        network_egress: Literal["inherit", "posthog_mcp_only"] = "posthog_mcp_only",
     ) -> StagedCapabilityManifest:
         return StagedCapabilityManifest(
             version=1,
@@ -107,7 +108,9 @@ class TestStagedTaskRuns(TestCase):
         ],
     )
     def test_pulse_analysis_rejects_a_manifest_outside_its_fixed_boundary(
-        self, disabled_tools: tuple[str, ...], network_egress: str
+        self,
+        disabled_tools: tuple[str, ...],
+        network_egress: Literal["inherit", "posthog_mcp_only"],
     ) -> None:
         input = self._create_input(idempotency_key=f"pulse-{network_egress}-{len(disabled_tools)}")
         input = CreateStagedTaskInput(

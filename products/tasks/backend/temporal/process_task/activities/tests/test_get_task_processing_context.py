@@ -113,6 +113,7 @@ def test_repository_bound_pulse_egress_allows_only_github():
         repository="owner/repository",
         inherited_domains=["customer.example"],
     )
+    assert requested_domains is not None
     policy = _compile_effective_network_policy(requested_domains)
 
     assert requested_domains == ["github.com"]

@@ -65,11 +65,12 @@ def get_staged_execution_binding(run_id: str) -> StagedExecutionBinding | None:
         _invalid_binding("Staged task actor no longer has team access")
     is_execution = str(staged_run.execution_run_id) == run_id
     manifest = staged_run.execution_manifest if is_execution else staged_run.analysis_manifest
+    if not isinstance(manifest, dict):
+        _invalid_binding("Staged task execution binding is invalid")
     network_egress = manifest.get("network_egress", "inherit")
     if (
         staged_run.cancelled_at is not None
         or staged_run.capabilities_revoked_at is not None
-        or not isinstance(manifest, dict)
         or manifest.get("version") != _MANIFEST_VERSION
         or manifest.get("phase") != ("execution" if is_execution else "analysis")
         or not isinstance(manifest.get("mcp_scope_preset"), str)
