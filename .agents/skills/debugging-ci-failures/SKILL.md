@@ -176,8 +176,9 @@ title, status, summary, and links. Do not stop at the first `fail` section or
 treat the comment heading as an overall verdict.
 
 - Treat `fail` and `alert` as leads, and match them to the current job.
-- Treat `warn` as advisory unless its job failed. `ok` and `info` are not test
-  results.
+- Treat `warn` as a non-blocking finding. Review its details and follow its
+  stated action, but do not call it a failed job unless its job failed.
+- `ok` and `info` are not test results.
 - A missing report means the reporter did not run or could not write. It does
   not prove the PR is healthy.
 
