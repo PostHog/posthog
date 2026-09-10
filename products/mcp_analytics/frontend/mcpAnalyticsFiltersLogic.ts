@@ -17,6 +17,11 @@ export interface MCPSharedFilterParams {
     filter_test_accounts?: boolean
 }
 
+/** Whether the shared filters narrow anything, so a surface under them shows a subset of the project. */
+export function isSharedFilterActive(filters: MCPSharedQueryFilters): boolean {
+    return filters.properties.length > 0 || filters.filterTestAccounts
+}
+
 /** The shared filters as REST query params. `properties` is JSON-encoded, as the REST endpoints expect. */
 export function sharedFilterParams(filters: MCPSharedQueryFilters): MCPSharedFilterParams {
     return {
