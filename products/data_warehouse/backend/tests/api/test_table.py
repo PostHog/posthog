@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 
 PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
@@ -580,6 +580,53 @@ class TestTable(APIBaseTest):
         ][0]
         assert skipped["hogql_name"] == "googleanalytics.devices"
         assert skipped["columns"] == []
+
+    def test_list_tables_external_schema_null_for_table_without_schema(self):
+        # A materialized view's backing table (or a self-managed table) has no ExternalDataSchema row.
+        # DRF's Serializer(None).data returns the fields' initial values rather than an empty dict, so
+        # naively checking truthiness previously let a schema-less table serialize with a fake
+        # external_schema object that has no id — the picker then offered it as bindable when it isn't.
+        DataWarehouseTable.objects.create(
+            name="materialized_view_backing_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern="https://example.com/backing.parquet",
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/")
+
+        assert response.status_code == 200
+        assert response.json()["results"][0]["external_schema"] is None
+
+    def test_list_tables_external_schema_present_for_synced_table(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_type="Stripe",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="stripe_charges",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern="https://example.com/charges.parquet",
+            external_data_source_id=source.pk,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="charges",
+            table=table,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/")
+
+        assert response.status_code == 200
+        assert response.json()["results"][0]["external_schema"]["id"] == str(schema.id)
 
     def test_create_table_with_internal_bucket_url(self):
         with override_settings(DATAWAREHOUSE_BUCKET_DOMAIN="somedomain.com"):

@@ -190,7 +190,8 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             SimpleExternalDataSchemaSerializer,
         )
 
-        return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
+        schema = instance.externaldataschema_set.first()
+        return SimpleExternalDataSchemaSerializer(schema, read_only=True).data if schema else None
 
     def create(self, validated_data):
         team_id = self.context["team_id"]

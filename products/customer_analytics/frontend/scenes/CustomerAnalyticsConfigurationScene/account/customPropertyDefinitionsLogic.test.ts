@@ -424,6 +424,31 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.warehouseTables).toHaveLength(101)
     })
 
+    it('filters out a table whose external_schema has no id', async () => {
+        // A materialized view's backing table (or a self-managed table) can come back from the API with
+        // a truthy-but-empty external_schema object rather than null. Binding to it would leave
+        // selectedWarehouseSchemaId undefined and fail submit, so the picker must exclude it.
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: {
+                    count: 2,
+                    next: null,
+                    results: [
+                        buildTable({ id: 'table-1', name: 'synced_table' }),
+                        buildTable({ id: 'table-2', name: 'view_backing_table', external_schema: {} }),
+                    ],
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseTables.map((table) => table.id)).toEqual(['table-1'])
+    })
+
     it('passes the search term to the backend when the picker searches', async () => {
         let searchedFor: string | null = null
         useMocks({

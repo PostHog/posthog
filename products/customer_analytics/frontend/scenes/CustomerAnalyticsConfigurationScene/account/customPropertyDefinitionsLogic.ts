@@ -665,8 +665,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                             break
                         }
                     }
-                    // Only synced tables carry an external_schema, which is what a person source binds to.
-                    const synced = collected.filter((table) => !!table.external_schema)
+                    // Only synced tables carry an external_schema with an id, which is what a person
+                    // source binds to. A schema-less row (e.g. a materialized view's backing table)
+                    // would otherwise pass a truthy-but-empty external_schema and fail at bind time.
+                    const synced = collected.filter((table) => !!table.external_schema?.id)
                     // Keep the currently-selected table in the list even if the active search filters it
                     // out, so the picker can still render its label rather than a bare id.
                     const selectedId = values.customPropertyForm.warehouseTable
