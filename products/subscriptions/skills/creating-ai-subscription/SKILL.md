@@ -2,8 +2,8 @@
 name: creating-ai-subscription
 description: >
   Create a recurring AI-generated PostHog report — schedule a free-text prompt to
-  run on a cron, with the LLM-synthesized markdown delivered to email or Slack on
-  each tick. Use when the user wants a recurring AI summary of X on any cadence
+  run on a cron, with the LLM-synthesized markdown delivered to email, Slack, or Microsoft Teams
+  on each tick. Use when the user wants a recurring AI summary of X on any cadence
   (daily, weekly, monthly, yearly) rather than a one-off report. (To attach an AI
   summary to an existing insight/dashboard
   subscription instead of a free-text prompt, see `managing-subscriptions` and its
@@ -14,8 +14,8 @@ description: >
 
 ## When to use this
 
-A **subscription** delivers a PostHog report to email or Slack on a recurring
-schedule. There are three kinds, distinguished by which field you set — the kind is
+A **subscription** delivers a PostHog report to email, Slack, or Microsoft Teams on a
+recurring schedule. There are three kinds, distinguished by which field you set — the kind is
 derived and returned as the read-only `resource_type`:
 
 - **`insight`** — periodic snapshots of one existing insight (`resource_type: "insight"`)
@@ -119,6 +119,17 @@ returns). Build it in three steps:
    to one specific Slack integration so reconnections elsewhere don't accidentally
    re-route deliveries.
 
+## Teams target
+
+`target_value` must be the full webhook URL of the channel you want reports in. The user creates
+that URL with the Workflows app in that channel, then pastes it back to you. There is no Teams
+integration to look up, so leave `integration_id` out.
+
+The URL must be `https`. If `subscriptions-create` rejects `target_value`, the URL is not a Teams
+webhook — ask the user to create it again with the Workflows app and paste the whole URL. On a
+later update, omit `target_value` to keep the saved URL, because the API reads it back as its host
+only and rejects that masked value.
+
 ## Examples
 
 ### Weekly Monday-morning AI summary by email
@@ -183,7 +194,7 @@ title: 'Daily onboarding watch'
 `subscriptions-list` will return the new row. Confirm `resource_type: "ai_prompt"`,
 `enabled: true`, `next_delivery_date` is in the future, and `prompt` matches what
 you sent. The first scheduled tick will run the planner → HogQL → synthesis
-pipeline and email/Slack the rendered markdown.
+pipeline and deliver the rendered markdown to the channel you chose.
 
 ## Related skills
 
