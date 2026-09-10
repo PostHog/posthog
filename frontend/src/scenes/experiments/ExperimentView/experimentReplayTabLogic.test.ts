@@ -1587,7 +1587,9 @@ describe('experimentReplayTabLogic', () => {
 
     it.each([
         ['the variant facet moves', (): void => logic.actions.setSelectedVariantKey('control')],
-        ['the exposure scope moves', (): void => logic.actions.setExposureScope('in_session')],
+        // Away from the in-session default, so the pick is a move the listener commits rather than
+        // one it rejects for naming the scope the control already shows.
+        ['the exposure scope moves', (): void => logic.actions.setExposureScope('all_exposed')],
         ['a metric is picked', (): void => logic.actions.setMetricSelected('metric-purchase', true)],
         ['the shelf is closed', (): void => logic.actions.toggleBehaviorComparison()],
     ])('drops the selected card when %s', async (_name: string, moveFacet: () => void) => {
@@ -1604,6 +1606,22 @@ describe('experimentReplayTabLogic', () => {
         // while still reading as applied, and a closed shelf leaves no way to deselect.
         expect(logic.values.selectedWatchCard).toBeNull()
         expect(logic.values.recordingsFilters.session_ids).toBeUndefined()
+    })
+
+    it('keeps the selected card when the scope pick names the one the control already shows', async () => {
+        // The control renders the settling scope, so the option shown as selected can be one nobody
+        // picked, and a click on it is rejected. Nothing else on screen moves there, so taking the
+        // card would drop the list the viewer is reading for a click that changed no facet.
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+            logic.actions.selectWatchCard(DELTA_RESPONSE.cards[0] as any)
+        }).toFinishAllListeners()
+        expect(logic.values.displayedExposureScope).toBe('in_session')
+
+        await expectLogic(logic, () => logic.actions.setExposureScope('in_session')).toFinishAllListeners()
+
+        expect(logic.values.selectedWatchCard).not.toBeNull()
+        expect(logic.values.recordingsFilters.session_ids).toEqual(['card-session-1', 'card-session-2'])
     })
 
     it("follows the playlist when the card's recordings are cleared there", async () => {

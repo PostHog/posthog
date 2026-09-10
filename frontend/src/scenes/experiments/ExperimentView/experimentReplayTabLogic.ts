@@ -1072,7 +1072,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // trigger and the caption.
                 setMetricFilterMode: () => null,
                 setSelectedVariantKey: () => null,
-                setExposureScope: () => null,
+                // The committed half of the scope pick rather than the pick: a pick the listener
+                // rejects moves nothing on screen, so it must not take the card either.
+                exposureScopeCommitted: () => null,
                 setMetricSelected: () => null,
                 // Closing the shelf takes away the only way to deselect, so the list would stay
                 // narrowed with nothing on screen saying why.
