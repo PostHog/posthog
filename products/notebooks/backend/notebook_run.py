@@ -207,6 +207,10 @@ def notebook_run_status(notebook_run: NotebookRun) -> dict[str, Any]:
                 "run_id": str(latest.id) if latest else None,
                 "status": latest.status if latest else None,
                 "error": (latest.error or None) if latest else None,
+                # Not part of the response: the view reads it to decide whether this
+                # caller may see the cell's error, which can carry engine detail.
+                "connection_id": str(latest.connection_id) if latest and latest.connection_id else None,
+                "send_raw_query": bool(latest.send_raw_query) if latest else False,
             }
         )
     current = plan[notebook_run.current_index] if notebook_run.current_index < len(plan) else None
@@ -258,7 +262,7 @@ def finish_notebook_run(
     return bool(updated)
 
 
-def interrupt_notebook_run(notebook: Notebook, user: User | None, notebook_run: NotebookRun) -> bool:
+def interrupt_notebook_run(notebook: Notebook, notebook_run: NotebookRun) -> bool:
     """Stop a running notebook run; return whether this call stopped it.
 
     Marks the run first, so the workflow reads `interrupted` before it dispatches the next
@@ -267,12 +271,17 @@ def interrupt_notebook_run(notebook: Notebook, user: User | None, notebook_run: 
     """
     if not finish_notebook_run(notebook_run, NotebookRun.Status.INTERRUPTED, error="Run stopped."):
         return False
-    stop_current_cell(notebook, user, notebook_run)
+    stop_current_cell(notebook, notebook_run)
     return True
 
 
-def stop_current_cell(notebook: Notebook, user: User | None, notebook_run: NotebookRun) -> None:
-    """Stop the cell this run left in flight, whichever lane it is on."""
+def stop_current_cell(notebook: Notebook, notebook_run: NotebookRun) -> None:
+    """Stop the cell this run left in flight, whichever lane it is on.
+
+    The kernel is resolved for the run's own user, never for whoever asked to stop it:
+    runtimes are per user, so signalling the caller's kernel would leave the initiator's
+    Python cell running and still burning compute after a successful interrupt.
+    """
     run = (
         NotebookNodeRun.objects.for_team(notebook_run.team_id)
         .filter(notebook_run=notebook_run, status=NotebookNodeRun.Status.RUNNING)
@@ -287,8 +296,9 @@ def stop_current_cell(notebook: Notebook, user: User | None, notebook_run: Noteb
         if finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped."):
             cancel_direct_run(run)
         return
+    owner = notebook_run.user if isinstance(notebook_run.user, User) else None
     try:
-        interrupt_sql_v2_run(notebook, user, run)
+        interrupt_sql_v2_run(notebook, owner, run)
     except SQLV2KernelNotRunning:
         # No reachable kernel, so the callback can never arrive. A late one simply overwrites
         # this with the real outcome.

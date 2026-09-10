@@ -1738,7 +1738,32 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if notebook_run is None:
             raise Http404()
 
-        return Response(NotebookRunStatusResponseSerializer(notebook_run_status(notebook_run)).data)
+        status = notebook_run_status(notebook_run)
+        self._redact_inaccessible_cell_errors(status["cells"], user)
+        return Response(NotebookRunStatusResponseSerializer(status).data)
+
+    def _redact_inaccessible_cell_errors(self, cells: list[dict[str, Any]], user: User | None) -> None:
+        """Blank the error of any cell that ran on a data source this caller cannot reach.
+
+        The cell-result endpoint gates the whole read on `_require_run_connection_access`,
+        because notebook plus query access does not imply source access. This endpoint serves
+        many cells at once and must stay readable, so it drops just the errors — which can
+        carry the engine's own message — rather than refusing the run. Sources are resolved
+        once each, not once per cell.
+        """
+        access_by_source: dict[tuple[str, bool], bool] = {}
+        for cell in cells:
+            connection_id = cell.get("connection_id")
+            if not connection_id or not cell.get("error"):
+                continue
+            key = (connection_id, bool(cell.get("send_raw_query")))
+            if key not in access_by_source:
+                access_by_source[key] = (
+                    get_direct_connection_source(self.team, connection_id, user=user, require_pure_direct=key[1])
+                    is not None
+                )
+            if not access_by_source[key]:
+                cell["error"] = None
 
     @extend_schema(
         request=None,
@@ -1778,7 +1803,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if notebook_run is None:
             raise Http404()
 
-        interrupted = interrupt_notebook_run(notebook, user if isinstance(user, User) else None, notebook_run)
+        interrupted = interrupt_notebook_run(notebook, notebook_run)
         return Response(
             NotebookRunInterruptResponseSerializer({"interrupted": interrupted, "status": notebook_run.status}).data
         )
