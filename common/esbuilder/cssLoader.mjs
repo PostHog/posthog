@@ -11,9 +11,8 @@
  * timeout, because a stalled request fires no `error` event. `load` counts as success only when the
  * sheet applied, because a response that is not CSS fires `load` too and leaves an empty sheet. A
  * failed attempt starts the next URL in the ladder: a stale CDN can refuse the hashed file but
- * serve the hashless copy, and a fresh query defeats a poisoned cache entry or a hung connection.
- * The last rung asks the app origin for the same file, because every rung before it resolves
- * against `JS_URL`, and one fault on the way to that host defeats all of them together.
+ * serve the hashless copy. The last rung asks the app origin for the hashed file, because the rungs
+ * before it resolve against `JS_URL`, and one fault on the way to that host defeats them together.
  *
  * Each failure also sends an `$exception` beacon by hand, because posthog-js is not loaded this
  * early, the same way RootErrorBoundary reports boot failures. Pages that opt out of tracking,
@@ -33,17 +32,14 @@ export const STYLESHEET_ERROR_TYPE = 'StylesheetLoadError'
 
 /**
  * Inline loader script. `cssFile` is the hashed stylesheet and `cssFileFallback` the hashless copy
- * with a build-id query. Dev builds pass the same path for both, and then the ladder is the file
- * plus its cache-busting retry.
+ * with a build-id query. Dev builds pass the same path for both, and then the ladder has one rung
+ * per host.
  */
 export function cssLoaderScript(cssFile, cssFileFallback) {
     const paths = cssFileFallback && cssFileFallback !== cssFile ? [cssFile, cssFileFallback] : [cssFile]
     return `
         (function () {
             var paths = ${JSON.stringify(paths)};
-            var lastPath = paths[paths.length - 1];
-            paths.push(lastPath + (lastPath.indexOf('?') === -1 ? '?' : '&') + 'retry=' + Date.now());
-
             var staticHost = window.JS_URL || '';
             var hrefs = [];
             for (var i = 0; i < paths.length; i++) {

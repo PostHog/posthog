@@ -121,21 +121,18 @@ describe('css loader script', () => {
         expect(JSON.stringify(beacons[0])).not.toContain('sh4r3-t0k3n')
     })
 
-    it('retries with a fresh query and the app origin, then reports the page unstyled', async () => {
+    it('falls back to the app origin, then reports the page unstyled', async () => {
         const { ready, links, beacons } = runLoader()
-        for (let attempt = 0; attempt < 4; attempt++) {
+        for (let attempt = 0; attempt < 3; attempt++) {
             jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS)
         }
 
-        // The third attempt asks for the same file with a query no cache entry and no hung
-        // connection has seen. The fourth leaves the static host behind altogether.
-        expect(links).toHaveLength(4)
-        expect(links[2].href).toMatch(new RegExp(`^${STATIC}index\\.css\\?t=99&retry=\\d+$`))
-        expect(links[3].href).toBe(`/static/${CSS_FILE}`)
+        expect(links).toHaveLength(3)
+        expect(links[2].href).toBe(`/static/${CSS_FILE}`)
 
         await expect(ready).resolves.toBe(false)
-        expect(beacons).toHaveLength(4)
-        expect(beacons[3].properties).toMatchObject({ $exception_level: 'fatal', stylesheet_attempts: 4 })
+        expect(beacons).toHaveLength(3)
+        expect(beacons[2].properties).toMatchObject({ $exception_level: 'fatal', stylesheet_attempts: 3 })
     })
 
     it.each([
@@ -150,11 +147,11 @@ describe('css loader script', () => {
         ],
     ])('adds no app-origin rung when %s', (_case, jsUrl, firstHref) => {
         const { links } = runLoader({ jsUrl })
-        for (let attempt = 0; attempt < 3; attempt++) {
+        for (let attempt = 0; attempt < 2; attempt++) {
             jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS)
         }
 
-        expect(links).toHaveLength(3)
+        expect(links).toHaveLength(2)
         expect(links[0].href).toBe(firstHref)
     })
 
@@ -168,8 +165,8 @@ describe('css loader script', () => {
         await expect(ready).resolves.toBe(true)
 
         // The page is styled now, so the rung still in flight must not report a fatal failure
-        // over it, and the rungs behind it must not run at all.
-        jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS * 3)
+        // over it, and the rung behind it must not run at all.
+        jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS * 2)
 
         expect(links).toHaveLength(2)
         expect(beacons).toHaveLength(1)
@@ -184,11 +181,11 @@ describe('css loader script', () => {
         expect(beacons).toHaveLength(0)
     })
 
-    it('still has a retry to fall back on in a dev build with no hashless copy', () => {
+    it('goes straight to the app origin in a dev build with no hashless copy', () => {
         const { links } = runLoader({ cssFileFallback: CSS_FILE })
         links[0].dispatch('error')
 
         expect(links).toHaveLength(2)
-        expect(links[1].href).toMatch(new RegExp(`^${STATIC}index-ABCD1234\\.css\\?retry=\\d+$`))
+        expect(links[1].href).toBe(`/static/${CSS_FILE}`)
     })
 })
