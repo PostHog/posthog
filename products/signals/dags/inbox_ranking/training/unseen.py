@@ -38,16 +38,14 @@ LEGACY_POOL_NAME = "sampled"
 CANDIDATE_ROLE = "candidate"
 CHAMPION_ROLE = "champion"
 
-# The model family: which features and which learner, as against `model_version`, which is the
-# partition day the family was fit on. A model is identified by (model_name, model_version,
-# model_role) everywhere below, so two families trained on the same day stay apart.
+# The model family: which features and which learner, as against `model_version`, the partition day
+# it was fit on. Both are in the identity, so two families trained on one day stay apart.
 TABULAR_MODEL_NAME = "tabular_xgb"
 # The families the unseen read scores and grades each day. A family with no metadata for the day is
 # skipped, so an entry can be added here before its trainer writes its first candidate.
 MODEL_FAMILIES: tuple[str, ...] = (TABULAR_MODEL_NAME,)
 
-# Permutations behind the chance band. Each one is a shuffle of the scores plus one AUC rather than
-# a refit, so this sits far above the trainer's NULL_PERMUTATIONS and still costs nothing.
+# A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
 # Fixed, so re-grading the same rows reports the same band.
 NULL_SEED = 0
@@ -116,8 +114,7 @@ class HeadGrade:
     # AUC of "newest first" on the same outcomes. A model that does not beat it has learned
     # nothing the inbox could not do by sorting on age.
     recency_auc: float | None
-    # The chance line on the same rows: see ChanceBand. `null_auc_std` is the band the per-day
-    # unseen AUC has to clear before a gap between two families means anything.
+    # The chance line on the same rows (see ChanceBand): the band a per-day AUC has to clear.
     null_auc: float | None
     null_auc_std: float | None
 
@@ -160,7 +157,7 @@ def _auc(outcomes: np.ndarray, scores: np.ndarray) -> float | None:
 class ChanceBand:
     """What a model with no signal scores on these outcomes.
 
-    The mean is 0.5 by construction; the value is the spread, which sizes the noise on a per-day
+    The mean is 0.5 by construction, so the value is the spread, which sizes the noise on a per-day
     unseen AUC. Both are None when the AUC is undefined, so the chance line has exactly the same
     gaps as `auc` and `recency_auc`.
     """
@@ -174,9 +171,18 @@ def chance_band(outcomes: np.ndarray, scores: np.ndarray) -> ChanceBand:
 
     Permuting the model's own scores rather than drawing fresh ones keeps the score distribution
     and its ties, so the band is the one this head's rows actually produce.
+
+    Each draw is counted with its own reverse, which scores `1 - auc` because a tie pays 0.5 either
+    way. The mean is therefore exactly 0.5 however few rows the head has. A plain sample mean lands
+    near 0.5 on a large head but not on a small one, and two families on the same rows would then
+    report different chance lines because their shuffles differed, which is a gap that means nothing.
     """
     rng = np.random.default_rng(NULL_SEED)
-    aucs = [auc for _ in range(NULL_PERMUTATIONS) if (auc := _auc(outcomes, rng.permutation(scores))) is not None]
+    aucs: list[float] = []
+    for _ in range(NULL_PERMUTATIONS):
+        auc = _auc(outcomes, rng.permutation(scores))
+        if auc is not None:
+            aucs.extend((auc, 1.0 - auc))
     if not aucs:
         return ChanceBand(auc=None, auc_std=None)
     return ChanceBand(auc=float(np.mean(aucs)), auc_std=float(np.std(aucs)))
@@ -243,6 +249,18 @@ def scored_pool(scores: pd.DataFrame) -> str:
         return LEGACY_POOL_NAME
     values = scores["pool"].dropna().unique()
     return str(values[0]) if len(values) else LEGACY_POOL_NAME
+
+
+def empty_scores_write_allowed(existing_row_count: int | None) -> bool:
+    """Whether a run that scored nothing may overwrite a partition's scores object.
+
+    A partition whose candidate sits under the pre-family models layout loads no model and so
+    scores nothing. Writing that empty result would destroy the rows the dt=D+horizon grade reads,
+    and those rows cannot be rebuilt once the state snapshot they came from ages out. An unknown
+    count (no object, or one written before the row-count stamp) is not a veto, which is the rule
+    `partition_write_allowed` already applies to the emission log.
+    """
+    return not existing_row_count
 
 
 def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:

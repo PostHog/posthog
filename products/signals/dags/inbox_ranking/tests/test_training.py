@@ -65,6 +65,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     POOL_NAME,
     TABULAR_MODEL_NAME,
     chance_band,
+    empty_scores_write_allowed,
     graded_rows,
     head_grades,
     leaked_report_ids,
@@ -75,7 +76,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     with_model_names,
 )
 
-# The family PR 3 adds; used here only to prove two families stay apart on the same rows.
+# No trainer writes this family yet: it stands in for a second family in the grouping tests.
 EMBEDDINGS_MODEL_NAME = "report_embeddings"
 
 D0 = datetime.date(2026, 8, 10)
@@ -573,7 +574,6 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
         scoring_partition="2026-08-10",
     )
     assert (single_class.rows, single_class.positives, single_class.auc) == (1, 0, None)
-    # The chance line has to share the AUC's gaps, so a band never sits beside a missing number.
     assert (single_class.null_auc, single_class.null_auc_std) == (None, None)
     # Counts are ints and the undefined AUC is dropped: the graded asset writes these as Dagster
     # metadata. The family is in the key, so a second family cannot overwrite the first's entries.
@@ -601,9 +601,7 @@ def test_scored_pool_names_the_definition_a_scores_object_was_written_under(scor
     [
         (_scores(["a"]), TABULAR_MODEL_NAME),
         (_scores(["a"], model_name=[EMBEDDINGS_MODEL_NAME]), EMBEDDINGS_MODEL_NAME),
-        # The grader reads scores up to 14 days old, so it still meets objects written before the
-        # column existed. Every one of those holds tabular XGBoost rows, and grading them under a
-        # null name would split the AUC series on the day the column arrived.
+        # A pre-column object is still in the grader's 14-day window, and a null name splits the series.
         (_scores(["a"]).drop(columns=["model_name"]), TABULAR_MODEL_NAME),
         (_scores(["a"], model_name=[None]), TABULAR_MODEL_NAME),
     ],
@@ -613,8 +611,7 @@ def test_scores_written_before_the_family_dimension_read_as_the_tabular_family(s
 
 
 def test_head_grades_keep_two_families_apart_on_the_same_rows():
-    # Every family is graded on one set of reports, which is the whole point of the read. A grade
-    # keyed on version and role alone would pool two families' scores into one meaningless AUC.
+    # A grade keyed on version and role alone would pool two families into one meaningless AUC.
     head = HEADS_BY_NAME["open"]
     labels = _labels(["a", "e"], open_count=[1, 0])
     tabular = _scores(["a", "e"], score=[0.9, 0.1])
@@ -628,20 +625,41 @@ def test_head_grades_keep_two_families_apart_on_the_same_rows():
 
 
 def test_chance_band_is_seeded_and_sizes_the_noise_of_the_rows_it_grades():
-    # The band is what a gap between two families has to clear, so it must not move on a re-grade
-    # of the same rows, and it must widen when there are fewer rows to rank.
+    # The band must not move between grades of the same rows, and must widen as the rows thin out.
     rng = np.random.default_rng(7)
     outcomes = np.array([True, False] * 40)
     scores = rng.random(80)
     band = chance_band(outcomes, scores)
     assert band == chance_band(outcomes, scores)
-    assert band.auc is not None and abs(band.auc - 0.5) < 0.1
     spread = band.auc_std
     assert spread is not None and spread > 0
     thin_band = chance_band(outcomes[:8], scores[:8])
     assert thin_band.auc_std is not None and thin_band.auc_std > spread
     # No band where the AUC itself is undefined, so the chance line has the same gaps as `auc`.
     assert chance_band(np.array([True, True]), scores[:2]) == chance_band(np.array([]), np.array([]))
+
+
+@pytest.mark.parametrize("rows", [80, 8, 2])
+def test_chance_band_holds_the_line_at_half_however_few_rows_it_grades(rows):
+    # A sampled mean drifts off 0.5 on a thin head, and two families on the same rows would then
+    # report chance lines differing by nothing but their shuffles. Two rows is the extreme case.
+    rng = np.random.default_rng(7)
+    outcomes = np.array([True, False] * (rows // 2))
+    assert chance_band(outcomes, rng.random(rows)).auc == pytest.approx(0.5, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    "existing_row_count,expected",
+    [
+        (None, True),  # no object at all, or one written before the row-count stamp
+        (0, True),
+        (12, False),
+    ],
+)
+def test_an_empty_scores_write_is_refused_over_a_partition_that_holds_rows(existing_row_count, expected):
+    # A partition whose candidate predates the family layout loads no model and scores nothing.
+    # Overwriting it would destroy rows the later grade reads and the state snapshot cannot rebuild.
+    assert empty_scores_write_allowed(existing_row_count) is expected
 
 
 class _ModelStoreS3:
@@ -655,8 +673,7 @@ class _ModelStoreS3:
 
 
 def test_load_unseen_models_skips_a_family_with_nothing_to_score_that_day(monkeypatch):
-    # A family is registered before its trainer's first run, and any family's candidate can fail.
-    # Either must cost that family's line for the day, not every family's.
+    # A family registered before its first trainer run, or one whose candidate failed, must cost only its own line.
     partition_key = "2026-08-19"
     metadata = {
         "model_name": TABULAR_MODEL_NAME,
@@ -775,8 +792,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         assert call["timestamp"] == datetime.datetime(2026, 8, 25, 12, tzinfo=datetime.UTC)
         assert call["properties"]["$process_person_profile"] is False
         assert call["properties"]["model_version"] == "2026-08-25"
-    # Every model event breaks down on the family. The examples event is per feature set rather
-    # than per model, so it is the one event that does not carry it.
+    # Every model event breaks down on the family; the examples event is per feature set instead.
     for event_name in (
         "inbox_ranking_candidate_trained",
         "inbox_ranking_promotion_decided",
@@ -962,8 +978,7 @@ def test_examples_depend_on_the_whole_lookback_window():
 
 
 def test_model_key_layout_is_stable():
-    # The scoring sweep resolves the champion pointer and booster files by these keys. Each family
-    # owns a prefix and its own pointer, so two families trained on one day cannot collide.
+    # The scoring sweep resolves these keys, and a prefix per family stops two families colliding.
     assert (
         model_object_key("inbox_ranking", TABULAR_MODEL_NAME, "2026-08-19", "open.ubj")
         == "inbox_ranking/inbox_ranking_models/v1/tabular_xgb/dt=2026-08-19/open.ubj"

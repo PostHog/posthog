@@ -46,6 +46,7 @@ from products.signals.dags.inbox_ranking.common import (
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
+    object_row_count,
     owner_tags,
     partition_def,
     partition_object_key,
@@ -86,6 +87,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     TABULAR_MODEL_NAME,
     HeadGrade,
     UnseenModel,
+    empty_scores_write_allowed,
     graded_rows,
     head_grades,
     leaked_report_ids,
@@ -566,10 +568,18 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
         )
     models = load_unseen_models(context, client, bucket, prefix, partition_key)
     scores = score_pool(pool, snapshot.labels, models, snapshot_date=day)
+    key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
     if scores.empty:
+        existing_rows = object_row_count(client, bucket, key)
+        if not empty_scores_write_allowed(existing_rows):
+            raise dagster.Failure(
+                f"{UNSEEN_SCORES_TABLE} dt={partition_key} already holds {existing_rows} rows and this run scored "
+                f"none, so writing would destroy the scores the dt=D+horizon grade reads. Candidates are loaded "
+                f"from {MODELS_TABLE}/{DATASET_VERSION}/<model_name>/, so a partition trained before that layout "
+                f"has no model to score with. To replace the object deliberately, delete it by hand first."
+            )
         context.log.warning(f"nothing scored for dt={partition_key}: {len(pool)} newborn reports, {len(models)} models")
 
-    key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
     write_parquet(client, bucket, key, scores_table(scores), snapshot_date=partition_key)
     context.add_output_metadata(
         {
