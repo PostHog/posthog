@@ -48,6 +48,25 @@ class TestHogQLAggregationIntegration(BaseTest):
             ("addition", "sum(properties.a) + sum(properties.b)"),
             ("wrapped", "toFloat(sum(properties.revenue))"),
             ("nested", "avg(sum(properties.revenue))"),
+            # Conditional aggregates carry a second argument that the rebuild drops, which
+            # then fails to compile. Reject the whole family, not just compound expressions.
+            ("uniq_exact_if", "uniqExactIf(properties.revenue, properties.paid)"),
+            ("sum_if", "sumIf(properties.revenue, properties.paid)"),
+            ("avg_if", "avgIf(properties.revenue, properties.paid)"),
+            # A FILTER / WITHIN GROUP clause is dropped by the rebuild too, so the aggregate would
+            # silently run over every row. The filter case keeps one argument; the within-group
+            # case has none, so both branches of the extraction must reject it.
+            ("filter_where", "sum(properties.revenue) FILTER (WHERE properties.paid)"),
+            ("within_group", "quantile(0.5) WITHIN GROUP (ORDER BY properties.revenue)"),
+            # A missing argument used to fall back to a per-row 1, so sum() reported an event count.
+            # Only count() may be used without an argument.
+            ("sum_no_args", "sum()"),
+            ("count_if_no_args", "countIf()"),
+            # A wildcard argument parses to Field(chain=["*"]), which is not a per-row scalar.
+            # count(*) is remapped to count(), but a wildcard has no meaning for other
+            # aggregations, and count(distinct *) cannot be remapped, so both are rejected.
+            ("sum_wildcard", "sum(*)"),
+            ("count_distinct_wildcard", "count(distinct *)"),
         ]
     )
     def test_rejects_compound_aggregate_expressions(self, _name: str, expr: str):
@@ -58,6 +77,19 @@ class TestHogQLAggregationIntegration(BaseTest):
         )
         with self.assertRaises(ValidationError):
             get_metric_value(metric)
+
+    def test_allows_single_argument_conditional_aggregate(self):
+        # countIf takes one argument, so it survives the rebuild and must stay allowed.
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="revenue_event",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="countIf(properties.paid)",
+            )
+        )
+        result = get_metric_value(metric)
+        self.assertIsInstance(result, ast.Field)
+        self.assertEqual(result.chain, ["properties", "paid"])  # type: ignore[attr-defined]
 
     def test_allows_scalar_md5_despite_registry_quirk(self):
         # md5 lives in HOGQL_AGGREGATIONS for its rewriting but compiles to a scalar —
