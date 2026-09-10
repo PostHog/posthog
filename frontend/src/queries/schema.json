@@ -10246,6 +10246,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -33081,6 +33084,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48620,6 +48626,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",

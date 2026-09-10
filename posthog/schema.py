@@ -12324,6 +12324,7 @@ class CachedMCPModelBreakdownQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18144,6 +18145,7 @@ class MCPModelBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23775,6 +23777,7 @@ class QueryResponseAlternative101(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
