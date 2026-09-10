@@ -379,19 +379,19 @@ class TestPrinter(BaseTest):
             (
                 "non_constant_result",
                 "select transform(event, ['a', 'b'], [event, 'y'], 'z') from events",
-                "multiIf(equals(events.event, %(hogql_val_0)s), events.event, "
-                "equals(events.event, %(hogql_val_1)s), %(hogql_val_2)s, %(hogql_val_3)s)",
+                "caseWithExpression(events.event, %(hogql_val_0)s, events.event, "
+                "%(hogql_val_1)s, %(hogql_val_2)s, %(hogql_val_3)s)",
             ),
             (
                 "non_constant_match",
                 "select transform(event, [event, 'b'], ['x', 'y'], 'z') from events",
-                "multiIf(equals(events.event, events.event), %(hogql_val_0)s, "
-                "equals(events.event, %(hogql_val_1)s), %(hogql_val_2)s, %(hogql_val_3)s)",
+                "caseWithExpression(events.event, events.event, %(hogql_val_0)s, "
+                "%(hogql_val_1)s, %(hogql_val_2)s, %(hogql_val_3)s)",
             ),
             (
                 "without_default",
                 "select transform(event, ['a'], [upper(event)]) from events",
-                "multiIf(equals(events.event, %(hogql_val_0)s), upper(events.event), events.event)",
+                "caseWithExpression(events.event, %(hogql_val_0)s, upper(events.event), events.event)",
             ),
             (
                 "constant_arrays_keep_transform",
@@ -401,8 +401,21 @@ class TestPrinter(BaseTest):
             ),
         ]
     )
-    def test_transform_falls_back_to_multi_if(self, _name: str, query: str, expected: str):
+    def test_transform_falls_back_to_case_with_expression(self, _name: str, query: str, expected: str):
         self.assertIn(expected, self._select(query))
+
+    @parameterized.expand(
+        [
+            ("with_default", "transform({source}, [upper('a'), 'b'], ['x', 'y'], 'z')"),
+            ("without_default", "transform({source}, [upper('a'), 'b'], ['x', 'y'])"),
+        ]
+    )
+    def test_nested_transform_prints_without_multiplying(self, _name: str, template: str):
+        # Each rewrite prints its source once, so nesting must cost the printer one copy per level.
+        expr = "event"
+        for _ in range(8):
+            expr = template.format(source=expr)
+        self.assertLess(len(self._select(f"select {expr} as t from events")), 5000)
 
     def test_transform_with_wrong_case_stays_unsupported(self):
         self._assert_query_error(
