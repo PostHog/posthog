@@ -292,6 +292,9 @@ def reserve_scheduler_claims(
                     "updated_at",
                 ],
             )
+        # Every admission for this scheduler/region takes the same global-pool lock.
+        # Publishing before releasing it preserves database update order in the gauge.
+        record_scheduler_metrics_safely(lambda: metrics.set_permits_in_flight(scheduler, region, global_pool.in_flight))
 
     result = SchedulerAdmissionResult(
         reservations=tuple(reservations),
@@ -310,7 +313,6 @@ def reserve_scheduler_claims(
         record_scheduler_metrics_safely(
             lambda: metrics.record_admission(scheduler, region, "deferred_capacity", result.deferred_for_capacity)
         )
-    record_scheduler_metrics_safely(lambda: metrics.set_permits_in_flight(scheduler, region, global_pool.in_flight))
     return result
 
 
@@ -399,10 +401,12 @@ def _finish_scheduler_claim(
     status: TerminalClaimStatus,
     error: str,
     now: datetime | None,
+    expected_lease_expires_at: datetime | None,
     transition: ClaimTransition,
     metrics: SchedulerMetrics,
 ) -> bool:
     transition_time = _resolve_time(now)
+    expected_lease = _resolve_time(expected_lease_expires_at) if expected_lease_expires_at is not None else None
     snapshot = TemporalSchedulerClaim.objects.filter(id=claim_id).values("scheduler", "region", "tenant_key").first()
     if snapshot is None:
         return False
@@ -410,8 +414,13 @@ def _finish_scheduler_claim(
     with transaction.atomic():
         global_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], "")
         tenant_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], snapshot["tenant_key"])
-        claim = TemporalSchedulerClaim.objects.select_for_update().get(id=claim_id)
+        try:
+            claim = TemporalSchedulerClaim.objects.select_for_update().get(id=claim_id)
+        except TemporalSchedulerClaim.DoesNotExist:
+            return False
         if claim.claim_token != claim_token or claim.status not in TemporalSchedulerClaim.ACTIVE_STATUSES:
+            return False
+        if expected_lease is not None and claim.lease_expires_at != expected_lease:
             return False
         if global_pool.in_flight <= 0 or tenant_pool.in_flight <= 0:
             raise SchedulerClaimInvariantError("scheduler permit counter would become negative")
@@ -427,11 +436,12 @@ def _finish_scheduler_claim(
         claim.last_error = error[:MAX_CLAIM_ERROR_CHARS]
         claim.save(update_fields=["status", "lease_expires_at", "completed_at", "last_error", "updated_at"])
         permits_in_flight = global_pool.in_flight
+        # Terminal transitions serialize on the same global-pool lock as admission.
+        record_scheduler_metrics_safely(
+            lambda: metrics.set_permits_in_flight(claim.scheduler, claim.region, permits_in_flight)
+        )
 
     record_scheduler_metrics_safely(lambda: metrics.record_claim_transition(claim.scheduler, claim.region, transition))
-    record_scheduler_metrics_safely(
-        lambda: metrics.set_permits_in_flight(claim.scheduler, claim.region, permits_in_flight)
-    )
     return True
 
 
@@ -448,6 +458,7 @@ def complete_scheduler_claim(
         status=TemporalSchedulerClaim.Status.COMPLETED.value,
         error="",
         now=now,
+        expected_lease_expires_at=None,
         transition="completed",
         metrics=metrics,
     )
@@ -459,6 +470,7 @@ def release_scheduler_claim(
     *,
     error: str = "",
     now: datetime | None = None,
+    expected_lease_expires_at: datetime | None = None,
     metrics: SchedulerMetrics = DEFAULT_SCHEDULER_METRICS,
 ) -> bool:
     return _finish_scheduler_claim(
@@ -467,6 +479,7 @@ def release_scheduler_claim(
         status=TemporalSchedulerClaim.Status.AVAILABLE.value,
         error=error,
         now=now,
+        expected_lease_expires_at=expected_lease_expires_at,
         transition="released",
         metrics=metrics,
     )
@@ -486,6 +499,7 @@ def quarantine_scheduler_claim(
         status=TemporalSchedulerClaim.Status.QUARANTINED.value,
         error=error,
         now=now,
+        expected_lease_expires_at=None,
         transition="quarantined",
         metrics=metrics,
     )
