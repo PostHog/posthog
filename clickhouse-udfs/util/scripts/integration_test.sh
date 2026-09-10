@@ -71,3 +71,20 @@ for udf in "${UDFS[@]}"; do
         echo "Passed $udf/$test_name."
     done
 done
+
+query=$(cat <<'SQL'
+WITH concat('{"x":', repeat('[', 24), '[0]', repeat(',null]', 24), '}') AS raw
+SELECT
+    JSONExtractString(toJSONString(CAST(JSONCleanPostHogEventProperties(raw) AS JSON(max_dynamic_paths=0))), '$unparseable_properties') = raw,
+    JSONExtractString(toJSONString(CAST(JSONCleanPostHogPersonProperties(raw) AS JSON(max_dynamic_paths=0))), '$unparseable_properties') = raw,
+    toJSONString(CAST(JSONCleanPostHogTemporaryProperties(raw) AS JSON(max_dynamic_paths=0))) = '{}'
+SETTINGS max_threads = 1, max_memory_usage = 268435456
+FORMAT TabSeparated
+SQL
+)
+output=$(docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client --query "$query")
+if [[ "$output" != $'1\t1\t1' ]]; then
+    echo "Expected array quarantine to preserve the input and produce castable JSON, got: $output" >&2
+    exit 1
+fi
+echo "Passed nested-array quarantine JSON casts."

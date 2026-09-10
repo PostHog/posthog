@@ -208,6 +208,9 @@ class SignalUserAutonomyConfig(UUIDModel):
     # When null, every prioritized report notifies. A report with no priority then
     # notifies only on the reviewer-added path (see slack_inbox_notifications).
     slack_notification_min_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    # Off by default because assignment is visible to everyone on the pull request, so a reviewer
+    # has to ask for it rather than be volunteered.
+    github_assign_on_pull_request = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1509,6 +1512,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
     # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
+    display_name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Name shown in the UI. Does not change the skill name. Leave blank to use the default name.",
+    )
     # Derived from `status` (`enabled = status in RUNNABLE_STATUSES`), but kept as a real
     # column because the coordinator filters on it at SQL level and the warehouse mirrors it.
     # `save` reconciles the pair for writers that only set one side; a DB constraint backstop

@@ -180,3 +180,39 @@ describe("evictEvents / restoreEvents", () => {
     expect(sessionStore.getState().sessions[RUN].events).toHaveLength(0);
   });
 });
+
+describe("startup phase ownership", () => {
+  afterEach(() => sessionStoreSetters.clearAll());
+
+  it("ignores stale progress and clears the phase for a replacement run", () => {
+    sessionStoreSetters.setTaskStarting(TASK, RUN);
+    sessionStoreSetters.setTaskStartupPhase(TASK, RUN, "setup_hooks");
+    expect(sessionStore.getState().startingTaskIds[TASK]?.phase).toBe(
+      "setup_hooks",
+    );
+    sessionStoreSetters.setTaskStarting(TASK, "replacement-run");
+    sessionStoreSetters.setTaskStartupPhase(TASK, RUN, "setup_hooks");
+    expect(
+      sessionStore.getState().startingTaskIds[TASK]?.phase,
+    ).toBeUndefined();
+    sessionStoreSetters.setTaskStartupPhase(
+      TASK,
+      "replacement-run",
+      "setup_hooks",
+    );
+    expect(sessionStore.getState().startingTaskIds[TASK]?.phase).toBe(
+      "setup_hooks",
+    );
+    sessionStoreSetters.clearTaskStarting(TASK, RUN);
+    expect(sessionStore.getState().startingTaskIds[TASK]?.phase).toBe(
+      "setup_hooks",
+    );
+    sessionStoreSetters.clearTaskStarting(TASK, "replacement-run");
+    sessionStoreSetters.setTaskStartupPhase(
+      TASK,
+      "replacement-run",
+      "setup_hooks",
+    );
+    expect(sessionStore.getState().startingTaskIds[TASK]).toBeUndefined();
+  });
+});

@@ -72,6 +72,8 @@ if pace > 0:
 `pace_seconds` returns **0 while a window still holds more than half of that priority's allowance**, so a short run is never slowed for a budget it cannot dent.
 Below that it spreads the allowance that is left over the time left in the window, which is the interval that keeps the caller admitted instead of shed.
 It reads the same reserved floors admission does, so a `BATCH` caller paces off the share it may actually take, not the whole window.
+A caller that keeps several calls in flight also asks `admission_interval_seconds(key, priority=...)` for the gap between admissions that fits its share of every window, and waits for whichever of the two is longer.
+`pace_seconds` reads the window, so it cannot see calls the caller admitted but has not consumed yet; the interval comes from the policy alone and holds through that gap and through a store outage.
 
 Two things it is not.
 It is **advisory** — `acquire`/`consume_sync` remain the only authority on whether a call is admitted, so a bug here cannot over-admit.
@@ -106,7 +108,8 @@ Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from
 
 Harmonic (`harmonic/`) meters one account-wide rate limit, and an instance holds a single API key, so it uses one constant scope like the two above.
 The budget is a single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
-Harmonic publishes no rate limit we could confirm, so that default is seeded from observed throughput and is meant to be tuned against the rate-limit headers this domain records.
+Harmonic documents a per-second limit for most endpoints and answers 429 above it, reporting the current limit and remaining allowance in `X-Ratelimit-Limit-Second` and `X-Ratelimit-Remaining-Second` on every response.
+The default sits above that so the `BATCH` reserve floor lands the bulk lane near the documented rate, and it is tuned against the values this domain records from those headers.
 Harmonic is the first async domain: it subclasses `AsyncEgressClient` rather than `EgressClient`, because its client speaks `aiohttp`.
 Its lanes carry very different traffic, so the reserve floor matters: signup enrichment and the ICP re-enrichment sweep run `CRITICAL` inside a short Temporal activity budget, while the Salesforce enrichment sweep runs `BATCH` and yields to them.
 
@@ -163,7 +166,8 @@ It's **token-agnostic** (installation token, user token, PAT, or PostHog's share
 The generic `EgressClient` base owns the gate → request → record algorithm and the priority-based denial semantics (CRITICAL proceeds even when the budget is spent — GitHub's own 429 is the backstop; sheddable lanes raise `EgressBudgetExhausted`); `GitHubClient` fills the domain hooks.
 Response handling — what to do on a 403/429 — stays with the caller: `raise_if_github_rate_limited` / `GitHubRateLimitError` (GitHub's own 429, the reactive twin of our `EgressBudgetExhausted`) live in `github/transport.py` for callers that want to raise-and-retry.
 The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
-Raw `requests` calls against `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule (`.semgrep/devex-rules/`), so new callers land on one of these two paths by construction.
+The `github-api-calls-go-through-egress` semgrep rule (`.semgrep/rules/devex/`) fails CI on a raw `requests` call that names `api.github.com` in the URL argument, so a new caller written that way lands on one of these two paths.
+The rule reads that argument only. A call that binds the URL to a variable first gets through, which is why `posthog/plugins/utils.py` still calls `requests.get` directly. Keep the URL inline at the call site.
 
 Firecrawl callers go through `firecrawl/client.py` rather than `firecrawl_request` directly: `scrape(url, source=...)` returns a typed `FirecrawlScrape` (markdown, summary, plus the page title, description, status code and credits used) and raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including the 200 responses that carry `success: false`.
 Only `POST /v2/scrape` is wired up, and the client reads `FIRECRAWL_API_KEY` from settings so the transport stays token-agnostic like the others.

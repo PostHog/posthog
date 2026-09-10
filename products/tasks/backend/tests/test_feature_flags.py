@@ -3,7 +3,11 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from products.tasks.backend.feature_flags import get_model_access_error, is_dev_stack_image_bake_enabled
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    is_dev_stack_image_bake_enabled,
+    is_mcp_exec_skills_enabled,
+)
 
 
 class TestIsDevStackImageBakeEnabled:
@@ -116,3 +120,25 @@ class TestGetModelAccessError:
             ),
         ):
             assert get_model_access_error("moonshotai/kimi-k3", distinct_id="d-1") is not None
+
+
+class TestIsMcpExecSkillsEnabled:
+    def test_evaluates_for_the_user_and_organization_server_side(self):
+        with patch(
+            "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+            return_value=True,
+        ) as feature_enabled_mock:
+            assert is_mcp_exec_skills_enabled("org-1", "user-1") is True
+
+        assert feature_enabled_mock.call_args.args[0] == "mcp-exec-skills"
+        kwargs = feature_enabled_mock.call_args.kwargs
+        assert kwargs["distinct_id"] == "user-1"
+        assert kwargs["groups"] == {"organization": "org-1"}
+        assert kwargs["only_evaluate_locally"] is False
+
+    def test_fails_closed_on_flag_service_error(self):
+        with patch(
+            "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flags down"),
+        ):
+            assert is_mcp_exec_skills_enabled("org-1", "user-1") is False
