@@ -1,1 +1,1 @@
-0019_alter_canvas_created_by_alter_canvas_team_and_more
+0020_alter_canvas_channel
