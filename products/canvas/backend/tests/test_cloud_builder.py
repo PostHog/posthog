@@ -19,9 +19,25 @@ from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_s
 
 
 class TestCanvasCloudBuilder(SimpleTestCase):
-    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(self) -> None:
+    @parameterized.expand(
+        [
+            ("double_quotes", 'src="/src/canvas.tsx"'),
+            ("single_quotes", "src='/src/canvas.tsx'"),
+            ("attribute_whitespace", "src = '/src/canvas.tsx'"),
+            ("data_src_before_src", 'data-src="/src/canvas.tsx" src="/src/canvas.tsx"'),
+            ("quoted_src_before_src", 'data-config="mode src=\'/src/canvas.tsx\'" src="/src/canvas.tsx"'),
+            ("quoted_generated_entry", 'data-config="mode src=\'/src/canvas-entry.tsx\'" src="/src/canvas.tsx"'),
+            ("quoted_greater_than", 'data-config="> src=\'/src/canvas.tsx\'" src="/src/canvas.tsx"'),
+        ]
+    )
+    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(
+        self, _name: str, source_attribute: str
+    ) -> None:
         payload = synthetic_source_project(
             'import React from "react"; export default function Canvas() { return <div>Hello</div> }'
+        )
+        payload["files"]["index.html"] = payload["files"]["index.html"].replace(
+            'src="/src/canvas.tsx"', source_attribute
         )
 
         result = run_cloud_builder(payload)
@@ -32,6 +48,11 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         html = next(file["content"] for file in result["files"] if file["path"] == "index.html")
         self.assertIn("createRoot", javascript)
         self.assertIn("canvas-runtime", html)
+        if config_attribute := re.search(r'data-config="[^"]*"', source_attribute):
+            self.assertIn(config_attribute.group(0), html)
+        meta_csp = html.split('content="', 1)[1].split('"', 1)[0]
+        self.assertNotIn("sandbox", meta_csp.split(";")[0])
+        self.assertIn("default-src 'none'", meta_csp)
 
     def test_legacy_canvas_build_compiles_tailwind_and_quill_styles(self) -> None:
         payload = synthetic_source_project(
@@ -186,13 +207,22 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
 
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
-        result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
+        project = self._project('document.querySelector("#root")!.textContent = "Hello"')
+        project["files"]["src/canvas.tsx"] = "export default function Canvas() { return null }"
+        config_attribute = "data-config=\"mode src='/src/canvas.tsx'; module='/src/main.ts'\""
+        project["files"]["index.html"] = project["files"]["index.html"].replace(
+            "<script ", f"<script {config_attribute} "
+        )
+        result = run_cloud_builder(project)
 
         files, manifest, diagnostics = validate_builder_output(result)
         self.assertEqual(diagnostics, [])
         self.assertEqual(manifest["entryHtml"], "index.html")
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
         self.assertTrue(any(file["path"].endswith(".js") for file in files))
+        self.assertNotIn("legacyComponentPath", manifest)
+        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertIn(config_attribute, html)
 
     def test_bundles_every_allowlisted_platform_library(self) -> None:
         # Transitive versions are not pinned, so a caret range can drift onto a
