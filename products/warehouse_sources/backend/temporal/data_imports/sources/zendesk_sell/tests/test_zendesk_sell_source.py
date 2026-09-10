@@ -28,6 +28,7 @@ class TestNonRetryableErrors:
                 "401 Client Error: Unauthorized for url: https://api.getbase.com/v2/contacts?per_page=100",
             ),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.getbase.com/v2/deals?per_page=100"),
+            ("forbidden_after_redirect", "403 Client Error: Forbidden for url: https://www.zendesk.com"),
         ]
     )
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
