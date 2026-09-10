@@ -148,6 +148,13 @@ class GeneratedKnowledgeDocument:
     created: bool
 
 
+@frozen
+class _ValidatedGeneratedDocumentInput:
+    analysis_version: str
+    title: str
+    content: str
+
+
 class EmptyContentError(Exception):
     """Remote returned nothing usable after parsing."""
 
@@ -461,7 +468,7 @@ def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
 
 def _validate_generated_document_input(
     document_input: CreateGeneratedKnowledgeDocument,
-) -> tuple[str, str, str]:
+) -> _ValidatedGeneratedDocumentInput:
     analysis_version = document_input.analysis_version.strip()
     title = document_input.title.strip()
     content = document_input.content
@@ -485,7 +492,11 @@ def _validate_generated_document_input(
     ):
         raise InvalidGeneratedKnowledgeDocument("provenance identifiers cannot appear in generated content")
 
-    return analysis_version, title, content
+    return _ValidatedGeneratedDocumentInput(
+        analysis_version=analysis_version,
+        title=title,
+        content=content,
+    )
 
 
 def _generated_source_id(team_id: int) -> UUID:
@@ -558,7 +569,7 @@ def _create_generated_knowledge_document(
     *,
     team_id: int,
 ) -> tuple[KnowledgeDocument, bool]:
-    analysis_version, title, content = _validate_generated_document_input(document_input)
+    validated_input = _validate_generated_document_input(document_input)
     _acquire_source_quota_lock(team_id)
 
     source, _ = KnowledgeSource.objects.get_or_create(
@@ -575,7 +586,7 @@ def _create_generated_knowledge_document(
     if not source.is_generated or source.source_type != SourceType.TEXT:
         raise InvalidGeneratedKnowledgeDocument("generated source identity is already in use")
 
-    stable_id = _generated_document_stable_id(document_input, analysis_version)
+    stable_id = _generated_document_stable_id(document_input, validated_input.analysis_version)
     document_id = uuid.uuid5(source.id, stable_id)
     existing = KnowledgeDocument.objects.filter(
         team_id=team_id,
@@ -609,23 +620,23 @@ def _create_generated_knowledge_document(
         source=source,
         stable_id=stable_id,
         defaults={
-            "title": title,
-            "content": content,
+            "title": validated_input.title,
+            "content": validated_input.content,
             "metadata": {
                 "source_type": SourceType.TEXT,
                 "origin": GENERATED_KNOWLEDGE_ORIGIN,
                 "ticket_id": str(document_input.ticket_id),
                 "resolution_comment_id": str(document_input.resolution_comment_id),
-                "analysis_version": analysis_version,
+                "analysis_version": validated_input.analysis_version,
             },
-            "content_hash": sha256_of(content),
+            "content_hash": sha256_of(validated_input.content),
             "safety_verdict": SafetyVerdict.UNKNOWN,
         },
     )
     if not created:
         return document, False
 
-    chunks = chunk_text(content)
+    chunks = chunk_text(validated_input.content)
     if _count_chunks(team_id) + len(chunks) > MAX_CHUNKS_PER_TEAM:
         raise QuotaExceededError("Generated content exceeds the remaining team chunk budget.")
 
