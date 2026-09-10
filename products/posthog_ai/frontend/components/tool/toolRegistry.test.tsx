@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
@@ -109,6 +109,7 @@ describe('toolRegistry', () => {
         const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
+        expect(entry?.keepVisible ?? false).toBe(['ExitPlanMode', 'AskUserQuestion'].includes(key))
         expect(lookupToolRenderer(key, false).displayName).toEqual(displayName)
     })
 
@@ -157,7 +158,7 @@ describe('toolRegistry', () => {
 
         it('renders a Bash call through its dedicated card once the chunk loads', async () => {
             const { ToolCallCard } = await import('./ToolCallCard')
-            render(
+            const { container } = render(
                 <ToolCallCard
                     message={makeMessage({
                         resolvedKey: 'Bash',
@@ -169,8 +170,8 @@ describe('toolRegistry', () => {
             // Skeleton first (registry displayName), then the resolved card whose header expands to the
             // command. The generous timeout covers jest compiling the lazy chunk's heavy deps on first load.
             expect(screen.getByText('Terminal')).toBeInTheDocument()
-            fireEvent.click(await screen.findByRole('button', {}, { timeout: 10000 }))
-            expect(screen.getByText('echo hello-bash')).toBeInTheDocument()
+            fireEvent.click(await within(container).findByRole('button', {}, { timeout: 10000 }))
+            expect(within(container).getByText('echo hello-bash')).toBeInTheDocument()
         })
 
         it('renders an unmapped MCP tool through the generic card', async () => {

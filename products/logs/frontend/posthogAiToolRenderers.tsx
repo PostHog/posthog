@@ -19,36 +19,36 @@ function labelled(keys: string[], displayName: string, icon: JSX.Element): ToolR
 }
 
 export const posthogAiToolRenderers: ToolRegistryEntry[] = [
-        // The flagship: renders the returned log rows as a compact severity-tagged list.
-        {
-            key: 'query-logs',
-            displayName: 'Query logs',
-            icon: <IconSearch />,
-            Renderer: LogsQueryRenderer,
-            requiresPostHogOrigin: true,
-        },
-        ...labelled(['logs-services-create'], 'Logs services', <IconServer />),
-        ...labelled(['logs-patterns', 'logs-patterns-diff'], 'Log patterns', <IconStack />),
-        ...labelled(['logs-count', 'logs-count-ranges', 'logs-sparkline-query'], 'Count logs', <IconPulse />),
-        ...labelled(
-            ['logs-attributes-list', 'logs-attribute-values-list', 'logs-facet-values-create'],
-            'Log attributes',
-            <IconList />
-        ),
-        ...labelled(['logs-anomalies-scan', 'logs-anomalies-series-bands'], 'Log anomalies', <IconWarning />),
-        ...labelled(
-            [
-                'logs-alerts-list',
-                'logs-alerts-retrieve',
-                'logs-alerts-create',
-                'logs-alerts-partial-update',
-                'logs-alerts-destroy',
-                'logs-alerts-simulate-create',
-                'logs-alerts-events-list',
-                'logs-alerts-destinations-create',
-                'logs-alerts-destinations-delete-create',
-            ],
-            'Log alert',
-            <IconBell />
-        ),
+    // The flagship: renders the returned log rows as a compact severity-tagged list.
+    {
+        key: 'query-logs',
+        displayName: 'Query logs',
+        icon: <IconSearch />,
+        Renderer: LogsQueryRenderer,
+        requiresPostHogOrigin: true,
+    },
+    ...labelled(['logs-services-create'], 'Logs services', <IconServer />),
+    ...labelled(['logs-patterns', 'logs-patterns-diff'], 'Log patterns', <IconStack />),
+    ...labelled(['logs-count', 'logs-count-ranges', 'logs-sparkline-query'], 'Count logs', <IconPulse />),
+    ...labelled(
+        ['logs-attributes-list', 'logs-attribute-values-list', 'logs-facet-values-create'],
+        'Log attributes',
+        <IconList />
+    ),
+    ...labelled(['logs-anomalies-scan', 'logs-anomalies-series-bands'], 'Log anomalies', <IconWarning />),
+    ...labelled(
+        [
+            'logs-alerts-list',
+            'logs-alerts-retrieve',
+            'logs-alerts-create',
+            'logs-alerts-partial-update',
+            'logs-alerts-destroy',
+            'logs-alerts-simulate-create',
+            'logs-alerts-events-list',
+            'logs-alerts-destinations-create',
+            'logs-alerts-destinations-delete-create',
+        ],
+        'Log alert',
+        <IconBell />
+    ),
 ]

@@ -174,7 +174,13 @@ const entries = new Map<string, ToolRegistryEntry>(
                 Renderer: PostHogCodeToolRenderer,
             }))
         ),
-        { key: 'AskUserQuestion', displayName: 'Question', icon: <IconAI />, Renderer: QuestionRenderer, keepVisible: true },
+        {
+            key: 'AskUserQuestion',
+            displayName: 'Question',
+            icon: <IconAI />,
+            Renderer: QuestionRenderer,
+            keepVisible: true,
+        },
         ...posthogAiToolRenderers,
     ].map((entry) => [entry.key, entry])
 )
