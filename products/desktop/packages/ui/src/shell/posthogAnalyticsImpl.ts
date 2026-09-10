@@ -134,6 +134,10 @@ export function initializePostHog(sessionId?: string) {
     defaults: "2026-05-30",
     api_host: apiHost,
     ui_host: uiHost,
+    metrics: {
+      serviceName: "posthog-desktop",
+      environment: import.meta.env.PROD ? "production" : "development",
+    },
     // The epoch turns capture_pageview into "history_change". This app routes via
     // createHashHistory() (packages/ui/src/router/router.ts), so the route lives in
     // the URL hash and $pathname is identical for every screen — automatic pageviews
@@ -338,6 +342,20 @@ export function track<K extends keyof EventPropertyMap>(
   posthog.capture(eventName, properties);
 }
 
+export function recordNavigationSettled(
+  durationMs: number,
+  route: string,
+): void {
+  if (!isInitialized) {
+    return;
+  }
+
+  posthog.metrics.histogram("desktop.navigation.settled.duration", durationMs, {
+    unit: "ms",
+    attributes: { route },
+  });
+}
+
 /**
  * Record a survey response via posthog-js's `survey sent` event. Pass one entry
  * per answered question; they're submitted together as a single response. The
@@ -502,6 +520,7 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
   identifyUser,
   setUserGroups,
   resetUser,
+  recordNavigationSettled,
   captureSurveyResponse,
 };
 
