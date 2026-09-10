@@ -69,4 +69,4 @@ class NotificationOnlyResourceType(str, Enum):
 # if ACCESS_CONTROL_RESOURCES changes its element type
 type NotificationResourceType = Union[APIScopeObject, NotificationOnlyResourceType]
 
-AC_RESOURCE_TYPES: set[str] = {*ACCESS_CONTROL_RESOURCES, "data_catalog"}
+AC_RESOURCE_TYPES: set[str] = set(ACCESS_CONTROL_RESOURCES)

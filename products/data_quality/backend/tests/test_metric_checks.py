@@ -12,8 +12,7 @@ from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_catalog.backend.facade.models import Metric
 from products.data_quality.backend.logic import checks
 from products.data_quality.backend.logic.errors import CheckConfigError, SubjectUnresolvableError
-from products.data_quality.backend.logic.schedules import get_schedule
-from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckSchedule
+from products.data_quality.backend.models import DataQualityCheck
 
 HOGQL = {"kind": "HogQLQuery", "query": "SELECT 1 AS value"}
 QUERY = "SELECT * FROM {metric} WHERE value < 1"
@@ -55,36 +54,14 @@ class TestMetricCheckAuthoring(BaseTest):
             name=name,
         )
 
-    def test_authoring_creates_one_immediate_schedule_and_reupsert_preserves_it(self) -> None:
+    def test_authoring_reupserts_the_same_check(self) -> None:
         metric = self._metric()
         check, created = self._create(metric)
-        schedule = get_schedule(self.team.id, "metric", metric.id)
         assert created
         assert str(check.subject_uuid) == str(metric.id)
-        assert schedule is not None
-        next_run = schedule.next_run_at
         repeated, created = self._create(metric, name="revenue_min")
         assert not created
         assert repeated.id == check.id
-        schedule.refresh_from_db()
-        assert schedule.next_run_at == next_run
-
-    def test_a_child_environment_shares_one_schedule_across_metric_checks(self) -> None:
-        # A child environment's rows are filed under its parent, so a schedule looked up by the
-        # child's own id is never found and the second check on the metric hits the unique
-        # constraint instead, taking the check with it.
-        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
-        metric = self._metric()
-
-        first, first_created = self._create(metric, team=child)
-        second, second_created = self._create(
-            metric, team=child, config={"query": "SELECT * FROM {metric} WHERE value < 2"}
-        )
-
-        assert first_created and second_created
-        assert first.id != second.id
-        assert get_schedule(child.id, "metric", metric.id) is not None
-        assert DataQualityCheckSchedule.objects.for_team(child.id).count() == 1
 
     @parameterized.expand(
         [

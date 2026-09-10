@@ -12,7 +12,7 @@ from django.utils.text import Truncator
 from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import TeamScopedManager
 
-from products.data_quality.backend.facade.models import DataQualityCheck, DataQualityCheckSchedule, DataQualitySuiteRun
+from products.data_quality.backend.facade.models import DataQualityCheck, DataQualitySuiteRun
 
 RAW_ID_LABEL_WORD_LIMIT = 14
 
@@ -52,7 +52,7 @@ class _DataQualityAdmin(admin.ModelAdmin):
     def save_model(
         self,
         request: HttpRequest,
-        obj: DataQualityCheck | DataQualitySuiteRun | DataQualityCheckSchedule,
+        obj: DataQualityCheck | DataQualitySuiteRun,
         form: forms.ModelForm,
         change: bool,
     ) -> None:
@@ -106,11 +106,3 @@ class DataQualitySuiteRunAdmin(_DataQualityAdmin):
     search_fields = ("id", "workflow_id", "team__id")
     raw_id_fields = ("team", "created_by")
     readonly_fields = ("id", "created_at", "updated_at", "started_at", "finished_at")
-
-
-@admin.register(DataQualityCheckSchedule)
-class DataQualityCheckScheduleAdmin(_DataQualityAdmin):
-    list_display = ("id", "subject_type", "subject_uuid", "interval", "enabled", "next_run_at")
-    list_filter = ("subject_type", "enabled")
-    raw_id_fields = ("team", "created_by", "last_suite_run")
-    readonly_fields = ("id", "created_at", "updated_at")

@@ -19,7 +19,7 @@ from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ...facade.enums import SubjectType, SuiteRunStatus
-from ...models import DataQualityCheck, DataQualityCheckRun, DataQualityCheckSchedule, DataQualitySuiteRun
+from ...models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from ..contracts import CleanupOutcome
 
 LOGGER = get_logger(__name__)
@@ -161,9 +161,6 @@ def _sweep_dead_subjects(now: datetime) -> CleanupOutcome:
         checks += _delete_dead_checks(team_id, live, grace)
         runs += _delete_dead_runs(team_id, live, grace)
         suites += _delete_dead_suites(team_id, live, grace)
-        _delete_in_batches(
-            DataQualityCheckSchedule.objects.for_team(team_id).filter(created_at__lt=grace).exclude(live.alive_q())
-        )
         _heartbeat()
     return CleanupOutcome(checks_deleted=checks, check_runs_deleted=runs, suite_runs_deleted=suites)
 
@@ -175,7 +172,6 @@ def _teams_with_history() -> set[int]:
             DataQualityCheck.objects,
             DataQualityCheckRun.objects,
             DataQualitySuiteRun.objects,
-            DataQualityCheckSchedule.objects,
         )
         for team_id in manager.unscoped().values_list("team_id", flat=True).distinct()
     }

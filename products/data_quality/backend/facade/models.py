@@ -5,18 +5,11 @@ presentation layer are allowed to reach the ORM classes, keeping direct model im
 isolation boundary.
 """
 
-from ..models import (
-    DataQualityCheck,
-    DataQualityCheckRun,
-    DataQualityCheckSchedule,
-    DataQualitySuiteRun,
-    TeamDataQualityConfig,
-)
+from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun, TeamDataQualityConfig
 
 __all__ = [
     "DataQualityCheck",
     "DataQualityCheckRun",
-    "DataQualityCheckSchedule",
     "DataQualitySuiteRun",
     "TeamDataQualityConfig",
 ]

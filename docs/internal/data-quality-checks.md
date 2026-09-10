@@ -45,3 +45,5 @@ The REST endpoints and `information_schema.data_quality_checks`, `information_sc
 The overview filters readable subject identities in SQL before scanning definition and history visibility. The remaining scan loads only authorization fields in batches of 200 checks, before counting or paginating. Creator and owner records are hydrated for the returned page. Complex-definition evaluation still scales with the candidate checks; pagination is not constant-cost.
 
 Notification recipient checks retain the existing global warehouse-resource policy. A specific object grant alone does not expand notification delivery eligibility. A subject that no longer resolves sends no notification. Background dependency pinning still resolves references individually; batching that cross-product workflow is separate work.
+
+Catalog access is a project permission resource. Notification visibility follows that permission, including after access is revoked.

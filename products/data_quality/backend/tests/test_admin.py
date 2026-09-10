@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from posthog.test.base import BaseTest
 
 from django.urls import reverse
@@ -10,7 +8,7 @@ from posthog.admin import register_all_admin
 
 from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_quality.backend.facade.enums import CheckType, SubjectType, SuiteRunTrigger
-from products.data_quality.backend.facade.models import DataQualityCheck, DataQualityCheckSchedule, DataQualitySuiteRun
+from products.data_quality.backend.facade.models import DataQualityCheck, DataQualitySuiteRun
 
 register_all_admin()
 
@@ -39,21 +37,12 @@ class TestDataQualityAdmin(BaseTest):
             check_type=CheckType.CUSTOM_SQL,
             fingerprint="a" * 64,
         )
-        schedule = DataQualityCheckSchedule.objects.for_team(self.team.id).create(
-            team=self.team,
-            subject_type=SubjectType.METRIC,
-            subject_uuid=metric.id,
-            last_suite_run=suite_run,
-        )
         self.objects = {
             "dataqualitycheck": check,
             "dataqualitysuiterun": suite_run,
-            "dataqualitycheckschedule": schedule,
         }
 
-    @parameterized.expand(
-        [("dataqualitycheck", "metric"), ("dataqualitysuiterun", None), ("dataqualitycheckschedule", "last_suite_run")]
-    )
+    @parameterized.expand([("dataqualitycheck", "metric"), ("dataqualitysuiterun", None)])
     def test_staff_can_render_lists_and_forms_without_a_team_scope(
         self, model_name: str, scoped_field: str | None
     ) -> None:
@@ -71,7 +60,7 @@ class TestDataQualityAdmin(BaseTest):
                     field = response.context["adminform"].form.fields[scoped_field]
                     self.assertEqual(field.clean(related_id).pk, related_id)
 
-    @parameterized.expand([("dataqualitycheck",), ("dataqualitycheckschedule",)])
+    @parameterized.expand([("dataqualitycheck",)])
     def test_staff_can_save_changes_without_a_team_scope(self, model_name: str) -> None:
         instance = self.objects[model_name]
         payload = {"team": self.team.id, "subject_type": SubjectType.METRIC, "enabled": "on"}
@@ -87,15 +76,6 @@ class TestDataQualityAdmin(BaseTest):
                 config="{}",
                 tags="[]",
             )
-        else:
-            assert isinstance(instance, DataQualityCheckSchedule)
-            payload.update(
-                subject_uuid=str(instance.subject_uuid),
-                interval="2 00:00:00",
-                next_run_at_0=instance.next_run_at.strftime("%Y-%m-%d"),
-                next_run_at_1=instance.next_run_at.strftime("%H:%M:%S"),
-                last_suite_run=str(instance.last_suite_run_id),
-            )
 
         response = self.client.post(reverse(f"admin:data_quality_{model_name}_change", args=[instance.pk]), payload)
 
@@ -103,6 +83,3 @@ class TestDataQualityAdmin(BaseTest):
         instance.refresh_from_db()
         if isinstance(instance, DataQualityCheck):
             self.assertEqual(instance.description, "Check the order count")
-        else:
-            assert isinstance(instance, DataQualityCheckSchedule)
-            self.assertEqual(instance.interval, timedelta(days=2))

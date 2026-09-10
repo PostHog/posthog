@@ -37,7 +37,6 @@ from .errors import (
 from .exceptions import CheckNameConflict
 from .health import CheckStatusRow, roll_up_health
 from .registry import get_spec
-from .schedules import get_or_create_schedule
 from .serialization import compute_fingerprint
 from .spec import CheckConfig
 from .subjects import resolve_subject, subject_column_type
@@ -168,8 +167,6 @@ def upsert_check(
                     **_subject_fk(subject_type, subject_uuid),
                     **fields,
                 )
-                if subject_type == SubjectType.METRIC:
-                    get_or_create_schedule(team.id, subject_type, subject_uuid, created_by_id=user.id if user else None)
             return check, True
         except IntegrityError:
             # Check-then-insert race: a concurrent identical request inserted this fingerprint between

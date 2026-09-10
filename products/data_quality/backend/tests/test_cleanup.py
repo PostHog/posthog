@@ -21,12 +21,7 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunStatus,
     SuiteRunTrigger,
 )
-from products.data_quality.backend.models import (
-    DataQualityCheck,
-    DataQualityCheckRun,
-    DataQualityCheckSchedule,
-    DataQualitySuiteRun,
-)
+from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.temporal.activities import cleanup as cleanup_module
 from products.data_quality.backend.temporal.activities.cleanup import (
     CHECK_RUN_RETENTION_DAYS,
@@ -227,7 +222,7 @@ class TestRetentionSweep(BaseTest):
         assert DataQualityCheckRun.objects.unscoped().filter(id=run.id).exists()
 
     @parameterized.expand([("live", False, 1, True), ("deleted", True, 1, False), ("recent", True, 0, True)])
-    def test_metric_lifecycle_cleans_history_and_schedule_after_grace(
+    def test_metric_lifecycle_cleans_history_after_grace(
         self, _name: str, deleted: bool, age_days: int, survives: bool
     ) -> None:
         metric = upsert_metric(
@@ -254,10 +249,6 @@ class TestRetentionSweep(BaseTest):
             subject_type=SubjectType.METRIC,
             subject_uuid=metric.id,
         )
-        schedule = DataQualityCheckSchedule.objects.for_team(self.team.id).create(
-            team=self.team, subject_type=SubjectType.METRIC, subject_uuid=metric.id, next_run_at=datetime.now(UTC)
-        )
-        self._age(DataQualityCheckSchedule, schedule, age_days)
         if deleted:
             metric.deleted = True
             metric.save(update_fields=["deleted"])
@@ -265,7 +256,6 @@ class TestRetentionSweep(BaseTest):
         assert DataQualityCheck.objects.for_team(self.team.id).filter(pk=check.pk).exists() == survives
         assert DataQualityCheckRun.objects.for_team(self.team.id).filter(pk=run.pk).exists() == survives
         assert DataQualitySuiteRun.objects.for_team(self.team.id).filter(pk=suite.pk).exists() == survives
-        assert DataQualityCheckSchedule.objects.for_team(self.team.id).filter(pk=schedule.pk).exists() == survives
 
     def test_rows_with_an_unknown_subject_type_are_treated_as_dead(self) -> None:
         suite = self._suite(age_days=1, subject_type=SubjectType.VIEW, subject_uuid=self.view.id)
