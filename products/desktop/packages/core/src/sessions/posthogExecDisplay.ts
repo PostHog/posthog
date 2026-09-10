@@ -64,8 +64,15 @@ export function getPostHogExecDisplay(
 // posthog exec carries the full name (`mcp_posthog_exec`), not the bare tool
 // name. The single-underscore form cannot go through parseMcpToolName, which
 // expects the double-underscore canonical key.
+//
+// The structured `posthog.mcp` descriptor cannot replace this match: the
+// display is built from the tool call's INPUT, while the call runs and no
+// result exists yet. The harness writes the descriptor on the tool RESULT
+// (see mcpCallDetails), so the input's `tool` string is the only signal
+// here. `plugin_` is the harness's prefix for the plugin-installed posthog
+// server.
 const PI_POSTHOG_EXEC_RE =
-  /^(?:[a-zA-Z0-9]+_)?((?:plugin_)?posthog(?:_[^_]+)*)_exec$/;
+  /^(?:[a-zA-Z0-9]+_)?(?:plugin_)?posthog(?:_[^_]+)*_exec$/;
 
 /** Whether the `mcp` proxy tool's `tool` argument targets posthog exec. */
 function isPostHogExecProxyTool(tool: unknown): boolean {

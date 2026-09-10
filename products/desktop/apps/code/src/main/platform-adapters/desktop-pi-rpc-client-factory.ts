@@ -112,6 +112,14 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
    * session connects to, then run discovery so the exec tool definition and
    * tool-to-UI associations resolve. Best-effort: failures log and the
    * session still starts, with tool results rendered as text.
+   *
+   * Discovery is fire-and-forget on purpose; there is no race with the first
+   * UI-resource result. `discoverServer` publishes its promise in
+   * `pendingDiscoveries` synchronously, so a resource fetch that arrives
+   * mid-discovery joins that in-flight promise (`ensureServerDiscovered`)
+   * and reads the association once it lands. The configs are registered
+   * synchronously before discovery starts, so the "No server config" error
+   * cannot occur on this path.
    */
   private registerMcpAppsServers(servers: McpServerConnection[]): void {
     this.mcpApps.addServerConfigs(
