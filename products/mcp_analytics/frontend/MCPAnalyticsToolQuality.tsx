@@ -55,7 +55,6 @@ function FilterBar(): JSX.Element {
                 onChange={setPinnedInterval}
                 dataAttr="mcp-tool-quality-interval-filter"
             />
-            <McpSharedFilters pageKey="mcp-tool-quality" dataAttrPrefix="mcp-tool-quality" />
             {hasScope && sharePct !== null ? (
                 <Tooltip
                     title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls were in the selected categories (${dateRangeLabel})`}
@@ -115,18 +114,25 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
     const theme = useChartTheme()
 
     return (
-        <div className="flex flex-col gap-4" data-quill>
-            <FilterBar />
-            <ChartsScopeHeader />
-            <ToolQualityCharts
-                data={dailyChartData}
-                loading={dailyStatsLoading}
-                theme={theme}
-                timezone={timezone}
-                interval={interval}
-                incompleteTail={incompleteTail}
-            />
-            <ToolQualityTable />
+        <div className="flex flex-col gap-4">
+            <div data-quill>
+                <FilterBar />
+            </div>
+            {/* Stays outside the quill scope: `[data-quill]` redefines the `--color-*` tokens, which
+                paints the checked test-account switch as unchecked. */}
+            <McpSharedFilters pageKey="mcp-tool-quality" dataAttrPrefix="mcp-tool-quality" />
+            <div className="flex flex-col gap-4" data-quill>
+                <ChartsScopeHeader />
+                <ToolQualityCharts
+                    data={dailyChartData}
+                    loading={dailyStatsLoading}
+                    theme={theme}
+                    timezone={timezone}
+                    interval={interval}
+                    incompleteTail={incompleteTail}
+                />
+                <ToolQualityTable />
+            </div>
         </div>
     )
 }
