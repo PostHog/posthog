@@ -99,20 +99,32 @@ class TestCanvasArtifacts(APIBaseTest):
         # postMessage data/state bridge working, so losing any of them would
         # break live-data and stateful canvases the moment a CDN fronts the
         # artifact origin.
+        baseline = self.client.get(self._url())
         with self.settings(CANVAS_ARTIFACT_SHARED_CACHE_SECONDS=300):
             response = self.client.get(self._url())
         assert response.status_code == 200
-        assert response["Cache-Control"] == "public, max-age=31536000, s-maxage=300, immutable"
+        assert response["Cache-Control"] == "public, max-age=31536000, s-maxage=300, must-revalidate, immutable"
         assert response["Access-Control-Allow-Origin"] == "*"
         assert response["Cross-Origin-Resource-Policy"] == "cross-origin"
-        assert response["Content-Security-Policy"].startswith("sandbox allow-scripts; default-src 'none'")
+        assert response["Content-Security-Policy"] == baseline["Content-Security-Policy"]
 
-    def test_expired_bucket_is_rejected(self):
+    def test_expired_bucket_is_rejected(self) -> None:
         url = self._url()
-        two_buckets = artifacts.ARTIFACT_TOKEN_BUCKET_SECONDS * 2
-        with patch.object(artifacts.time, "time", return_value=time.time() + two_buckets):
-            response = self.client.get(url)
-        assert response.status_code == 404
+        bucket = int(time.time() // artifacts.ARTIFACT_TOKEN_BUCKET_SECONDS)
+        expires_at = (bucket + 2) * artifacts.ARTIFACT_TOKEN_BUCKET_SECONDS
+        with self.settings(CANVAS_ARTIFACT_SHARED_CACHE_SECONDS=300):
+            with patch.object(artifacts.time, "time", return_value=expires_at - 10):
+                response = self.client.get(url)
+                assert response.status_code == 200
+                assert response["Cache-Control"] == (
+                    "public, max-age=31536000, s-maxage=10, must-revalidate, immutable"
+                )
+                cached = self.client.get(url, HTTP_IF_NONE_MATCH=response["ETag"])
+                assert cached.status_code == 304
+                assert cached["Cache-Control"] == response["Cache-Control"]
+            with patch.object(artifacts.time, "time", return_value=expires_at):
+                response = self.client.get(url)
+                assert response.status_code == 404
 
     def test_unknown_asset_and_unready_build_404(self):
         url = self._url()

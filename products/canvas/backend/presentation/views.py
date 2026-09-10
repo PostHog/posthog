@@ -1,5 +1,4 @@
 import json
-import time
 import hashlib
 from typing import Any, cast
 from uuid import UUID
@@ -33,7 +32,6 @@ from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
-from products.canvas.backend.artifacts import ARTIFACT_TOKEN_BUCKET_SECONDS
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
@@ -772,21 +770,6 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             .values_list("id", "status")
             .first()
         )
-        # Signed artifact URLs are minted per time bucket, so the bucket is part
-        # of the validator: a cached view revalidates into a fresh URL when the
-        # bucket rolls over. Checked before any object-storage read.
-        bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
-        etag = _canvas_etag(
-            canvas.updated_at,
-            canvas.current_source_version_id,
-            canvas.published_build_id,
-            newest_active,
-            bucket,
-        )
-        not_modified = get_conditional_response(request._request, etag=etag)
-        if not_modified is not None:
-            return _with_revalidation_headers(not_modified, etag)
-
         source: dict[str, Any] | None = None
         layout: dict[str, Any] | None = None
         degraded = False
@@ -811,13 +794,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         if layout is not None:
             user = self._request_user()
             instance["component_lifecycles"] = _component_lifecycles(self.team_id, user.id if user else None, layout)
-        response = Response(CanvasViewResponseSerializer(instance=instance).data)
+        payload = CanvasViewResponseSerializer(instance=instance).data
         if degraded:
             # A payload missing its source/layout must not revalidate as
             # current after storage recovers: no validator, no caching.
+            response = Response(payload)
             response["Cache-Control"] = "private, no-store"
             return response
-        return _with_revalidation_headers(response, etag)
+        return _conditional_response(request, payload)
 
     @extend_schema(
         operation_id="canvases_versions_retrieve",

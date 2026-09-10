@@ -11,6 +11,7 @@ Integrity is verified when artifacts are written and again when they are read
 from object storage. The manifest hash is also used as the response ETag.
 """
 
+import math
 import time
 import hashlib
 from typing import Any
@@ -108,6 +109,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     if settings.CANVAS_ARTIFACT_ORIGIN and (configured_host is None or request.get_host().lower() != configured_host):
         raise Http404
     claims = _read_token(token)
+    token_expires_at = (claims["bucket"] + 2) * ARTIFACT_TOKEN_BUCKET_SECONDS
     team_id = claims.get("team_id")
     if not isinstance(team_id, int) or isinstance(team_id, bool):
         raise Http404
@@ -141,7 +143,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     if request.headers.get("If-None-Match") == etag:
         response: HttpResponse = HttpResponseNotModified()
         response["Content-Type"] = content_type
-        return _with_artifact_headers(response, etag, build.manifest)
+        return _with_artifact_headers(response, etag, build.manifest, token_expires_at)
 
     try:
         content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
@@ -155,18 +157,21 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         raise Http404
     response = HttpResponse(content, content_type=content_type)
     response["Content-Disposition"] = "inline"
-    return _with_artifact_headers(response, etag, build.manifest)
+    return _with_artifact_headers(response, etag, build.manifest, token_expires_at)
 
 
-def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict) -> HttpResponse:
+def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict, token_expires_at: int) -> HttpResponse:
     response["ETag"] = etag
     shared_cache_seconds = settings.CANVAS_ARTIFACT_SHARED_CACHE_SECONDS
     if shared_cache_seconds > 0:
+        shared_cache_seconds = max(0, min(shared_cache_seconds, token_expires_at - math.ceil(time.time())))
         # CDN mode. Every header below still applies, and in particular the
         # CORS and CSP headers must survive the CDN unchanged, or the sandboxed
         # iframe's module fetches (and with them ph.query/ph.state canvases)
         # break. Configure the CDN to forward these headers as-is.
-        response["Cache-Control"] = f"public, max-age=31536000, s-maxage={shared_cache_seconds}, immutable"
+        response["Cache-Control"] = (
+            f"public, max-age=31536000, s-maxage={shared_cache_seconds}, must-revalidate, immutable"
+        )
     else:
         response["Cache-Control"] = "private, max-age=31536000, immutable"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"

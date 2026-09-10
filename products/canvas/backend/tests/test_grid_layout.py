@@ -108,7 +108,10 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         assert read.json()["current_version_id"] == version_id
         self.enqueue.assert_not_called()
 
-    def test_layout_include_components_returns_renderable_builds_for_visible_components_only(self):
+    @parameterized.expand(["layout/?include_components=true", "view/"])
+    def test_layout_include_components_returns_renderable_builds_for_visible_components_only(
+        self, endpoint: str
+    ) -> None:
         grid_id = self._create_grid()
         component_id = self._create_component()
         with team_scope(self.team.id):
@@ -139,7 +142,8 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         with patch("products.canvas.backend.presentation.views._layout_diagnostics", return_value=[]):
             assert self._publish_layout(grid_id, doc).status_code == status.HTTP_200_OK
 
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{grid_id}/layout/?include_components=true")
+        url = f"/api/projects/{self.team.id}/canvases/{grid_id}/{endpoint}"
+        response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         lifecycles = response.json()["component_lifecycles"]
         assert [entry["canvas_id"] for entry in lifecycles] == [component_id]
@@ -147,6 +151,36 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         assert entry["published_build_id"] == str(build.id)
         assert entry["requested_version_id"] is None
         assert entry["builds"][0]["artifact_url"].endswith("/index.html")
+
+        etag = response["ETag"]
+        assert self.client.get(url, HTTP_IF_NONE_MATCH=f"W/{etag}").status_code == status.HTTP_304_NOT_MODIFIED
+        with team_scope(self.team.id):
+            replacement = CanvasBuild.objects.for_team(self.team.id).create(
+                team=self.team,
+                canvas_id=component_id,
+                source_version=build.source_version,
+                status=CanvasBuild.STATUS_READY,
+                artifact_object_prefix=f"canvas_artifact/team_{self.team.id}/{component_id}/replacement",
+                manifest=build.manifest,
+            )
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(published_build=replacement)
+        changed = self.client.get(url, HTTP_IF_NONE_MATCH=etag)
+        assert changed.status_code == status.HTTP_200_OK
+        assert changed.json()["component_lifecycles"][0]["published_build_id"] == str(replacement.id)
+
+        with team_scope(self.team.id):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(channel=private_channel)
+        hidden = self.client.get(url, HTTP_IF_NONE_MATCH=changed["ETag"])
+        assert hidden.status_code == status.HTTP_200_OK
+        assert hidden.json()["component_lifecycles"] == []
+
+        self.client.force_login(other_user)
+        visible = self.client.get(url, HTTP_IF_NONE_MATCH=hidden["ETag"])
+        assert visible.status_code == status.HTTP_200_OK
+        assert {entry["canvas_id"] for entry in visible.json()["component_lifecycles"]} == {
+            component_id,
+            str(private_component.id),
+        }
 
         without = self._get_layout(grid_id)
         assert "component_lifecycles" not in without.json()

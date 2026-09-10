@@ -16238,6 +16238,32 @@ export namespace Schemas {
     }
 
     /**
+     * The renderable build of one component referenced by a grid layout, shaped
+     * like the builds endpoint's response so clients reuse one lifecycle reader.
+     */
+    export interface CanvasComponentLifecycle {
+      /** Id of the component canvas. */
+      canvas_id: string;
+      /**
+         * The source version the placement pins, or null when it follows the latest.
+         * @nullable
+         */
+      requested_version_id: string | null;
+      /**
+         * Id of the component's live build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /**
+         * Id of the source version the component's head points at.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable. */
+      builds: CanvasBuild[];
+    }
+
+    /**
      * * `native` - Native
      * * `mcp` - Mcp
      */
@@ -16381,32 +16407,6 @@ export namespace Schemas {
     export interface CanvasConnectorsResponse {
       /** Native providers first, then the requested MCP hosts. */
       connectors: CanvasConnector[];
-    }
-
-    /**
-     * The renderable build of one component referenced by a grid layout, shaped
-     * like the builds endpoint's response so clients reuse one lifecycle reader.
-     */
-    export interface CanvasComponentLifecycle {
-      /** Id of the component canvas. */
-      canvas_id: string;
-      /**
-         * The source version the placement pins, or null when it follows the latest.
-         * @nullable
-         */
-      requested_version_id: string | null;
-      /**
-         * Id of the component's live build. Null until a build completes.
-         * @nullable
-         */
-      published_build_id: string | null;
-      /**
-         * Id of the source version the component's head points at.
-         * @nullable
-         */
-      current_version_id: string | null;
-      /** The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable. */
-      builds: CanvasBuild[];
     }
 
     /**
