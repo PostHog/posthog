@@ -13,7 +13,7 @@ import { inviteSignupLogic } from './inviteSignupLogic'
 const MOCK_INVITE_ID = '1234'
 
 type StoryArgs = {
-    scenario: 'new-user' | 'existing-account' | 'invalid-link' | 'expired-link'
+    scenario: 'new-user' | 'existing-account' | 'invalid-link' | 'expired-link' | 'validation-failed'
     cloud: boolean
     googleOAuth: boolean
     github: boolean
@@ -44,6 +44,7 @@ const meta: Meta<StoryArgs> = {
                     400,
                     { detail: 'The provided invite ID is not valid.', code: 'invalid' },
                 ],
+                '/api/signup/server-error/': () => [500, { detail: 'Internal server error' }],
                 '/api/signup/expired/': () => [
                     400,
                     { detail: 'This invite has expired. Please ask your admin for a new one.', code: 'expired' },
@@ -65,7 +66,7 @@ const meta: Meta<StoryArgs> = {
         scenario: {
             control: 'select',
             name: 'Scenario',
-            options: ['new-user', 'existing-account', 'invalid-link', 'expired-link'],
+            options: ['new-user', 'existing-account', 'invalid-link', 'expired-link', 'validation-failed'],
         },
         cloud: { control: 'boolean', name: 'Cloud' },
         googleOAuth: { control: 'boolean', name: 'Google OAuth' },
@@ -92,7 +93,13 @@ const Template: StoryFn<StoryArgs> = ({ scenario, cloud, googleOAuth, github, gi
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     const isExistingAccount = scenario === 'existing-account'
     const inviteId =
-        scenario === 'invalid-link' ? 'not-found' : scenario === 'expired-link' ? 'expired' : MOCK_INVITE_ID
+        scenario === 'invalid-link'
+            ? 'not-found'
+            : scenario === 'expired-link'
+              ? 'expired'
+              : scenario === 'validation-failed'
+                ? 'server-error'
+                : MOCK_INVITE_ID
 
     useStorybookMocks({
         get: {
@@ -153,6 +160,9 @@ InvalidLink.args = { scenario: 'invalid-link' }
 
 export const ExpiredLink: StoryFn<StoryArgs> = Template.bind({})
 ExpiredLink.args = { scenario: 'expired-link' }
+
+export const ValidationFailed: StoryFn<StoryArgs> = Template.bind({})
+ValidationFailed.args = { scenario: 'validation-failed' }
 
 export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
 SSOEnforced.args = { ssoEnforcement: 'google-oauth2' }

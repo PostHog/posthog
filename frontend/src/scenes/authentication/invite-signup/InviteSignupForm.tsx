@@ -363,6 +363,9 @@ function InviteInvalid(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     const code = error?.code ?? ErrorCodes.Unknown
+    // A recipient mismatch and a failed validation both clear on a reload, so those offer a retry.
+    // The rest are spent or dead links, where a login is the only move that can help.
+    const retryable = code === ErrorCodes.InvalidRecipient || code === ErrorCodes.Unknown
 
     const titles: Record<ErrorCodes, string> = {
         [ErrorCodes.InvalidInvite]: 'This invite link is no longer valid',
@@ -427,7 +430,7 @@ function InviteInvalid(): JSX.Element {
 
     const footer = (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            {!user && code === ErrorCodes.InvalidRecipient && (
+            {!user && retryable && (
                 <>
                     <Link
                         to={urls.login()}
@@ -464,7 +467,7 @@ function InviteInvalid(): JSX.Element {
                             <LemonButton size="large" center fullWidth type="primary" to={urls.default()}>
                                 Go back to PostHog
                             </LemonButton>
-                        ) : code === ErrorCodes.InvalidRecipient || code === ErrorCodes.Unknown ? (
+                        ) : retryable ? (
                             <LemonButton
                                 size="large"
                                 center

@@ -219,12 +219,22 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         return true
                     } catch (e: any) {
                         // A resend for a verified address is not a failure, the same way verify_email
-                        // treats a replayed code. Say it is done and send them to log in.
+                        // treats a replayed code. The in-app banner shares this action, so a stale tab
+                        // stays in the app and only a visitor without a session goes to login.
                         if (e.code === 'already_verified') {
                             posthog.capture('verify email error shown', { error_code: 'already_verified' })
                             clearPendingVerificationEmail()
-                            lemonToast.success('Your email is already verified. Log in to continue.')
-                            router.actions.push(urls.login())
+                            const nextUrl = getRelativeNextPath(
+                                new URLSearchParams(location.search).get('next'),
+                                location
+                            )
+                            if (values.user) {
+                                lemonToast.success('Your email is already verified.')
+                                router.actions.push(nextUrl || urls.default())
+                            } else {
+                                lemonToast.success('Your email is already verified. Log in to continue.')
+                                router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+                            }
                             return false
                         }
                         if (e.code === 'throttled') {
