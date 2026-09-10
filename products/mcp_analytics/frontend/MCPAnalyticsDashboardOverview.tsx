@@ -19,6 +19,7 @@ import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
@@ -44,10 +45,10 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRowsLoading,
         dateFilter,
         interval,
-        filterTestAccounts,
-        propertyFilters,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
+    const { filterTestAccounts, propertyFilters } = useValues(mcpAnalyticsFiltersLogic)
+    const { setFilterTestAccounts, setPropertyFilters } = useActions(mcpAnalyticsFiltersLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 

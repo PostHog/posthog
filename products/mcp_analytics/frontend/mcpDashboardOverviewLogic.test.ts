@@ -1,12 +1,10 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
-import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -557,30 +555,6 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
             ).toBe(true)
-        })
-
-        it('syncs property filters to the URL and clears the param when emptied', async () => {
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([EVENT_FILTER])
-            }).toFinishAllListeners()
-            expect(router.values.searchParams.properties).toEqual([EVENT_FILTER])
-
-            await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([])
-            }).toFinishAllListeners()
-            expect(router.values.searchParams.properties).toBeUndefined()
-        })
-
-        it('hydrates property filters from the URL on mount', async () => {
-            router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
         })
     })
 })
