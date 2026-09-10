@@ -346,3 +346,30 @@ describe('signupLogic — name handling', () => {
         expect(logic.values.panel).toBe(2)
     })
 })
+
+describe('signupLogic — pending OAuth connection', () => {
+    const COOKIE = 'ph_pending_oauth_connection'
+
+    afterEach(() => {
+        document.cookie = `${COOKIE}=; max-age=0; path=/`
+    })
+
+    it.each([
+        ['prefills the referral source with the client name', 'Claude', 'Claude'],
+        ['leaves the referral source empty without a connection', null, ''],
+    ])('%s', async (_name, clientName, expected) => {
+        if (clientName) {
+            const value = encodeURIComponent(JSON.stringify({ client_name: clientName, client_id: 'client' }))
+            document.cookie = `${COOKIE}=${value}; path=/`
+        }
+        initKeaTests()
+        router.actions.push('/signup')
+        const logic = signupLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            signupPanelOnboarding: expect.objectContaining({ referral_source: expected }),
+        })
+        logic.unmount()
+    })
+})

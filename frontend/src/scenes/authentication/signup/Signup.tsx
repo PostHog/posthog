@@ -341,6 +341,7 @@ function SignupProfilePanel(): JSX.Element {
         turnstileSiteKey,
         turnstileToken,
         signupPanelEmail,
+        signupPanelOnboarding,
     } = useValues(signupLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'signup' }))
     const { preflight } = useValues(preflightLogic)
@@ -455,7 +456,10 @@ function SignupProfilePanel(): JSX.Element {
                     )}
                 </LemonField>
                 <SignupRoleSelect />
-                <SignupReferralSource disabled={isSignupPanelOnboardingSubmitting} />
+                <SignupReferralSource
+                    disabled={isSignupPanelOnboardingSubmitting}
+                    referralSource={signupPanelOnboarding.referral_source}
+                />
                 {challengeRequired && turnstileSiteKey ? (
                     <TurnstileChallenge
                         siteKey={turnstileSiteKey}

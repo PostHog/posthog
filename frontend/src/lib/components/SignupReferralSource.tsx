@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
@@ -74,8 +72,15 @@ const AI_REFERRAL_PATTERNS = [
 ]
 const AI_REFERRAL_PATTERN = new RegExp(`\\b(${AI_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
 
-export default function SignupReferralSource({ disabled }: { disabled: boolean }): JSX.Element {
-    const [showAIPrompt, setShowAIPrompt] = useState(false)
+export default function SignupReferralSource({
+    disabled,
+    referralSource,
+}: {
+    disabled: boolean
+    /** The form's current `referral_source`, so a prefilled value opens the AI prompt too. */
+    referralSource: string
+}): JSX.Element {
+    const showAIPrompt = AI_REFERRAL_PATTERN.test(referralSource)
 
     return (
         <>
@@ -87,10 +92,7 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                         placeholder=""
                         disabled={disabled}
                         value={value ?? ''}
-                        onChange={(val: string) => {
-                            onChange(val)
-                            setShowAIPrompt(AI_REFERRAL_PATTERN.test(val))
-                        }}
+                        onChange={onChange}
                     />
                 )}
             </LemonField>

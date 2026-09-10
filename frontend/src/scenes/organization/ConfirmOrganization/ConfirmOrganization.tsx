@@ -23,7 +23,8 @@ export const scene: SceneExport = {
 }
 
 export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
+    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning, confirmOrganization } =
+        useValues(confirmOrganizationLogic)
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
 
     return (
@@ -83,7 +84,10 @@ export function ConfirmOrganization(): JSX.Element {
                 </LemonField>
 
                 <SignupRoleSelect />
-                <SignupReferralSource disabled={isConfirmOrganizationSubmitting} />
+                <SignupReferralSource
+                    disabled={isConfirmOrganizationSubmitting}
+                    referralSource={confirmOrganization.referral_source ?? ''}
+                />
 
                 <LemonButton
                     htmlType="submit"
