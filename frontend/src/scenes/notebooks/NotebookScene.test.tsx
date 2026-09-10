@@ -52,4 +52,14 @@ describe('NotebookScene', () => {
         expect(firstCommit).not.toContain('not-found-notebook')
         expect(firstCommit).toContain('LemonSkeleton')
     })
+
+    it('requests the notebook once, even though two logics mount for the scene', () => {
+        const get = jest.spyOn(api.notebooks, 'get').mockReturnValue(new Promise(() => {}) as any)
+
+        const logic = notebookSceneLogic({ shortId: 'test-notebook-scene-load' })
+        logic.mount()
+
+        expect(get).toHaveBeenCalledTimes(1)
+        logic.unmount()
+    })
 })
