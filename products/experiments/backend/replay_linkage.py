@@ -103,6 +103,10 @@ IN_SESSION_EXPOSURE_UNMATCHABLE_REASON = (
     "This experiment's exposure event has only ever been captured server-side, where there is no "
     "session to record, so no session can contain it."
 )
+IN_SESSION_EXPOSURE_NOT_OBSERVED_YET_REASON = (
+    "This experiment's exposure event hasn't been captured yet, so we can't tell which sessions it "
+    "was in. Check back once exposures come in."
+)
 IN_SESSION_EXPOSURE_ACTIVATION_REASON = (
     "This experiment uses an activation event, so its exposure can span more than one session and "
     "can't be pinned to a single session."
@@ -260,6 +264,13 @@ def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) ->
         )
     # A Postgres EventProperty read, so it stays out of the common no-narrowing path.
     session_exposure = resolve_session_exposure(team, experiment, event_names=frozenset())
+    if session_exposure.exposure_event_unseen:
+        # Before the server-side verdict, because an event nothing is known about yet is in
+        # `never_linked` for the same reason as one captured only server-side. A day-old experiment
+        # would otherwise be told its setup can never do this.
+        return InSessionExposureSemantics(
+            session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_NOT_OBSERVED_YET_REASON
+        )
     if session_exposure.is_unmatchable:
         return InSessionExposureSemantics(
             session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_UNMATCHABLE_REASON

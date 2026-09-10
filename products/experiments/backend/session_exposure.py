@@ -51,6 +51,22 @@ def never_session_linked_events(team: Team, event_names: frozenset[str]) -> froz
     return event_names - frozenset(seen)
 
 
+def _event_has_no_taxonomy_rows(team: Team, event_name: str) -> bool:
+    """True when the project holds no `EventProperty` row for this event at all.
+
+    Taxonomy writes a row per (event, property) pair it ingests, so an event with no rows is one
+    nothing is known about yet. An event captured only server-side has rows for its other
+    properties and just never one for `$session_id`, which is what separates the two states.
+    """
+    return not (
+        EventProperty.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(effective_project_id=team.project_id, event=event_name)
+        .exists()
+    )
+
+
 @dataclass(frozen=True)
 class SessionExposure:
     """One experiment's exposure semantics, as a session-scoped surface has to read them."""
@@ -74,6 +90,10 @@ class SessionExposure:
     # Of the names asked about, the ones never ingested with a `$session_id`.
     never_linked: frozenset[str]
     used_fallback: bool
+    # The exposure event has no taxonomy rows at all in this project, so nothing is known about it
+    # yet. Distinct from `never_linked`, which means the event is known and has never carried a
+    # session id. Only the in-session availability verdict reads this.
+    exposure_event_unseen: bool = False
 
     @property
     def is_unmatchable(self) -> bool:
@@ -145,6 +165,15 @@ def resolve_session_exposure(team: Team, experiment: Experiment, *, event_names:
     used_fallback = (
         exposure_event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT) and exposure_event in never_linked
     )
+    # Read only where the exposure event already landed in `never_linked`, so the common path keeps
+    # to the one query above. A project running its first experiment after the $experiment_exposure
+    # rollout has no taxonomy rows for that event until ingestion catches up, which reads as
+    # permanently server-side without this.
+    exposure_event_unseen = (
+        exposure_event is not None
+        and exposure_event in never_linked
+        and _event_has_no_taxonomy_rows(team, exposure_event)
+    )
     return SessionExposure(
         team=team,
         experiment=experiment,
@@ -154,4 +183,5 @@ def resolve_session_exposure(team: Team, experiment: Experiment, *, event_names:
         variant_property=f"$feature/{flag_key}" if used_fallback else variant_property,
         never_linked=never_linked,
         used_fallback=used_fallback,
+        exposure_event_unseen=exposure_event_unseen,
     )
