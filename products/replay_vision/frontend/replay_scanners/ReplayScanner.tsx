@@ -50,12 +50,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
     const { variant: activationVariant, neverRated } = useValues(calibrationActivationLogic({ scannerId }))
-    // A scanner with nothing to rate yet is not a calibration problem, so leave it alone. Neither is one
-    // the viewer cannot rate: rating needs editor access, so nudging without it is a dead end.
-    const scannerNeverRated =
-        neverRated &&
-        !!scanner?.observations_this_month &&
-        !getReplayVisionEditDisabledReason(scanner?.user_access_level)
+    // `neverRated` already requires results to rate. A viewer who cannot rate is not nudged either,
+    // because rating needs editor access, so nudging without it is a dead end.
+    const scannerNeverRated = neverRated && !getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     if (scannerLoading || !scanner) {
         return (
