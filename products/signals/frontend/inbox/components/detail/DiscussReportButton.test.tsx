@@ -133,11 +133,25 @@ describe('DiscussReportButton', () => {
         expect(extra).toEqual({ question_source: 'typed', suggestion_count: 0 })
     })
 
-    it('renders no suggestion rows for a report without any', async () => {
-        // Reports authored before this existed, and every pipeline report, must look exactly as they
-        // did — the section is not an empty state.
-        await openPopover(makeReport())
+    it.each([
+        ['a report without any', makeReport()],
+        // A stored suggestion can be an action request, and on an answer-only status the run would
+        // merely answer it — offering the row would invite an action that won't happen.
+        [
+            'an answer-only report, whose stored suggestions are hidden',
+            { ...makeReport([SUGGESTION]), status: SignalReportStatus.RESOLVED },
+        ],
+    ])('renders no suggestion rows for %s', async (_name, report) => {
+        await openPopover(report)
 
-        expect(screen.queryByText('Suggested questions')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggestions')).not.toBeInTheDocument()
+    })
+
+    it('does not invite actions where the kickoff wrapper would only answer', async () => {
+        // The kickoff prompt pins the agent to answering on a resolved report, so a placeholder
+        // saying "tell AI what to do next" would promise an action the run won't carry out.
+        await openPopover({ ...makeReport(), status: SignalReportStatus.RESOLVED })
+
+        expect(screen.getByPlaceholderText('Ask a question about this report')).toBeInTheDocument()
     })
 })

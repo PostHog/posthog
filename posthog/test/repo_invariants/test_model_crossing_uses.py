@@ -19,6 +19,10 @@ and runs; `drives(<Name>)` is a name it imports from there. `hogli product:lint`
 in the product's contract-check inputs while a line stands, so the isolated tests stay sound. A new
 line is a new outside test that drives product code, and that test belongs in the product.
 
+A product may watch one subtree of that location instead of the whole of it, once every other
+subtree has no line left. The second test below holds that scope: it fails when a line names
+something outside the watched subtree, because the watch would then miss the code the line drives.
+
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.
 
@@ -27,7 +31,14 @@ Regenerate after removing uses:
     bin/hogli product:crossings --all --write-baseline
 """
 
-from hogli_commands.product.crossings import BASELINE_PATH, all_crossing_uses, disallowed_uses, read_baseline
+from hogli_commands.product.crossings import (
+    BASELINE_PATH,
+    all_crossing_uses,
+    disallowed_uses,
+    names_defined_in,
+    read_baseline,
+    wiring_location_label,
+)
 
 REGENERATE = "bin/hogli product:crossings --all --write-baseline"
 
@@ -56,4 +67,28 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
         "products/architecture.md § Wiring couplings can add a line.\n"
         f"A '-' line means a use went away — good, but the file must record that too. Run: {REGENERATE}\n"
         f"{report}"
+    )
+
+
+# product_analytics watches backend/hogql_queries/trends/ alone, because trends is the only subtree
+# tests outside the product still drive. These are the query kinds whose dispatch reaches it. Do not
+# extend this set to release a line for another subtree: widen the inputs in
+# products/product_analytics/turbo.json instead, or the suite stops re-running on a change the line
+# says it must cover.
+TRENDS_KINDS = frozenset({"TrendsQuery", "CalendarHeatmapQuery"})
+WATCHED_SUBTREE = "backend/hogql_queries/trends/"
+
+
+def test_product_analytics_drives_only_the_watched_subtree() -> None:
+    label = wiring_location_label("product_analytics", "backend/hogql_queries/")
+    watched = {f"drives({name})" for name in TRENDS_KINDS | names_defined_in("product_analytics", WATCHED_SUBTREE)}
+    outside = sorted(
+        line for line in read_baseline() if line.startswith(f"{label} ") and line.split()[2] not in watched
+    )
+    assert not outside, (
+        f"{BASELINE_PATH.name} has drives lines for product_analytics that name code outside "
+        f"{WATCHED_SUBTREE}, which is the only subtree products/product_analytics/turbo.json watches. "
+        "A change to the subtree the line names would skip the Django suite. Either move the driving "
+        "test into the product, or widen the contract-check inputs to backend/hogql_queries/**.\n"
+        + "\n".join(f"  {line}" for line in outside)
     )

@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
@@ -7,26 +6,17 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from products.experiments.backend.models.experiment import ExperimentMetricsRecalculation
-from products.experiments.backend.recalculation import (
-    cancel_recalculation_workflow,
-    request_recalculation,
-    start_metrics_recalculation_workflow,
+from products.experiments.backend.admin.recalculation_panel import (
+    start_recalculation_for_experiment,
+    temporal_workflow_url,
 )
+from products.experiments.backend.models.experiment import ExperimentMetricsRecalculation
+from products.experiments.backend.recalculation import cancel_recalculation_workflow
 
 _TERMINAL_STATUSES = {
     ExperimentMetricsRecalculation.Status.COMPLETED,
     ExperimentMetricsRecalculation.Status.FAILED,
 }
-
-
-def temporal_workflow_url(recalculation_id: str) -> str:
-    """Link to the recalc's Temporal Cloud workflow. Uses the runtime namespace (e.g. posthog-prod-us.usz2o),
-    so it resolves per region without hardcoding a slug."""
-    return (
-        f"https://cloud.temporal.io/namespaces/{settings.TEMPORAL_NAMESPACE}"
-        f"/workflows/experiment-metrics-recalculation-{recalculation_id}"
-    )
 
 
 @admin.register(ExperimentMetricsRecalculation)
@@ -126,6 +116,11 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.start_recalculation_view),
                 name="experiments_recalculation_start",
             ),
+            path(
+                "<path:object_id>/retry-failures/",
+                self.admin_site.admin_view(self.retry_failures_view),
+                name="experiments_recalculation_retry_failures",
+            ),
         ]
         return custom + urls
 
@@ -171,38 +166,30 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         if obj is None:
             return HttpResponseRedirect(reverse("admin:experiments_experimentmetricsrecalculation_changelist"))
+        change_url = reverse("admin:experiments_experimentmetricsrecalculation_change", args=[obj.pk])
+        # A full recalculation of every metric: advances the window to now.
+        return self._dispatch_recalculation(
+            request, obj, change_url, trigger=ExperimentMetricsRecalculation.Trigger.MANUAL
+        )
 
+    def retry_failures_view(self, request: HttpRequest, object_id: str) -> HttpResponseRedirect:
+        obj = self.get_object(request, object_id)
+        if obj is None:
+            return HttpResponseRedirect(reverse("admin:experiments_experimentmetricsrecalculation_changelist"))
+        change_url = reverse("admin:experiments_experimentmetricsrecalculation_change", args=[obj.pk])
+        # A metric-scoped change reuses the latest terminal run's window, so metrics that already succeeded
+        # hit the (experiment, metric, query_to, fingerprint) cache and only the failed ones recompute.
+        return self._dispatch_recalculation(
+            request, obj, change_url, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE
+        )
+
+    def _dispatch_recalculation(
+        self, request: HttpRequest, obj: ExperimentMetricsRecalculation, change_url: str, *, trigger: str
+    ) -> HttpResponseRedirect:
         if not self.has_change_permission(request, obj):
             raise PermissionDenied
 
-        change_url = reverse("admin:experiments_experimentmetricsrecalculation_change", args=[obj.pk])
         if request.method != "POST":
             return HttpResponseRedirect(change_url)
 
-        experiment = obj.experiment
-        try:
-            result = request_recalculation(experiment, request.user, trigger="manual")
-        except Exception as e:
-            messages.error(request, f"Could not create recalculation: {e}")
-            return HttpResponseRedirect(change_url)
-
-        if result.get("is_existing"):
-            messages.info(request, "An active recalculation already exists for this experiment; reused it.")
-            return HttpResponseRedirect(change_url)
-
-        recalculation_id = str(result["id"])
-        try:
-            start_metrics_recalculation_workflow(recalculation_id, str(experiment.team.organization_id))
-        except Exception as e:
-            # Roll the fresh row back to FAILED so a workflow that never started isn't left pending forever.
-            ExperimentMetricsRecalculation.objects.for_team(experiment.team_id).filter(id=recalculation_id).update(
-                status=ExperimentMetricsRecalculation.Status.FAILED
-            )
-            messages.error(request, f"Created the row but failed to start the workflow (marked failed): {e}")
-            return HttpResponseRedirect(change_url)
-
-        new_change_url = reverse("admin:experiments_experimentmetricsrecalculation_change", args=[recalculation_id])
-        messages.success(
-            request, format_html('Started new recalculation <a href="{}">{}</a>.', new_change_url, recalculation_id)
-        )
-        return HttpResponseRedirect(new_change_url)
+        return start_recalculation_for_experiment(request, obj.experiment, trigger=trigger, fallback_url=change_url)

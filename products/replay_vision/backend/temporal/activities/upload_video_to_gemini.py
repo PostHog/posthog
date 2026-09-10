@@ -140,7 +140,13 @@ def _write_and_upload(raw_client: RawGenAIClient, video_bytes: bytes, mime_type:
     with tempfile.NamedTemporaryFile() as tmp_file:
         tmp_file.write(video_bytes)
         tmp_file.flush()
-        return raw_client.files.upload(
-            file=tmp_file.name,
-            config=types.UploadFileConfig(mime_type=mime_type, display_name=workflow_id),
-        )
+        try:
+            return raw_client.files.upload(
+                file=tmp_file.name,
+                config=types.UploadFileConfig(mime_type=mime_type, display_name=workflow_id),
+            )
+        except (KeyError, ValueError, TypeError) as e:
+            # google-genai does not check the finalize response's HTTP status; a failed upload surfaces as one of these.
+            raise ScannerFailureError(
+                "The AI provider did not finish the video upload", kind=FailureKind.PROVIDER_TRANSIENT
+            ) from e

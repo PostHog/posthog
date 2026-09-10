@@ -137,41 +137,63 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     argMin(deduped.distinct_id, deduped.timestamp)
                 ) AS first_distinct_id,
                 round(
-                    CASE
-                        -- If all events with latency are generations, sum them all
-                        WHEN countIf(deduped.latency > 0 AND deduped.event != '$ai_generation') = 0
-                             AND countIf(deduped.latency > 0 AND deduped.event = '$ai_generation') > 0
-                        THEN sumIf(deduped.latency,
-                                   deduped.event = '$ai_generation' AND deduped.latency > 0
-                             )
-                        -- Otherwise sum the direct children of the trace
-                        ELSE sumIf(deduped.latency,
-                                   deduped.parent_id IS NULL
-                                   OR deduped.parent_id = deduped.trace_id
-                             )
-                    END, 2
+                    coalesce(
+                        -- The root $ai_trace event reports the wall-clock latency of the whole
+                        -- trace, so its children are already inside that number. Same rule as
+                        -- products/ai_observability/backend/queries/sessions.sql.
+                        nullIf(maxIf(deduped.latency, deduped.event = '$ai_trace' AND deduped.latency > 0), 0),
+                        CASE
+                            -- If all events with latency are generations, sum them all
+                            WHEN countIf(deduped.latency > 0 AND deduped.event != '$ai_generation') = 0
+                                 AND countIf(deduped.latency > 0 AND deduped.event = '$ai_generation') > 0
+                            THEN sumIf(deduped.latency,
+                                       deduped.event = '$ai_generation' AND deduped.latency > 0
+                                 )
+                            -- Otherwise sum the direct children of the trace
+                            ELSE sumIf(deduped.latency,
+                                       deduped.parent_id IS NULL
+                                       OR deduped.parent_id = deduped.trace_id
+                                 )
+                        END
+                    ), 2
                 ) AS total_latency,
-                nullIf(sumIf(deduped.input_tokens,
-                      deduped.event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS input_tokens,
-                nullIf(sumIf(deduped.output_tokens,
-                      deduped.event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS output_tokens,
-                nullIf(round(
-                    sumIf(deduped.input_cost_usd,
-                          deduped.event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS input_cost,
-                nullIf(round(
-                    sumIf(deduped.output_cost_usd,
-                          deduped.event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS output_cost,
-                nullIf(round(
-                    sumIf(deduped.total_cost_usd,
-                          deduped.event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS total_cost,
+                -- NULL means no event carried the field, 0 is a reported zero.
+                -- nullIf(sum, 0) would collapse a real zero into NULL.
+                if(countIf(isNotNull(deduped.input_tokens)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   sumIf(deduped.input_tokens,
+                         deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ),
+                   NULL
+                ) AS input_tokens,
+                if(countIf(isNotNull(deduped.output_tokens)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   sumIf(deduped.output_tokens,
+                         deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ),
+                   NULL
+                ) AS output_tokens,
+                if(countIf(isNotNull(deduped.input_cost_usd)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(deduped.input_cost_usd,
+                               deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS input_cost,
+                if(countIf(isNotNull(deduped.output_cost_usd)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(deduped.output_cost_usd,
+                               deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS output_cost,
+                if(countIf(isNotNull(deduped.total_cost_usd)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(deduped.total_cost_usd,
+                               deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS total_cost,
                 arrayDistinct(
                     arraySort(
                         x -> x.3,
@@ -224,7 +246,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 10,
+            "schema_version": 11,
         }
 
     @cached_property

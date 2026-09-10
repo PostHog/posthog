@@ -13,6 +13,7 @@ import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-contro
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
@@ -54,7 +55,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
@@ -65,9 +66,6 @@ const HedgehogDoctor = pngHoggie(doctorPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogStampDenied = pngHoggie(stampDeniedPng)
 const HedgehogTrafficController = pngHoggie(trafficControllerPng)
-
-// Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
-const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 
 const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
     "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
@@ -1092,6 +1090,25 @@ const SAVED_INSIGHTS_COPY = {
         title: 'You have no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
+}
+
+export function SavedInsightsErrorState({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div
+            data-attr="saved-insights-error-state"
+            className="flex flex-col items-center justify-center gap-2 text-center"
+        >
+            <IconErrorOutline className="text-4xl shrink-0 text-danger" />
+            <h2 className="mb-0">Couldn't load insights</h2>
+            <p className="empty-state__description">
+                Something went wrong loading your insights. They are safe. Try again, and if the problem continues
+                contact support.
+            </p>
+            <LemonButton type="primary" size="small" icon={<IconRefresh />} onClick={onRetry}>
+                Try again
+            </LemonButton>
+        </div>
+    )
 }
 
 export function SavedInsightsEmptyState({

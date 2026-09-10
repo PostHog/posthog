@@ -230,8 +230,13 @@ pub const FLAGS_BILLING_FLUSH_DURATION_MS: &str = "flags_billing_flush_duration_
 // Counters: records the usage-ingestion mirror accepted / gave up on. A gap
 // between them and `flags_billing_entries_flushed_total` is expected while the
 // mirror is rolled out to a subset of teams.
+// `flags_usage_records_failed_total` carries an `error_code` label naming why the
+// records went nowhere: a gRPC code, `rejected` for what the service declined, or
+// `queue_full`. Retries that later succeeded read on `flags_usage_retries_total`
+// instead, so a drop here means the records really were lost.
 pub const FLAGS_USAGE_RECORDS_SENT: &str = "flags_usage_records_sent_total";
 pub const FLAGS_USAGE_RECORDS_FAILED: &str = "flags_usage_records_failed_total";
+pub const FLAGS_USAGE_RETRIES: &str = "flags_usage_retries_total";
 
 // Histogram of per-call `record()` latency in microseconds, with no labels
 // to keep the hot-path emission allocation-free. The expected uncontended
@@ -372,8 +377,17 @@ pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cac
 pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_cache_miss_total";
 
 // Flag definitions ETag metrics
-// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag, redis_error = etag read failed)
+// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag,
+// redis_missing = Redis answered and held no etag key,
+// redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
+
+// Per-pod resolved cluster for the /flags/definitions reader: 1 on the dedicated flags Redis,
+// 0 on the shared one. Every emission carries a `reason` label, so
+// `{reason="no_dedicated_client"}` separates a pod that wanted the dedicated cluster and could
+// not get one from a pod nobody has flipped yet.
+pub const FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE: &str =
+    "flags_flag_definitions_reads_dedicated_redis";
 
 // Flag definitions self-heal: a cache miss enqueued a rebuild request for a Celery
 // worker to drain. Labels: result (ok = enqueued, error = redis zadd failed).
@@ -416,6 +430,21 @@ pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
 // Conditions skipped during evaluation because required context was absent.
 // Labels: reason (missing_device_id, missing_group_type)
 pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
+
+// Incremented once per flag left out of a team's payload because its `filters` JSON
+// does not deserialize into FlagFilters. A property filter with no `"type"` key is
+// one such blob, because PropertyFilter requires prop_type, and serde fails the
+// whole outer struct. This counts every dropped flag, which is a superset of the
+// flags the two builders disagree about: Python keeps an active or referenced flag
+// that this drops, but an inactive, unreferenced flag is dropped by both builders.
+// Team id and flag key are in the companion warn log, not in metric labels (cardinality).
+pub const FLAG_MALFORMED_FILTER_COUNTER: &str = "flags_flag_malformed_filter_total";
+// Incremented once per team read that left out at least one flag for the reason
+// above. FLAG_MALFORMED_FILTER_COUNTER divided by this gives the mean flags
+// dropped per affected read. It does not measure how many teams are affected,
+// because neither counter carries a team label and one team read many times
+// inflates this denominator. Read the warn log for team identity and breadth.
+pub const FLAG_MALFORMED_FILTER_READ_COUNTER: &str = "flags_flag_malformed_filter_reads_total";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label

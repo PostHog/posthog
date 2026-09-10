@@ -23,6 +23,7 @@ import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
@@ -45,7 +46,7 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
-import { canCreateImplementationPr, useReportDetailActions } from './ReportDetailActions'
+import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -207,14 +208,22 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
-    const backLabel = backOverride ? (backOverride.startsWith(urls.inboxTriage()) ? 'Triage' : 'Back') : 'Inbox'
+    const backLabel = backOverride
+        ? backOverride.startsWith(urls.inboxTriage())
+            ? 'Triage'
+            : 'Back'
+        : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
     const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
         useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
-    const signals = reportSignals ?? []
+    // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
+    // the rail rather than after a scroll.
+    const signals = [...(reportSignals ?? [])].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 

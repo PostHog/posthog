@@ -929,6 +929,16 @@ class TestExtractAgentError:
         assert result == AgentError(message=message, category=None)
         assert result.describe() == message
 
+    def test_extracts_legacy_snake_case_category(self):
+        message = "API Error: Connection error"
+        log = _agent_error_line(message, category="upstream_connection_error").replace(
+            '"errorCategory":', '"error_category":'
+        )
+
+        result = _extract_agent_error(log)
+
+        assert result == AgentError(message=message, category="upstream_connection_error")
+
     def test_returns_none_when_no_error_line(self):
         log = "\n".join([_agent_message_line("hello"), _end_turn_line()])
         assert _extract_agent_error(log) is None
@@ -1404,8 +1414,16 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert kwargs["posthog_mcp_scopes"] == expected_scopes
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("ai_stage, expected", [("research", "research"), (None, None)])
-    async def test_forwards_ai_stage(self, ai_stage, expected):
+    @pytest.mark.parametrize(
+        "stamp, value",
+        [
+            ("ai_stage", "research"),
+            ("ai_stage", None),
+            ("ai_agent_name", "signals-scout-errors"),
+            ("ai_agent_name", None),
+        ],
+    )
+    async def test_forwards_attribution_stamps(self, stamp, value):
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
 
@@ -1415,9 +1433,9 @@ class TestCreateTaskAndTriggerForwardsContext:
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
         ) as mock_create:
-            await create_task_and_trigger("prompt", context, ai_stage=ai_stage)
+            await create_task_and_trigger("prompt", context, **{stamp: value})
 
-        assert mock_create.call_args.kwargs["ai_stage"] == expected
+        assert mock_create.call_args.kwargs[stamp] == value
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("runtime", "expected_pending_message"), [("acp", None), ("pi", "prompt")])
@@ -1485,7 +1503,7 @@ class TestMultiTurnSessionStartFallback:
             task_run=FakeTaskRun(),  # type: ignore[arg-type]
             _workflow_handle=AsyncMock(),
         )
-        session.end = AsyncMock()  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        session.end = AsyncMock()  # type: ignore[method-assign]
         return session
 
     @pytest.mark.asyncio

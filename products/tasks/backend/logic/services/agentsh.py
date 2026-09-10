@@ -334,7 +334,7 @@ if [[ "${{BASH_SOURCE[0]}}" == "$0" ]]; then
   exit 0
 fi
 
-unset GH_TOKEN GITHUB_TOKEN
+unset GH_TOKEN GITHUB_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR
 while IFS= read -r -d $'\\0' kv 2>/dev/null; do
   case "$kv" in
     GH_TOKEN=*|GITHUB_TOKEN=*) export "$kv" ;;
@@ -530,6 +530,8 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "AI_GATEWAY_URL",
                 "AI_GATEWAY_PRODUCTS",
                 "AI_GATEWAY_TOKEN",
+                "AI_GATEWAY_PRODUCT",
+                "AI_GATEWAY_AI_STAGE",
                 "IS_SANDBOX",
                 "PYTHONPATH",
             ],

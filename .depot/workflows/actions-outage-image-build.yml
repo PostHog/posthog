@@ -1,0 +1,82 @@
+# Git and the API must still be up: the checkout clones from GitHub, and Depot
+# resolves the dispatch through the API. Depot finds this workflow only if the
+# file is on master, but it runs the dispatched ref's copy of it.
+# Runbook: https://wiki.posthog.com/operations/deployments/deploy-during-github-outage
+#
+# Pushes to posthog-cloud-prs because the posthog-cloud publish role is trusted
+# through the GitHub OIDC issuer, which Depot CI cannot present: Depot mints its
+# own tokens from identity.depot.dev, so that role is out of reach at every ref.
+# The Depot role trusts any ref on purpose, which is why it can only reach the
+# -prs repositories. Widening it is not the fix.
+
+name: Actions outage image build
+
+on:
+    workflow_dispatch:
+
+jobs:
+    build:
+        name: Build and push to ECR
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 45
+        permissions:
+            id-token: write
+            contents: read
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.DEPOT_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Build and push
+              id: build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: .
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs:${{ github.sha }}
+                  platforms: linux/amd64,linux/arm64
+                  build-args: COMMIT_HASH=${{ github.sha }}
+                  push: true
+                  # Without the upload the Dockerfile keeps the .map files in the image.
+                  secrets: |
+                      posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+
+            # This branch never ran CI, so a fatal import must fail here rather than
+            # crash-loop in production. Web alone is not enough: temporal and celery
+            # import product code that django.setup() skips.
+            - name: Verify image boots and report
+              env:
+                  IMAGE: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs@${{ steps.build.outputs.digest }}
+                  TAG: ${{ github.sha }}
+              run: |
+                  docker run --rm \
+                      -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 \
+                      -e STATIC_COLLECTION=1 \
+                      -e DATABASE_URL=postgres:/// \
+                      -e REDIS_URL=redis:/// \
+                      -e INTERNAL_API_SECRET=ci-boot-test-dummy-secret \
+                      "$IMAGE" sh -ec '
+                          python -c "import posthog.asgi; import posthog.management.commands.start_temporal_worker; from posthog.celery import app; app.loader.import_default_modules()"
+                          python manage.py check
+                      '
+                  {
+                      echo "## Image ready"
+                      echo
+                      echo "Tag for the ArgoCD image override input: \`$TAG\`"
+                      echo
+                      echo "Digest for a live manifest edit: \`$IMAGE\`"
+                      echo
+                      echo "Runbook: https://wiki.posthog.com/operations/deployments/deploy-during-github-outage"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"

@@ -1,5 +1,11 @@
 Group spans by one attribute's value — the "what is different about the bad spans?" tool.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "breakdownKey": "server.address", "breakdownType": "span_attribute" } }
+```
+
 Returns one row per distinct value of the chosen attribute, across the spans matching the filters:
 
 - `value` — the attribute's value (`''` for spans that don't carry the attribute)
@@ -18,8 +24,6 @@ Use to answer:
 
 For aggregates grouped by operation, use `apm-spans-aggregate`. For trends over time, use `apm-spans-sparkline`.
 
-All parameters must be nested inside a `query` object.
-
 # "What's different" workflow
 
 1. Scope to the bad spans with `filterGroup` (e.g. `status_code = Error`) or `serviceNames`.
@@ -28,8 +32,6 @@ All parameters must be nested inside a `query` object.
 4. To confirm over-representation, re-run without the bad-spans filter (or check `error_count / count` per row): a value at 95% of errors but 10% of all traffic is the smoking gun.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.breakdownKey (required)
 

@@ -109,6 +109,11 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # instead of failing atomically on every attempt.
 PRECOMPUTE_MAX_WINDOW_DAYS = 7
 
+# Spread frozen chunk expiries so an experiment's history does not expire all at once
+# (see TtlSchedule.default_ttl_jitter_seconds). 14 days means roughly one chunk expiry
+# per day for a months-long experiment; a larger value would only keep data on disk longer.
+PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
+
 # Upper bound on how far past the experiment end a metric-events build may scan.
 # retention_window_end is an unrestricted user-supplied integer; without a cap, a huge
 # window would stretch the precompute horizon into thousands of daily jobs before the
@@ -122,6 +127,7 @@ def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
         DEFAULT_EXPOSURE_TTL_SECONDS,
         team_timezone,
         max_window_days=PRECOMPUTE_MAX_WINDOW_DAYS,
+        default_ttl_jitter_seconds=PRECOMPUTE_TTL_JITTER_SECONDS,
     )
 
 
@@ -474,9 +480,9 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _metric_events_precompute_applicable(self) -> bool:
         """
-        Metric-events precompute supports ordered funnels, count/sum-style mean
-        metrics, and retention metrics, in all cases without breakdowns, CUPED,
-        or data warehouse sources.
+        Metric-events precompute supports ordered funnels, numeric mean metrics
+        (count/sum/avg/min/max), and retention metrics, in all cases without
+        breakdowns, CUPED, or data warehouse sources.
         """
         if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
             return False
@@ -492,7 +498,16 @@ class ExperimentQueryRunner(QueryRunner):
             if is_session_property_metric(source):
                 return False
             math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
-            return math_type in (ExperimentMetricMathType.TOTAL, ExperimentMetricMathType.SUM)
+            # These math types are safe because the build query stores the same
+            # coalesced per-event float regardless of math type, and the math is
+            # applied at read time by build_value_aggregation_expr on both paths.
+            return math_type in (
+                ExperimentMetricMathType.TOTAL,
+                ExperimentMetricMathType.SUM,
+                ExperimentMetricMathType.AVG,
+                ExperimentMetricMathType.MIN,
+                ExperimentMetricMathType.MAX,
+            )
         if isinstance(self.metric, ExperimentRetentionMetric):
             if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
                 self.metric.completion_event, (EventsNode, ActionsNode)

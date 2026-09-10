@@ -16,12 +16,7 @@ impl NoOpSink {
 
 #[async_trait]
 impl PublishEvents for NoOpSink {
-    async fn publish_one(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-        counter!("capture_events_ingested_total").increment(1);
-        Ok(())
-    }
-
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         counter!("capture_events_ingested_total").increment(events.len() as u64);
         Ok(())
     }

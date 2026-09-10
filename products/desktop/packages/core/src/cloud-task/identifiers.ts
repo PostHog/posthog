@@ -3,8 +3,24 @@ export const CLOUD_TASK_AUTH = Symbol.for("posthog.core.cloudTaskAuth");
 
 export interface ICloudTaskAuth {
   authenticatedFetch(url: string, init?: RequestInit): Promise<Response>;
-  getCloudContext(): Promise<{ apiHost: string; teamId: number } | null>;
+  getCloudContext(options?: { includeAccount?: boolean }): Promise<{
+    apiHost: string;
+    teamId: number;
+    accountKey?: string | null;
+  } | null>;
 }
+
+export interface ClaudeSubscriptionTokenStore {
+  get(expectedAccountKey?: string): Promise<string | null>;
+  save(token: string): Promise<void>;
+  clear(): Promise<void>;
+  clearAll(): Promise<void>;
+  has(): Promise<boolean>;
+}
+
+export const CLAUDE_SUBSCRIPTION_TOKEN_STORE = Symbol.for(
+  "posthog.cloud-task.claudeSubscriptionTokenStore",
+);
 
 /**
  * Host-bound executor for MCP relay requests (docs/CLOUD-MCP-RELAY.md).
