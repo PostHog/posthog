@@ -4,12 +4,12 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+from products.managed_warehouse.backend.common import is_local_dev_enabled
 from products.managed_warehouse.backend.facade.api import get_duckgres_query_server_config
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnection,
     ManagedWarehouseTrinoConnectionUnavailable,
 )
-from products.managed_warehouse.backend.local_dev import is_enabled as local_dev_enabled
 from products.managed_warehouse.backend.trino_target import get_ready_trino_connection_target
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ def connect_managed_warehouse_trino(organization_id: str) -> Iterator[Connection
     from trino.dbapi import connect  # noqa: PLC0415 -- keeps the optional driver off startup paths
 
     config = resolve_managed_warehouse_trino_connection(organization_id)
-    if local_dev_enabled():
+    if is_local_dev_enabled():
         connection = connect(
             host=config.host,
             port=config.port,

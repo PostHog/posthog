@@ -25,8 +25,10 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-from products.managed_warehouse.backend import local_dev
+from products.managed_warehouse.backend.facade.api import is_local_dev_enabled
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
+
+from . import local_dev
 
 logger = structlog.get_logger(__name__)
 
@@ -94,7 +96,7 @@ def is_enabled(organization_id: UUID | str) -> bool:
 
     Identity is the organization so every team in the org resolves the same value.
     """
-    if local_dev.is_enabled():
+    if is_local_dev_enabled():
         return True
 
     org_id = str(organization_id)
@@ -121,7 +123,7 @@ def _present_connection(raw: dict) -> PresentedConnection:
     subdomain of the host, and the database to connect to is always "ducklake".
     """
     warehouse_name = raw.get("database")
-    if local_dev.is_enabled():
+    if is_local_dev_enabled():
         host = getattr(settings, "MANAGED_WAREHOUSE_LOCAL_DUCKGRES_HOST", "127.0.0.1")
         port = getattr(settings, "MANAGED_WAREHOUSE_LOCAL_DUCKGRES_PORT", 15432)
     else:
@@ -159,7 +161,7 @@ def _request(
     if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
-    if local_dev.is_enabled():
+    if is_local_dev_enabled():
         return local_dev.request(method, organization_id, path, json_body=json_body, params=params)
 
     base_url = getattr(settings, "DUCKGRES_API_URL", None)

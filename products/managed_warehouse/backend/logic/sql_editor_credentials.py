@@ -23,13 +23,13 @@ from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 from posthog.redis import get_client
 
+from products.managed_warehouse.backend.common import is_local_dev_enabled
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehousePostgresConnection,
     ManagedWarehouseSourceAuth,
     ServiceCredential,
     ServiceCredentialConnect,
 )
-from products.managed_warehouse.backend.local_dev import is_enabled as local_dev_enabled
 from products.managed_warehouse.backend.service_credentials import ServiceCredentialUnavailable, mint_service_credential
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
@@ -369,7 +369,7 @@ def resolve_managed_warehouse_postgres_connection(
     ):
         raise ServiceCredentialUnavailable("managed warehouse source has no valid lifecycle generation")
 
-    if local_dev_enabled():
+    if is_local_dev_enabled():
         return ManagedWarehousePostgresConnection(
             host=settings.MANAGED_WAREHOUSE_LOCAL_DUCKGRES_HOST,
             port=settings.MANAGED_WAREHOUSE_LOCAL_DUCKGRES_PORT,

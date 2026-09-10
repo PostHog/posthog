@@ -10,8 +10,6 @@ from django.core.cache import cache
 from rest_framework import status
 from rest_framework.response import Response
 
-from products.managed_warehouse.backend.common import is_dev_mode
-
 _STATE_KEY_PREFIX = "managed-warehouse:local-dev:org:"
 _ORG_INDEX_KEY = "managed-warehouse:local-dev:org-index"
 _LOCAL_PASSWORD = "posthog"
@@ -27,10 +25,6 @@ _METRIC_UNITS = {
     "storage_bytes": "bytes",
     "worker_crash_rate": "crashes/s",
 }
-
-
-def is_enabled() -> bool:
-    return is_dev_mode() and bool(getattr(settings, "MANAGED_WAREHOUSE_LOCAL_DEV_ENABLED", False))
 
 
 def _state_key(organization_id: str) -> str:
