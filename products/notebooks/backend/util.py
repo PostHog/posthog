@@ -408,17 +408,16 @@ def _continues_markdown_prose_block(lines: list[str], line_index: int) -> bool:
 
 
 def _markdown_line_start_offsets(lines: list[str]) -> list[int]:
+    """Character offset each line starts at, plus one entry past the end.
+
+    Every entry counts a trailing newline, the last line included even though it has none. A
+    block that ends at line `n` therefore ends at `offsets[n] - 1`, whether the document
+    continues after it or stops there.
+    """
     offsets = [0]
     for line in lines:
         offsets.append(offsets[-1] + len(line) + 1)
     return offsets
-
-
-def _markdown_block_span(line_starts: list[int], start_line: int, end_line: int) -> tuple[int, int]:
-    # Every entry in `line_starts` counts a trailing newline, including the last line, which has
-    # none. Stepping back over that one newline therefore gives the block end for a block that
-    # closes the document as well as for one the next line follows.
-    return line_starts[start_line], line_starts[end_line] - 1
 
 
 def _build_markdown_prose_block(
@@ -428,7 +427,8 @@ def _build_markdown_prose_block(
     end_line: int,
     occurrences: dict[str, int],
 ) -> MarkdownBlock:
-    start, end = _markdown_block_span(line_starts, start_line, end_line)
+    start = line_starts[start_line]
+    end = line_starts[end_line] - 1
     source = "\n".join(lines[start_line:end_line])
     occurrence = occurrences.get(source, 0)
     occurrences[source] = occurrence + 1
@@ -452,7 +452,8 @@ def _build_markdown_component_block(
     end_line: int,
     occurrences: dict[str, int],
 ) -> MarkdownBlock:
-    start, end = _markdown_block_span(line_starts, start_line, end_line)
+    start = line_starts[start_line]
+    end = line_starts[end_line] - 1
     props = _parse_markdown_component_props(raw)
     fingerprint = _get_markdown_component_fingerprint(tag_name, props)
     occurrence = occurrences.get(fingerprint, 0)

@@ -651,6 +651,26 @@ describe('notebook cell tools', () => {
             expect(saved).toContain('Second paragraph.')
         })
 
+        it('refuses when another markdown cell holds the same text', async () => {
+            // A duplicate inserted above between the caller's read and this write shifts the
+            // occurrence, so the stale id resolves to a block the caller never saw.
+            const state = makeState(`First paragraph.\n\n${DOC}`)
+            state.stateCells = [
+                { node_id: FIRST.node_id, cell_type: 'markdown', code: 'First paragraph.', start: 0, end: 16 },
+                { ...FIRST, node_id: 'mdp-abc-1', start: 27, end: 43 },
+            ]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Rewritten.',
+                })
+            ).rejects.toThrow(/same text as 1 other markdown cell/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
         it('refuses to guess when the block text is no longer unique', async () => {
             const state = makeState(`${DOC}\n\nFirst paragraph.`)
             state.stateCells = [{ ...FIRST, start: 999, end: 1015 }]

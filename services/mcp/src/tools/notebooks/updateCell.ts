@@ -118,6 +118,18 @@ async function updateProseCell(
     if (block.cell_type !== 'markdown') {
         throw new Error(`Cell ${params.node_id} is a ${block.cell_type} cell. Pass its replacement as \`code\`.`)
     }
+    // A prose id counts occurrences of identical text, so a block that duplicates another one's
+    // text is only pinned by the position it held when the caller read it. A write arrives after
+    // that read, and an identical block inserted above in between shifts every later occurrence
+    // by one. The id would still resolve, and the fresh offsets would still validate, so the edit
+    // would land on a block the caller never saw. Refuse instead: no id can separate two blocks
+    // that read the same.
+    const sameText = state.cells.filter((cell) => cell.cell_type === 'markdown' && cell.code === block.code)
+    if (sameText.length > 1) {
+        throw new Error(
+            `Cell ${params.node_id} has the same text as ${sameText.length - 1} other markdown cell(s) in notebook ${params.notebook_id}, so an id cannot name one of them. Edit this block in the notebook, or make the blocks differ first.`
+        )
+    }
 
     await applyMarkdownEdit(context, params.notebook_id, (current) => {
         const span = resolveProseSpan(current, block)
