@@ -54,9 +54,12 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
 
-# The read probe wants a large file the agent-server boot never opens, so its first read is
-# cold. The TypeScript compiler is installed globally in the image and nothing at boot loads it.
-HOST_PRESSURE_COLD_READ_FILE = "/usr/local/lib/node_modules/typescript/lib/typescript.js"
+# The read probe wants a large file the agent-server boot never opens, so its first read is cold:
+# nothing at boot loads the global TypeScript compiler. Its prefix follows the Node install and its
+# largest asset moves between releases, so take the biggest file under either prefix. Nothing above
+# the floor means no usable read, because the interpreter boot paged in would time fast, not cold.
+HOST_PRESSURE_COLD_READ_ROOTS = "/usr/lib/node_modules/typescript /usr/local/lib/node_modules/typescript"
+HOST_PRESSURE_COLD_READ_MIN_BYTES = 1024 * 1024
 HOST_PRESSURE_PROBE_SCRIPT = (
     'echo "loadavg=$(cat /proc/loadavg 2>/dev/null)"; '
     'echo "nproc=$(nproc 2>/dev/null)"; '
@@ -67,10 +70,13 @@ HOST_PRESSURE_PROBE_SCRIPT = (
     'echo "cpu_loop_ms=$(( $(date +%s%3N) - cpu_start ))"; '
     "spawn_start=$(date +%s%3N); python3 -c pass; "
     'echo "python_spawn_ms=$(( $(date +%s%3N) - spawn_start ))"; '
-    f"probe_file={HOST_PRESSURE_COLD_READ_FILE}; "
-    '[ -r "$probe_file" ] || probe_file="$(command -v node || command -v python3)"; '
-    'read_start=$(date +%s%3N); timeout 20 cat "$probe_file" > /dev/null; '
-    'echo "cold_read_ms=$(( $(date +%s%3N) - read_start )) file=$probe_file size=$(stat -c %s "$probe_file" 2>/dev/null)"'
+    f'probe_file="$(timeout 10 find {HOST_PRESSURE_COLD_READ_ROOTS} -type f '
+    '-printf "%s\\t%p\\n" 2>/dev/null | sort -rn | head -1 | cut -f2)"; '
+    'probe_size="$(stat -c %s "$probe_file" 2>/dev/null || echo 0)"; '
+    f'if [ "$probe_size" -ge {HOST_PRESSURE_COLD_READ_MIN_BYTES} ]; then '
+    '  read_start=$(date +%s%3N); timeout 20 cat "$probe_file" > /dev/null; '
+    '  echo "cold_read_ms=$(( $(date +%s%3N) - read_start )) file=$probe_file size=$probe_size"; '
+    'else echo "cold_read_ms=unavailable file=${probe_file:-none} size=$probe_size"; fi'
 )
 
 SESSION_INIT_PROBE_HOSTS = (

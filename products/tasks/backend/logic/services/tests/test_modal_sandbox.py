@@ -529,7 +529,7 @@ class TestModalSandboxAgentServer:
                 return ExecutionResult(stdout="", stderr="", exit_code=1, error=None)
             if "agent-server.log" in command:
                 return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-            if "printf" in command:
+            if "http_code=" in command:
                 return ExecutionResult(
                     stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
@@ -1395,7 +1395,7 @@ class TestStartupFailureDiagnostics:
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
-            if "printf" in command:
+            if "http_code=" in command:
                 return ExecutionResult(
                     stdout="api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000",
                     stderr="",
@@ -1420,7 +1420,7 @@ class TestStartupFailureDiagnostics:
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
-            if "printf" in command:
+            if "http_code=" in command:
                 return ExecutionResult(
                     stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
@@ -1440,7 +1440,7 @@ class TestStartupFailureDiagnostics:
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
-            if "printf" in command:
+            if "http_code=" in command:
                 return ExecutionResult(
                     stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
@@ -1483,7 +1483,7 @@ class TestStartupFailureDiagnostics:
             if "agent-server.log" in command:
                 log_commands.append(command)
                 return ExecutionResult(stdout="x" * log_bytes, stderr="", exit_code=0, error=None)
-            if "printf" in command:
+            if "http_code=" in command:
                 return ExecutionResult(
                     stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
