@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { defaultRetryConfig } from '~/common/utils/retries'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -177,6 +178,27 @@ describe('PersonMergeService store-owned merges', () => {
         const service = makeService()
 
         await expect(service.handleIdentifyOrAlias()).rejects.toThrow(PersonMergeCallFailedError)
+    })
+
+    it('a retriable dependency failure fails the batch instead of dropping the merge', async () => {
+        // handlePostgresError marks persons-pooler saturation retriable, and the
+        // retry framework redelivers the batch on it. An ack here would drop the
+        // merge for good and leave the person split across two records.
+        store.mergePersons.mockRejectedValue(
+            new DependencyUnavailableError('no more connections allowed', 'Postgres', new Error('pooler saturated'))
+        )
+        const service = makeService()
+
+        await expect(service.handleIdentifyOrAlias()).rejects.toThrow(DependencyUnavailableError)
+    })
+
+    it('an unflagged failure still acks so one bad event cannot stall the partition', async () => {
+        store.mergePersons.mockRejectedValue(new Error('merge broke'))
+        const service = makeService()
+
+        const mergeResult = await service.handleIdentifyOrAlias()
+
+        expect(mergeResult.success).toBe(true)
     })
 
     it.each([

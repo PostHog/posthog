@@ -156,6 +156,13 @@ export class PersonMergeService {
             if (e instanceof PersonMergeResponseMismatchError || e instanceof PersonMergeCallFailedError) {
                 throw e
             }
+            // A retriable dependency failure (e.g. exhausted persons-Postgres client slots)
+            // settles nothing either, so the batch must redeliver instead of dropping the merge
+            // for good. Only an explicit `isRetriable === true` rethrows: an unflagged error
+            // keeps the capture below, which reports a genuinely settled failure.
+            if ((e as { isRetriable?: boolean })?.isRetriable === true) {
+                throw e
+            }
             captureException(e, {
                 tags: { team_id: this.context.team.id, pipeline_step: 'processPersonsStep' },
                 extra: {
