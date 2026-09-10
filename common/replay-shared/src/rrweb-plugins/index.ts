@@ -66,11 +66,8 @@ export const CorsPlugin: ReplayPlugin & {
 const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL}; }`
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
-// The Chrome extension "Translator, dictionary - accurate translate" (id bebmphofpgkhclocdbgomhnjcpelbenh)
-// prepends its language-picker popup to <body> on every page. The CSS that hides and positions it
-// lives in the extension's content-script stylesheet, which browsers keep out of document.styleSheets,
-// so the recorder cannot capture it. Without it the popup renders in normal flow as a full-height
-// list of languages and pushes the recorded page below the fold.
+// Language picker prepended to <body> by the "Translator, dictionary - accurate translate" extension.
+// Its hiding CSS is content-script-only, so unrecordable; without this the picker reflows the page.
 const translatorExtensionPopupFix =
     'body > div.translate-tooltip-mtz, body > span.translate-button-mtz { display: none !important; }'
 
