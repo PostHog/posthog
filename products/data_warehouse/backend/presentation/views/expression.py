@@ -98,15 +98,6 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
         if self._becomes_active(attrs) and (instance is None or instance.deleted):
             self._enforce_expression_cap(team_id, instance)
 
-        if DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=table_name).exclude(deleted=True).exists():
-            raise serializers.ValidationError(
-                {
-                    "table_name": [
-                        f'"{table_name}" is a view. Expressions can only be added to tables. To add a field to a view, edit its query.'
-                    ]
-                }
-            )
-
         try:
             source, database = resolve_database_for_connection(
                 team=team,
@@ -122,6 +113,24 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             table = database.get_table(table_name)
         except Exception:
             raise serializers.ValidationError({"table_name": [f"Invalid table: {table_name}"]})
+
+        # A field that belongs on a view belongs in the view's query, where it is versioned with the
+        # view and materialized with it. Matched by saved-query name rather than by HogQL table
+        # class: a materialized view resolves to its backing S3 table, so a class check would let
+        # materialized views through. A warehouse table sharing the name wins in the catalog, so a
+        # name the catalog resolved to a table still takes expressions. Runs after the lookup above,
+        # so a view the requester can't read stays indistinguishable from a name that doesn't exist.
+        if (
+            table_name not in set(database.get_warehouse_table_names())
+            and DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=table_name).exclude(deleted=True).exists()
+        ):
+            raise serializers.ValidationError(
+                {
+                    "table_name": [
+                        f'"{table_name}" is a view. Expressions can only be added to tables. To add a field to a view, edit its query.'
+                    ]
+                }
+            )
 
         # The field this instance already contributes to the built database is the one name it may keep.
         is_own_field = (
