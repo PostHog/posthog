@@ -102,7 +102,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             payload["hogql_modifier_precedence"] = "runner"
 
         table_names = self._queried_table_names
-        feature_flag_table_names = {name.removeprefix("system.") for name in table_names if name.startswith("system.")}
+        feature_flag_table_names: set[str] | None = {
+            name.removeprefix("system.") for name in table_names if name.startswith("system.")
+        }
         if any(not name.startswith("system.") for name in table_names):
             queried_resources = queried_access_controlled_resources(self.query, self.team)
             if queried_resources is None or "warehouse_view" in queried_resources:
