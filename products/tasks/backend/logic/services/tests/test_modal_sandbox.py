@@ -35,6 +35,7 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
     HOST_PRESSURE_PROBE_SCRIPT,
     STARTUP_LOG_MAX_BYTES,
+    _egress_failure_reason,
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
@@ -1448,6 +1449,9 @@ class TestStartupFailureDiagnostics:
         assert expected in diagnostics["failure_reason"]
         assert unexpected not in diagnostics["failure_reason"]
         assert "mcp-eu.posthog.com" in diagnostics["failure_reason"]
+
+    def test_transfer_error_after_a_response_is_not_an_egress_failure(self):
+        assert _egress_failure_reason("api.anthropic.com http_code=200 curl_exit=56") is None
 
     def test_reports_alive_without_session_when_no_block(self):
         sandbox = self._sandbox()

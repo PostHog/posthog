@@ -132,7 +132,7 @@ def _egress_failure_reason(egress: str) -> str | None:
         if exit_code == 0:
             continue
         curl_reported_no_response = "http_code=000" in line or line.endswith("FAILED")
-        if exit_code is None and not curl_reported_no_response:
+        if not curl_reported_no_response and (exit_code is None or "http_code=" in line):
             continue
         failed.append(line)
         if exit_code == CURL_EXIT_OPERATION_TIMEOUT:
