@@ -8,6 +8,9 @@ CostStage = Literal["research", "implementation"]
 _COST_STAGES: tuple[CostStage, ...] = ("research", "implementation")
 _model_pricings: dict[str, dict[str, str]] | None = None
 _model_pricings_expires_at = 0.0
+_MODEL_PRICING_REFRESH_SECONDS = 3600
+_MODEL_PRICING_STALE_REFRESH_SECONDS = 60
+_MODEL_PRICING_REQUEST_TIMEOUT_SECONDS = 10
 
 
 def _value(value: object, name: str, default: int | str | None = None) -> int | str | None:
@@ -65,23 +68,32 @@ async def get_model_pricing(model: str) -> dict[str, str]:
     """Return the gateway catalog's per-token USD prices for a configured model."""
     global _model_pricings, _model_pricings_expires_at
     if _model_pricings is None or monotonic() >= _model_pricings_expires_at:
-        async with build_async_openai_client("signals") as client:
-            page = await client.models.list()
-        pricings: dict[str, dict[str, str]] = {}
-        for catalog_model in page.data:
-            pricing = _value(catalog_model, "pricing")
-            model_id = _value(catalog_model, "id")
-            if model_id is None or pricing is None:
-                continue
-            if _value(pricing, "prompt") is None or _value(pricing, "completion") is None:
-                continue
-            pricings[str(model_id)] = {
-                name: str(value)
-                for name, wire_names in _PRICE_WIRE_NAMES
-                if (value := _price(pricing, wire_names)) is not None
-            }
-        _model_pricings = pricings
-        _model_pricings_expires_at = monotonic() + 3600
+        try:
+            client = build_async_openai_client("signals").with_options(
+                timeout=_MODEL_PRICING_REQUEST_TIMEOUT_SECONDS, max_retries=0
+            )
+            async with client:
+                page = await client.models.list()
+            pricings: dict[str, dict[str, str]] = {}
+            for catalog_model in page.data:
+                pricing = _value(catalog_model, "pricing")
+                model_id = _value(catalog_model, "id")
+                if model_id is None or pricing is None:
+                    continue
+                if _value(pricing, "prompt") is None or _value(pricing, "completion") is None:
+                    continue
+                pricings[str(model_id)] = {
+                    name: str(value)
+                    for name, wire_names in _PRICE_WIRE_NAMES
+                    if (value := _price(pricing, wire_names)) is not None
+                }
+        except Exception:
+            if _model_pricings is None:
+                raise
+            _model_pricings_expires_at = monotonic() + _MODEL_PRICING_STALE_REFRESH_SECONDS
+        else:
+            _model_pricings = pricings
+            _model_pricings_expires_at = monotonic() + _MODEL_PRICING_REFRESH_SECONDS
     try:
         return _model_pricings[model]
     except KeyError as error:

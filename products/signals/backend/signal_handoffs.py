@@ -7,14 +7,15 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from posthog.api.embedding_worker import emit_embedding_request
 from posthog.dataclasses import frozen
-from posthog.kafka_client.routing import get_producer
-from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
+from posthog.kafka_client.routing import producer_scope
+from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
+from posthog.schema_enums import EmbeddingModelName
 from posthog.storage import object_storage
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.signal_costs import CostStage, add_cost, merge_costs
-from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 
 if TYPE_CHECKING:
     from products.signals.backend.temporal.types import SignalData
@@ -99,24 +100,19 @@ async def publish_signal(handoff: SignalHandoff) -> None:
         signal.metadata["deleted"] = True
 
     def emit() -> None:
-        # Reuse the prepared vector: publishing final costs must not buy another embedding.
-        producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_TOPIC)
-        result = producer.produce(
-            topic=KAFKA_DOCUMENT_EMBEDDINGS_TOPIC,
-            data={
-                "team_id": handoff.team_id,
-                "product": "signals",
-                "document_type": "signal",
-                "rendering": "plain",
-                "document_id": signal.signal_id,
-                "model_name": EMBEDDING_MODEL.value,
-                "timestamp": signal.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "content": signal.content,
-                "metadata": json.dumps(signal.metadata),
-                "embedding": handoff.embedding,
-            },
-        )
-        producer.flush(timeout=10)
+        # The embedding worker populates the recently-seen store used by publication confirmation.
+        with producer_scope(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, flush_timeout=10):
+            result = emit_embedding_request(
+                content=signal.content,
+                team_id=handoff.team_id,
+                product="signals",
+                document_type="signal",
+                rendering="plain",
+                document_id=signal.signal_id,
+                models=[model.value for model in EmbeddingModelName],
+                timestamp=signal.timestamp,
+                metadata=signal.metadata,
+            )
         result.get(timeout=1)
 
     await sync_to_async(emit, thread_sensitive=False)()

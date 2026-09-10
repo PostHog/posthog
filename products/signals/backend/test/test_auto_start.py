@@ -1066,10 +1066,14 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
 
     team, report = await sync_to_async(_setup)()
 
+    pending_metadata = {"source_product": "linear", "extra": {"identifier": "ENG-123"}}
     with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
-        await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+        await maybe_autostart_from_report_artefacts(
+            team_id=team.id, report_id=str(report.id), pending_metadata=pending_metadata
+        )
 
     assert mock_autostart.call_args.kwargs["repository_autostart_eligible"] is autostart_eligible
+    assert mock_autostart.call_args.kwargs["pending_metadata"] == pending_metadata
 
 
 @pytest.mark.asyncio

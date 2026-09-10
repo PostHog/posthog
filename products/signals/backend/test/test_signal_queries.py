@@ -260,12 +260,31 @@ class TestFetchSourceReferencesForReport(_SignalEmbeddingsTestBase):
 
         assert fetch_source_references_for_report(self.team, "r1") == []
 
-    def test_source_reference_is_available_before_clickhouse_publication(self) -> None:
+    def test_pending_reference_keeps_a_slot_when_the_cap_is_reached(self) -> None:
+        for number in range(1, 7):
+            self._emit_version(
+                document_id=f"gh{number}",
+                report_id="r1",
+                source_product="github",
+                inserted_at=self.base,
+                extra={"number": number, "html_url": f"https://github.com/acme/repo/issues/{number}"},
+            )
+
         assert fetch_source_references_for_report(
             self.team,
             "r1",
-            {"source_product": "github", "extra": {"number": 7, "html_url": "https://example.com/issues/7"}},
-        ) == [SignalSourceReference(source_product="github", label="#7", url="https://example.com/issues/7")]
+            {
+                "source_product": "linear",
+                "extra": {"identifier": "ENG-123", "url": "https://linear.app/acme/issue/ENG-123"},
+            },
+        ) == [
+            SignalSourceReference(
+                source_product="github", label=f"#{number}", url=f"https://github.com/acme/repo/issues/{number}"
+            )
+            for number in range(1, 5)
+        ] + [
+            SignalSourceReference(source_product="linear", label="ENG-123", url="https://linear.app/acme/issue/ENG-123")
+        ]
 
     def test_hostile_linear_identifier_falls_back_to_generic_label(self) -> None:
         self._emit_version(

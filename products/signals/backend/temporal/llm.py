@@ -211,8 +211,6 @@ async def call_llm(
         # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
         try:
             response = await client.messages.create(**create_kwargs)
-            if costs is not None:
-                add_cost(costs, MATCHING_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             text_content = _extract_text_content(response)
         except Exception:
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
@@ -249,6 +247,8 @@ async def call_llm(
             last_exception = e
             continue
 
+        if costs is not None:
+            add_cost(costs, MATCHING_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
         metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_OK)
         return result
 

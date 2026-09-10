@@ -5671,6 +5671,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "analysis_target_repository": "posthog/posthog",
                 "analysis_target_custom_image_id": "img-real",
                 "analysis_target_custom_image_name": "real-image",
+                "signal_handoff_key": "handoff-real",
             },
         )
 
@@ -5743,6 +5744,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_repository": "attacker/attacker",
                     "analysis_target_custom_image_id": "img-attacker",
                     "analysis_target_custom_image_name": "attacker-image",
+                    "signal_handoff_key": "handoff-attacker",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
                 }
@@ -5796,6 +5798,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # cannot forge attribution
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
+        assert run.state["signal_handoff_key"] == "handoff-real"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -5836,6 +5839,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_repository",
                     "analysis_target_custom_image_id",
                     "analysis_target_custom_image_name",
+                    "signal_handoff_key",
                     "scratch",
                 ],
             },
@@ -5878,7 +5882,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # protected key survives removal
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
+        assert run.state["signal_handoff_key"] == "handoff-real"
         assert "scratch" not in run.state  # non-protected key removed
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"state_append": {"signal_handoff_key": "handoff-attacker"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["signal_handoff_key"] == "handoff-real"
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):

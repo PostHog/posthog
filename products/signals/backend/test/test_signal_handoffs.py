@@ -43,7 +43,8 @@ async def test_handoff_round_trip_and_single_publication(deleted: bool, unsafe: 
         patch(
             "products.signals.backend.signal_handoffs.SignalReportArtefact.objects.filter", return_value=safety_query
         ),
-        patch("products.signals.backend.signal_handoffs.get_producer") as producer,
+        patch("products.signals.backend.signal_handoffs.producer_scope"),
+        patch("products.signals.backend.signal_handoffs.emit_embedding_request") as emit,
     ):
         key = await write_handoff(handoff)
         stored = await read_handoff(key, 1)
@@ -63,12 +64,13 @@ async def test_handoff_round_trip_and_single_publication(deleted: bool, unsafe: 
             )
         connect.assert_not_called()
 
-    producer.return_value.produce.assert_called_once()
-    record = producer.return_value.produce.call_args.kwargs["data"]
-    metadata = json.loads(record["metadata"])
+    emit.assert_called_once()
+    record = emit.call_args.kwargs
+    metadata = record["metadata"]
     assert metadata["token_cost"] == {"research": 3, "implementation": 8}
     assert metadata["compute_cost"] == {"research": 0, "implementation": 4}
     assert metadata.get("deleted", False) is (deleted or unsafe)
     assert record["document_id"] == signal.signal_id
-    assert record["timestamp"] == "2026-01-01 00:00:00.000000"
-    assert record["embedding"] == handoff.embedding
+    assert record["timestamp"] == signal.timestamp
+    assert record["content"] == signal.content
+    assert record["models"] == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]

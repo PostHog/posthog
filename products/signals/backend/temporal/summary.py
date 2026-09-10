@@ -77,6 +77,7 @@ logger = structlog.get_logger(__name__)
 # is trusted. Six 10s attempts comfortably covers observed p99 ingestion lag.
 EMPTY_FETCH_RETRY_ATTEMPTS = 6
 EMPTY_FETCH_RETRY_INTERVAL = timedelta(seconds=10)
+FINALIZER_BATCH_SIZE = 20
 
 
 def select_research_signal_key(
@@ -338,6 +339,7 @@ class SignalReportSummaryWorkflow:
         inputs: SignalReportSummaryWorkflowInputs,
         signal_key: str | None,
         implementation_run: ImplementationRunRef | None = None,
+        additional_signal_keys: tuple[str, ...] = (),
     ) -> None:
         if not signal_key or not workflow.patched("signals-stage-handoffs-v1"):
             return
@@ -349,8 +351,11 @@ class SignalReportSummaryWorkflow:
                     signal_key=signal_key,
                     task_id=implementation_run.task_id if implementation_run else None,
                     run_id=implementation_run.run_id if implementation_run else None,
+                    additional_signal_keys=additional_signal_keys,
                 ),
-                id=SignalImplementationFinalizerWorkflow.workflow_id_for(inputs.team_id, signal_key),
+                id=SignalImplementationFinalizerWorkflow.workflow_id_for(
+                    inputs.team_id, signal_key, additional_signal_keys
+                ),
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
@@ -370,14 +375,19 @@ class SignalReportSummaryWorkflow:
         triggering_signal_key: str | None,
         implementation_run: ImplementationRunRef | None = None,
     ) -> None:
-        for signal_key in signal_keys:
-            await self._start_signal_finalizer(
-                inputs,
-                signal_key,
-                implementation_run if signal_key == triggering_signal_key else None,
-            )
-            if signal_key in self._pending_signal_keys:
-                self._pending_signal_keys.remove(signal_key)
+        owner_key = triggering_signal_key if implementation_run and triggering_signal_key in signal_keys else None
+        if owner_key:
+            await self._start_signal_finalizer(inputs, owner_key, implementation_run)
+
+        non_owner_keys = [signal_key for signal_key in signal_keys if signal_key != owner_key]
+        for batch_start in range(0, len(non_owner_keys), FINALIZER_BATCH_SIZE):
+            batch = non_owner_keys[batch_start : batch_start + FINALIZER_BATCH_SIZE]
+            await self._start_signal_finalizer(inputs, batch[0], additional_signal_keys=tuple(batch[1:]))
+
+        finalized_keys = set(signal_keys)
+        self._pending_signal_keys = [
+            signal_key for signal_key in self._pending_signal_keys if signal_key not in finalized_keys
+        ]
 
     async def _replay_removed_report_canvas(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # Executions that were in flight when the report-canvas pipeline was removed have those
@@ -1119,7 +1129,10 @@ async def maybe_autostart_implementation_activity(
     if handoff.signal.metadata.get("report_id") != input.report_id:
         raise ValueError("Signal handoff belongs to another report")
     run = await maybe_autostart_from_report_artefacts(
-        team_id=input.team_id, report_id=input.report_id, signal_key=input.signal_key
+        team_id=input.team_id,
+        report_id=input.report_id,
+        signal_key=input.signal_key,
+        pending_metadata=handoff.signal.metadata,
     )
     return ImplementationRunRef(task_id=str(run.task_id), run_id=str(run.id)) if run else None
 

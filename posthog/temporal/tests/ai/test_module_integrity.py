@@ -127,6 +127,7 @@ class TestSignalsProductModuleIntegrity:
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
             "dispatch_signal_handoffs_activity",
+            "check_implementation_task_workflow_closed_activity",
             "finalize_signal_implementation_activity",
             "release_signal_key_activity",
             "capture_signal_dropped_activity",

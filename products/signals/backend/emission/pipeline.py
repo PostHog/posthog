@@ -209,7 +209,6 @@ async def _summarize_description(
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            add_cost(output.metadata, LLM_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             summary = _extract_text(response).strip()
             if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
@@ -217,6 +216,7 @@ async def _summarize_description(
                 raise ValueError("Empty response from LLM when summarizing description")
             if len(summary) > threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
+            add_cost(output.metadata, LLM_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             return dataclasses.replace(output, description=summary)
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -352,8 +352,10 @@ async def check_actionability(
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            add_cost(output.metadata, LLM_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             response_text = _extract_text(response).strip().upper()
+            if not response_text:
+                raise ValueError("Empty response from LLM when checking actionability")
+            add_cost(output.metadata, LLM_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             return "NOT_ACTION" not in response_text
         except Exception as e:
             posthoganalytics.capture_exception(

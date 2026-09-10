@@ -66,6 +66,7 @@ from products.signals.backend.temporal.report_safety_judge import report_safety_
 from products.signals.backend.temporal.safety_filter import safety_filter_activity
 from products.signals.backend.temporal.signal_implementation import (
     SignalImplementationFinalizerWorkflow,
+    check_implementation_task_workflow_closed_activity,
     finalize_signal_implementation_activity,
     release_signal_key_activity,
 )
@@ -122,6 +123,7 @@ ACTIVITIES = [
     stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     dispatch_signal_handoffs_activity,
+    check_implementation_task_workflow_closed_activity,
     finalize_signal_implementation_activity,
     release_signal_key_activity,
     capture_signal_dropped_activity,

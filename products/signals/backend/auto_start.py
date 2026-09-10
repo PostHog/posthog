@@ -50,7 +50,6 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.scout_authorship import resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
-from products.signals.backend.signal_handoffs import read_handoff
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_source_products_for_reports,
@@ -695,6 +694,7 @@ async def maybe_autostart_implementation_task(
     billing_exempt_reason: str | None = None,
     repository_autostart_eligible: bool = True,
     signal_key: str | None = None,
+    pending_metadata: dict | None = None,
 ) -> TaskRunDTO | None:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
@@ -857,7 +857,6 @@ async def maybe_autostart_implementation_task(
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
 
-    pending_metadata = (await read_handoff(signal_key, team_id)).signal.metadata if signal_key else None
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id, pending_metadata
     )
@@ -954,7 +953,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
 
 
 async def maybe_autostart_from_report_artefacts(
-    *, team_id: int, report_id: str, signal_key: str | None = None
+    *, team_id: int, report_id: str, signal_key: str | None = None, pending_metadata: dict | None = None
 ) -> TaskRunDTO | None:
     """Re-evaluate auto-start from a report's *current* artefacts.
 
@@ -1023,4 +1022,5 @@ async def maybe_autostart_from_report_artefacts(
         triggering_user_id=editor_user_id,
         repository_autostart_eligible=repo_selection.autostart_eligible,
         signal_key=signal_key,
+        pending_metadata=pending_metadata,
     )
