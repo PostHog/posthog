@@ -37,6 +37,14 @@ class AckEvalReportCursorsInput:
     report_ids: list[str]
 
 
+@dataclasses.dataclass(frozen=True)
+class AckEvalReportCursorRowsInput:
+    trigger_type: str
+    region: str
+    cursor_before: str
+    report_rows: list[tuple[str, int]]
+
+
 @dataclasses.dataclass
 class CheckCountTriggeredEvalReportInput:
     report_id: str

@@ -3,7 +3,11 @@ import asyncio
 from uuid import UUID
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import (
+    AsyncMock,
+    call as mock_call,
+    patch,
+)
 
 import temporalio.activity
 import temporalio.workflow
@@ -14,6 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
+    ack_eval_report_cursor_rows_activity,
     ack_eval_report_cursors_activity,
     check_count_triggered_eval_reports_activity,
     deliver_report_activity,
@@ -34,6 +39,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     WORKFLOW_EXECUTION_TIMEOUT,
 )
 from posthog.temporal.ai_observability.eval_reports.types import (
+    AckEvalReportCursorRowsInput,
     AckEvalReportCursorsInput,
     CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchInput,
@@ -54,6 +60,7 @@ from posthog.temporal.ai_observability.eval_reports.workflow import (
     ScheduleAllEvalReportsWorkflow,
     _check_count_triggered_eval_report_candidates,
     _check_count_triggered_eval_report_candidates_batched,
+    _CountCheckWindowResult,
     _DueReportCandidates,
     _IncrementalCursorAck,
     _report_workflow_id,
@@ -863,11 +870,70 @@ async def test_batched_count_check_aggregates_across_groups_and_isolates_group_f
     record.assert_called_once_with(1, "count_triggered")
     logger.warning.assert_called_once()
     assert logger.warning.call_args.kwargs["extra"]["failed_count"] == 2
+    assert logger.info.call_args_list == [
+        mock_call(
+            "llma_eval_reports_coordinator_count_triggered_window",
+            extra={
+                "reports_found": 1,
+                "total_checked": 4,
+                "failed_count": 2,
+                "skipped_cooldown": 1,
+                "skipped_daily_cap": 0,
+                "skipped_not_deliverable": 0,
+            },
+        ),
+        mock_call(
+            "llma_eval_reports_coordinator_count_triggered_poll",
+            extra={
+                "reports_found": 1,
+                "total_checked": 4,
+                "skipped_cooldown": 1,
+                "skipped_daily_cap": 0,
+                "skipped_not_deliverable": 0,
+            },
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_emits_completed_window_telemetry_before_cancellation() -> None:
+    calls = 0
+
+    async def fake_check_window(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _CountCheckWindowResult(
+                due_report_ids=["due"],
+                occurrence_keys={"due": "occurrence"},
+                failures=[("failed", "RuntimeError: unavailable")],
+                skipped_counts={"cooldown": 1},
+            )
+        raise asyncio.CancelledError
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow._check_count_triggered_window",
+            new=fake_check_window,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 1),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found") as record,
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger") as logger,
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await _check_count_triggered_eval_report_candidates_batched([["first"], ["second"]])
+
+    record.assert_called_once_with(1, "count_triggered")
+    logger.warning.assert_called_once_with(
+        "count_triggered_eval_report_check.activity_errors",
+        extra={"failed_count": 1, "failures": [("failed", "RuntimeError: unavailable")]},
+    )
     logger.info.assert_called_once_with(
-        "llma_eval_reports_coordinator_count_triggered_poll",
+        "llma_eval_reports_coordinator_count_triggered_window",
         extra={
             "reports_found": 1,
-            "total_checked": 4,
+            "total_checked": 1,
+            "failed_count": 1,
             "skipped_cooldown": 1,
             "skipped_daily_cap": 0,
             "skipped_not_deliverable": 0,
@@ -953,7 +1019,7 @@ async def test_batched_count_check_dispatches_each_completed_window() -> None:
 @pytest.mark.asyncio
 async def test_batched_count_check_acknowledges_each_window_before_checking_the_next() -> None:
     events: list[str] = []
-    acknowledged_inputs: list[AckEvalReportCursorsInput] = []
+    acknowledged_inputs: list[AckEvalReportCursorRowsInput] = []
 
     async def fake_execute_activity(activity, inputs, **kwargs):
         if activity is check_count_triggered_eval_reports_activity:
@@ -968,8 +1034,8 @@ async def test_batched_count_check_acknowledges_each_window_before_checking_the_
                     )
                 ]
             )
-        if activity is ack_eval_report_cursors_activity:
-            events.append(f"ack:{inputs.report_ids[0]}")
+        if activity is ack_eval_report_cursor_rows_activity:
+            events.append(f"ack:{inputs.report_rows[0][0]}")
             acknowledged_inputs.append(inputs)
             return True
         raise AssertionError(f"unexpected activity: {activity}")
@@ -1010,6 +1076,7 @@ async def test_batched_count_check_acknowledges_each_window_before_checking_the_
         "ack:due-b",
     ]
     assert [inputs.cursor_before for inputs in acknowledged_inputs] == ["41", "42"]
+    assert [inputs.report_rows for inputs in acknowledged_inputs] == [[("due-a", 42)], [("due-b", 43)]]
 
 
 @pytest.mark.asyncio
@@ -1025,8 +1092,8 @@ async def test_batched_count_check_advances_past_a_failed_window() -> None:
             return CheckCountTriggeredEvalReportsBatchOutput(
                 results=[CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False)]
             )
-        if activity is ack_eval_report_cursors_activity:
-            events.append(f"ack:{inputs.report_ids[0]}")
+        if activity is ack_eval_report_cursor_rows_activity:
+            events.append(f"ack:{inputs.report_rows[0][0]}")
             return True
         raise AssertionError(f"unexpected activity: {activity}")
 
@@ -1061,8 +1128,8 @@ async def test_batched_count_check_stops_after_cursor_acknowledgement_conflict()
             return CheckCountTriggeredEvalReportsBatchOutput(
                 results=[CheckCountTriggeredEvalReportOutput(report_id=inputs.report_ids[0], due=False)]
             )
-        if activity is ack_eval_report_cursors_activity:
-            events.append(f"ack:{inputs.report_ids[0]}")
+        if activity is ack_eval_report_cursor_rows_activity:
+            events.append(f"ack:{inputs.report_rows[0][0]}")
             return False
         raise AssertionError(f"unexpected activity: {activity}")
 

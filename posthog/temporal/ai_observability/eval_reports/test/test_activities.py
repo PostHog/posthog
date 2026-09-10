@@ -21,7 +21,9 @@ from posthog.models import Team
 from posthog.models.temporal_scheduler import TemporalSchedulerState
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+    _REPORTABLE_OUTPUT_TYPES_BY_TARGET,
     _SCHEDULED_REPORT_CANDIDATE_SQL,
+    _ack_eval_report_cursor_rows,
     _advance_eval_report_cursors,
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
@@ -50,12 +52,14 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
 from posthog.temporal.ai_observability.eval_reports.targets import target_event_predicate
 from posthog.temporal.ai_observability.eval_reports.types import (
+    AckEvalReportCursorRowsInput,
     PrepareReportContextInput,
     RunEvalReportAgentInput,
     StoreReportRunInput,
     UpdateNextDeliveryDateInput,
 )
 
+from products.ai_observability.backend.models.evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
 
@@ -75,6 +79,9 @@ def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
 
 
 class TestGroupCountTriggeredReportRows(SimpleTestCase):
+    def test_candidate_sql_reportability_contract_matches_the_model(self):
+        assert _REPORTABLE_OUTPUT_TYPES_BY_TARGET == REPORTABLE_OUTPUT_TYPES_BY_TARGET
+
     def test_chunks_stay_single_team_and_interleave_by_rank(self):
         rows = [(f"a{index}", 1) for index in range(5)] + [("b0", 2), ("c0", 3)]
 
@@ -628,6 +635,26 @@ class TestCountTriggeredReportChecks(BaseTest):
 
         self.assertEqual(groups, [[str(count_triggered_report.id)]])
         execute_hogql_query.assert_not_called()
+
+    def test_cursor_acknowledgement_uses_the_discovery_snapshot_after_a_report_is_deleted(self):
+        report = self._create_report()
+        scheduler = "eval_reports_count_triggered"
+        TemporalSchedulerState.objects.create(scheduler=scheduler, region="test", discovery_cursor="41")
+        report_id = str(report.id)
+        team_id = report.team_id
+        report.delete()
+
+        advanced = _ack_eval_report_cursor_rows(
+            AckEvalReportCursorRowsInput(
+                trigger_type="count_triggered",
+                region="test",
+                cursor_before="41",
+                report_rows=[(report_id, team_id)],
+            )
+        )
+
+        assert advanced is True
+        assert TemporalSchedulerState.objects.get(scheduler=scheduler, region="test").discovery_cursor == str(team_id)
 
     def test_fetch_candidates_groups_by_team_and_chunks_by_width(self):
         # One check activity handles one group, so a group must never span teams (its counts

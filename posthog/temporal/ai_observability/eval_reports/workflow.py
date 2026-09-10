@@ -15,6 +15,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
+    ack_eval_report_cursor_rows_activity,
     ack_eval_report_cursors_activity,
     check_count_triggered_eval_report_activity,
     check_count_triggered_eval_reports_activity,
@@ -56,6 +57,7 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
 )
 from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
 from posthog.temporal.ai_observability.eval_reports.types import (
+    AckEvalReportCursorRowsInput,
     AckEvalReportCursorsInput,
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
@@ -84,6 +86,7 @@ class _IncrementalCursorAck(NamedTuple):
     region: str
     cursor_before: str
     team_by_report_id: dict[str, int]
+    use_snapshot_activity: bool = True
 
 
 class _CountCheckWindowResult(NamedTuple):
@@ -91,6 +94,26 @@ class _CountCheckWindowResult(NamedTuple):
     occurrence_keys: dict[str, str]
     failures: list[tuple[str, str]]
     skipped_counts: dict[str, int]
+
+
+def _emit_count_triggered_window_telemetry(result: _CountCheckWindowResult, total_checked: int) -> None:
+    if result.failures:
+        temporalio.workflow.logger.warning(
+            "count_triggered_eval_report_check.activity_errors",
+            extra={"failed_count": len(result.failures), "failures": result.failures[:20]},
+        )
+    temporalio.workflow.logger.info(
+        "llma_eval_reports_coordinator_count_triggered_window",
+        extra={
+            "reports_found": len(result.due_report_ids),
+            "total_checked": total_checked,
+            "failed_count": len(result.failures),
+            "skipped_cooldown": result.skipped_counts.get("cooldown", 0),
+            "skipped_daily_cap": result.skipped_counts.get("daily_cap", 0),
+            "skipped_not_deliverable": result.skipped_counts.get("not_deliverable", 0),
+        },
+    )
+    record_coordinator_reports_found(len(result.due_report_ids), "count_triggered")
 
 
 def _collect_count_triggered_output(
@@ -214,6 +237,7 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
                     region=inputs.region,
                     cursor_before=result.cursor_before,
                     team_by_report_id=result.team_by_report_id,
+                    use_snapshot_activity=temporalio.workflow.patched("eval-report-cursor-ack-snapshot-2026-09"),
                 )
             due_reports = await _check_count_triggered_eval_report_candidates_batched(
                 result.report_id_groups or [],
@@ -297,7 +321,6 @@ async def _check_count_triggered_eval_report_candidates_batched(
 ) -> _DueReportCandidates:
     due_report_ids: list[str] = []
     occurrence_keys: dict[str, str] = {}
-    failed: list[tuple[str, str]] = []
     skipped_counts = {
         "cooldown": 0,
         "daily_cap": 0,
@@ -316,9 +339,9 @@ async def _check_count_triggered_eval_report_candidates_batched(
         window_result = await _check_count_triggered_window(window, activity_schedule_to_close_timeout)
         due_report_ids.extend(window_result.due_report_ids)
         occurrence_keys.update(window_result.occurrence_keys)
-        failed.extend(window_result.failures)
         for reason, count in window_result.skipped_counts.items():
             skipped_counts[reason] = skipped_counts.get(reason, 0) + count
+        _emit_count_triggered_window_telemetry(window_result, len(window_report_ids))
 
         # Start reports as each bounded check window completes. If the coordinator later
         # reaches its execution timeout, earlier windows retain their acknowledged progress
@@ -341,18 +364,14 @@ async def _check_count_triggered_eval_report_candidates_batched(
                 "count_triggered",
                 incremental_ack.region,
                 incremental_ack.cursor_before,
+                team_by_report_id=incremental_ack.team_by_report_id,
+                use_snapshot_activity=incremental_ack.use_snapshot_activity,
             )
             if not advanced:
                 break
             incremental_ack = incremental_ack._replace(
                 cursor_before=str(incremental_ack.team_by_report_id[window_report_ids[-1]])
             )
-
-    if failed:
-        temporalio.workflow.logger.warning(
-            "count_triggered_eval_report_check.activity_errors",
-            extra={"failed_count": len(failed), "failures": failed},
-        )
 
     temporalio.workflow.logger.info(
         "llma_eval_reports_coordinator_count_triggered_poll",
@@ -364,7 +383,6 @@ async def _check_count_triggered_eval_report_candidates_batched(
             "skipped_not_deliverable": skipped_counts["not_deliverable"],
         },
     )
-    record_coordinator_reports_found(len(due_report_ids), "count_triggered")
     return _DueReportCandidates(due_report_ids, occurrence_keys)
 
 
@@ -511,18 +529,36 @@ async def _ack_eval_report_ids(
     trigger_type: str,
     region: str,
     cursor_before: str,
+    *,
+    team_by_report_id: dict[str, int] | None = None,
+    use_snapshot_activity: bool = False,
 ) -> bool:
-    advanced = await temporalio.workflow.execute_activity(
-        ack_eval_report_cursors_activity,
-        AckEvalReportCursorsInput(
-            trigger_type=trigger_type,
-            region=region,
-            cursor_before=cursor_before,
-            report_ids=report_ids,
-        ),
-        start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
-        retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
-    )
+    if use_snapshot_activity:
+        if team_by_report_id is None:
+            raise ValueError("team_by_report_id is required for snapshot cursor acknowledgement")
+        advanced = await temporalio.workflow.execute_activity(
+            ack_eval_report_cursor_rows_activity,
+            AckEvalReportCursorRowsInput(
+                trigger_type=trigger_type,
+                region=region,
+                cursor_before=cursor_before,
+                report_rows=[(report_id, team_by_report_id[report_id]) for report_id in report_ids],
+            ),
+            start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+            retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+        )
+    else:
+        advanced = await temporalio.workflow.execute_activity(
+            ack_eval_report_cursors_activity,
+            AckEvalReportCursorsInput(
+                trigger_type=trigger_type,
+                region=region,
+                cursor_before=cursor_before,
+                report_ids=report_ids,
+            ),
+            start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+            retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+        )
     if not advanced:
         temporalio.workflow.logger.warning(
             "eval_report_coordinator.cursor_acknowledgement_conflict",

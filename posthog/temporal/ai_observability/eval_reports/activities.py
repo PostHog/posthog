@@ -39,6 +39,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     target_event_predicate,
 )
 from posthog.temporal.ai_observability.eval_reports.types import (
+    AckEvalReportCursorRowsInput,
     AckEvalReportCursorsInput,
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
@@ -72,14 +73,22 @@ _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER = "eval_reports_count_triggered"
 _ZERO_UUID = "00000000-0000-0000-0000-000000000000"
 _MAX_DISCOVERY_REFILL_ROUNDS = 12
 
-_REPORTABLE_EVALUATION_SQL = """
-    evaluation.enabled = TRUE
-    AND evaluation.deleted = FALSE
-    AND (
-        (evaluation.target = 'generation' AND evaluation.output_type IN ('boolean', 'sentiment'))
-        OR (evaluation.target IN ('trace', 'session') AND evaluation.output_type = 'boolean')
-    )
-"""
+_REPORTABLE_OUTPUT_TYPES_BY_TARGET = {
+    "generation": ("boolean", "sentiment"),
+    "trace": ("boolean",),
+    "session": ("boolean",),
+}
+
+
+def _build_reportable_evaluation_sql() -> str:
+    clauses = []
+    for target, output_types in _REPORTABLE_OUTPUT_TYPES_BY_TARGET.items():
+        output_type_sql = ", ".join(repr(output_type) for output_type in output_types)
+        clauses.append(f"(evaluation.target = {target!r} AND evaluation.output_type IN ({output_type_sql}))")
+    return "evaluation.enabled = TRUE AND evaluation.deleted = FALSE AND (" + " OR ".join(clauses) + ")"
+
+
+_REPORTABLE_EVALUATION_SQL = _build_reportable_evaluation_sql()
 
 _SCHEDULED_REPORT_CANDIDATE_SQL = f"""
     WITH selected_teams AS (
@@ -667,6 +676,28 @@ async def ack_eval_report_cursors_activity(inputs: AckEvalReportCursorsInput) ->
         )
 
     return await ack()
+
+
+def _ack_eval_report_cursor_rows(inputs: AckEvalReportCursorRowsInput) -> bool:
+    if inputs.trigger_type == "scheduled":
+        scheduler = _SCHEDULED_EVAL_REPORTS_SCHEDULER
+    elif inputs.trigger_type == "count_triggered":
+        scheduler = _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER
+    else:
+        raise ValueError("unsupported evaluation report trigger_type")
+
+    return _advance_eval_report_cursors(
+        _EvalReportCandidatePage([], 0, None, inputs.cursor_before, {}),
+        inputs.report_rows,
+        scheduler=scheduler,
+        region=inputs.region,
+        rotate_item_cursor=True,
+    )
+
+
+@temporalio.activity.defn
+async def ack_eval_report_cursor_rows_activity(inputs: AckEvalReportCursorRowsInput) -> bool:
+    return await database_sync_to_async(thread_sensitive=False)(_ack_eval_report_cursor_rows)(inputs)
 
 
 @temporalio.activity.defn
