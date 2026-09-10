@@ -355,6 +355,37 @@ def slack_ticket_create_lock(team_id: int, channel: str, thread_ts: str) -> Gene
                 logger.warning("slack_ticket_create_redis_unlock_error", key=key)
 
 
+# Slack thread-reply comment lock
+# One Slack message can reach the reply path twice: a mention posted as a thread reply
+# arrives as both a `message` and an `app_mention` callback, each with its own event id,
+# so each gets its own receipt and its own worker.
+
+
+@contextmanager
+def slack_comment_create_lock(team_id: int, ticket_id: str, slack_message_ts: str | None) -> Generator[None]:
+    """Serialize the dedupe check and the insert for one Slack message on one ticket.
+
+    The caller must run its existence check and its writes inside the yielded block —
+    they share the transaction opened here. The advisory lock is transaction scoped, so
+    it holds for exactly as long as those writes, and it survives PgBouncer transaction
+    pooling, where a session-scoped lock and the later insert can land on different
+    backend sessions.
+
+    The wait is blocking, not a try: the loser has to re-read after the winner commits.
+    Skipping on a held lock would drop the comment when the winner rolls back.
+
+    Without a ``slack_message_ts`` there is no dedupe key to serialize on, so the writes
+    only get their transaction.
+    """
+    with transaction.atomic():
+        if slack_message_ts:
+            key = _make_cache_key("slack_comment_create_lock", str(team_id), ticket_id, slack_message_ts)
+            lock_id = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], byteorder="big", signed=True)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_id])
+        yield
+
+
 def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:
     # JSON-encode for an unambiguous preimage: joining with a separator collides
     # when distinct_ids themselves contain it (["a|b", "c"] vs ["a", "b|c"]).

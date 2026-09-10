@@ -43,6 +43,7 @@ from .cache import (
     get_cached_bot_user_id,
     is_nudge_suppressed,
     set_cached_bot_user_id,
+    slack_comment_create_lock,
     slack_ticket_create_lock,
     suppress_nudge,
 )
@@ -389,6 +390,16 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
     return attachments
 
 
+def _slack_comment_exists(team: Team, ticket_id: str, slack_message_ts: str) -> bool:
+    """Report whether this Slack message is already stored as a comment on this ticket."""
+    return Comment.objects.filter(
+        team=team,
+        scope="conversations_ticket",
+        item_id=ticket_id,
+        item_context__slack_message_ts=slack_message_ts,
+    ).exists()
+
+
 def create_or_update_slack_ticket(
     *,
     team: Team,
@@ -468,15 +479,7 @@ def create_or_update_slack_ticket(
         if slack_team_id and not ticket.slack_team_id:
             Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
 
-        if (
-            slack_message_ts
-            and Comment.objects.filter(
-                team=team,
-                scope="conversations_ticket",
-                item_id=str(ticket.id),
-                item_context__slack_message_ts=slack_message_ts,
-            ).exists()
-        ):
+        if slack_message_ts and _slack_comment_exists(team, str(ticket.id), slack_message_ts):
             return ticket
 
         # Allow messages with only attachments (no text)
@@ -494,7 +497,12 @@ def create_or_update_slack_ticket(
             cleaned_text, rich_content, attachments.images, attachments.files
         )
 
-        with transaction.atomic():
+        with slack_comment_create_lock(team_id, str(ticket.id), slack_message_ts):
+            # Re-check under the lock because the other callback for this same Slack
+            # message can commit between the check above and this insert.
+            if slack_message_ts and _slack_comment_exists(team, str(ticket.id), slack_message_ts):
+                return ticket
+
             Comment.objects.create(
                 team=team,
                 scope="conversations_ticket",

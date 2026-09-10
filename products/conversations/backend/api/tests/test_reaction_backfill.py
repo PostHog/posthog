@@ -695,6 +695,48 @@ class TestSlackTicketCreateLockDedup(BaseTest):
         assert comments.count() == 1
         assert comments.get().item_context["slack_message_ts"] == "1700000000.000200"
 
+    @patch(f"{MODULE}._slack_comment_exists", side_effect=[False, True])
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Dana", "email": "d@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_thread_reply_comment_a_racing_callback_committed_is_not_duplicated(
+        self,
+        _files: MagicMock,
+        _user: MagicMock,
+        mock_client: MagicMock,
+        _exists: MagicMock,
+    ) -> None:
+        # A mention posted as a thread reply arrives as both a `message` and an
+        # `app_mention` callback, so two workers reach this insert with one message ts.
+        # The loser's fast-path check misses, and its re-check under the lock has to see
+        # the winner's committed comment.
+        mock_client.return_value = MagicMock()
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id=CHANNEL,
+            slack_thread_ts=PARENT_TS,
+            unread_team_count=0,
+        )
+
+        result = create_or_update_slack_ticket(
+            team=self.team,
+            slack_channel_id=CHANNEL,
+            thread_ts=PARENT_TS,
+            slack_user_id="U_SOMEONE",
+            text="More context",
+            is_thread_reply=True,
+            slack_team_id=SLACK_TEAM,
+            slack_message_ts="1700000000.000200",
+        )
+
+        assert result is not None
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(ticket.id)).exists()
+        ticket.refresh_from_db()
+        assert ticket.unread_team_count == 0
+
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Bob", "email": "b@x.com", "avatar": None})
     @patch(f"{MODULE}.extract_slack_files", return_value=[])
