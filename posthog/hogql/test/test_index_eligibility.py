@@ -1,3 +1,4 @@
+from enum import StrEnum
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -7,7 +8,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse
+from posthog.schema import (
+    HogLanguage,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    PredicateFixAction as SchemaPredicateFixAction,
+    PredicateIndexVerdict as SchemaPredicateIndexVerdict,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -16,8 +23,10 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.index_eligibility import (
     IndexEligibilityReport,
     IndexKind,
+    PredicateFixAction,
     PredicateIndexEligibility,
     PredicateIndexVerdict,
+    PredicateQuickfix,
     analyze_index_eligibility,
     build_index_eligibility_report,
     eligibility_from_plan,
@@ -61,6 +70,7 @@ def _plan(
     semantic_type: ast.ConstantType | None = None,
     physical_type: ast.ConstantType | None = None,
     value_type: ast.ConstantType | None = None,
+    physical_compatibility: ComparisonCompatibility | None = None,
 ) -> PropertyComparisonPlan:
     source = PropertySourcePlan(
         kind=kind,
@@ -91,11 +101,33 @@ def _plan(
         operator=operator,
         value_type=value_type or ast.StringType(nullable=True),
         semantic_compatibility=ComparisonCompatibility.DEFINITELY_COMPATIBLE,
-        physical_compatibility=ComparisonCompatibility.DEFINITELY_COMPATIBLE,
+        physical_compatibility=physical_compatibility
+        or (
+            ComparisonCompatibility.EXPENSIVE_CAST
+            if blocker == PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE
+            else ComparisonCompatibility.DEFINITELY_COMPATIBLE
+        ),
         literal_conversion=PropertyLiteralConversion.NONE,
         source_matches_semantics=blocker != PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
         minmax_blocker=blocker,
     )
+
+
+class TestIndexEnumsMatchTheSchema(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fix_action", PredicateFixAction, SchemaPredicateFixAction),
+            ("verdict", PredicateIndexVerdict, SchemaPredicateIndexVerdict),
+        ]
+    )
+    def test_wire_values_match_the_generated_enum(
+        self, _name: str, local: type[StrEnum], generated: type[StrEnum]
+    ) -> None:
+        # These enums are deliberately declared twice: the local one carries the ClickHouse reasoning
+        # in its docstrings, and keeping it off the generated schema keeps that module off this
+        # module's import path. `metadata.py` converts by value, so a new member added on one side
+        # only raises once a query happens to produce it.
+        assert {member.value for member in local} == {member.value for member in generated}
 
 
 class TestIndexEligibilityVerdicts(SimpleTestCase):
@@ -143,6 +175,20 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
                     kind=PropertySourceKind.MATERIALIZED_COLUMN,
                     minmax=True,
                     blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+                ),
+                PredicateIndexVerdict.BLOCKED,
+                (),
+            ),
+            (
+                # The planner reports the missing minmax index ahead of the type problem, so the verdict
+                # has to find the cast on its own or a bloom-only column reads as indexed.
+                "value_type_mismatch_defeats_a_bloom_filter_too",
+                _plan(
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    bloom=True,
+                    blocker=PropertyMinmaxBlocker.NO_MINMAX_INDEX,
+                    value_type=ast.IntegerType(),
+                    physical_compatibility=ComparisonCompatibility.EXPENSIVE_CAST,
                 ),
                 PredicateIndexVerdict.BLOCKED,
                 (),
@@ -309,6 +355,101 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
         assert eligibility.editor_actionable is True
         assert eligibility.ai_fix_prompt is not None
 
+    @parameterized.expand(
+        [
+            ("integer", ast.Constant(value=120, start=10, end=13), "'120'"),
+            # A float's text form is Python's, not the row's: 2.0 stores as "2" and 1e20 as "1e+20".
+            ("float", ast.Constant(value=1.5, start=10, end=13), None),
+            (
+                "tuple_of_numbers",
+                ast.Tuple(exprs=[ast.Constant(value=1), ast.Constant(value=2)], start=10, end=16),
+                "('1', '2')",
+            ),
+            ("string_already", ast.Constant(value="120", start=10, end=15), None),
+            ("boolean_has_no_certain_text_form", ast.Constant(value=True, start=10, end=14), None),
+            ("computed_value", ast.Call(name="now", args=[], start=10, end=15), None),
+            (
+                "tuple_with_a_computed_member",
+                ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="now", args=[])], start=10, end=20),
+                None,
+            ),
+            ("literal_without_a_position", ast.Constant(value=120), None),
+        ]
+    )
+    def test_quickfix_quotes_only_plain_numeric_literals(
+        self, _name: str, value_expr: ast.Expr, expected_text: str | None
+    ) -> None:
+        operator = Op.In if isinstance(value_expr, ast.Tuple) else Op.Eq
+        plan = _plan(
+            operator=operator,
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            bloom=True,
+            blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+            value_type=ast.IntegerType(),
+        )
+
+        eligibility = eligibility_from_plan(plan, value_expr=value_expr)
+
+        assert eligibility.verdict == PredicateIndexVerdict.BLOCKED
+        assert eligibility.fix_action == PredicateFixAction.EDIT_QUERY
+        if expected_text is None:
+            assert eligibility.quickfix is None
+            assert eligibility.ai_fix_prompt is not None
+        else:
+            assert eligibility.quickfix == PredicateQuickfix(
+                start=value_expr.start or 0, end=value_expr.end or 0, text=expected_text
+            )
+            assert expected_text in (eligibility.fix or "")
+
+    @parameterized.expand([(Op.Gt,), (Op.GtEq,), (Op.Lt,), (Op.LtEq,)])
+    def test_an_ordering_comparison_is_never_rewritten_as_text(self, operator: ast.CompareOperationOp) -> None:
+        # Quoting the literal would reorder the results, because '900' is above '1000' as text and
+        # below it as numbers. A marker or an AI prompt here would offer that swap as a fix.
+        plan = _plan(
+            operator=operator,
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            minmax=True,
+            blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+            value_type=ast.IntegerType(),
+        )
+
+        eligibility = eligibility_from_plan(plan, value_expr=ast.Constant(value=1000, start=10, end=14))
+
+        assert eligibility.verdict == PredicateIndexVerdict.BLOCKED
+        assert eligibility.quickfix is None
+        assert eligibility.ai_fix_prompt is None
+        assert eligibility.editor_actionable is False
+        assert eligibility.fix_action == PredicateFixAction.EDIT_PROPERTY_TYPE
+
+    def test_an_uninferable_value_type_is_not_reported_as_a_mismatch(self) -> None:
+        # A subquery or placeholder on the right-hand side leaves the value type unknown. Claiming a
+        # mismatch there warns about a filter that is very likely correct.
+        plan = _plan(
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            bloom=True,
+            blocker=PropertyMinmaxBlocker.NO_MINMAX_INDEX,
+            physical_compatibility=ComparisonCompatibility.UNKNOWN,
+        )
+
+        eligibility = eligibility_from_plan(plan)
+
+        assert eligibility.verdict == PredicateIndexVerdict.INDEXED
+        assert eligibility.editor_actionable is False
+
+    def test_a_storage_type_mismatch_never_gets_a_quickfix(self) -> None:
+        plan = _plan(
+            operator=Op.Gt,
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            minmax=True,
+            blocker=PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
+            semantic_type=ast.FloatType(nullable=True),
+        )
+
+        eligibility = eligibility_from_plan(plan, value_expr=ast.Constant(value=100, start=10, end=13))
+
+        assert eligibility.quickfix is None
+        assert eligibility.fix_action == PredicateFixAction.EDIT_PROPERTY_TYPE
+
     def test_a_denied_property_reports_the_same_as_an_unmaterialized_one(self) -> None:
         denied = eligibility_from_plan(_plan(restricted=True))
         allowed = eligibility_from_plan(_plan())
@@ -350,6 +491,8 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
                     message="",
                     fix=None,
                     ai_fix_prompt=None,
+                    fix_action=None,
+                    quickfix=None,
                     start=None,
                     end=None,
                 )
@@ -426,6 +569,51 @@ class TestIndexEligibilityThroughThePlanner(BaseTest):
         assert predicate.fix is not None
         assert predicate.editor_actionable is False
 
+    def test_number_against_a_text_column_gets_a_quoted_quickfix(self) -> None:
+        query = "select count() from events where properties.$browser_version = 120"
+        report = self._report(
+            query,
+            columns={"events": {("$browser_version", "properties"): _materialized("$browser_version", bloom=True)}},
+            property_types={"$browser_version": {"type": PropertyType.String.value}},
+        )
+
+        [predicate] = report.predicates
+        assert predicate.verdict == PredicateIndexVerdict.BLOCKED
+        assert predicate.quickfix is not None
+        assert predicate.quickfix.text == "'120'"
+        assert query[predicate.quickfix.start : predicate.quickfix.end] == "120"
+
+    def test_an_in_list_quickfix_covers_the_whole_bracketed_list(self) -> None:
+        # The replacement text stands in for everything the range covers. If a Tuple's span ever
+        # stopped including its parentheses, the edit would write `in (('120', '121'))`, which is
+        # valid SQL that matches nothing.
+        query = "select count() from events where properties.$browser_version in (120, 121)"
+        report = self._report(
+            query,
+            columns={"events": {("$browser_version", "properties"): _materialized("$browser_version", bloom=True)}},
+            property_types={"$browser_version": {"type": PropertyType.String.value}},
+        )
+
+        [predicate] = report.predicates
+        assert predicate.quickfix is not None
+        assert query[predicate.quickfix.start : predicate.quickfix.end] == "(120, 121)"
+        assert predicate.quickfix.text == "('120', '121')"
+
+    def test_an_ordering_comparison_through_the_planner_offers_no_rewrite(self) -> None:
+        # The operator table and the copy are unit tested on a constructed plan, so this covers the
+        # seam: that a real ordering comparison on a text column still reaches that state.
+        report = self._report(
+            "select count() from events where properties.$browser_version > 120",
+            columns={"events": {("$browser_version", "properties"): _materialized("$browser_version", minmax=True)}},
+            property_types={"$browser_version": {"type": PropertyType.String.value}},
+        )
+
+        [predicate] = report.predicates
+        assert predicate.verdict == PredicateIndexVerdict.BLOCKED
+        assert predicate.quickfix is None
+        assert predicate.editor_actionable is False
+        assert predicate.fix_action == PredicateFixAction.EDIT_PROPERTY_TYPE
+
 
 class TestIndexEligibilityAnalysis(BaseTest):
     def _report(self, query: str) -> IndexEligibilityReport:
@@ -479,6 +667,34 @@ class TestIndexEligibilityAnalysis(BaseTest):
         [usage] = response.index_usage
         assert usage.property_name == "duration"
         assert usage.fix is not None
+
+    def test_metadata_marks_only_the_literal_a_quickfix_rewrites(self) -> None:
+        query = "select count() from events where properties.$browser_version = 120"
+        columns: MaterializedColumnsByTable = {
+            "events": {("$browser_version", "properties"): _materialized("$browser_version", bloom=True)}
+        }
+        PropertyDefinition.objects.create(team=self.team, name="$browser_version", property_type=PropertyType.String)
+
+        with patch(
+            "posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table", return_value=columns
+        ):
+            response = self._metadata(query)
+
+        [warning] = response.warnings
+        assert warning.fix == "'120'"
+        assert query[warning.start : warning.end] == "120"
+        [predicate] = response.index_usage or []
+        assert predicate.quickfix is not None and predicate.quickfix.text == "'120'"
+
+    def test_a_failed_analysis_leaves_the_query_valid(self) -> None:
+        # The caller turns any exception from here into an invalid query, so a report that blows up
+        # while it is being written into the response would tell the editor a working query is broken.
+        with patch("posthog.hogql.metadata._record_index_usage", side_effect=ValueError("boom")):
+            response = self._metadata("select count() from events where properties.duration > 100")
+
+        assert response.isValid is True
+        assert response.errors == []
+        assert not response.index_usage
 
     def test_metadata_reports_no_index_usage_without_property_filters(self) -> None:
         response = self._metadata("select count() from events where event = '$pageview'")

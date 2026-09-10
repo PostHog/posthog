@@ -3555,6 +3555,12 @@ class PlanningStepStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class PredicateFixAction(StrEnum):
+    EDIT_QUERY = "edit_query"
+    EDIT_PROPERTY_TYPE = "edit_property_type"
+    MATERIALIZE = "materialize"
+
+
 class PredicateIndexVerdict(StrEnum):
     INDEXED = "indexed"
     BLOCKED = "blocked"
