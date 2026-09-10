@@ -345,6 +345,7 @@ export function track<K extends keyof EventPropertyMap>(
 export function recordNavigationSettled(
   durationMs: number,
   route: string,
+  visibilityAtSettle: DocumentVisibilityState,
 ): void {
   if (!isInitialized) {
     return;
@@ -352,7 +353,7 @@ export function recordNavigationSettled(
 
   posthog.metrics.histogram("desktop.navigation.settled.duration", durationMs, {
     unit: "ms",
-    attributes: { route },
+    attributes: { route, visibility_at_settle: visibilityAtSettle },
   });
 }
 

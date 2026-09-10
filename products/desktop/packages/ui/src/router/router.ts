@@ -45,9 +45,9 @@ router.subscribe("onBeforeLoad", ({ fromLocation, toLocation }) => {
 });
 
 router.subscribe("onResolved", () => {
-  navigationTiming.settle((durationMs) => {
+  navigationTiming.settle((durationMs, visibilityAtSettle) => {
     const route = router.state.matches.at(-1)?.routeId;
-    if (route) recordNavigationSettled(durationMs, route);
+    if (route) recordNavigationSettled(durationMs, route, visibilityAtSettle);
   });
 });
 

@@ -30,7 +30,11 @@ export interface AnalyticsTracker {
   identifyUser(userId: string, properties?: UserIdentifyProperties): void;
   setUserGroups(user: AnalyticsUserGroups): void;
   resetUser(): void;
-  recordNavigationSettled(durationMs: number, route: string): void;
+  recordNavigationSettled(
+    durationMs: number,
+    route: string,
+    visibilityAtSettle: DocumentVisibilityState,
+  ): void;
   captureSurveyResponse(params: {
     surveyId: string;
     responses: Array<{ questionId: string; response: string }>;
@@ -83,10 +87,12 @@ export function resetUser(): void {
 export function recordNavigationSettled(
   durationMs: number,
   route: string,
+  visibilityAtSettle: DocumentVisibilityState,
 ): void {
   resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).recordNavigationSettled(
     durationMs,
     route,
+    visibilityAtSettle,
   );
 }
 

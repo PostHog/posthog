@@ -6,71 +6,48 @@ describe("createNavigationTiming", () => {
     vi.restoreAllMocks();
   });
 
-  it("records the duration after the destination has painted", () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
-      frames.push(cb);
-      return frames.length;
-    });
+  function stubVisibility(state: DocumentVisibilityState): void {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue(state);
+  }
+
+  it.each(["visible", "hidden"] as const)(
+    "records the duration when the route settles while %s",
+    (visibility) => {
+      stubVisibility(visibility);
+      vi.spyOn(performance, "now")
+        .mockReturnValueOnce(100)
+        .mockReturnValueOnce(175);
+      const timing = createNavigationTiming();
+      const record = vi.fn();
+
+      timing.start();
+      timing.settle(record);
+
+      expect(record).toHaveBeenCalledWith(75, visibility);
+    },
+  );
+
+  it("uses the latest navigation start", () => {
+    stubVisibility("visible");
     vi.spyOn(performance, "now")
       .mockReturnValueOnce(100)
-      .mockReturnValueOnce(175);
+      .mockReturnValueOnce(200)
+      .mockReturnValueOnce(275);
     const timing = createNavigationTiming();
     const record = vi.fn();
 
     timing.start();
+    timing.start();
     timing.settle(record);
-    frames[0]?.(0);
 
-    expect(record).not.toHaveBeenCalled();
-
-    frames[1]?.(0);
-
-    expect(record).toHaveBeenCalledWith(75);
+    expect(record).toHaveBeenCalledWith(75, "visible");
   });
 
-  it.each([
-    "settles before navigation starts",
-    "is replaced by a newer navigation",
-  ])("does not record when it %s", (caseName) => {
-    const frames: FrameRequestCallback[] = [];
-    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
-      frames.push(cb);
-      return frames.length;
-    });
+  it("does not record before navigation starts", () => {
     const timing = createNavigationTiming();
     const record = vi.fn();
 
-    if (caseName === "is replaced by a newer navigation") {
-      timing.start();
-    }
     timing.settle(record);
-    timing.start();
-    frames[0]?.(0);
-    frames[1]?.(0);
-
-    expect(record).not.toHaveBeenCalled();
-  });
-
-  it("does not record while the window is hidden", () => {
-    let visibility: DocumentVisibilityState = "visible";
-    const frames: FrameRequestCallback[] = [];
-    vi.spyOn(document, "visibilityState", "get").mockImplementation(
-      () => visibility,
-    );
-    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
-      frames.push(cb);
-      return frames.length;
-    });
-    const timing = createNavigationTiming();
-    const record = vi.fn();
-
-    timing.start();
-    timing.settle(record);
-    visibility = "hidden";
-    document.dispatchEvent(new Event("visibilitychange"));
-    frames[0]?.(0);
-    frames[1]?.(0);
 
     expect(record).not.toHaveBeenCalled();
   });

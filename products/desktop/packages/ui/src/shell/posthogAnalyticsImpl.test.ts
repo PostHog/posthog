@@ -228,19 +228,25 @@ describe("recordNavigationSettled", () => {
       await loadAnalytics();
     initializePostHog();
 
-    recordNavigationSettled(125, "/tasks/$taskId");
+    recordNavigationSettled(125, "/tasks/$taskId", "hidden");
 
     expect(mockPosthog.metrics.histogram).toHaveBeenCalledWith(
       "desktop.navigation.settled.duration",
       125,
-      { unit: "ms", attributes: { route: "/tasks/$taskId" } },
+      {
+        unit: "ms",
+        attributes: {
+          route: "/tasks/$taskId",
+          visibility_at_settle: "hidden",
+        },
+      },
     );
   });
 
   it("does nothing before init", async () => {
     const { recordNavigationSettled } = await loadAnalytics();
 
-    recordNavigationSettled(125, "/tasks/$taskId");
+    recordNavigationSettled(125, "/tasks/$taskId", "visible");
 
     expect(mockPosthog.metrics.histogram).not.toHaveBeenCalled();
   });
