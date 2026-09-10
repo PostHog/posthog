@@ -72,6 +72,10 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
         assert "tenant_key" not in parameters
         assert "occurrence_key" not in parameters
 
+    assert metrics._permits_in_flight._multiprocess_mode == "mostrecent"
+    assert metrics._backlog_items_lower_bound._multiprocess_mode == "mostrecent"
+    assert metrics._backlog_oldest_age_seconds._multiprocess_mode == "mostrecent"
+
 
 @pytest.mark.parametrize(
     "method,args",

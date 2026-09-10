@@ -71,7 +71,7 @@ The following limits are safety boundaries and never grow automatically:
 
 The internal operating budget for a serialized activity input, activity output, or workflow activation is 512 KiB. This stays materially below Temporal's transport limits and leaves room for metadata.
 
-Payload tests use the configured Temporal data converter and count encoded payload data plus metadata. Runtime interceptors record actual encoded sizes. Workflow tests also cap command count because activation size is not fully observable before the SDK sends it.
+Payload tests and activity-side guards use the same configured Temporal data converter as the production client and count encoded payload data plus metadata. Workflow tests also cap command count because activation size is not fully observable before the SDK sends it.
 
 Activity-side guards measure the serialized hydrated configuration, not Python object memory. CPU-complexity controls remain separate because a small input can still trigger pathological computation.
 
@@ -167,6 +167,8 @@ For global coordinators, selection uses round-robin tenant ordering:
 
 This selects one item per tenant before selecting a second item for any tenant. A large tenant cannot indefinitely consume the whole page.
 
+The first query gives each selected tenant a bounded share of the remaining page. When sparse tenants do not use their share, bounded follow-up rounds transfer the unused capacity to tenants that filled theirs. Discovery stops when the page is full or every selected tenant is exhausted, so fairness does not reduce backlog drain rate and database work remains bounded by the page envelope. A durable tenant cursor or equivalent fixed round state carries rotation between pages and ticks, so every page does not restart at the same tenant.
+
 The rollout records `EXPLAIN ANALYZE` evidence against a ten-times backlog fixture. Query time and rows examined must remain within the scheduler's database budget.
 
 Cursors contain stable scalar fields only. If a manifest can exceed the payload budget even after pagination, discovery stores it outside Temporal and returns a reference.
@@ -179,7 +181,7 @@ The parent cannot atomically start a Temporal child and update a database claim.
 
 A start failure releases the claim. If the parent terminates before releasing it, the claim expires. If the child starts first, the child confirms and renews the claim while work remains active.
 
-Recovery of an expired confirmed claim checks the deterministic Temporal workflow ID before selecting the item again. This prevents a slow but live child from overlapping its replacement.
+Recovery of every expired active claim, including a reserved claim whose parent may have been terminated after Temporal accepted the start, checks the deterministic Temporal workflow ID before selecting the item again. If the execution exists, recovery preserves the claim token and renews or confirms the lease rather than starting a replacement. This prevents a slow but live child from overlapping its replacement.
 
 If Temporal execution state cannot be read, recovery retains the claim and alerts. It never assumes that an unreachable workflow is finished.
 

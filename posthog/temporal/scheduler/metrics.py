@@ -5,11 +5,11 @@ from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histo
 
 from posthog.temporal.common.logger import get_write_only_logger
 
-PayloadKind = Literal["discovery", "hydrated", "activation"]
+PayloadKind = Literal["discovery", "hydrated"]
 AdmissionOutcome = Literal["reserved", "already_claimed", "deferred_capacity"]
 ClaimTransition = Literal["confirmed", "renewed", "completed", "released", "quarantined"]
 
-_PAYLOAD_KINDS = {"discovery", "hydrated", "activation"}
+_PAYLOAD_KINDS = {"discovery", "hydrated"}
 _ADMISSION_OUTCOMES = {"reserved", "already_claimed", "deferred_capacity"}
 _CLAIM_TRANSITIONS = {"confirmed", "renewed", "completed", "released", "quarantined"}
 
@@ -41,18 +41,21 @@ class SchedulerMetrics:
             "posthog_temporal_scheduler_permits_in_flight",
             "Globally admitted scheduler items that have not reached a terminal claim state.",
             ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
             registry=registry,
         )
         self._backlog_items_lower_bound = Gauge(
             "posthog_temporal_scheduler_backlog_items_lower_bound",
             "Bounded lower bound for scheduler items due at the most recent discovery.",
             ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
             registry=registry,
         )
         self._backlog_oldest_age_seconds = Gauge(
             "posthog_temporal_scheduler_backlog_oldest_age_seconds",
             "Age in seconds of the oldest eligible due item at the most recent scheduler discovery.",
             ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
             registry=registry,
         )
 

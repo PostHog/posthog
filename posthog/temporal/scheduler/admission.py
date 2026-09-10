@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
-from django.db import transaction
-from django.db.models import Q
+from django.db import connection, transaction
 from django.utils import timezone
 
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
@@ -22,8 +21,10 @@ MAX_CLAIM_REQUESTS_PER_CALL = 1_000
 MAX_CLAIM_ERROR_CHARS = 2_000
 MAX_OCCURRENCE_KEY_CHARS = 1_024
 MAX_PRUNE_CLAIMS_PER_CALL = 10_000
+SCHEDULER_LOCK_TIMEOUT_MS = 5_000
 
 TerminalClaimStatus = Literal["available", "completed", "quarantined"]
+ActiveClaimStatus = Literal["reserved", "confirmed"]
 
 
 class SchedulerOccurrenceHashCollision(RuntimeError):
@@ -108,25 +109,31 @@ def _resolve_time(value: datetime | None) -> datetime:
     return resolved
 
 
-def _deduplicate_requests(requests: Sequence[SchedulerClaimRequest]) -> tuple[list[_HashedRequest], int]:
+def _deduplicate_requests(requests: Sequence[SchedulerClaimRequest]) -> tuple[list[_HashedRequest], Counter[str]]:
     if len(requests) > MAX_CLAIM_REQUESTS_PER_CALL:
         raise ValueError(f"requests cannot contain more than {MAX_CLAIM_REQUESTS_PER_CALL} items")
 
     unique: dict[str, _HashedRequest] = {}
-    duplicate_count = 0
+    multiplicities: Counter[str] = Counter()
     for request in requests:
         _validate_request(request)
         occurrence_hash = _occurrence_hash(request.occurrence_key)
+        multiplicities[occurrence_hash] += 1
         existing = unique.get(occurrence_hash)
         if existing is None:
             unique[occurrence_hash] = _HashedRequest(request=request, occurrence_hash=occurrence_hash)
         elif existing.request == request:
-            duplicate_count += 1
+            continue
         elif existing.request.occurrence_key != request.occurrence_key:
             raise SchedulerOccurrenceHashCollision("two logical occurrences produced the same SHA-256 digest")
         else:
             raise ValueError("one logical occurrence cannot use different tenant or workflow identifiers")
-    return list(unique.values()), duplicate_count
+    return list(unique.values()), multiplicities
+
+
+def _set_scheduler_lock_timeout() -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('lock_timeout', %s, TRUE)", [f"{SCHEDULER_LOCK_TIMEOUT_MS}ms"])
 
 
 def _lock_or_create_pool(scheduler: str, region: str, tenant_key: str) -> TemporalSchedulerPermitPool:
@@ -173,14 +180,15 @@ def reserve_scheduler_claims(
 ) -> SchedulerAdmissionResult:
     _validate_scope(scheduler, region)
     _validate_limits(limits)
-    hashed_requests, duplicate_count = _deduplicate_requests(requests)
+    hashed_requests, multiplicities = _deduplicate_requests(requests)
     if not hashed_requests:
-        return SchedulerAdmissionResult(reservations=(), already_claimed=duplicate_count, deferred_for_capacity=0)
+        return SchedulerAdmissionResult(reservations=(), already_claimed=0, deferred_for_capacity=0)
 
     claim_time = _resolve_time(now)
     lease_expires_at = claim_time + limits.lease_duration
 
     with transaction.atomic():
+        _set_scheduler_lock_timeout()
         global_pool = _lock_or_create_pool(scheduler, region, "")
         tenant_pools = _lock_or_create_tenant_pools(
             scheduler,
@@ -220,17 +228,18 @@ def reserve_scheduler_claims(
         reservations: list[SchedulerClaimReservation] = []
         new_claims: list[TemporalSchedulerClaim] = []
         reused_claims: list[TemporalSchedulerClaim] = []
-        already_claimed = duplicate_count
+        already_claimed = 0
         deferred_for_capacity = 0
 
         for item in hashed_requests:
             request = item.request
+            request_count = multiplicities[item.occurrence_hash]
             existing = existing_claims.get(item.occurrence_hash)
             if existing is not None and existing.status != TemporalSchedulerClaim.Status.AVAILABLE:
-                already_claimed += 1
+                already_claimed += request_count
                 continue
             if global_available <= 0 or tenant_available[request.tenant_key] <= 0:
-                deferred_for_capacity += 1
+                deferred_for_capacity += request_count
                 continue
 
             claim_token = uuid.uuid4()
@@ -267,6 +276,7 @@ def reserve_scheduler_claims(
                     workflow_id=request.workflow_id,
                 )
             )
+            already_claimed += request_count - 1
             global_available -= 1
             tenant_available[request.tenant_key] -= 1
             admitted_per_tenant[request.tenant_key] += 1
@@ -275,10 +285,17 @@ def reserve_scheduler_claims(
         if admitted_count:
             global_pool.in_flight += admitted_count
             global_pool.save(update_fields=["in_flight", "updated_at"])
+            touched_pools: list[TemporalSchedulerPermitPool] = []
             for tenant_key, admitted in admitted_per_tenant.items():
                 pool = tenant_pools[tenant_key]
                 pool.in_flight += admitted
-                pool.save(update_fields=["in_flight", "updated_at"])
+                pool.updated_at = claim_time
+                touched_pools.append(pool)
+            TemporalSchedulerPermitPool.objects.bulk_update(
+                touched_pools,
+                ["in_flight", "updated_at"],
+                batch_size=MAX_CLAIM_REQUESTS_PER_CALL,
+            )
             TemporalSchedulerClaim.objects.bulk_create(new_claims)
             TemporalSchedulerClaim.objects.bulk_update(
                 reused_claims,
@@ -331,21 +348,33 @@ def confirm_scheduler_claim(
 ) -> bool:
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
-    updated = (
-        TemporalSchedulerClaim.objects.filter(
-            id=claim_id,
-            claim_token=claim_token,
-            status=TemporalSchedulerClaim.Status.RESERVED,
-        ).update(
-            status=TemporalSchedulerClaim.Status.CONFIRMED,
-            lease_expires_at=transition_time + lease_duration,
-            updated_at=transition_time,
+    with transaction.atomic():
+        _set_scheduler_lock_timeout()
+        claim = (
+            TemporalSchedulerClaim.objects.select_for_update()
+            .filter(
+                id=claim_id,
+                claim_token=claim_token,
+                status__in=[TemporalSchedulerClaim.Status.RESERVED, TemporalSchedulerClaim.Status.CONFIRMED],
+            )
+            .first()
         )
-        == 1
-    )
-    if updated:
+        if claim is None:
+            return False
+        transitioned = claim.status == TemporalSchedulerClaim.Status.RESERVED
+        proposed_expiry = transition_time + lease_duration
+        updates: dict[str, object] = {}
+        if transitioned:
+            updates["status"] = TemporalSchedulerClaim.Status.CONFIRMED
+        if claim.lease_expires_at is None or proposed_expiry > claim.lease_expires_at:
+            updates["lease_expires_at"] = proposed_expiry
+        if transition_time > claim.updated_at:
+            updates["updated_at"] = transition_time
+        if updates:
+            TemporalSchedulerClaim.objects.filter(id=claim_id).update(**updates)
+    if transitioned:
         record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "confirmed"))
-    return updated
+    return True
 
 
 def renew_scheduler_claim(
@@ -358,20 +387,30 @@ def renew_scheduler_claim(
 ) -> bool:
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
-    updated = (
-        TemporalSchedulerClaim.objects.filter(
-            id=claim_id,
-            claim_token=claim_token,
-            status=TemporalSchedulerClaim.Status.CONFIRMED,
-        ).update(
-            lease_expires_at=transition_time + lease_duration,
-            updated_at=transition_time,
+    with transaction.atomic():
+        _set_scheduler_lock_timeout()
+        claim = (
+            TemporalSchedulerClaim.objects.select_for_update()
+            .filter(
+                id=claim_id,
+                claim_token=claim_token,
+                status=TemporalSchedulerClaim.Status.CONFIRMED,
+            )
+            .first()
         )
-        == 1
-    )
-    if updated:
+        if claim is None:
+            return False
+        proposed_expiry = transition_time + lease_duration
+        updates: dict[str, object] = {}
+        if claim.lease_expires_at is None or proposed_expiry > claim.lease_expires_at:
+            updates["lease_expires_at"] = proposed_expiry
+        if transition_time > claim.updated_at:
+            updates["updated_at"] = transition_time
+        if updates:
+            TemporalSchedulerClaim.objects.filter(id=claim_id).update(**updates)
+    if updates:
         record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "renewed"))
-    return updated
+    return True
 
 
 def _record_claim_transition_for_id(
@@ -402,6 +441,7 @@ def _finish_scheduler_claim(
     error: str,
     now: datetime | None,
     expected_lease_expires_at: datetime | None,
+    allowed_active_statuses: tuple[ActiveClaimStatus, ...],
     transition: ClaimTransition,
     metrics: SchedulerMetrics,
 ) -> bool:
@@ -412,13 +452,18 @@ def _finish_scheduler_claim(
         return False
 
     with transaction.atomic():
+        _set_scheduler_lock_timeout()
         global_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], "")
         tenant_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], snapshot["tenant_key"])
         try:
             claim = TemporalSchedulerClaim.objects.select_for_update().get(id=claim_id)
         except TemporalSchedulerClaim.DoesNotExist:
             return False
-        if claim.claim_token != claim_token or claim.status not in TemporalSchedulerClaim.ACTIVE_STATUSES:
+        if claim.claim_token != claim_token:
+            return False
+        if claim.status == status:
+            return True
+        if claim.status not in allowed_active_statuses:
             return False
         if expected_lease is not None and claim.lease_expires_at != expected_lease:
             return False
@@ -459,6 +504,7 @@ def complete_scheduler_claim(
         error="",
         now=now,
         expected_lease_expires_at=None,
+        allowed_active_statuses=("confirmed",),
         transition="completed",
         metrics=metrics,
     )
@@ -480,6 +526,7 @@ def release_scheduler_claim(
         error=error,
         now=now,
         expected_lease_expires_at=expected_lease_expires_at,
+        allowed_active_statuses=("reserved", "confirmed"),
         transition="released",
         metrics=metrics,
     )
@@ -500,6 +547,7 @@ def quarantine_scheduler_claim(
         error=error,
         now=now,
         expected_lease_expires_at=None,
+        allowed_active_statuses=("reserved", "confirmed"),
         transition="quarantined",
         metrics=metrics,
     )
@@ -547,16 +595,36 @@ def prune_inactive_scheduler_claims(
         raise ValueError(f"limit must contain between 1 and {MAX_PRUNE_CLAIMS_PER_CALL} items")
 
     with transaction.atomic():
-        claim_ids = list(
+        _set_scheduler_lock_timeout()
+        completed_candidates = list(
             TemporalSchedulerClaim.objects.select_for_update(skip_locked=True)
-            .filter(scheduler=scheduler, region=region)
             .filter(
-                Q(status=TemporalSchedulerClaim.Status.COMPLETED, updated_at__lt=completed_cutoff)
-                | Q(status=TemporalSchedulerClaim.Status.AVAILABLE, updated_at__lt=available_cutoff)
+                scheduler=scheduler,
+                region=region,
+                status=TemporalSchedulerClaim.Status.COMPLETED,
+                updated_at__lt=completed_cutoff,
             )
             .order_by("updated_at", "id")
-            .values_list("id", flat=True)[:limit]
+            .values_list("id", "updated_at")[:limit]
         )
+        available_candidates = list(
+            TemporalSchedulerClaim.objects.select_for_update(skip_locked=True)
+            .filter(
+                scheduler=scheduler,
+                region=region,
+                status=TemporalSchedulerClaim.Status.AVAILABLE,
+                updated_at__lt=available_cutoff,
+            )
+            .order_by("updated_at", "id")
+            .values_list("id", "updated_at")[:limit]
+        )
+        claim_ids = [
+            claim_id
+            for claim_id, _updated_at in sorted(
+                [*completed_candidates, *available_candidates],
+                key=lambda candidate: (candidate[1], candidate[0]),
+            )[:limit]
+        ]
         if not claim_ids:
             return 0
         deleted, _ = TemporalSchedulerClaim.objects.filter(id__in=claim_ids).delete()
