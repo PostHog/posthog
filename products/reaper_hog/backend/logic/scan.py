@@ -7,7 +7,13 @@ from posthog.models.scoping import team_scope
 from products.reaper_hog.backend.logic.artefacts import Note
 from products.reaper_hog.backend.logic.constants import SUMMARY_NOTE_AUTHOR
 from products.reaper_hog.backend.logic.converge import ClusterDraft, converge
-from products.reaper_hog.backend.logic.inventory import ScanOutcome, begin_scan, record_scan, upsert_inventory
+from products.reaper_hog.backend.logic.inventory import (
+    ScanOutcome,
+    abandon_scan,
+    begin_scan,
+    record_scan,
+    upsert_inventory,
+)
 from products.reaper_hog.backend.logic.repo import RepoIndex
 from products.reaper_hog.backend.logic.scouts.archaeology import ArchaeologyScout
 from products.reaper_hog.backend.logic.scouts.base import Scout, ScoutContext
@@ -47,7 +53,12 @@ def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> Sca
         inventory = upsert_inventory(team_id=request.team_id, repository=request.repository, scope=request.scope)
         begin_scan(inventory)
 
-    hits = [hit for scout in scouts if scout.applies_to(request.scope) for hit in scout.run(context)]
+    try:
+        hits = [hit for scout in scouts if scout.applies_to(request.scope) for hit in scout.run(context)]
+    except Exception:
+        with team_scope(request.team_id):
+            abandon_scan(inventory)
+        raise
     drafts = converge(hits)
 
     with team_scope(request.team_id):
