@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 
@@ -462,6 +462,23 @@ async def test_handoff_finalizes_each_submitted_key_after_the_first_pass() -> No
         ("first", None, None),
         ("covered", None, None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_finalizer_start_failure_leaves_the_report_alone() -> None:
+    inputs = SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()))
+
+    with (
+        patch(f"{SUMMARY_MODULE_PATH}.workflow.patched", return_value=True),
+        patch(
+            f"{SUMMARY_MODULE_PATH}.workflow.start_child_workflow",
+            AsyncMock(side_effect=RuntimeError("child start rejected")),
+        ),
+        patch(f"{SUMMARY_MODULE_PATH}.workflow.logger") as workflow_logger,
+    ):
+        await SignalReportSummaryWorkflow()._start_signal_finalizer(inputs, "key-1")
+
+    workflow_logger.exception.assert_called_once()
 
 
 @pytest.mark.parametrize(

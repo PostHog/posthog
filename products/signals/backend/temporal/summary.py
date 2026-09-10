@@ -346,6 +346,11 @@ class SignalReportSummaryWorkflow:
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             pass
+        except Exception:
+            # Most callers reach here after the report already transitioned to a good terminal
+            # state, and the outer handler in _run_once would flip it to FAILED. Losing this
+            # handoff's publication costs less than failing a report the user was told about.
+            workflow.logger.exception(f"Failed to start signal finalizer for {inputs.report_id}")
 
     async def _finalize_signal_keys(
         self,
