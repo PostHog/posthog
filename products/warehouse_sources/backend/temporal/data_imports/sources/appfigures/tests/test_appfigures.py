@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -378,8 +379,9 @@ class TestIterRanks:
                 ],
             )
 
+        chunked = dataclasses.replace(appfigures.APPFIGURES_ENDPOINTS["ranks"], products_per_request=2)
         with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch):
-            with mock.patch.object(appfigures.APPFIGURES_ENDPOINTS["ranks"], "products_per_request", 2):
+            with mock.patch.dict(appfigures.APPFIGURES_ENDPOINTS, {"ranks": chunked}):
                 batches = list(
                     get_rows(
                         token="pat",

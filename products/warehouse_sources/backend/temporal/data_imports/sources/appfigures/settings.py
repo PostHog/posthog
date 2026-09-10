@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -17,7 +19,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 EndpointKind = Literal["paged", "object", "report", "ranks"]
 
 
-@dataclass
+@frozen
 class AppfiguresEndpointConfig:
     name: str
     path: str
