@@ -35,6 +35,9 @@ keys with a hash suffix, so the name is not something you can derive at the call
 reads the names out of pg_constraint instead, which is also what makes it idempotent under
 a bin/migrate retry.
 
+The op is irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new
+migration rather than by unapplying this one.
+
 The op deliberately does not touch lock_timeout, exactly like `AddForeignKeyNotValid`.
 Dropping a foreign key takes ACCESS EXCLUSIVE on the referenced parent for a metadata-only
 change held for microseconds, so it should fail fast on contention under whatever
@@ -43,6 +46,7 @@ Never disable the timeout here: on a hot parent an unbounded wait blocks every q
 arrives behind it. A bin/migrate retry re-attempts once the lock is free.
 """
 
+from django.db import router
 from django.db.migrations.operations.base import Operation
 
 _CONSTRAINT_NAMES_SQL = """
@@ -53,6 +57,7 @@ _CONSTRAINT_NAMES_SQL = """
     JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
     WHERE con.contype = 'f'
       AND src.relname = %s
+      AND pg_table_is_visible(src.oid)
       AND (%s IS NULL OR tgt.relname = %s)
       AND (%s IS NULL OR att.attname = %s)
 """
@@ -76,7 +81,12 @@ class DropForeignKey(Operation):
     table, which is never what a retirement means, so it raises instead.
     """
 
-    reversible = True
+    # A dropped constraint cannot be put back: its definition is recorded nowhere this op can
+    # read, and the arguments do not carry the column list or the referenced column. A no-op
+    # reverse would report success while Django restored the field to model state with no
+    # constraint behind it, which is the state-versus-schema drift this helper exists to stop.
+    # Use AddForeignKeyNotValid to add the constraint back in a new migration instead.
+    reversible = False
     reduces_to_sql = True
 
     def __init__(self, table: str, column: str | None = None, to_table: str | None = None) -> None:
@@ -98,18 +108,18 @@ class DropForeignKey(Operation):
         pass
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        # A product app in products/db_routing.yaml migrates on its own database. Django still
+        # traverses this migration on the other aliases, and a raw catalog query cannot tell
+        # them apart, so a same-named table elsewhere would lose its foreign key.
+        if not router.allow_migrate(schema_editor.connection.alias, app_label):
+            return
         for name in self._constraint_names(schema_editor):
             schema_editor.execute(
                 f"ALTER TABLE {schema_editor.quote_name(self.table)} DROP CONSTRAINT {schema_editor.quote_name(name)}"
             )
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
-        # The constraint is not recreated, because its definition is recorded nowhere this op
-        # can read. Unapplying therefore gives the field back to Django's state with no
-        # database constraint behind it, so application code alone enforces integrity, the
-        # same as a ForeignKey declared db_constraint=False. The operation stays reversible so
-        # that the migration around it can still unapply.
-        pass
+        raise NotImplementedError("DropForeignKey is irreversible; add the constraint back with AddForeignKeyNotValid")
 
     def describe(self) -> str:
         target = self.column or f"-> {self.to_table}"
