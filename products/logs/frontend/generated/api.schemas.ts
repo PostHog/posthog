@@ -1839,7 +1839,7 @@ export interface LogsMetricRuleApi {
      */
     value_attribute?: string | null
     /**
-     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
      * @items.maxLength 512
      */
     group_by?: string[]
@@ -1889,7 +1889,7 @@ export interface PatchedLogsMetricRuleApi {
      */
     value_attribute?: string | null
     /**
-     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
      * @items.maxLength 512
      */
     group_by?: string[]
