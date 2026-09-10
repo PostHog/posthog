@@ -14,6 +14,7 @@ const mockPosthog = {
   reset: vi.fn(),
   captureException: vi.fn(),
   reloadFeatureFlags: vi.fn(),
+  metrics: { histogram: vi.fn() },
 };
 
 vi.mock("posthog-js/dist/module.full.no-external", () => ({
@@ -179,6 +180,23 @@ describe("track", () => {
     );
   });
 
+  it("stamps inbox_client on triage events", async () => {
+    const { initializePostHog, track } = await loadAnalytics();
+    initializePostHog();
+
+    track(ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED, {
+      triage_id: "triage-1",
+      queue_size: 3,
+      scope: "for-you",
+      has_active_filters: false,
+    });
+
+    expect(mockPosthog.capture).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
+      expect.objectContaining({ inbox_client: "code" }),
+    );
+  });
+
   it("does not stamp inbox_client on non-inbox events", async () => {
     const { initializePostHog, track } = await loadAnalytics();
     initializePostHog();
@@ -201,6 +219,36 @@ describe("track", () => {
     });
 
     expect(mockPosthog.capture).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordNavigationSettled", () => {
+  it("records duration by route after init", async () => {
+    const { initializePostHog, recordNavigationSettled } =
+      await loadAnalytics();
+    initializePostHog();
+
+    recordNavigationSettled(125, "/tasks/$taskId", "hidden");
+
+    expect(mockPosthog.metrics.histogram).toHaveBeenCalledWith(
+      "desktop.navigation.settled.duration",
+      125,
+      {
+        unit: "ms",
+        attributes: {
+          route: "/tasks/$taskId",
+          visibility_at_settle: "hidden",
+        },
+      },
+    );
+  });
+
+  it("does nothing before init", async () => {
+    const { recordNavigationSettled } = await loadAnalytics();
+
+    recordNavigationSettled(125, "/tasks/$taskId", "visible");
+
+    expect(mockPosthog.metrics.histogram).not.toHaveBeenCalled();
   });
 });
 
@@ -235,6 +283,22 @@ describe("initializePostHog", () => {
       "test-key",
       expect.objectContaining({
         session_recording: { captureCanvas: { recordCanvas: false } },
+      }),
+    );
+  });
+
+  it("configures metrics for the desktop service", async () => {
+    const { initializePostHog } = await loadAnalytics();
+
+    initializePostHog();
+
+    expect(mockPosthog.init).toHaveBeenCalledWith(
+      "test-key",
+      expect.objectContaining({
+        metrics: {
+          serviceName: "posthog-desktop",
+          environment: "development",
+        },
       }),
     );
   });

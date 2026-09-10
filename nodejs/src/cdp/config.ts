@@ -59,6 +59,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
+    // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
+    CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -150,9 +152,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated caps indexed by tier. Both lists must be the same length.
     EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
-    // ISO date. When set, only teams created on or after it are capped, so enforcement can start
-    // with new projects and leave established ones alone. Empty means every team.
-    EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -262,6 +261,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
+        CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
         CDP_REDIS_PASSWORD: '',
@@ -345,7 +345,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
         EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
-        EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

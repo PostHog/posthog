@@ -75,7 +75,7 @@ const ISSUES_QUERY_TOOL_CONTEXT_ITEM: AttachedContextItem = {
 
 **Trusted means static.** Instructions must only ever carry your own build-time strings — never user-entered or ingested data, and never a value interpolated from one. A crafted entity name in trusted context is a prompt injection against the next reader. If a pointer must vary (which id is open, which step is selected), put it on a normal untrusted item and have the instruction refer to it by field name.
 
-`workflowAgentContext.ts` is the full example: it embeds the building-workflows skill markdown and the workflows MCP tool catalog (both build-time constants from a generated module), gates any interpolated id behind an allowlist regex, and pairs each visible chip with the hidden payload it stands for via `dismissGroup` so closing the chip actually detaches the payload.
+`workflowAgentContext.ts` is the full example: it names the building-workflows skill and the workflows MCP tools in one static instruction (the skill is installed in the agent's sandbox and the tools are reachable through exec, so neither is embedded), gates any interpolated id behind an allowlist regex, and pairs each visible chip with the hidden payload it stands for via `dismissGroup` so closing the chip actually detaches the payload.
 
 ## Seam 3 — react to what the agent does
 
@@ -146,7 +146,7 @@ The built-in PostHog widgets (insights, dashboards, recordings, error tracking, 
 
 ## Seam 5 (advanced) — build a custom UI on the run primitives
 
-The same facade exposes the machinery for rendering and driving an agent run yourself: `ReadonlyRunSurface` (lazy read-only embed), the `RunSurface` compound (`Root` plus `.Thread` / `.Composer` / `.Resources` / `.ContextUsage` slots), `EmbeddedRunner` (the whole `/tasks` product inline), and the Tier 2 primitives — `Thread` atoms, `Composer.*`, permission and question surfaces — over `runStreamLogic` and `runInteractionLogic`.
+The same facade exposes the machinery for rendering and driving an agent run yourself: `ReadonlyRunSurface` (lazy read-only embed), the `RunSurface` compound (`Root` plus `.Thread` / `.Composer` / `.ContextUsage` slots), `EmbeddedRunner` (the whole `/tasks` product inline), and the Tier 2 primitives — `Thread` atoms, `Composer.*`, permission and question surfaces — over `runStreamLogic` and `runInteractionLogic`.
 
 **Avoid this unless you know exactly what you're doing.** Seams 1–4 are what a product integration needs. This one means owning stream binding, composer and queue state, permission routing, and the eager-vs-lazy choice that decides whether your surface doubles someone's bundle. There is no default layout, so you compose one.
 

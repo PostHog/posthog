@@ -1,12 +1,12 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
@@ -109,7 +109,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const cohortLink = nameOrLinkToCohort(logItem?.item_id, logItem?.detail.name)
 
     if (logItem.activity == 'created') {

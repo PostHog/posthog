@@ -2,7 +2,8 @@ import {
   getPrVisualConfig,
   parsePrNumber,
 } from "@posthog/core/git-interaction/prStatus";
-import { Button, cn, Spinner } from "@posthog/quill";
+import { Button, cn } from "@posthog/quill";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { getPrVisualIcon } from "../prIcon";
 import {
   PR_TONE_BORDER,
@@ -64,7 +65,7 @@ export function PRBadgeLink({
         className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] no-underline ${PR_TONE_FILL_COMPACT[config.color]}`}
       >
         {isPrPending ? (
-          <Spinner className="size-2.5" />
+          <Spinner size="xs" />
         ) : (
           <PrIcon size={10} weight="bold" />
         )}
@@ -100,7 +101,7 @@ export function PRBadgeLink({
       variant={tone.variant}
       className={cn("no-underline", tone.className)}
     >
-      {isPrPending ? <Spinner className="size-3" /> : <PrIcon weight="bold" />}
+      {isPrPending ? <Spinner size="sm" /> : <PrIcon weight="bold" />}
       <span>
         {config.label}
         {prNumber && ` #${prNumber}`}

@@ -143,7 +143,7 @@ describe('ErrorTrackingPipeline', () => {
             partition: 0,
             offset: 0,
             size: 0,
-            key: Buffer.from(distinctId),
+            key: Buffer.from(`${token}:${distinctId}`),
         } as Message
     }
 
@@ -988,50 +988,10 @@ describe('ErrorTrackingPipeline', () => {
             expect(producedEvents[0].distinct_id).toBe('hashed-distinct-id')
         })
 
-        it('passes cookieless events through skip-cookieless rate limit even when service flags the sentinel', async () => {
-            // The skip-cookieless step keys on headers.distinct_id. For cookieless events
-            // the header is the sentinel, and the step explicitly passes them through —
-            // they are handled by the only-cookieless step post-rewrite. This test proves
-            // the sentinel-keyed flag does not redirect.
-            const person = createTestPerson({ distinct_id: 'hashed-distinct-id' })
-            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
-
-            mockCookielessManager.doBatch.mockImplementationOnce((events: any[]) =>
-                Promise.resolve(
-                    events.map((e) => ok({ ...e, event: { ...e.event, distinct_id: 'hashed-distinct-id' } }))
-                )
-            )
-
+        it('redirects cookieless events to overflow when their message key is flagged', async () => {
+            // The rate limit step keys on the Kafka message key, so a flagged
+            // cookieless event goes to overflow before Cymbal runs.
             const flagging = createMockOverflowRedirectService(new Set([`test-token-123:${COOKIELESS_SENTINEL_VALUE}`]))
-            const configWithOverflow: ErrorTrackingPipelineConfig = {
-                ...pipelineConfig,
-                overflowMode: 'redirect',
-                overflowRedirectService: flagging,
-            }
-
-            const message = createKafkaMessage({ distinctId: COOKIELESS_SENTINEL_VALUE })
-            const pipeline = createErrorTrackingPipeline(configWithOverflow)
-            await runErrorTrackingPipeline(pipeline, [message])
-
-            expect(getOverflowMessages()).toHaveLength(0)
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
-            const producedEvents = getProducedEvents()
-            expect(producedEvents).toHaveLength(1)
-            expect(producedEvents[0].distinct_id).toBe('hashed-distinct-id')
-        })
-
-        it('redirects cookieless events to overflow via only-cookieless rate limit on the hashed distinct_id', async () => {
-            // The only-cookieless step keys on event.distinct_id (the value after the
-            // cookieless step rewrites it). This test proves a flag on the hashed key
-            // sends the cookieless event to overflow rather than Cymbal.
-            mockCookielessManager.doBatch.mockImplementationOnce((events: any[]) =>
-                Promise.resolve(
-                    events.map((e) => ok({ ...e, event: { ...e.event, distinct_id: 'hashed-distinct-id' } }))
-                )
-            )
-
-            const flagging = createMockOverflowRedirectService(new Set(['test-token-123:hashed-distinct-id']))
             const configWithOverflow: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
                 overflowMode: 'redirect',

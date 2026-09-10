@@ -229,6 +229,23 @@ class TestUserAuthSessionAPI(APIBaseTest):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
 
+    def test_step_up_does_not_block_marking_a_product_intro_seen(self):
+        # Dismissing a product intro is why this action is exempt: gated, it answers the dismissal with
+        # the re-auth modal drawn over the intro, and the dismissal never persists.
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        response = self.client.patch(
+            "/api/users/@me/product_intro_seen",
+            {"product_key": "posthog_ai_onboarding"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.has_seen_product_intro_for, {"posthog_ai_onboarding": True})
+
     def test_stale_session_still_allows_allowlisted_field_write(self):
         # Without a step-up, the allow-list still relaxes the time-based freshness window — guards that
         # the step-up reordering didn't break the normal allow_if_only_fields path.

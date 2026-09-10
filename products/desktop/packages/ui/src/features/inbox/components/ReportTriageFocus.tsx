@@ -7,12 +7,7 @@ import {
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import { Button } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { isDismissalReasonSnooze } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
-import {
-  DismissReportDialog,
-  type DismissReportDialogResult,
-} from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportTriageFocusView } from "@posthog/ui/features/inbox/components/ReportTriageFocusView";
 import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
@@ -97,11 +92,12 @@ export function ReportTriageFocus({
       : -1;
     return Math.max(0, initialIndex);
   });
-  const [dismissOpen, setDismissOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const chatOpen = useReportChatPanelStore((state) => state.open);
   const setChatOpen = useReportChatPanelStore((state) => state.setOpen);
+  const triageIdRef = useRef(crypto.randomUUID());
   const sessionContextRef = useRef({
+    triage_id: triageIdRef.current,
     queue_size: reports.length,
     scope: inboxReviewerScopeValue(scope),
     has_active_filters: hasActiveFilters,
@@ -159,7 +155,7 @@ export function ReportTriageFocus({
   const { prefetch } = useInboxReportDetailPrefetch(
     report
       ? {
-          to: "/inbox/reports/$reportId",
+          to: "/reports/$reportId",
           params: { reportId: report.id },
         }
       : null,
@@ -187,24 +183,31 @@ export function ReportTriageFocus({
     allReports,
     report?.id ?? null,
     "triage",
-  );
-  const dismissPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
-
-  const handleDismissConfirm = useCallback(
-    async (result: DismissReportDialogResult) => {
-      const ok = isDismissalReasonSnooze(result.reason)
-        ? await bulkActions.snoozeSelected()
-        : await bulkActions.suppressSelected(result);
-      if (ok) setDismissOpen(false);
-    },
-    [bulkActions],
+    triageIdRef.current,
   );
 
-  const goNext = useCallback(
-    () => setIndex((i) => Math.min(i + 1, reports.length - 1)),
-    [reports.length],
-  );
-  const goPrev = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
+  // Gate on the hook's disabled reason, not just is_suggested_reviewer, so the
+  // hint stays hidden until the current-user query has resolved (a press with
+  // no meUuid silently no-ops).
+  const canRemoveSelfFromReviewers =
+    bulkActions.removeReviewerDisabledReason === null &&
+    report?.is_suggested_reviewer === true;
+  const removingReviewer = bulkActions.isRemovingReviewer;
+  const handleRemoveReviewer = useCallback(() => {
+    if (removingReviewer) return;
+    void bulkActions.removeReviewerSelected();
+  }, [bulkActions, removingReviewer]);
+
+  // In the "For you" scope the removed report drops out of the queue once the
+  // refetch lands. Moving the index before that would skip the next report.
+  const goNext = useCallback(() => {
+    if (removingReviewer) return;
+    setIndex((i) => Math.min(i + 1, reports.length - 1));
+  }, [reports.length, removingReviewer]);
+  const goPrev = useCallback(() => {
+    if (removingReviewer) return;
+    setIndex((i) => Math.max(i - 1, 0));
+  }, [removingReviewer]);
   const handleExit = useCallback(() => {
     finishSession("exited");
     onExit();
@@ -218,7 +221,6 @@ export function ReportTriageFocus({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (
-        dismissOpen ||
         isTypingTarget(event.target) ||
         document.querySelector('[role="dialog"], [role="alertdialog"]')
       ) {
@@ -245,13 +247,13 @@ export function ReportTriageFocus({
           event.preventDefault();
           goPrev();
           break;
-        case "a":
-          event.preventDefault();
-          if (report) setDismissOpen(true);
-          break;
         case "o":
           event.preventDefault();
           handleOpenReport();
+          break;
+        case "x":
+          event.preventDefault();
+          if (canRemoveSelfFromReviewers) handleRemoveReviewer();
           break;
         case "Escape":
           event.preventDefault();
@@ -261,7 +263,15 @@ export function ReportTriageFocus({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dismissOpen, report, goNext, goPrev, handleExit, handleOpenReport]);
+  }, [
+    report,
+    goNext,
+    goPrev,
+    handleExit,
+    handleOpenReport,
+    canRemoveSelfFromReviewers,
+    handleRemoveReviewer,
+  ]);
 
   if (!report) {
     // The queue ran dry mid-session — every decision is made.
@@ -293,16 +303,28 @@ export function ReportTriageFocus({
           nextReport={nextReport}
           expanded={expanded}
           prShortcut={prShortcut}
+          canRemoveSelfFromReviewers={canRemoveSelfFromReviewers}
           actions={
             <ReportVerdictBanner
+              // Remount on report change so an open PR popover or dismiss
+              // dialog cannot act on the report that replaced the one it was
+              // opened for.
+              key={report.id}
               report={report}
               variant="triage-actions"
-              prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
+              prHotkey={removingReviewer || !prShortcut ? undefined : "c"}
+              resolveHotkey={removingReviewer ? undefined : "r"}
+              dismissHotkey={removingReviewer ? undefined : "a"}
               surface="triage"
+              triageId={triageIdRef.current}
             />
           }
           reviewers={
-            <SuggestedReviewerAvatarStack report={report} surface="triage" />
+            <SuggestedReviewerAvatarStack
+              report={report}
+              surface="triage"
+              triageId={triageIdRef.current}
+            />
           }
           onExit={handleExit}
           onPrevious={goPrev}
@@ -310,19 +332,14 @@ export function ReportTriageFocus({
           onOpenReport={handleOpenReport}
           onToggleSummary={() => setExpanded((current) => !current)}
         />
-
-        {dismissOpen && (
-          <DismissReportDialog
-            open
-            onOpenChange={setDismissOpen}
-            report={report}
-            isSubmitting={dismissPending}
-            snoozeDisabledReason={bulkActions.snoozeDisabledReason}
-            onConfirm={handleDismissConfirm}
-          />
-        )}
       </div>
-      {chatOpen && <ReportChatSidebar report={report} />}
+      {chatOpen && (
+        <ReportChatSidebar
+          report={report}
+          surface="triage"
+          triageId={triageIdRef.current}
+        />
+      )}
     </div>
   );
 }

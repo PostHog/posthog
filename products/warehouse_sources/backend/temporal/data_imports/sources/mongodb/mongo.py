@@ -664,8 +664,10 @@ def mongo_source(
             # 10-minute idle-cursor timeout — the server then kills it, and the next getMore raises
             # CursorNotFound. no_cursor_timeout disables that server-side expiry; we close the cursor
             # explicitly in the finally block below so it doesn't linger on the server instead.
-            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
-            no_cursor_timeout_honored = True
+            # Sorting by _id makes last_id a safe resume point for any CursorNotFound, whether
+            # the server-side timeout fired or the cursor was killed by another server-side event
+            # (primary election, Atlas maintenance, admin killCursors).
+            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True).sort("_id", ASCENDING)
             rows_since_cursor_opened = 0
 
             try:
@@ -700,15 +702,13 @@ def mongo_source(
                             yield result
                         return
                     except CursorNotFound:
-                        # Only reachable once the server-side timeout is back in play, i.e. after the
-                        # fallback below dropped no_cursor_timeout. That read is _id-ordered, so pick
-                        # up after the last document instead of failing the whole sync. Requiring
-                        # progress since the cursor opened stops a cursor that dies immediately from
-                        # looping forever on the same query.
-                        if no_cursor_timeout_honored or rows_since_cursor_opened == 0:
+                        # Both reads (initial and resumable) are _id-ordered, so last_id is always
+                        # a safe resume point. A cursor killed before yielding anything has no safe
+                        # resume point — re-raise so Temporal retries the whole activity.
+                        if rows_since_cursor_opened == 0:
                             raise
                         logger.debug(
-                            f"MongoDB: cursor expired for collection={collection_name}; resuming after _id={last_id}"
+                            f"MongoDB: cursor killed for collection={collection_name}; resuming after _id={last_id}"
                         )
                         cursor.close()
                         cursor = open_resumable_cursor()
@@ -724,7 +724,6 @@ def mongo_source(
                             f"MongoDB: no_cursor_timeout disallowed for collection={collection_name}; retrying without it"
                         )
                         cursor.close()
-                        no_cursor_timeout_honored = False
                         cursor = open_resumable_cursor()
                         rows_since_cursor_opened = 0
             finally:

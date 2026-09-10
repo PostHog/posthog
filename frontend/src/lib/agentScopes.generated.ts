@@ -9,6 +9,7 @@
 export const AGENT_USE_CASE_SCOPES = [
     'action:read',
     'action:write',
+    'access_control:read',
     'account:read',
     'account:write',
     'activity_log:read',
@@ -141,8 +142,6 @@ export const AGENT_USE_CASE_SCOPES = [
     'user:write',
     'user_interview:read',
     'user_interview:write',
-    'vision_action:read',
-    'vision_action:write',
     'visual_review:read',
     'visual_review:write',
     'warehouse_table:read',

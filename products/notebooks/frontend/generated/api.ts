@@ -12,6 +12,7 @@ import type {
     NotebookApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
+    NotebookComputeOptionsResponseApi,
     NotebookKernelConfigApi,
     NotebookKernelConfigResponseApi,
     NotebookKernelStatusResponseApi,
@@ -276,27 +277,6 @@ export const notebooksCollabStreamRetrieve = async (
     })
 }
 
-export const getNotebooksHogqlExecuteCreateUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/hogql/execute/`
-}
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksHogqlExecuteCreate = async (
-    projectId: string,
-    shortId: string,
-    notebookApi?: NonReadonly<NotebookApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksHogqlExecuteCreateUrl(projectId, shortId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(notebookApi),
-    })
-}
-
 export const getNotebooksKernelConfigCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/config/`
 }
@@ -318,24 +298,6 @@ export const notebooksKernelConfigCreate = async (
     })
 }
 
-export const getNotebooksKernelDataframeRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/kernel/dataframe/`
-}
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksKernelDataframeRetrieve = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksKernelDataframeRetrieveUrl(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getNotebooksKernelExecuteCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/execute/`
 }
@@ -350,27 +312,6 @@ export const notebooksKernelExecuteCreate = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksKernelExecuteCreateUrl(projectId, shortId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(notebookApi),
-    })
-}
-
-export const getNotebooksKernelExecuteStreamCreateUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/kernel/execute/stream/`
-}
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksKernelExecuteStreamCreate = async (
-    projectId: string,
-    shortId: string,
-    notebookApi?: NonReadonly<NotebookApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksKernelExecuteStreamCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -526,7 +467,7 @@ export const getNotebooksSqlV2StateRetrieveUrl = (projectId: string, shortId: st
 }
 
 /**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
  */
 export const notebooksSqlV2StateRetrieve = async (
     projectId: string,
@@ -746,6 +687,23 @@ export const getNotebooksAllActivityRetrieveUrl = (projectId: string) => {
  */
 export const notebooksAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getNotebooksAllActivityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksKernelComputeOptionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notebooks/kernel/compute_options/`
+}
+
+/**
+ * Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, so a client can fetch it once and price any shape a user picks.
+ */
+export const notebooksKernelComputeOptionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<NotebookComputeOptionsResponseApi> => {
+    return apiMutator<NotebookComputeOptionsResponseApi>(getNotebooksKernelComputeOptionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
