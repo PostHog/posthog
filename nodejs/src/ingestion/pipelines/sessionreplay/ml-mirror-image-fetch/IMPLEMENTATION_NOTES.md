@@ -125,7 +125,7 @@ The pass-budget alert is inactive in dry-run mode. Delay-topic lag has no alert 
 
 ## Assumptions
 
-- Only the `src` attribute creates a remote-image ref. The collector does not create refs for `rr_src` or `poster`.
+- Image source selection follows requirements 13.11–13.12. A usable `img[srcset]` suppresses that element's `src` and `rr_src` fallbacks. Shopify resize normalisation follows the shared URL policy.
 - A response can contain at most four content-coding layers. This bound limits decompression work while retaining common stacked encodings.
 - The standard pass is shorter than the minimum image retry delay. Active back-off therefore follows requirement 7.13 without an in-memory second pass.
 - Smokescreen is the authoritative production DNS and connection boundary. Local URL admission is an additional fail-closed check.
