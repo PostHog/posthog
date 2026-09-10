@@ -169,6 +169,44 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_at is None
 
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_breach_split_across_batch_jobs_is_still_discovered(self, _mock_dispatch):
+        # Each batch job sits under the per-source volume gates, so per-source discovery gating
+        # would never surface the team even though the workflow's aggregate breaches the 1h rule.
+        job_1 = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.flow)
+        job_2 = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.flow)
+        self._seed(source_id=str(job_1.id), sent=100, complaints=3)
+        self._seed(source_id=str(job_2.id), sent=100, complaints=3)
+
+        applied, _ = self._sweep()
+
+        assert [decision.hog_flow_id for decision in applied] == [str(self.flow.id)]
+
+    def test_a_failing_worker_reload_does_not_drop_the_admin_email(self):
+        # The reload callback runs before the email callback. Without robust registration, its
+        # failure stops the remaining callbacks: the pause commits, the admins are never told, and
+        # later runs skip the paused workflow, so the email is never retried.
+        self._seed(sent=400, complaints=8)
+        with (
+            patch(
+                "products.workflows.backend.services.workflow_email_health.send_workflow_email_sending_paused"
+            ) as paused_email,
+            patch("products.workflows.backend.services.workflow_email_health.send_workflow_email_sending_warning"),
+            patch(
+                "products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers",
+                side_effect=Exception("redis down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            applied = sweep_workflow_email_health(now=self.now)
+
+        assert len(applied) == 1
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_at is not None
+        assert paused_email.delay.call_count == 1
+
     def test_window_starts_after_the_last_resume(self):
         # Breach feedback two hours back, resume a few minutes later in the same hour: the clamp
         # starts at the next full hour, so the pre-resume feedback is out of scope.

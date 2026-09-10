@@ -2,6 +2,7 @@ import time as time_mod
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
@@ -19,7 +20,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -55,6 +55,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     split_ranges_by_ttl,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 
 class TestComputationJob(BaseTest):
@@ -652,6 +653,70 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         assert ch_results[0][4] == 1  # Jan 1: user1
         assert ch_results[1][4] == 1  # Jan 2: user2
         assert ch_results[2][4] == 1  # Jan 3: user3
+
+    def test_takes_over_expired_pending_job(self):
+        self._create_pageview_events()
+
+        query = self._make_computation_query()
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        # A PENDING row whose executor died: past expires_at, so it is invisible
+        # to find_existing_jobs but still holds the unique-index slot.
+        blocker = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(query_info),
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() - timedelta(hours=1),
+        )
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+        )
+
+        assert result.ready is True
+        assert len(result.job_ids) == 1
+        assert result.job_ids[0] != blocker.id
+
+        blocker.refresh_from_db()
+        assert blocker.status == PreaggregationJob.Status.FAILED
+        assert blocker.error == "Expired while pending (owning executor never finished)"
+
+        ch_results = self._query_computation_results(result.job_ids)
+        assert len(ch_results) == 3
+
+    def test_does_not_fail_live_pending_job(self):
+        query = self._make_computation_query()
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        # A healthy in-flight build: PENDING with a future expires_at.
+        live_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(query_info),
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        result = LazyComputationExecutor(wait_timeout_seconds=0.3).execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+        )
+
+        assert result.ready is False
+        live_job.refresh_from_db()
+        assert live_job.status == PreaggregationJob.Status.PENDING
 
 
 class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
@@ -1354,9 +1419,11 @@ class TestParseTtlSchedule(BaseTest):
             ("negative_empty_ttl", {"empty_result_ttl_seconds": -60}),
             ("zero_max_age", {"empty_result_max_age_seconds": 0}),
             ("negative_max_age", {"empty_result_max_age_seconds": -60}),
+            ("zero_jitter", {"default_ttl_jitter_seconds": 0}),
+            ("negative_jitter", {"default_ttl_jitter_seconds": -60}),
         ]
     )
-    def test_rejects_non_positive_empty_result_settings(self, name, kwargs):
+    def test_rejects_non_positive_optional_settings(self, name, kwargs):
         # Validated like every sibling TTL: 0 would expire a job the moment it is created.
         with pytest.raises(ValueError, match="must be positive"):
             parse_ttl_schedule(3600, **kwargs)
@@ -1371,6 +1438,33 @@ class TestParseTtlSchedule(BaseTest):
         uncapped = parse_ttl_schedule(3600)
         assert uncapped.empty_result_ttl_seconds is None
         assert uncapped.empty_result_max_age_seconds is None
+
+    def test_carries_default_ttl_jitter(self):
+        schedule = parse_ttl_schedule({"default": 3600}, "UTC", default_ttl_jitter_seconds=600)
+        assert schedule.default_ttl_jitter_seconds == 600
+        assert parse_ttl_schedule(3600, default_ttl_jitter_seconds=600).default_ttl_jitter_seconds == 600
+        assert parse_ttl_schedule(3600).default_ttl_jitter_seconds is None
+
+    def test_jittered_ttl_is_deterministic_and_spread_within_the_default_band(self):
+        now = django_timezone.now()
+        jitter = 14 * 24 * 60 * 60
+        schedule = TtlSchedule(
+            rules=[(now - timedelta(days=1), 60)],
+            default_ttl_seconds=86400,
+            default_ttl_jitter_seconds=jitter,
+        )
+        windows = [now - timedelta(days=30 + i) for i in range(20)]
+        first = [schedule.get_ttl(w, jittered=True) for w in windows]
+        second = [schedule.get_ttl(w, jittered=True) for w in windows]
+        assert first == second
+        assert all(86400 <= ttl < 86400 + jitter for ttl in first)
+        assert len(set(first)) > 1
+        assert schedule.get_ttl(now, jittered=True) == 60
+        assert all(schedule.get_ttl(w) == 86400 for w in windows)
+
+    def test_jittered_ttl_without_jitter_configured_is_the_band_ttl(self):
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=86400)
+        assert schedule.get_ttl(django_timezone.now() - timedelta(days=30), jittered=True) == 86400
 
 
 class TestSplitRangesByTtl(BaseTest):
@@ -2102,6 +2196,34 @@ class TestComputationExecutorExecute(BaseTest):
             assert j.expires_at is not None
             ttl = (j.expires_at - j.created_at).total_seconds()
             assert ttl > 80000  # ~1 day
+
+    def test_jittered_jobs_survive_past_the_base_ttl(self):
+        # If the freshness check used the base TTL while creation used the jittered one,
+        # this job would be judged stale before its expiry and recomputed on every read.
+        query_info, _ = self._make_query_info()
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, default_ttl_jitter_seconds=14 * 24 * 60 * 60)
+        executor = LazyComputationExecutor(ttl_schedule=schedule)
+
+        with freeze_time("2026-01-15T12:00:00Z") as frozen:
+            start = datetime(2026, 1, 5, tzinfo=UTC)
+            end = datetime(2026, 1, 6, tzinfo=UTC)
+            result = executor.execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: None
+            )
+            assert result.ready is True
+            [job] = PreaggregationJob.objects.filter(id__in=result.job_ids)
+            assert job.expires_at is not None
+            jittered_ttl = (job.expires_at - job.created_at).total_seconds()
+            # This window's deterministic offset is nonzero, so the job outlives the base TTL
+            assert jittered_ttl > 3600
+
+            frozen.tick(timedelta(seconds=(3600 + jittered_ttl) / 2))
+            result = executor.execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: None
+            )
+            assert result.ready is True
+            assert result.job_ids == [job.id]
+            assert PreaggregationJob.objects.count() == 1
 
     def test_timezone_aware_ttl_creates_jobs_with_correct_expiry(self):
         query_info, _ = self._make_query_info()
@@ -3259,6 +3381,16 @@ class TestMaxWindowDaysCap(BaseTest):
         ranges = [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC))]
         assert split_ranges_by_ttl(ranges, schedule) == [
             (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC), 3600)
+        ]
+
+    def test_jitter_does_not_affect_merging(self):
+        # If jitter leaked into the TTLs this function merges on, every daily window would
+        # get a distinct TTL and this backfill would split into 14 daily jobs, not two.
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=7, default_ttl_jitter_seconds=86400)
+        ranges = [(datetime(2020, 1, 1, tzinfo=UTC), datetime(2020, 1, 15, tzinfo=UTC))]
+        assert split_ranges_by_ttl(ranges, schedule) == [
+            (datetime(2020, 1, 1, tzinfo=UTC), datetime(2020, 1, 8, tzinfo=UTC), 3600),
+            (datetime(2020, 1, 8, tzinfo=UTC), datetime(2020, 1, 15, tzinfo=UTC), 3600),
         ]
 
 

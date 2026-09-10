@@ -5,6 +5,7 @@ from celery import shared_task
 
 from products.tasks.backend.facade.api import record_comment_activity
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run_id
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
@@ -43,3 +44,9 @@ def deliver_comment_slack_dms(
         task_id=UUID(task_id),
         recipients={int(user_id): kind for user_id, kind in recipients.items()},
     )
+
+
+# No retries: the wake is best-effort by design, and the parked step has its own deadline.
+@shared_task(ignore_result=True)
+def resume_workflow_step_for_run_deferred(run_id: str) -> None:
+    resume_workflow_step_for_run_id(run_id)

@@ -16,6 +16,7 @@ import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -253,10 +254,13 @@ function NotificationsWidget(): JSX.Element {
 function GithubSetupBody(): JSX.Element {
     const { location, searchParams } = useValues(router)
     return (
-        <GithubIntegration
-            next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url}
-            connectSurface="signals_agent_setup"
-        />
+        <div className="flex flex-col gap-3">
+            <GithubIntegration
+                next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url}
+                connectSurface="signals_agent_setup"
+            />
+            <RepoRoutingRules />
+        </div>
     )
 }
 

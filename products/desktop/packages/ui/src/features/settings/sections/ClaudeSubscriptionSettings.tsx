@@ -4,6 +4,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
 import { useAdapterSubscription } from "@posthog/ui/features/settings/adapterSubscription";
 import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { registerAdapterSubscription } from "@posthog/ui/shell/posthogAnalyticsImpl";
@@ -13,6 +14,7 @@ import {
   type ClaudeAuthAction,
   ClaudeAuthTerminalDialog,
 } from "./ClaudeAuthTerminalDialog";
+import { ClaudeCloudTokenSection } from "./ClaudeCloudTokenSection";
 
 interface ClaudeAccountStatus {
   email?: string;
@@ -65,6 +67,10 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     }
   }, []);
 
+  const cloudSubscriptionOn = useSettingsStore(
+    (state) => state.claudeCloudSubscriptionOn,
+  );
+
   const lastKnownLoggedIn = useRef<boolean | null>(null);
   useEffect(() => {
     if (!settled) return;
@@ -84,20 +90,13 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     });
   }, [settled, loggedIn, subscription.subscriptionOn]);
 
-  if (!subscription.flagEnabled) {
+  if (!subscription.flagEnabled && !subscription.cloudFlagEnabled) {
     return null;
   }
 
   const refreshStatus = (): void => {
     void queryClient.invalidateQueries({ queryKey: statusQuery.queryKey });
   };
-
-  const usingSubscription = loggedIn && subscription.subscriptionOn;
-  const summary = usingSubscription
-    ? "Local and worktree Claude sessions run on your Claude plan instead of PostHog credits. Cloud tasks always use PostHog credits"
-    : loggedIn
-      ? "Your Claude account is connected, but the switch is off. Local and worktree Claude sessions still use PostHog credits. Turn the switch on to use your Claude plan"
-      : "Run local and worktree Claude sessions on your Claude plan instead of PostHog credits. Log in once with the Claude Code CLI, then re-check";
 
   const statusLine = ((): { color: string; label: string } => {
     if (isPending) {
@@ -112,57 +111,67 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     return { color: "bg-(--red-9)", label: "Not logged in" };
   })();
 
-  const description = (
-    <span className="flex flex-col gap-1">
-      <span>{summary}</span>
-      <span className="flex items-center gap-1.5">
-        <span
-          className={`inline-block h-1.5 w-1.5 rounded-full ${statusLine.color}`}
-          aria-hidden
-        />
-        {statusLine.label}
-      </span>
-      {!loggedIn && settled ? (
-        <span className="text-[11px] text-muted-foreground">
-          Log in here, or run claude in a terminal and use /login
-        </span>
-      ) : null}
-    </span>
-  );
-
   return (
     <SettingsCardRow
-      label="Use your Claude subscription"
-      description={description}
+      stacked
+      label="Claude subscription"
+      description="Choose where to use your Claude plan. Model use counts toward your plan limits."
     >
-      <span className="flex flex-wrap items-center justify-end gap-2">
-        <Button
-          variant={loggedIn ? "outline" : "primary"}
-          size="sm"
-          disabled={isPending}
-          onClick={() => setAuthAction(loggedIn ? "logout" : "login")}
-        >
-          {loggedIn ? "Log out" : "Log in"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          loading={isFetching}
-          disabled={isFetching}
-          onClick={refreshStatus}
-        >
-          Re-check
-        </Button>
-        <Switch
-          size="sm"
-          aria-label="Use your Claude subscription"
-          checked={subscription.subscriptionOn}
-          onCheckedChange={(checked) => {
-            subscription.setSubscriptionOn(checked === true);
-            refreshStatus();
-          }}
-        />
-      </span>
+      <div className="flex flex-col gap-5 pt-2">
+        {subscription.flagEnabled ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-xs">Local tasks</span>
+              <Switch
+                size="sm"
+                aria-label="Use your Claude plan for local tasks"
+                checked={subscription.subscriptionOn}
+                onCheckedChange={(checked) => {
+                  subscription.setSubscriptionOn(checked === true);
+                  refreshStatus();
+                }}
+              />
+            </div>
+            <span className="text-muted-foreground text-xs">
+              Use your Claude Code login for local and worktree tasks.
+            </span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+                <span
+                  className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${statusLine.color}`}
+                  aria-hidden
+                />
+                <span className="break-words">{statusLine.label}</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={loggedIn ? "outline" : "primary"}
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => setAuthAction(loggedIn ? "logout" : "login")}
+                >
+                  {loggedIn ? "Log out" : "Log in"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={isFetching}
+                  disabled={isFetching}
+                  onClick={refreshStatus}
+                >
+                  Re-check
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {subscription.cloudFlagEnabled ? (
+          <ClaudeCloudTokenSection
+            cloudSubscriptionOn={cloudSubscriptionOn}
+            onCreateToken={() => setAuthAction("setup-token")}
+          />
+        ) : null}
+      </div>
       {authAction ? (
         <ClaudeAuthTerminalDialog
           action={authAction}

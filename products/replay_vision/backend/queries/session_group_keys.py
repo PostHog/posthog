@@ -9,6 +9,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 
+from products.replay_vision.backend.queries.session_identity import clean_identity_value
+
 logger = structlog.get_logger(__name__)
 
 # The five `$group_N` columns every event carries; the team's own group types occupy a prefix of these.
@@ -45,3 +47,31 @@ def fetch_session_group_keys(*, team: Team, session_id: str, start: dt.datetime,
         return {}
     row = response.results[0]
     return {index: key for index, key in zip(GROUP_TYPE_INDEXES, row) if key}
+
+
+def fetch_group_display_names(*, team: Team, group_keys: dict[int, str]) -> dict[int, str]:
+    """The `name` property of each given group, keyed by group type index.
+
+    A group key is an identifier the customer chose, so it is often a UUID. Only the `name` property is
+    fit to show as a company name, and a group missing one is left out rather than named by its key.
+    """
+    if not group_keys:
+        return {}
+    tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
+    pairs = ast.Tuple(
+        exprs=[
+            ast.Tuple(exprs=[ast.Constant(value=index), ast.Constant(value=key)])
+            for index, key in sorted(group_keys.items())
+        ]
+    )
+    query = parse_select(
+        "SELECT index, key, properties.name AS name FROM groups WHERE (index, key) IN {pairs}",
+        placeholders={"pairs": pairs},
+    )
+    response = execute_hogql_query(query=query, team=team)
+    names: dict[int, str] = {}
+    for index, _key, name in response.results or []:
+        cleaned = clean_identity_value(name)
+        if cleaned:
+            names[int(index)] = cleaned
+    return names

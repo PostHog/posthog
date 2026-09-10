@@ -140,6 +140,50 @@ def is_destructive_tool(tool_name: str, annotations: dict[str, Any] | None = Non
     return bool(_word_tokens(tool_name) & _DESTRUCTIVE_TOKENS)
 
 
+_CONNECTOR_READ_VERBS = frozenset({"get", "list", "search", "fetch", "read", "find", "query", "count", "describe"})
+_CONNECTOR_WRITE_VERBS = frozenset(
+    {
+        "create",
+        "update",
+        "send",
+        "write",
+        "set",
+        "add",
+        "append",
+        "edit",
+        "put",
+        "post",
+        "patch",
+        "upload",
+        "publish",
+        "submit",
+        "merge",
+        "assign",
+        "invite",
+        "install",
+        "execute",
+        "invoke",
+        "insert",
+        "upsert",
+        "replace",
+        "and",
+        "or",
+        "then",
+    }
+)
+
+
+def is_read_only_connector_tool(tool_name: str, annotations: dict[str, Any] | None = None) -> bool:
+    tokens = [token for token in _WORD_SPLIT.split(_CAMEL_CASE_BOUNDARY.sub(" ", tool_name).lower()) if token]
+    return bool(
+        tokens
+        and tokens[0] in _CONNECTOR_READ_VERBS
+        and not set(tokens) & _CONNECTOR_WRITE_VERBS
+        and not is_destructive_tool(tool_name, annotations)
+        and (annotations or {}).get("readOnlyHint") is True
+    )
+
+
 def member_preset_team_state(preset: str, tool_name: str, annotations: dict[str, Any] | None = None) -> str | None:
     """The default state a policy preset implies for a tool, or None when the
     preset is unset and imposes nothing."""

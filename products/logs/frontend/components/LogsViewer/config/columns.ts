@@ -10,6 +10,8 @@ export type LogsColumnType =
     | 'source'
     | 'trace_id'
     | 'span_id'
+    | 'person'
+    | 'session'
     | 'pattern'
     | 'message'
     | 'custom'
@@ -31,7 +33,10 @@ export interface LogsColumnConfig {
 
 interface BuiltInColumnDef {
     label: string
-    /** Reads the value off the row. Absent when the value only exists server-side (see `expression`). */
+    /**
+     * Reads the value off the row. Absent when the value only exists server-side (see `expression`),
+     * or when the cell resolves it itself (see `person` and `session` below).
+     */
     getValue?: (log: ParsedLogMessage) => string
     /** HogQL the server computes for this column, for values a log row does not carry. */
     expression?: string
@@ -41,13 +46,17 @@ interface BuiltInColumnDef {
 // they never hit the wire. `source` has no top-level row field; the service name rides in
 // resource_attributes per OTel convention. `pattern` is the exception: it is a table column the
 // row payload leaves out, so it rides the same wire mechanism as custom columns and is only
-// fetched while the column is on screen.
+// fetched while the column is on screen. `person` and `session` have no fixed field either: the
+// value sits under whichever attribute key the team's logs config names, so the cell resolves it
+// per row (see IdentityCell) rather than a `getValue` here.
 export const LOGS_COLUMN_REGISTRY: Record<Exclude<LogsColumnType, 'custom'>, BuiltInColumnDef> = {
     timestamp: { label: 'Timestamp', getValue: (log) => log.timestamp },
     level: { label: 'Level', getValue: (log) => log.severity_text },
     source: { label: 'Source', getValue: (log) => String(log.resource_attributes?.['service.name'] ?? '') },
     trace_id: { label: 'Trace ID', getValue: (log) => log.trace_id },
     span_id: { label: 'Span ID', getValue: (log) => log.span_id },
+    person: { label: 'Person' },
+    session: { label: 'Session' },
     pattern: { label: 'Pattern', expression: 'pattern' },
     message: { label: 'Message', getValue: (log) => log.body },
 }

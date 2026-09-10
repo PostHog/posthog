@@ -7,20 +7,22 @@ import type { FunnelStepWithNestedBreakdown, IntervalType } from '~/types'
 
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from '../../trends/TrendsLineChart/trendsChartTransforms'
 import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
+import type { FunnelTrendsCounts } from '../shared/funnelTrendsCounts'
 
 // `colorIndex`, `compare`, and `compare_label` are added at runtime by `funnelDataLogic.indexedSteps`
 // (the base FunnelStep types don't declare them).
-export type IndexedFunnelStep = FunnelStepWithNestedBreakdown & {
-    id: number
-    seriesIndex: number
-    colorIndex: number
-    compare?: boolean
-    compare_label?: string | null
-}
+export type IndexedFunnelStep = FunnelStepWithNestedBreakdown &
+    FunnelTrendsCounts & {
+        id: number
+        seriesIndex: number
+        colorIndex: number
+        compare?: boolean
+        compare_label?: string | null
+    }
 
 // The API populates `data`/`days`, but the base FunnelStep type marks them optional —
 // normalize so the trends transform never receives undefined.
-interface NormalizedFunnelStep {
+interface NormalizedFunnelStep extends FunnelTrendsCounts {
     id: string | number
     label: string | null
     data: number[]
@@ -41,6 +43,8 @@ function normalizeStep(step: IndexedFunnelStep): NormalizedFunnelStep {
         order: step.order,
         compare: step.compare,
         compare_label: step.compare_label,
+        reached_from_step_count: step.reached_from_step_count,
+        reached_to_step_count: step.reached_to_step_count,
     }
 }
 
@@ -63,6 +67,8 @@ export function buildFunnelLineSeries(
             compare_label: (step.compare_label ?? undefined) as SeriesDatum['compare_label'],
             order: step.order,
             label: step.label,
+            reached_from_step_count: step.reached_from_step_count,
+            reached_to_step_count: step.reached_to_step_count,
         }),
     })
 }

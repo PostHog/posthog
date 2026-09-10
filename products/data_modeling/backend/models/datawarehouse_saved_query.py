@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, is_reserved_system_name
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -47,7 +47,13 @@ logger = structlog.get_logger(__name__)
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
 
-def validate_saved_query_name(value):
+def validate_saved_query_name(value: str) -> None:
+    if is_reserved_system_name(value):
+        raise ValidationError(
+            "The system namespace is reserved for built-in tables. Choose a different view name.",
+            params={"value": value},
+        )
+
     if not re.match(r"^[A-Za-z_$][A-Za-z0-9_.$]*$", value):
         raise ValidationError(
             f"{value} is not a valid view name. View names can only contain letters, numbers, '_', '.', or '$' ",
@@ -66,8 +72,9 @@ def validate_saved_query_name(value):
         )
 
 
-class V1SchedulingPathReached(Exception):
-    """Raised when a saved query cannot be scheduled through v2."""
+class NoSchedulableDagError(Exception):
+    """Raised when no DAG can schedule a saved query: none is on v2, and there is no node to
+    bootstrap one from."""
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -79,6 +86,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         COMPLETED = "Completed"
         FAILED = "Failed"
         RUNNING = "Running"
+        SKIPPED = "Skipped"
 
     class Origin(models.TextChoices):
         """Possible origin of this SavedQuery"""
@@ -88,7 +96,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         MANAGED_VIEWSET = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     latest_error = models.TextField(default=None, null=True, blank=True)
     columns = models.JSONField(
         default=dict,
@@ -117,7 +125,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
     # In case the saved query is materialized to a table, this will be set
-    table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    table = models.ForeignKey(
+        "warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     # The name of the view at the time of soft deletion
@@ -136,7 +146,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="saved_queries",
+        related_name="+",
         help_text="Optional folder used to organize this saved query in the SQL editor sidebar.",
     )
 
@@ -194,6 +204,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
         ]
         db_table = "posthog_datawarehousesavedquery"
+        indexes = [
+            # The HogQL database build reads a team's live saved queries ordered by name on
+            # every query. ~Q(deleted=True) compiles to the same SQL as .exclude(deleted=True),
+            # so the planner matches the partial predicate without proving implication.
+            models.Index(
+                fields=["team_id", "name"],
+                name="dwsavedquery_team_live_name",
+                condition=~models.Q(deleted=True),
+            )
+        ]
 
     @property
     def name_chain(self) -> list[str]:
@@ -287,7 +307,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     transaction.on_commit(self._start_immediate_materialization)
                 return
 
-            raise V1SchedulingPathReached(f"Saved query {self.id} has no v2 schedule")
+            raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The query is fine — the requested frequency is not. Surface it to the caller
             # instead of silently disabling materialization.
@@ -328,9 +348,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
 
     def revert_materialization(self):
+        from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-        from products.data_warehouse.backend.facade.api import delete_saved_query_schedule
 
         self.sync_frequency_interval = None
         self.last_run_at = None
@@ -338,30 +358,35 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.status = None
         self.is_materialized = False
 
-        should_delete_saved_query_schedule: bool = False
-        try:
-            with transaction.atomic():
-                # delete the materialized table reference
-                if self.table is not None:
-                    self.table.soft_delete()
-                    self.table_id = None
+        with transaction.atomic():
+            # delete the materialized table reference
+            if self.table is not None:
+                self.table.soft_delete()
+                self.table_id = None
 
-                should_delete_saved_query_schedule = True
-                self.save()
-                DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
-        finally:
-            if should_delete_saved_query_schedule:
-                delete_saved_query_schedule(self)
+            self.save()
+            DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
 
         # A reverted matview must also leave its cadence tier, or it would keep being
-        # materialized on tiered v2. Best-effort like the schedule delete above — the
-        # revert itself already succeeded.
+        # materialized on tiered v2. Best-effort — the revert itself already succeeded.
         try:
             apply_saved_query_frequency_target(self, None)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
                 "failed_to_clear_frequency_target_on_revert",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+            )
+
+        # The circuit breaker suspended a materialization that no longer exists, so the marker
+        # would outlive it and keep reporting a view its owner stopped themselves.
+        try:
+            unsuspend_saved_query(self, by="revert")
+        except Exception as e:
+            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.exception(
+                "failed_to_clear_suspension_on_revert",
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
             )

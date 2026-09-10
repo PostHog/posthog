@@ -13,7 +13,7 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
-import { RunActivity } from './RunActivity'
+import { Activity } from './ActivityPrimitives'
 import { RunAlertActivity } from './RunAlertActivity'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
@@ -81,13 +81,14 @@ function ProgressItem({ item }: { item: ThreadItem }): JSX.Element | null {
     const state = resolveProgressState(steps)
 
     return (
-        <RunActivity
+        <Activity
             id={item.id}
-            content={headline}
+            title={headline}
             substeps={substeps}
-            state={state}
+            status={state}
             icon={<IconWrench />}
             showCompletionIcon={true}
+            autoExpand={false}
         />
     )
 }
@@ -123,7 +124,7 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'assistant_message') {
         return (
-            <MessageTemplate type="ai">
+            <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
             </MessageTemplate>
         )

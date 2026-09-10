@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -55,6 +55,10 @@ export interface MessageInputProps {
     editingMessageId?: string | null
     /** Cancel edit mode and restore the previous draft */
     onCancelEdit?: () => void
+    /** Show a one-line field until focused, then the full composer. */
+    collapseUntilActive?: boolean
+    /** When this changes, the collapsed composer closes. Ticket navigation reuses the same mount. */
+    threadId?: string
 }
 
 export function MessageInput({
@@ -79,10 +83,18 @@ export function MessageInput({
     unsavedTicketChanges,
     editingMessageId = null,
     onCancelEdit,
+    collapseUntilActive = false,
+    threadId,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
+    const [composerExpanded, setComposerExpanded] = useState(false)
+    const lastThreadIdRef = useRef(threadId)
+    if (lastThreadIdRef.current !== threadId) {
+        lastThreadIdRef.current = threadId
+        setComposerExpanded(false)
+    }
     const editorRef = useRef<RichContentEditorType | null>(null)
     const lastSeededEditId = useRef<string | null>(null)
     const draftContentRef = useRef(draftContent)
@@ -92,6 +104,12 @@ export function MessageInput({
     useEffect(() => {
         setIsEmpty(!draftContent)
     }, [draftContent])
+
+    useEffect(() => {
+        if (composerExpanded) {
+            editorRef.current?.focus()
+        }
+    }, [composerExpanded])
 
     // SupportEditor only applies initialContent at mount; seed/restore via setContent on edit transitions.
     // Defer seeding so kea listeners can apply setDraftContent before we read it.
@@ -237,11 +255,28 @@ export function MessageInput({
               ? 'Sending is disabled'
               : undefined
 
+    const showFullComposer = !collapseUntilActive || composerExpanded || !!draftContent || !!editingMessageId
+
+    if (!showFullComposer) {
+        return (
+            <LemonInput
+                fullWidth
+                value=""
+                placeholder={getReplyPlaceholder(channel)}
+                disabledReason={sendControlDisabledReason}
+                onChange={() => setComposerExpanded(true)}
+                onFocus={() => setComposerExpanded(true)}
+                data-attr="message-input-collapsed"
+            />
+        )
+    }
+
     return (
         <div>
             <SupportEditor
                 initialContent={typeof draftContent === 'string' ? null : draftContent}
                 placeholder={resolvedPlaceholder}
+                autoFocus={composerExpanded}
                 onCreate={(editor) => {
                     editorRef.current = editor
                     if (draftContent) {

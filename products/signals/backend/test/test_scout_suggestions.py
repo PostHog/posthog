@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import DatabaseError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -24,6 +25,7 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_harness.suggestions import (
+    MAX_DESCRIPTION_CHARS,
     ScoutSuggestionBatch,
     ScoutSuggestionItem,
     SuggestionSettings,
@@ -33,9 +35,11 @@ from products.signals.backend.scout_harness.suggestions import (
     parse_suggestion_settings,
     persist_suggestion_batch,
     plan_suggestion_runs,
+    reserved_scout_names,
     visible_items,
 )
 from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions, validate_suggestion_items
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
 
 CANONICAL = {"signals-scout-general", "signals-scout-error-tracking"}
@@ -89,14 +93,13 @@ class TestValidateSuggestionItems(SimpleTestCase):
             ("unknown_canonical", _item(skill_name="signals-scout-nope")),
             ("already_enabled", _item(skill_name="signals-scout-general")),
             ("custom_shadows_canonical", _custom(skill_name="signals-scout-error-tracking")),
-            ("custom_bad_slug", _custom(skill_name="scout-checkout")),
             ("custom_uppercase_slug", _custom(skill_name="signals-scout-Checkout")),
             ("custom_double_hyphen", _custom(skill_name="signals-scout--checkout")),
             ("six_field_cron", _item(proposed_config={"run_cron_schedule": "0 30 9 * * *"})),
             ("cron_under_30_min_gap", _item(proposed_config={"run_cron_schedule": "*/15 * * * *"})),
             ("custom_empty_body", _custom(draft_body="   ")),
             ("custom_no_description", _custom(description="")),
-            ("custom_description_over_create_limit", _custom(description="x" * 4097)),
+            ("custom_description_over_create_limit", _custom(description="x" * (MAX_DESCRIPTION_CHARS + 1))),
             ("bad_cron", _item(proposed_config={"run_cron_schedule": "every tuesday"})),
             # Syntactically valid but never occurs; croniter only raises on enumeration, which
             # must drop the item rather than fail the whole batch.
@@ -113,6 +116,11 @@ class TestValidateSuggestionItems(SimpleTestCase):
             ("interval_below_floor", _item(proposed_config={"run_interval_minutes": 5})),
             ("blank_title", _item(title="  ")),
             ("custom_reuses_a_stored_skill_name", _custom(skill_name="signals-scout-disabled-custom")),
+            # Reserved by the inbox, which reads them as sub-pages of `/inbox/scouts/`. They pass
+            # the generic skill-name contract, so only the scout-specific rule drops them.
+            ("custom_reserved_scratchpad", _custom(skill_name="scratchpad")),
+            ("custom_reserved_findings", _custom(skill_name="findings")),
+            ("custom_reserved_runs", _custom(skill_name="runs")),
         ]
     )
     def test_drops_items_create_could_not_apply(self, _name, item):
@@ -130,6 +138,14 @@ class TestValidateSuggestionItems(SimpleTestCase):
         )
         self.assertIsNone(kept[0].proposed_config.run_cron_schedule)
 
+    def test_keeps_a_custom_draft_without_the_scout_prefix(self):
+        # The producer prompt still asks for prefixed names, but that is a prompt choice: Create
+        # accepts any valid skill name, so a bare-named draft must not be dropped as invalid.
+        kept = validate_suggestion_items(
+            [_custom(skill_name="my-churn-watch")], enabled_skill_names=set(), canonical_names=CANONICAL
+        )
+        self.assertEqual([item.skill_name for item in kept], ["my-churn-watch"])
+
     def test_keeps_valid_items_dedupes_and_caps_at_five(self):
         items = [_item(), _item(), _custom()] + [_custom(skill_name=f"signals-scout-extra-{i}") for i in range(5)]
         kept = validate_suggestion_items(items, enabled_skill_names=set(), canonical_names=CANONICAL)
@@ -137,6 +153,16 @@ class TestValidateSuggestionItems(SimpleTestCase):
         self.assertEqual(kept[0].skill_name, "signals-scout-error-tracking")
         self.assertEqual(kept[1].skill_name, "signals-scout-checkout-drop")
         self.assertEqual(len({item.skill_name for item in kept}), 5)
+
+
+class TestReservedScoutNames(BaseTest):
+    def test_reserves_a_configured_scout_name_without_the_prefix(self):
+        # Offering a name the project already holds would surface a Create that answers 409, and
+        # a scout can now hold any valid skill name.
+        LLMSkill.objects.create(team=self.team, name="my-churn-watch", description="d", body="b")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="my-churn-watch")
+
+        self.assertIn("my-churn-watch", reserved_scout_names(self.team.id))
 
 
 class TestSuggestionPersistence(BaseTest):
@@ -355,6 +381,47 @@ class TestPlanSuggestionRuns(BaseTest):
         # spend rather than parking the project forever.
         self.assertIn(failing.id, [run.team_id for run in plan_suggestion_runs(settings, self.now + timedelta(days=7))])
 
+    def test_a_stale_batch_is_replanned_before_the_full_refresh_window(self):
+        # Turning one scout on flips a batch to stale, so most projects sit stale for most of the
+        # week. They are re-picked on the shorter window; a failing project still backs off.
+        fresh = self._team("fresh-batch")
+        self._enable_scout(fresh, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=fresh,
+            status=SignalScoutSuggestionSet.Status.FRESH,
+            last_requested_at=self.now - timedelta(days=2),
+        )
+        stale = self._team("stale-batch")
+        self._enable_scout(stale, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=stale,
+            status=SignalScoutSuggestionSet.Status.STALE,
+            last_requested_at=self.now - timedelta(days=2),
+        )
+        stale_failing = self._team("stale-failing")
+        self._enable_scout(stale_failing, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=stale_failing,
+            status=SignalScoutSuggestionSet.Status.STALE,
+            last_requested_at=self.now - timedelta(days=2),
+            consecutive_failures=3,
+            last_completed_at=self.now - timedelta(days=2),
+        )
+
+        # A failure replaces the stale status, so a failed row under the breaker keeps the short window.
+        failed_once = self._team("failed-once")
+        self._enable_scout(failed_once, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=failed_once,
+            status=SignalScoutSuggestionSet.Status.FAILED,
+            last_requested_at=self.now - timedelta(days=2),
+            consecutive_failures=1,
+            last_completed_at=self.now - timedelta(days=2),
+        )
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True), self.now)
+        self.assertEqual(sorted(run.team_id for run in planned), sorted([stale.id, failed_once.id]))
+
     def test_root_source_config_does_not_hide_wider_tiers(self):
         SignalSourceConfig.objects.create(team=self.team, source_product="error_tracking", source_type="issue_created")
         plain = self._team("plain")
@@ -521,6 +588,28 @@ async def test_runner_records_a_cancelled_scan_as_a_failure(asuggestion_team):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_runner_scans_a_project_that_is_over_its_pr_quota(asuggestion_team):
+    # A scan opens no pull request, so it charges nothing against the self-driving credits meter,
+    # and a skip would still cost the team the whole refresh window stamped at dispatch. Patched
+    # at the limiter read every quota gate bottoms out on, so re-adding one in any form fails here.
+    batch = ScoutSuggestionBatch(suggestions=[_custom()])
+    with (
+        patch("products.signals.backend.quota.is_team_limited", return_value=True),
+        patch(
+            f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, return_value=(_fake_session(), batch)
+        ) as start,
+        patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env"),
+        patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
+    ):
+        result = await arun_scout_suggestions(asuggestion_team.id)
+
+    assert (result.status, result.skip_reason) == ("completed", None)
+    start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_runner_skips_unapproved_org_before_any_spend(asuggestion_team):
     organization = asuggestion_team.organization
     organization.is_ai_data_processing_approved = False
@@ -577,6 +666,99 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/nope/dismiss/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_creating_a_scout_from_a_suggestion_stops_it_being_offered(self):
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "custom")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-checkout-drop",
+                "description": "Watches the checkout funnel.",
+                "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
+                "suggestion_id": suggestion_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        row.refresh_from_db()
+        created = next(item for item in row.items if item["id"] == suggestion_id)
+        config = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-checkout-drop")
+        self.assertEqual(created["created_config_id"], str(config.id))
+
+    def test_a_suggestion_id_only_marks_the_draft_it_names(self):
+        # A client can send any id it holds; only the draft the new scout was made from is retired.
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "custom")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-something-else",
+                "description": "Watches something else.",
+                "body": "# Something else\n\nCheck it daily.",
+                "suggestion_id": suggestion_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        row.refresh_from_db()
+        untouched = next(item for item in row.items if item["id"] == suggestion_id)
+        self.assertIsNone(untouched["created_config_id"])
+
+    def test_an_unknown_suggestion_id_still_creates_the_scout(self):
+        # The batch can compact a record away between the strip reading it and the create landing;
+        # losing the scout over a bookkeeping id would be the worse failure.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-checkout-drop",
+                "description": "Watches the checkout funnel.",
+                "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
+                "suggestion_id": "no-such-suggestion",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(
+            SignalScoutConfig.all_teams.filter(team=self.team, skill_name="signals-scout-checkout-drop").exists()
+        )
+
+    @patch(
+        "products.signals.backend.scout_harness.views.mark_suggestion_created",
+        side_effect=DatabaseError("lock timeout"),
+    )
+    def test_a_failed_suggestion_marker_still_creates_the_scout(self, _mock_mark):
+        # The scout and its config commit before the marker runs, so a database error on the second
+        # write must not report a create that already happened as a failure.
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "custom")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-checkout-drop",
+                "description": "Watches the checkout funnel.",
+                "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
+                "suggestion_id": suggestion_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(
+            SignalScoutConfig.all_teams.filter(team=self.team, skill_name="signals-scout-checkout-drop").exists()
+        )
+
     @patch("products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run")
     def test_refresh_requires_ai_consent(self, mock_start):
         self.organization.is_ai_data_processing_approved = None
@@ -621,6 +803,24 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         mock_start.assert_called_once()
         # The scan must act as the caller, not a resolved (possibly more privileged) member.
         self.assertEqual(mock_start.call_args.kwargs["acting_user_id"], self.user.pk)
+
+    @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
+    @patch(
+        "products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run",
+        return_value="wf-1",
+    )
+    @patch(
+        "products.signals.backend.scout_suggestions_api.read_suggestion_settings",
+        return_value=SuggestionSettings(enabled=True),
+    )
+    def test_refresh_dispatches_for_a_project_over_its_pr_quota(self, _settings, mock_start, _connect):
+        # The refresh cannot mint a pull request, so the credits limit must not throttle it.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        with patch("products.signals.backend.quota.is_team_limited", return_value=True):
+            response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/refresh/")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_start.assert_called_once()
 
     @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
     @patch("products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run")
