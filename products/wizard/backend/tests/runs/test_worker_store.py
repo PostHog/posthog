@@ -53,6 +53,7 @@ def test_cleanup_retries_preserve_saved_usage_and_original_end_time(team, late_s
     store.mark_cleaned(team.id, run.id)
 
     worker.refresh_from_db()
+    assert worker.resource_usage is not None
     assert worker.resource_usage["provider_cpu_usage_usec"] == (150 if late_sample else 100)
     assert worker.resource_usage["provider_billed_cpu_usage_usec"] == 200
     assert worker.cleaned_at == cleaned_at
