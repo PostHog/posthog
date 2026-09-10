@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -74,7 +74,7 @@ function Candidate({ candidate }: { candidate: MCPDiscoverCandidateApi }): JSX.E
 }
 
 export function MCPRegistryScene(): JSX.Element {
-    const { intent, candidates, responseLoading, searchedIntent } = useValues(mcpRegistryLogic)
+    const { intent, candidates, responseLoading, searchError, searchedIntent } = useValues(mcpRegistryLogic)
     const { setIntent, search } = useActions(mcpRegistryLogic)
 
     return (
@@ -114,6 +114,12 @@ export function MCPRegistryScene(): JSX.Element {
                         Search
                     </LemonButton>
                 </form>
+
+                {searchError && !responseLoading ? (
+                    <LemonBanner type="error">
+                        Search failed: {searchError}. Check the connection and try again.
+                    </LemonBanner>
+                ) : null}
 
                 {responseLoading ? (
                     <Spinner className="self-center text-2xl" />
