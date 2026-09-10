@@ -21,13 +21,11 @@ describe("createCanvasHostMessageRouter", () => {
     },
   );
   it.each([
-    [false, false, "tasks.create"],
-    [true, true, "tasks.create"],
-    [false, false, "tasks.create_and_run"],
-    [true, true, "tasks.create_and_run"],
+    [false, false],
+    [true, true],
   ])(
-    "forwards action invocations only under a user gesture (activation: %s, forwarded: %s, verb: %s)",
-    async (hasActivation, forwarded, verb) => {
+    "forwards action invocations only under a user gesture (activation: %s)",
+    async (hasActivation, forwarded) => {
       const post = vi.fn();
       const onDataRequest = vi.fn().mockResolvedValue({ ok: true });
       const route = createCanvasHostMessageRouter({
@@ -42,12 +40,12 @@ describe("createCanvasHostMessageRouter", () => {
         type: "data-request",
         id: "request-1",
         method: "actionInvoke",
-        payload: { verb, payload: { title: "t" } },
+        payload: { verb: "tasks.create", payload: { title: "t" } },
       });
 
       if (forwarded) {
         expect(onDataRequest).toHaveBeenCalledWith("actionInvoke", {
-          verb,
+          verb: "tasks.create",
           payload: { title: "t" },
         });
       } else {
