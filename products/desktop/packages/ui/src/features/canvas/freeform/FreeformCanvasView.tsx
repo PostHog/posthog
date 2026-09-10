@@ -51,7 +51,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { CANVAS_COMPONENT_PATH, formatRelativeAge } from "@posthog/shared";
+import {
+  CANVAS_COMPONENT_PATH,
+  CANVAS_PROGRESSIVE_FRAGMENTS_FLAG,
+  formatRelativeAge,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
@@ -74,6 +78,7 @@ import {
   useFreeformChatStore,
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
@@ -111,6 +116,7 @@ import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
 import { CanvasSidePanel } from "./CanvasSidePanel";
 import { canvasChatTaskId } from "./canvasChatTask";
 import { canvasCommentTaskId } from "./canvasCommentTask";
+import { fragmentProgress } from "./canvasFragments";
 import { canvasRuntimeErrorAnalytics } from "./canvasRuntimeError";
 import { canvasSidePanelVisibility } from "./canvasSidePanelVisibility";
 import {
@@ -299,9 +305,16 @@ export function FreeformCanvasView({
 
   // The published build's artifact, pinned to one signed URL per build (so the
   // 2s builds poll can't reload the iframe), with expired-URL recovery via the
-  // refresh-key remount. The whole lifecycle machine lives in the hook.
+  // refresh-key remount. The whole lifecycle machine lives in the hook. With
+  // progressive fragments on, a newer build that kept the layout rolls its
+  // fragments into the mounted frame instead of remounting it.
+  const progressiveFragments = useFeatureFlag(
+    CANVAS_PROGRESSIVE_FRAGMENTS_FLAG,
+  );
   const {
     artifact: pinnedArtifact,
+    fragments: artifactFragments,
+    fragmentsBuildId,
     refreshKey: artifactRefreshKey,
     onReady: onArtifactReady,
   } = usePinnedArtifact({
@@ -310,6 +323,7 @@ export function FreeformCanvasView({
     lifecycle,
     mintedAt: buildsUpdatedAt,
     suspended: browsing,
+    rollForwardFragments: progressiveFragments,
   });
   const {
     artifact: pinnedHistoricalArtifact,
@@ -724,13 +738,39 @@ export function FreeformCanvasView({
       reportRuntimeError,
     ],
   );
+  // Marker counts come from the newest published build: after a roll-forward
+  // its layout is the mounted one, and its pending list is the current one.
+  const publishedFragmentProgress = fragmentProgress(publishedBuild?.manifest);
+  const fragmentCount = publishedFragmentProgress?.total;
+  const pendingFragmentCount = publishedFragmentProgress?.pending.length;
   const onRendered = useCallback(() => {
     // "rendered" is as good as "ready" as proof the pinned artifact URL loaded.
     onArtifactReady();
     lastRuntimeErrorRef.current = null;
     setRuntimeError(threadId, null);
-    track(ANALYTICS_EVENTS.CANVAS_RENDERED, canvasTrackProps);
-  }, [threadId, setRuntimeError, onArtifactReady, canvasTrackProps]);
+    track(ANALYTICS_EVENTS.CANVAS_RENDERED, {
+      ...canvasTrackProps,
+      fragment_count: fragmentCount,
+      pending_fragment_count: pendingFragmentCount,
+    });
+  }, [
+    threadId,
+    setRuntimeError,
+    onArtifactReady,
+    canvasTrackProps,
+    fragmentCount,
+    pendingFragmentCount,
+  ]);
+  const onFragmentRendered = useCallback(
+    (path: string) => {
+      track(ANALYTICS_EVENTS.CANVAS_FRAGMENT_RENDERED, {
+        ...canvasTrackProps,
+        build_id: fragmentsBuildId,
+        path,
+      });
+    },
+    [canvasTrackProps, fragmentsBuildId],
+  );
   const clearHistoricalArtifactError = useCallback(() => {
     onHistoricalArtifactReady();
     setRuntimeError(threadId, null);
@@ -1215,6 +1255,8 @@ export function FreeformCanvasView({
                 onError={onError}
                 onReady={onArtifactReady}
                 onRendered={onRendered}
+                onFragmentRendered={onFragmentRendered}
+                fragments={artifactFragments}
                 onNavigate={onNavigate}
                 onTextSelection={setTextSelection}
                 onCommentActivate={activateComment}

@@ -86,6 +86,26 @@ describe("createCanvasHostMessageRouter", () => {
     });
   });
 
+  it("forwards fragment-rendered to the host without a user gesture", async () => {
+    const onFragmentRendered = vi.fn();
+    const route = createCanvasHostMessageRouter({
+      post: vi.fn(),
+      callbacks: () => ({ onDataRequest: vi.fn(), onFragmentRendered }),
+      hasUserActivation: () => false,
+      openExternal: vi.fn(),
+    });
+
+    await route({
+      channel: "posthog-canvas",
+      type: "fragment-rendered",
+      path: "src/fragments/revenue.tsx",
+    });
+
+    expect(onFragmentRendered).toHaveBeenCalledWith(
+      "src/fragments/revenue.tsx",
+    );
+  });
+
   it("rejects agent requests that are not triggered by a user action", async () => {
     const post = vi.fn();
     const onDataRequest = vi.fn();

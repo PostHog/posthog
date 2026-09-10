@@ -1240,6 +1240,19 @@ export interface CanvasRenderedProperties {
   dashboard_id?: string;
   /** The published build whose artifact rendered; absent for head-source renders. */
   build_id?: string;
+  /** Fragment markers in the build's layout; absent for builds without fragments. */
+  fragment_count?: number;
+  /** Markers whose fragment file the build did not have yet. */
+  pending_fragment_count?: number;
+}
+
+export interface CanvasFragmentRenderedProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The build whose fragment chunk rendered. */
+  build_id?: string;
+  /** The marker path, e.g. "fragments/revenue-chart". */
+  path: string;
 }
 
 export interface CanvasViewedProperties {
@@ -1712,6 +1725,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
   CANVAS_VIEWED: "Canvas viewed",
   CANVAS_RENDERED: "Canvas rendered",
+  CANVAS_FRAGMENT_RENDERED: "Canvas fragment rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
 
@@ -1924,6 +1938,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
   [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
+  [ANALYTICS_EVENTS.CANVAS_FRAGMENT_RENDERED]: CanvasFragmentRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
 

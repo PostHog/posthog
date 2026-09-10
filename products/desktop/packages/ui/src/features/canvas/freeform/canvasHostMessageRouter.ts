@@ -56,6 +56,7 @@ interface CanvasHostCallbacks {
   onError?: (message: string, stack?: string) => void;
   onReady?: () => void;
   onRendered?: () => void;
+  onFragmentRendered?: (path: string) => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
@@ -178,6 +179,9 @@ export function createCanvasHostMessageRouter(
         break;
       case "rendered":
         options.callbacks().onRendered?.();
+        break;
+      case "fragment-rendered":
+        options.callbacks().onFragmentRendered?.(message.path);
         break;
       case "navigate":
         if (message.nav.target === "connect" && !options.hasUserActivation())

@@ -29,6 +29,7 @@ Start with the guide that matches the work you are doing. [AGENTS.md](../AGENTS.
 | [Pi extensions](./PI-EXTENSIONS.md) | Understand repository trust and desktop RPC behavior for Pi extensions. |
 | [Cloud MCP import](./CLOUD-MCP-IMPORT.md) | Understand importing local MCP configuration into cloud task runs. |
 | [Cloud MCP relay](./CLOUD-MCP-RELAY.md) | Understand the design for relaying local MCP servers to cloud task runs. |
+| [Progressive canvas fragments](../../canvas/docs/progressive-fragments.md) | Understand how the host swaps canvas fragments into an open canvas without a reload. |
 
 ## Design records
 

@@ -24,6 +24,11 @@ import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import {
+  type FragmentProgress,
+  formatPendingFragments,
+  fragmentProgress,
+} from "./canvasFragments";
 
 // How often the queued/building elapsed-time label refreshes. Coarse on
 // purpose — it's a progress hint, not a stopwatch.
@@ -47,6 +52,44 @@ function topErrors(diagnostics: CanvasDiagnostic[]): string[] {
         ? `${diagnostic.path}${diagnostic.line ? `:${diagnostic.line}` : ""} — ${diagnostic.message}`
         : diagnostic.message,
     );
+}
+
+// "N of M fragments ready" for a build made with progressive fragments, with
+// the paths still waiting for a fragment file in the tooltip. Hidden when the
+// layout has no markers.
+function FragmentProgressLabel({ progress }: { progress: FragmentProgress }) {
+  const label = `${progress.ready} of ${progress.total} fragments ready`;
+  if (progress.pending.length === 0) {
+    return (
+      <Text size="xs" variant="muted" data-testid="canvas-fragment-progress">
+        {label}
+      </Text>
+    );
+  }
+  return (
+    <TooltipProvider delay={0}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Text
+              size="xs"
+              variant="muted"
+              data-testid="canvas-fragment-progress"
+            >
+              {label}
+            </Text>
+          }
+        />
+        <TooltipContent>
+          <span className="whitespace-pre-wrap">
+            {["Waiting for:", ...formatPendingFragments(progress.pending)].join(
+              "\n",
+            )}
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 // Compact build indicator for the canvas toolbar (both view and edit mode):
@@ -99,8 +142,15 @@ export function CanvasBuildStatus({
 
   if (!lifecycle || lifecycle.builds.length === 0) return null;
 
+  const published = lifecycle.builds.find(
+    (build) => build.id === lifecycle.publishedBuildId,
+  );
+
   if (active) {
     const elapsed = formatElapsed(Date.now() - Date.parse(active.createdAt));
+    // A queued or building row has no manifest yet; the live build's marker
+    // progress is what the viewer is looking at while the next one builds.
+    const progress = fragmentProgress(published?.manifest);
     return (
       <div
         className="flex items-center gap-1"
@@ -110,6 +160,7 @@ export function CanvasBuildStatus({
         <Text size="xs" variant="muted">
           {active.buildStatus === "queued" ? "Queued" : "Building"} · {elapsed}
         </Text>
+        {progress && <FragmentProgressLabel progress={progress} />}
         {active.buildStatus === "queued" && (
           <Button
             size="icon"
@@ -204,6 +255,7 @@ export function CanvasBuildStatus({
   }
 
   if (lifecycle.publishedBuildId === latest.id) {
+    const progress = fragmentProgress(latest.manifest);
     return (
       <TooltipProvider delay={0}>
         <Tooltip>
@@ -214,6 +266,7 @@ export function CanvasBuildStatus({
                 data-testid="canvas-build-ready"
               >
                 <CheckCircleIcon size={14} className="text-green-9" />
+                {progress && <FragmentProgressLabel progress={progress} />}
                 <Button
                   size="icon"
                   variant="default"
@@ -241,9 +294,6 @@ export function CanvasBuildStatus({
     );
   }
 
-  const published = lifecycle.builds.find(
-    (build) => build.id === lifecycle.publishedBuildId,
-  );
   if (latest.buildStatus === "ready" && published?.pinned) {
     return (
       <TooltipProvider delay={0}>

@@ -142,6 +142,44 @@ canvas tools return (`canvas-create`, `canvas-list`, and the publish/source resp
 That field is the only valid link to a canvas — never construct one yourself; guessed URLs
 (project pages, web routes) do not resolve.
 
+## Progressive fragments
+
+Progressive fragments let a canvas with several independent panels appear one panel at a time.
+The layout goes live first with placeholders, and each panel replaces its placeholder as soon as its own build is ready.
+Use this when the person wants to watch a board fill in while you keep working on it: a dashboard with a handful of charts and tables, a report with several sections, a tool with independent panes.
+Do not use it for one small widget or a canvas that is one component; a single publish is faster and simpler there.
+
+### Authoring model
+
+- **Layout**: the normal entry (`index.html` and `src/canvas.tsx`). Any layout, no grid.
+- **Shared modules**: every file under `src/shared/**`. The layout owns one instance of each; fragments import them and get the same instance. Put stores, contexts, and utilities that more than one panel reads here.
+- **Fragments**: every file `src/fragments/<name>.tsx` (also `.jsx`, `.ts`, `.js`; nested directories are fine). Each fragment is one independent chunk and must `export default` a React component. A fragment may import bare dependencies, `../shared/*`, and private files that live outside `src/shared/` and `src/fragments/`.
+- **Marker**: in the layout, `import { CanvasFragment } from "@posthog/canvas-sdk/fragment"` and place `<CanvasFragment path="fragments/revenue-chart" fallback={<Skeleton />} props={{ range }} />` where the panel goes. `path` is the file path relative to `src/` without the extension. `fallback` renders until the fragment is loaded. `props` are passed to the fragment component.
+
+Rules:
+
+- A fragment must not import another fragment. Validation reports `fragment_imports_fragment`.
+- Shared state lives in `src/shared`. A fragment that needs a value from another panel reads it from a shared store, never from the other fragment.
+- A marker whose fragment file does not exist yet is not an error. It renders its `fallback` and counts as pending. Validation lists these in the `fragment_marker_without_file` warning.
+
+### Build order
+
+1. Publish the layout first: the entry, the `src/shared/**` modules, and every marker with its fallback. Do not include any fragment file yet.
+2. Wait for that build to reach `ready`. Read the build's `manifest` from `canvas-builds-retrieve`. If `manifest.fragments` is present (an empty object counts), progressive mode is active. If it is absent, the team does not have it, so stop here and finish the canvas with a single publish that includes every panel as ordinary components (see the next section).
+3. Add fragments in small batches (two or three files) and publish after each batch with `canvas-edit-create`. Wait for each build to reach `ready` before the next publish; the queue drops older queued builds when a newer publish arrives, so back-to-back publishes waste work.
+4. After each build, read `manifest.pendingFragments`. It lists the markers that still have no fragment. Continue until it is empty.
+5. Finish when `manifest.pendingFragments` is empty and the last build is `ready`.
+
+A fragment publish that keeps the layout files unchanged swaps into the open canvas without a reload.
+A publish that changes the layout, a shared module, or `dependencies` reloads the whole canvas; that is expected, so keep layout edits to the first publish where you can.
+
+### Feature flag
+
+Fragments take effect only when the team has the `canvas-progressive-fragments` flag.
+Without the flag, the files under `src/fragments/**` build as normal files, `manifest.fragments` is absent, and every marker renders its fallback forever.
+So check for `manifest.fragments` after the first build.
+If it is absent, replace each marker with the panel component itself, drop the `@posthog/canvas-sdk/fragment` import, and finish with one publish.
+
 ## Runtime memory and actions
 
 - **`ph.state`** — durable key-value memory: `ph.state.get(key, { scope })`,

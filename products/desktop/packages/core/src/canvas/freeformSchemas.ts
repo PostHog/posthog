@@ -1,4 +1,4 @@
-import { isSafePostHogUrl } from "@posthog/shared";
+import { canvasFragmentEntrySchema, isSafePostHogUrl } from "@posthog/shared";
 import { z } from "zod";
 import { textCommentAnchorDataSchema } from "../comments/anchors";
 
@@ -256,6 +256,17 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("clear-text-selection"),
   }),
+  // Roll a newer build's fragment chunks into the running document without
+  // remounting it. Only sent when both builds share a layoutHash. `base` is
+  // the newer build's artifact directory, so relative `file` paths resolve
+  // against the right build.
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("set-fragments"),
+    base: z.string().url(),
+    fragments: z.record(z.string(), canvasFragmentEntrySchema),
+    platformCss: z.string().url().optional(),
+  }),
   // Reply to a data-request, correlated by `id`.
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
@@ -328,6 +339,12 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("rendered"),
+  }),
+  // A fragment chunk loaded and rendered in place of its marker's fallback.
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("fragment-rendered"),
+    path: z.string().min(1).max(512),
   }),
   // A request to navigate the host app. Fire-and-forget (no id/response). The
   // `nav` payload is the allowlist above — the host drops anything that doesn't

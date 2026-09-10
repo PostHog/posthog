@@ -12,7 +12,8 @@ description: >
 
 The whole application is one React/TSX file (`src/canvas.tsx` in the source project). It must
 `export default` a single React component that takes no props — the host mounts it. Do not import
-react-dom or call createRoot.
+react-dom or call createRoot. The one exception is a progressive-fragments canvas, where each
+panel is its own file under `src/fragments/`; see "Progressive fragments" below.
 
 Start from the working scaffold in [references/starter-scaffold.md](references/starter-scaffold.md)
 on a first build: it already wires the date picker, theme tokens, per-query loading state (every
@@ -28,6 +29,10 @@ also admits ten optional libraries for specialized work. Read
 PostHog data comes through `import { ph } from "@posthog/canvas-sdk"` — a platform-provided
 module, so it needs no `dependencies` entry. The same object exists as the `window.ph` global
 (how existing canvases reach it); prefer the import in new code.
+
+`import { CanvasFragment } from "@posthog/canvas-sdk/fragment"` is the other platform-provided
+module. It marks where a progressive fragment renders; see "Progressive fragments" below and the
+`building-canvases` skill for when to use it and the publish order.
 
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
 validation. Direct network requests and external images, fonts, media, or frames require an exact
@@ -149,6 +154,86 @@ through and tick off, start from the complete, validated project in
 typed content module separate from the component, one shared `ph.state` key per step, the
 debounced ref-alongside-state update path, an expected outcome on every step, and visible
 load/save failure states — are what break when improvised. Keep them; replace the content.
+
+## Progressive fragments
+
+When `building-canvases` routes a request to progressive fragments, the layout stays in `src/canvas.tsx` and each panel becomes its own file under `src/fragments/`.
+A layout with two markers:
+
+```tsx
+// src/canvas.tsx
+import { CanvasFragment } from '@posthog/canvas-sdk/fragment'
+import { Card, CardContent, CardHeader, CardTitle, Heading, Skeleton } from '@posthog/quill'
+import { useDateRange } from './shared/date-range'
+
+export default function Canvas() {
+  const { range } = useDateRange()
+  return (
+    <div className="h-screen p-4 flex flex-col gap-4">
+      <Heading>Revenue</Heading>
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue over time</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CanvasFragment
+              path="fragments/revenue-chart"
+              fallback={<Skeleton className="h-[280px]" />}
+              props={{ range }}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Top customers</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CanvasFragment
+              path="fragments/top-customers"
+              fallback={<Skeleton className="h-[280px]" />}
+              props={{ range }}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+```
+
+One fragment file:
+
+```tsx
+// src/fragments/revenue-chart.tsx
+import { useEffect, useState } from 'react'
+import { ph } from '@posthog/canvas-sdk'
+import { Skeleton } from '@posthog/quill'
+import { LineChart, Line, XAxis, YAxis } from 'recharts'
+import type { DateRange } from '../shared/date-range'
+
+export default function RevenueChart({ range }: { range: DateRange }) {
+  const [rows, setRows] = useState<Array<{ day: string; revenue: number }> | null>(null)
+  useEffect(() => {
+    setRows(null)
+    ph.loadInsight('abc123', { dateRange: range }).then(/* map to rows */).catch(/* set an error state */)
+  }, [range])
+  if (!rows) return <Skeleton className="h-[280px]" />
+  return (
+    <LineChart width={480} height={280} data={rows}>
+      <XAxis dataKey="day" stroke="var(--muted-foreground)" />
+      <YAxis stroke="var(--muted-foreground)" />
+      <Line dataKey="revenue" stroke="var(--primary)" dot={false} />
+    </LineChart>
+  )
+}
+```
+
+The fragment imports `../shared/date-range` and gets the same module instance the layout uses.
+It must not import another file under `src/fragments/`.
+
+A hot-swapped fragment loses its local component state: when a newer build replaces the fragment, React mounts the new component fresh, so `useState` values, scroll positions, and in-flight requests inside it are gone.
+Keep durable state in `src/shared` stores or in `ph.state`; keep only view-local state in the fragment.
 
 ## Date window
 

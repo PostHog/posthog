@@ -222,6 +222,89 @@ describe("BuiltCanvas", () => {
     );
   });
 
+  it("sends fragments on ready and again when a newer build supplies them", async () => {
+    const fragments = {
+      base: "https://usercontent.example/build/",
+      fragments: {
+        "src/fragments/revenue.tsx": {
+          file: "fragments/revenue.aaa.js",
+          contentHash: "aaa",
+        },
+      },
+      platformCss: "https://usercontent.example/build/platform.css",
+    };
+    const onFragmentRendered = vi.fn();
+    const { rerender } = render(
+      <BuiltCanvas
+        artifactUrl="https://usercontent.example/build/index.html"
+        capabilities={capabilities}
+        onDataRequest={vi.fn()}
+        fragments={fragments}
+        onFragmentRendered={onFragmentRendered}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+    if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
+    const postMessage = vi
+      .spyOn(iframe.contentWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    fireEvent.load(iframe);
+    const calls = postMessage.mock.calls as unknown as [
+      unknown,
+      string,
+      Transferable[],
+    ][];
+    const canvasPort = calls.at(-1)?.[2]?.[0] as MessagePort;
+    const frames: unknown[] = [];
+    canvasPort.addEventListener("message", (event) => {
+      const frame = (event as MessageEvent).data as { type?: string };
+      if (frame.type === "set-fragments") frames.push(frame);
+    });
+    canvasPort.start();
+
+    // The runtime asks for the registry once it is ready to import chunks.
+    canvasPort.postMessage({ channel: "posthog-canvas", type: "ready" });
+    await waitFor(() => expect(frames).toHaveLength(1));
+    expect(frames[0]).toEqual({
+      channel: "posthog-canvas",
+      type: "set-fragments",
+      ...fragments,
+    });
+
+    const newer = {
+      ...fragments,
+      fragments: {
+        "src/fragments/revenue.tsx": {
+          file: "fragments/revenue.bbb.js",
+          contentHash: "bbb",
+        },
+      },
+    };
+    rerender(
+      <BuiltCanvas
+        artifactUrl="https://usercontent.example/build/index.html"
+        capabilities={capabilities}
+        onDataRequest={vi.fn()}
+        fragments={newer}
+        onFragmentRendered={onFragmentRendered}
+      />,
+    );
+    await waitFor(() => expect(frames).toHaveLength(2));
+    expect(frames[1]).toMatchObject({ fragments: newer.fragments });
+
+    canvasPort.postMessage({
+      channel: "posthog-canvas",
+      type: "fragment-rendered",
+      path: "src/fragments/revenue.tsx",
+    });
+    await waitFor(() =>
+      expect(onFragmentRendered).toHaveBeenCalledWith(
+        "src/fragments/revenue.tsx",
+      ),
+    );
+  });
+
   it("clears native artifact selection when the host dismisses it", async () => {
     const { rerender } = render(
       <BuiltCanvas

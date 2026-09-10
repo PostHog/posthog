@@ -69,6 +69,7 @@ export const CANVAS_PLATFORM_MANIFEST = {
   },
   allowedImportSpecifiers: [
     "@posthog/canvas-sdk",
+    "@posthog/canvas-sdk/fragment",
     "react",
     "react-dom",
     "react-dom/client",
@@ -108,4 +109,14 @@ export const CANVAS_SDK_SPECIFIER = "@posthog/canvas-sdk";
 // its own build image and cannot reach this workspace.
 export const CANVAS_SDK_MODULE_SOURCE = `export const ph = globalThis.ph
 export default globalThis.ph
+`;
+
+// The fragment marker module of the canvas SDK. In a built artifact the builder
+// provides it and it loads fragment chunks; the preview has no build and no
+// chunks, so its copy is a stub that renders the marker's fallback only.
+export const CANVAS_SDK_FRAGMENT_SPECIFIER = "@posthog/canvas-sdk/fragment";
+
+export const CANVAS_SDK_FRAGMENT_PREVIEW_SOURCE = `export function CanvasFragment({ fallback = null }) {
+  return fallback
+}
 `;

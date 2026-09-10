@@ -5,6 +5,11 @@ import type {
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { BuiltCanvasFragments } from "./BuiltCanvas";
+import {
+  fragmentsForBuild,
+  shouldRollForwardFragments,
+} from "./canvasFragments";
 
 // How long a mounted artifact iframe gets to post "ready"/"rendered" before
 // its signed URL is suspected expired.
@@ -25,6 +30,16 @@ export interface PinnedArtifact {
    * the pin's mint time (otherwise the expiry timer would keep firing on a URL
    * that's already been recovered). */
   refreshKey: number;
+  /** The mounted build's layout hash, when it was built with fragments. A
+   * newer build with the same hash rolls its fragments into this frame. */
+  layoutHash: string | undefined;
+}
+
+/** A newer build's fragments held for the mounted frame, pinned to the build
+ * (and the signed URLs of the fetch) that produced them. */
+interface PinnedFragments {
+  buildId: string;
+  fragments: BuiltCanvasFragments | undefined;
 }
 
 /**
@@ -46,6 +61,7 @@ export function usePinnedArtifact({
   lifecycle,
   mintedAt,
   suspended,
+  rollForwardFragments = false,
 }: {
   dashboardId: string;
   publishedBuild: CanvasBuildRecord | null;
@@ -55,8 +71,16 @@ export function usePinnedArtifact({
   /** True while the artifact frame isn't on screen (e.g. version browsing);
    * pauses the expiry-recovery timer, which can only judge a mounted frame. */
   suspended: boolean;
+  /** True when the progressive-fragments flag is on: a newer published build
+   * with the mounted build's layoutHash keeps the frame and only hands over
+   * its fragments. Off, every new build remounts. */
+  rollForwardFragments?: boolean;
 }): {
   artifact: PinnedArtifact | null;
+  /** The newer build's fragments for the mounted frame, when rolled forward. */
+  fragments: BuiltCanvasFragments | undefined;
+  /** The build `fragments` came from; the mounted build otherwise. */
+  fragmentsBuildId: string | undefined;
   refreshKey: number;
   onReady: () => void;
 } {
@@ -73,22 +97,48 @@ export function usePinnedArtifact({
   // against the live token endpoint (ETag/304 makes this cheap) — the recovery
   // path when the pinned URL expired.
   const [refreshKey, setRefreshKey] = useState(0);
+  // Kept apart from the pin so adopting fragments doesn't restart the expiry
+  // timer below, which is keyed on the pin's identity.
+  const [pinnedFragments, setPinnedFragments] =
+    useState<PinnedFragments | null>(null);
   if (publishedBuild?.artifactUrl) {
+    const rollForward =
+      !!pinnedArtifact &&
+      pinnedArtifact.refreshKey === refreshKey &&
+      shouldRollForwardFragments(
+        { id: pinnedArtifact.buildId, layoutHash: pinnedArtifact.layoutHash },
+        {
+          id: publishedBuild.id,
+          layoutHash: publishedBuild.manifest?.layoutHash,
+        },
+        rollForwardFragments,
+      );
     const adoptFresh =
-      !pinnedArtifact ||
-      pinnedArtifact.buildId !== publishedBuild.id ||
-      pinnedArtifact.refreshKey !== refreshKey;
+      !rollForward &&
+      (!pinnedArtifact ||
+        pinnedArtifact.buildId !== publishedBuild.id ||
+        pinnedArtifact.refreshKey !== refreshKey);
     if (adoptFresh) {
       setPinnedArtifact({
         buildId: publishedBuild.id,
         url: publishedBuild.artifactUrl,
         mintedAt: mintedAt || Date.now(),
         refreshKey,
+        layoutHash: publishedBuild.manifest?.layoutHash,
+      });
+      if (pinnedFragments) setPinnedFragments(null);
+    } else if (rollForward && pinnedFragments?.buildId !== publishedBuild.id) {
+      // Adopted once per newer build: every poll mints fresh signed URLs, and
+      // re-sending them would make the document re-import unchanged chunks.
+      setPinnedFragments({
+        buildId: publishedBuild.id,
+        fragments: fragmentsForBuild(publishedBuild),
       });
     }
   } else if (lifecycle && pinnedArtifact) {
     // The lifecycle says there's no published build anymore — drop the pin.
     setPinnedArtifact(null);
+    setPinnedFragments(null);
   }
 
   // Expired-URL recovery: if the mounted artifact never posts "ready" or
@@ -120,5 +170,11 @@ export function usePinnedArtifact({
     return () => clearTimeout(timer);
   }, [renderedArtifact, dashboardId, queryClient, trpc]);
 
-  return { artifact: pinnedArtifact, refreshKey, onReady };
+  return {
+    artifact: pinnedArtifact,
+    fragments: pinnedFragments?.fragments,
+    fragmentsBuildId: pinnedFragments?.buildId ?? pinnedArtifact?.buildId,
+    refreshKey,
+    onReady,
+  };
 }

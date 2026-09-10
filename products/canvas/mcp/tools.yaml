@@ -24,7 +24,10 @@ tools:
             recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues
             a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed`
             (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task
-            while its build is still queued or building.
+            while its build is still queued or building. Each build carries its `manifest`; in progressive-fragments
+            mode it adds `manifest.fragments` (built fragment chunks), `manifest.pendingFragments` (markers with no
+            fragment yet; publish fragments until it is empty), and `manifest.layoutHash` (equal hashes let the host
+            swap fragments into the open canvas without a reload).
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.

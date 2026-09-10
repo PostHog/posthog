@@ -1,4 +1,6 @@
 import {
+  CANVAS_SDK_FRAGMENT_PREVIEW_SOURCE,
+  CANVAS_SDK_FRAGMENT_SPECIFIER,
   CANVAS_SDK_MODULE_SOURCE,
   CANVAS_SDK_SPECIFIER,
 } from "@posthog/shared";
@@ -119,6 +121,9 @@ describe("buildSandboxDocument", () => {
     const imports = installedImportMap(buildSandboxDocument());
 
     expect(imports[CANVAS_SDK_SPECIFIER]).toBe(CANVAS_SDK_MODULE_SOURCE);
+    expect(imports[CANVAS_SDK_FRAGMENT_SPECIFIER]).toBe(
+      CANVAS_SDK_FRAGMENT_PREVIEW_SOURCE,
+    );
     expect(imports.react).toContain("esm.sh");
     expect(imports["react/jsx-runtime"]).toContain("esm.sh");
   });

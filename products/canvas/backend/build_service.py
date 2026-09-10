@@ -17,6 +17,7 @@ shared object identity across tenants would leak that identical source
 exists elsewhere).
 """
 
+import re
 import gzip
 import json
 import shutil
@@ -97,6 +98,10 @@ class SourceProjectPublishResult:
 # Rollout gate: flagged-in teams dispatch builds to Temporal instead of the shared
 # long_running Celery queue. Evaluation failure keeps the Celery path.
 CANVAS_BUILDS_ON_TEMPORAL_FLAG = "canvas-builds-on-temporal"
+# Rollout gate: flagged-in teams build src/fragments/** as independently loadable
+# chunks that the host can swap into a mounted layout. Evaluation failure builds
+# the plain artifact.
+CANVAS_PROGRESSIVE_FRAGMENTS_FLAG = "canvas-progressive-fragments"
 
 CANVAS_BUILD_OUTCOMES = Counter(
     "posthog_canvas_build_outcomes_total", "Canvas build terminal outcomes", ["outcome", "code"]
@@ -281,7 +286,44 @@ def validate_builder_output(
     entry = manifest.get("entryHtml")
     if not isinstance(entry, str) or entry not in seen:
         raise ValueError("canvas build does not contain its entry HTML")
+    _validate_fragments_manifest(manifest, emitted_metadata)
     return files, manifest, diagnostics[:500]
+
+
+_FRAGMENT_KEY_RE = re.compile(r"^fragments/[A-Za-z0-9_./-]+$")
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _validate_fragments_manifest(manifest: dict[str, Any], emitted_metadata: dict[str, tuple[str, int]]) -> None:
+    """Check the progressive-fragments keys when the builder emitted them.
+
+    Fragment chunks are loaded by path at runtime and swapped into a mounted
+    layout by hash, so every reference must point at an emitted file whose
+    hash the manifest states correctly.
+    """
+    fragments = manifest.get("fragments")
+    if fragments is not None:
+        if not isinstance(fragments, dict):
+            raise ValueError("canvas fragments manifest is invalid")
+        for key, entry in fragments.items():
+            if not isinstance(key, str) or not _FRAGMENT_KEY_RE.match(key) or not isinstance(entry, dict):
+                raise ValueError("canvas fragments manifest is invalid")
+            file = entry.get("file")
+            digest = entry.get("contentHash")
+            if not isinstance(file, str) or not isinstance(digest, str) or file not in emitted_metadata:
+                raise ValueError("canvas fragments manifest references a missing file")
+            if emitted_metadata[file][0] != digest:
+                raise ValueError("canvas fragments manifest hash does not match its emitted file")
+    for list_key in ("markers", "pendingFragments"):
+        value = manifest.get(list_key)
+        if value is not None and (not isinstance(value, list) or not all(isinstance(item, str) for item in value)):
+            raise ValueError(f"canvas manifest {list_key} is invalid")
+    layout_hash = manifest.get("layoutHash")
+    if layout_hash is not None and (not isinstance(layout_hash, str) or not _SHA256_HEX_RE.match(layout_hash)):
+        raise ValueError("canvas manifest layoutHash is invalid")
+    platform_css = manifest.get("platformCss")
+    if platform_css is not None and (not isinstance(platform_css, str) or platform_css not in emitted_metadata):
+        raise ValueError("canvas manifest platformCss references a missing file")
 
 
 # Retention policy: every referenced source version is kept for the canvas's
@@ -957,6 +999,21 @@ def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBui
     return build
 
 
+def _progressive_fragments_enabled(build: CanvasBuild) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                CANVAS_PROGRESSIVE_FRAGMENTS_FLAG,
+                str(build.team.uuid),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("canvas_build_progressive_fragments_flag_check_failed", build_id=str(build.id))
+        return False
+
+
 def run_canvas_build(team_id: int, build_id: str) -> None:
     """The cloud build worker body.
 
@@ -1006,6 +1063,8 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
     project_files = dict(project["files"])
     project_files.setdefault(project.get("entryHtml", "index.html"), SYNTHETIC_INDEX_HTML)
     project = {**project, "files": project_files}
+    if _progressive_fragments_enabled(build):
+        project["progressiveFragments"] = True
     try:
         result = run_cloud_builder(project)
         if result.get("status") != "ready":

@@ -82,11 +82,36 @@ const canvasArtifactAssetSchema = z.object({
   contentHash: z.string(),
   sizeBytes: z.number().int().nonnegative(),
 });
-/** Manifest frozen into a build: entry, assets, versions, and capabilities. */
+/** One fragment chunk of a progressive build, keyed by its marker path. */
+export const canvasFragmentEntrySchema = z.object({
+  /** Artifact path (or, after a host roll-forward, an absolute URL). */
+  file: z.string(),
+  contentHash: z.string(),
+});
+export type CanvasFragmentEntry = z.infer<typeof canvasFragmentEntrySchema>;
+export type CanvasFragmentMap = Record<string, CanvasFragmentEntry>;
+
+/** Manifest frozen into a build: entry, assets, versions, and capabilities.
+ * The fragment fields exist only on builds made with progressive fragments
+ * on; every one is optional so older manifests keep parsing. */
 export const canvasArtifactManifestSchema = z.object({
   entryHtml: z.string(),
   assets: z.array(canvasArtifactAssetSchema),
   dependencies: z.record(z.string(), z.string()),
   canvasSdkVersion: z.string(),
   capabilities: canvasCapabilitiesSchema,
+  /** Fragment chunks emitted by this build, keyed by marker path. */
+  fragments: z.record(z.string(), canvasFragmentEntrySchema).optional(),
+  /** Every `<CanvasFragment path>` the layout references, sorted. */
+  markers: z.array(z.string()).optional(),
+  /** Markers with no fragment file yet, sorted. */
+  pendingFragments: z.array(z.string()).optional(),
+  /** Content hash of the layout chunk. Equal hashes mean the fragments of one
+   * build can be swapped into a running document from the other. */
+  layoutHash: z.string().optional(),
+  /** Artifact path of the platform stylesheet the fragments depend on. */
+  platformCss: z.string().optional(),
 });
+export type CanvasArtifactManifest = z.infer<
+  typeof canvasArtifactManifestSchema
+>;

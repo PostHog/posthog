@@ -109,6 +109,16 @@ For a whole-project publish with `canvas-publish-create`:
 
 The response returns the new `current_version_id`.
 
+### Exception: progressive fragments
+
+In progressive mode (see "Progressive fragments" in `building-canvases`) one requested change takes several publishes by design: one for the layout with its markers, then one per batch of fragment files.
+That is expected and is not work-in-progress publishing.
+Keep these rules:
+
+- Wait for each build to reach `ready` before the next publish. The build queue supersedes older queued builds, so a publish sent while the previous build is still queued discards that build's work.
+- Read `manifest.pendingFragments` from `canvas-builds-retrieve` after each ready build; the change is done when the list is empty.
+- A 429 is the capacity signal to batch harder: put more fragments in each publish and wait ~30 seconds before you retry.
+
 ## After publishing: wait for the build
 
 A publish queues a server-side build of the version. **The canvas does not update until the build
