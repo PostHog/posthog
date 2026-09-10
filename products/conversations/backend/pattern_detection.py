@@ -48,6 +48,10 @@ MAX_EVIDENCE_TICKETS = 200
 COMMENT_ID_CHUNK_SIZE = 1000
 MAX_TOPIC_LENGTH = 200
 MIN_TOKEN_LENGTH = 4
+# What a ticket is about is in its opening lines. Past this the text is a pasted log or a quoted
+# thread, and reading it only multiplies topics: the widget accepts 10k characters per message, and
+# the daily refresh holds every topic of every ticket for 30 days at once.
+MAX_ANALYZED_CHARS = 2000
 # A topic seen on this many distinct days is part of the team's normal and needs a stronger spike.
 RECURRING_DAYS = 5
 # Two candidates whose ticket sets overlap by more than this share describe the same burst.
@@ -141,7 +145,8 @@ def _coerce_int(value: Any, default: int) -> int:
 
 
 def tokenize(text: str) -> list[str]:
-    tokens = [t for t in _TOKEN_RE.findall(text.lower()) if len(t) >= MIN_TOKEN_LENGTH and t not in _STOPWORDS]
+    opening = text[:MAX_ANALYZED_CHARS].lower()
+    tokens = [t for t in _TOKEN_RE.findall(opening) if len(t) >= MIN_TOKEN_LENGTH and t not in _STOPWORDS]
     return [_stem(t) for t in tokens]
 
 

@@ -26,6 +26,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.pattern_detection import (
     DEFAULT_MIN_REQUESTERS,
+    MAX_ANALYZED_CHARS,
     MAX_TOPIC_LENGTH,
     PatternSettings,
     TopicCandidate,
@@ -33,6 +34,7 @@ from products.conversations.backend.pattern_detection import (
     refresh_baselines,
     required_requesters,
     run_detection,
+    topics_for,
 )
 
 
@@ -101,6 +103,18 @@ class TestFingerprintWidth(SimpleTestCase):
         )
 
         assert len(widest.fingerprint) <= TicketPattern._meta.get_field("fingerprint").max_length
+
+
+class TestTopicExtraction(SimpleTestCase):
+    def test_topics_come_from_the_opening_of_a_long_message(self):
+        # A pasted log is the realistic case: it is allowed input, and every line of it would
+        # otherwise become topics that the daily refresh then holds for the whole sample window.
+        message = "cannot login to the dashboard " + "timeout " * MAX_ANALYZED_CHARS + "watermelon"
+
+        topics = topics_for(message)
+
+        assert "login" in topics
+        assert "watermelon" not in topics
 
 
 class TestRunDetection(BaseTest):
