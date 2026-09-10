@@ -47,7 +47,9 @@ _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
 
-@dataclass
+# Built in stages: `build_dependency_edges` fills the graph edges, `annotate_run_state` the run
+# status, and `_merge_prose_cells` the document span.
+@dataclass(frozen=False)
 class NotebookCellState:
     node_id: str
     cell_type: str
