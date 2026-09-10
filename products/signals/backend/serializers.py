@@ -1123,10 +1123,15 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 Mapping[str, User] | None,
                 self.context.get("signals_github_login_to_user_map"),
             )
+            reviewer_uuid_map = cast(
+                Mapping[str, User] | None,
+                self.context.get("signals_reviewer_user_uuid_map"),
+            )
             return enrich_reviewer_dicts_with_org_members(
                 obj.team_id,
                 parsed,
                 login_to_user=reviewer_login_map,
+                uuid_to_user=reviewer_uuid_map,
             )
 
         return parsed
@@ -1135,9 +1140,9 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
     """Single entry in a PUT body for a `suggested_reviewers` artefact.
 
-    Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`.
-    The server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,
-    it must map to an org member on this team with a linked GitHub login.
+    Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
+    `user_uuid` only has to name an org member on this team — a member with no linked GitHub
+    account is stored by uuid and routes like any other reviewer.
     """
 
     github_login = serializers.CharField(
@@ -1149,8 +1154,8 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID. Must be an org member on this team with a linked GitHub identity. "
-            "If supplied together with `github_login`, the server-resolved login from the user wins."
+            "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not "
+            "required. If supplied together with `github_login`, the user's own identity wins."
         ),
     )
     github_name = serializers.CharField(

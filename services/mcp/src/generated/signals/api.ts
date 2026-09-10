@@ -215,7 +215,9 @@ export const SignalsReportsClaimBody = () => zod.object({
 })
 
 /**
- * Transition a report to a new state. The model validates allowed transitions.
+ * Transition a report to a new state. The model validates allowed transitions, except that a
+ * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
+ * is a 200 that records the dismissal feedback without touching the status.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
  * fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
@@ -1510,7 +1512,7 @@ export const SignalsScoutEditReportBody = () => zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                         reason: zod
                             .string()
@@ -1521,7 +1523,7 @@ export const SignalsScoutEditReportBody = () => zod
                             ),
                     })
                     .describe(
-                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
+                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped."
                     )
             )
             .max(signalsScoutEditReportBodySuggestedReviewersMax)
@@ -1734,7 +1736,7 @@ export const SignalsScoutEmitReportBody = () => zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                         reason: zod
                             .string()
@@ -1745,7 +1747,7 @@ export const SignalsScoutEmitReportBody = () => zod
                             ),
                     })
                     .describe(
-                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
+                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped."
                     )
             )
             .max(signalsScoutEmitReportBodySuggestedReviewersMax)
