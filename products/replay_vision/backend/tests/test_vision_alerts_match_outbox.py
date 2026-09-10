@@ -249,6 +249,27 @@ class TestVisionAlertMatchOutbox(BaseTest):
         assert lines[-1] == f"- and {MATCH_SUMMARY_LINES - shown} more"
         assert not VisionAlertMatch.all_teams.filter(alert_id=alert.id, delivered_at__isnull=True).exists()
 
+    def test_multiline_summarizer_title_stays_one_row(self) -> None:
+        self._make_match_alert(selection={})
+        observation = self._make_pending_observation()
+        self._succeed(observation)
+        # The descriptor half carries the summarizer's own title, and the schema caps its length but
+        # accepts a newline. Unfolded, that newline opens a second Slack list row for one observation.
+        ReplayObservation.objects.filter(id=observation.id).update(
+            scanner_result={
+                "model_output": {
+                    "scanner_type": ScannerType.SUMMARIZER,
+                    "title": "Checkout stalled\n- forged row",
+                    "summary": "the user retried twice",
+                }
+            }
+        )
+
+        _, produce = self._drain(delivered=True)
+        summary = produce.call_args.kwargs["properties"]["summary"]
+        assert "\n" not in summary
+        assert summary.endswith("Checkout stalled. forged row: the user retried twice")
+
     def test_summary_caps_lines_but_stamps_all_rows(self) -> None:
         alert = self._make_match_alert(selection={})
         for _ in range(MATCH_SUMMARY_LINES + 2):

@@ -58,7 +58,7 @@ from products.replay_vision.backend.models.vision_alert import (
     VisionAlertMatch,
     VisionAlertMetric,
 )
-from products.replay_vision.backend.observation_formatting import describe_output, explanation_text
+from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, plain_snippet
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_alerts.constants import (
     CLEANUP_BATCH_SIZE,
@@ -730,9 +730,12 @@ def _emit_match_event(
     for observation_id in observation_ids[:MATCH_SUMMARY_LINES]:
         scanner_result, completed_at = by_id.get(observation_id, (None, None))
         model_output = (scanner_result or {}).get("model_output") or {}
-        descriptor = (describe_output(model_output) or "observation")[:MATCH_DESCRIPTOR_MAX_CHARS]
-        # Without the scanner's own prose the line carries only a verdict or a score. `explanation_text`
-        # folds it to one citation-free line, so recording-derived text cannot forge a Slack list row.
+        # Without the scanner's own prose the line carries only a verdict or a score. Both halves can hold
+        # model free text, such as a summarizer title in the descriptor and the reasoning in the prose.
+        # Each is folded to one citation-free line, so recording-derived text cannot forge a Slack list row.
+        descriptor = (
+            plain_snippet(describe_output(model_output) or "", limit=MATCH_DESCRIPTOR_MAX_CHARS) or "observation"
+        )
         explanation = explanation_text(model_output)[:MATCH_EXPLANATION_MAX_CHARS]
         stamp = f"({completed_at:%Y-%m-%d %H:%M} UTC) " if completed_at else ""
         body = f"{descriptor}: {explanation}" if explanation else descriptor
