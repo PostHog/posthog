@@ -70,14 +70,17 @@ jobs:
             # so master's copy is correct and removes that exec vector.
             #
             # The teardown imports only tools/hogbox-preview and the external
-            # posthog-hogland SDK, so a sparse blobless checkout of that one
-            # directory replaces a full clone of the monorepo.
+            # posthog-hogland SDK, so a sparse blobless checkout of that
+            # directory replaces a full clone of the monorepo. The checkout
+            # also includes .github/actions/setup-uv because a step can only
+            # use a local action that exists in the workspace.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.gate.outputs.had_preview == 'true'
               with:
                   ref: ${{ github.event.repository.default_branch }}
                   sparse-checkout: |
                       tools/hogbox-preview/
+                      .github/actions/setup-uv/
                   sparse-checkout-cone-mode: false
                   filter: blob:none
             - name: Connect to Tailscale (tag:hogland-ci)
