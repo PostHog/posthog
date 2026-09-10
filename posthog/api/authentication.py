@@ -47,6 +47,7 @@ from two_factor.views.utils import get_remember_device_cookie, validate_remember
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
+from posthog.api.credential_reconciliation import reconcile_email_claim_credentials
 from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
@@ -1189,6 +1190,8 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
 
         user.set_password(password)
         user.requested_password_reset_at = None
+        if user.is_email_verified is False:
+            reconcile_email_claim_credentials(user, trusted_password=True)
         # Possessing the unique reset token (only ever delivered by email via
         # send_password_reset) proves the user owns this address, regardless of
         # whether they came in as None (legacy / agentic-provisioned), False

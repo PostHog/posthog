@@ -22,7 +22,12 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.credential_reconciliation import reconcile_email_claim_credentials
+from posthog.api.email_verification import (
+    SIGNUP_EMAIL_PROOF_SESSION_KEY,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -58,8 +63,19 @@ def _save_session_with_recovery(session: SessionBase) -> None:
         session.create()
 
 
-def verify_email_or_login(request: Request, user: User) -> None:
-    if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
+def _signup_requires_email_verification(user: User) -> bool:
+    # Kept in this module so tests patching posthog.api.signup.is_email_available /
+    # is_email_verification_disabled keep applying.
+    return is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user)
+
+
+def verify_email_or_login(request: Request, user: User, passkey_credential_id: str | None = None) -> None:
+    if _signup_requires_email_verification(user):
+        request.session[SIGNUP_EMAIL_PROOF_SESSION_KEY] = {
+            "user_uuid": str(user.uuid),
+            "credential_type": "passkey" if passkey_credential_id else "password",
+            "credential_id": passkey_credential_id,
+        }
         email_verification_code_verifier.send_code(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -240,6 +256,7 @@ class SignupSerializer(serializers.Serializer):
             if user_uuid_str:
                 validated_data["uuid"] = uuid_module.UUID(user_uuid_str)
 
+        signup_passkey_credential_id: str | None = None
         try:
             with transaction.atomic():
                 self._organization, self._team, self._user = User.objects.bootstrap(
@@ -253,16 +270,19 @@ class SignupSerializer(serializers.Serializer):
 
                 # Create WebauthnCredential from session data for passkey signup
                 if passkey_credential:
-                    WebauthnCredential.objects.create(
+                    # The email is unproven at this point, so the credential stays unverified
+                    # (unusable for login) until the signup session enters the emailed code.
+                    signup_passkey = WebauthnCredential.objects.create(
                         user=self._user,
                         credential_id=base64url_to_bytes(passkey_credential["credential_id"]),
                         public_key=base64url_to_bytes(passkey_credential["public_key"]),
                         algorithm=passkey_credential["algorithm"],
                         counter=passkey_credential["sign_count"],
                         transports=passkey_credential.get("transports", []),
-                        verified=True,
+                        verified=not _signup_requires_email_verification(self._user),
                         label="Passkey",
                     )
+                    signup_passkey_credential_id = str(signup_passkey.id)
                     # Self-created during signup, so it counts as already-acknowledged for the
                     # credential review interstitial. Otherwise the user would be asked to revoke
                     # the only credential they just minted to log in with.
@@ -318,7 +338,7 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        verify_email_or_login(request, user)
+        verify_email_or_login(request, user, signup_passkey_credential_id)
 
         return user
 
@@ -571,6 +591,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 code="verified_domain_required",
             )
 
+        signup_passkey_credential_id: str | None = None
         with transaction.atomic():
             if not user:
                 is_new_user = True
@@ -634,16 +655,17 @@ class InviteSignupSerializer(serializers.Serializer):
                 self.context["delegated_onboarding"] = True
 
             if passkey_credential:
-                WebauthnCredential.objects.create(
+                signup_passkey = WebauthnCredential.objects.create(
                     user=user,
                     credential_id=base64url_to_bytes(passkey_credential["credential_id"]),
                     public_key=base64url_to_bytes(passkey_credential["public_key"]),
                     algorithm=passkey_credential["algorithm"],
                     counter=passkey_credential["sign_count"],
                     transports=passkey_credential.get("transports", []),
-                    verified=True,
+                    verified=not _signup_requires_email_verification(user),
                     label="Passkey",
                 )
+                signup_passkey_credential_id = str(signup_passkey.id)
                 # Treat the passkey as the user's 2FA factor when the org enforces 2FA. Otherwise
                 # they land behind an undismissable setup modal that only offers TOTP enrollment
                 if invite.organization.enforce_2fa and not user.passkeys_enabled_for_2fa:
@@ -655,7 +677,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
-            verify_email_or_login(self.context["request"], user)
+            verify_email_or_login(self.context["request"], user, signup_passkey_credential_id)
 
             report_user_signed_up(
                 user,
@@ -969,6 +991,7 @@ def social_create_user(
     backend,
     request,
     user: Union[User, None] = None,
+    social=None,
     *args,
     **kwargs,
 ):
@@ -1013,14 +1036,14 @@ def social_create_user(
         logger.info(f"social_create_user_is_not_new")
 
         if not user.is_email_verified:
-            # Email isn't verified yet — anyone could have set these local credentials.
-            # Wipe them before linking the SSO identity.
             logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
-            user.set_unusable_password()
-            WebauthnCredential.objects.filter(user=user).delete()
-            user.passkeys_enabled_for_2fa = False
-            user.is_email_verified = True
-            user.save()
+            with transaction.atomic():
+                reconcile_email_claim_credentials(
+                    user,
+                    trusted_social_auth_id=social.id if social is not None else None,
+                )
+                user.is_email_verified = True
+                user.save(update_fields=["is_email_verified"])
 
         if invite_id:
             process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user)

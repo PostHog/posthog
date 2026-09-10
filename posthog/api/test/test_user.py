@@ -1047,6 +1047,14 @@ class TestUserAPI(APIBaseTest):
             UserSocialAuth.objects.create(user=self.user, provider=provider, uid=uid).id
             for provider, uid in social_auths
         ]
+        passkey = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"same-session-email-change",
+            label="Existing passkey",
+            public_key=b"same-session-public-key",
+            algorithm=-7,
+            verified=True,
+        )
         other_user = User.objects.create_user("other@example.com", "pwd1234*", "Other")
         other_user_social_auth_id = UserSocialAuth.objects.create(
             user=other_user, provider="google-oauth2", uid="other-google-sub"
@@ -1078,6 +1086,8 @@ class TestUserAPI(APIBaseTest):
             self.user.refresh_from_db()
             assert self.user.email == "beta@example.com"
             assert self.user.pending_email is None
+            assert self.user.has_usable_password()
+            assert WebauthnCredential.objects.filter(id=passkey.id).exists()
             for social_auth_id in social_auth_ids:
                 assert not UserSocialAuth.objects.filter(id=social_auth_id).exists()
             assert UserSocialAuth.objects.filter(id=other_user_social_auth_id).exists()
@@ -1087,6 +1097,93 @@ class TestUserAPI(APIBaseTest):
                 "alpha@example.com",
                 "beta@example.com",
             )
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_change_from_another_session_removes_existing_login_credentials(
+        self,
+        mock_send_code,
+        _mock_send_email_change_emails,
+        _mock_is_email_available,
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.is_email_verified = True
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
+        passkey = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"email-change-credential",
+            label="Existing passkey",
+            public_key=b"email-change-public-key",
+            algorithm=-7,
+            verified=True,
+        )
+        social_auth = UserSocialAuth.objects.create(user=self.user, provider="github", uid="existing-github")
+        api_key_value = generate_random_token_personal()
+        personal_api_key = PersonalAPIKey.objects.create(
+            label="Existing API key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+        oauth_app = OAuthApplication.objects.create(
+            name="Existing OAuth app",
+            client_id="email-change-client",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        oauth_access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="email-change-access-token",
+            scope="user:read",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        oauth_refresh_token = OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="email-change-refresh-token",
+        )
+        oauth_grant = OAuthGrant.objects.create(
+            application=oauth_app,
+            user=self.user,
+            code="email-change-grant",
+            expires=timezone.now() + timedelta(minutes=10),
+            redirect_uri="https://example.com/callback",
+            scope="user:read",
+            code_challenge="email-change-challenge",
+            code_challenge_method="S256",
+        )
+
+        with self.is_cloud(True):
+            response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+        assert response.status_code == status.HTTP_200_OK
+
+        self.client.logout()
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        self.user.refresh_from_db()
+        assert self.user.email == "beta@example.com"
+        assert not self.user.has_usable_password()
+        assert not self.user.passkeys_enabled_for_2fa
+        assert not WebauthnCredential.objects.filter(id=passkey.id).exists()
+        assert not UserSocialAuth.objects.filter(id=social_auth.id).exists()
+        assert not PersonalAPIKey.objects.filter(id=personal_api_key.id).exists()
+        assert not OAuthAccessToken.objects.filter(id=oauth_access_token.id).exists()
+        assert not OAuthRefreshToken.objects.filter(id=oauth_refresh_token.id).exists()
+        assert not OAuthGrant.objects.filter(id=oauth_grant.id).exists()
+
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
         [
