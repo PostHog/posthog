@@ -167,12 +167,12 @@ class Chunk:
     deleted_at: datetime
     person_uuids: tuple[str, ...]
 
-    def halves(self) -> tuple["Chunk", "Chunk"]:
+    def halves(self) -> list["Chunk"]:
         middle = len(self.person_uuids) // 2
-        return (
+        return [
             Chunk(team_id=self.team_id, deleted_at=self.deleted_at, person_uuids=self.person_uuids[:middle]),
             Chunk(team_id=self.team_id, deleted_at=self.deleted_at, person_uuids=self.person_uuids[middle:]),
-        )
+        ]
 
 
 @frozen(frozen=False)
