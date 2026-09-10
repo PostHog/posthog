@@ -294,7 +294,7 @@ def _write_examples(
         name: HeadExampleCounts(rows=len(frame), positives=int(frame["label"].sum()))
         for name, frame in per_head.items()
     }
-    metadata = {
+    metadata: dict[str, dagster.MetadataValue] = {
         f"{feature_set.name}_rows": dagster.MetadataValue.int(len(examples)),
         **{
             f"{feature_set.name}_{name}_rows": dagster.MetadataValue.int(head_counts.rows)
