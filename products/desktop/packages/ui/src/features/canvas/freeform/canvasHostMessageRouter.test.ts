@@ -116,16 +116,121 @@ describe("createCanvasHostMessageRouter", () => {
     );
   });
 
-  it("does not apply the data-request timeout to approved agent requests", async () => {
-    vi.useFakeTimers();
-    try {
-      const post = vi.fn();
-      let approve: (value: unknown) => void = () => {};
-      const onDataRequest = vi.fn(
-        () =>
-          new Promise<unknown>((resolve) => {
-            approve = resolve;
+  it.each(["agentRequest", "connectorCall"] as const)(
+    "does not time out %s while waiting for approval",
+    async (method) => {
+      vi.useFakeTimers();
+      try {
+        const post = vi.fn();
+        let approve: (value: unknown) => void = () => {};
+        const onDataRequest = vi.fn(
+          () =>
+            new Promise<unknown>((resolve) => {
+              approve = resolve;
+            }),
+        );
+        const route = createCanvasHostMessageRouter({
+          post,
+          callbacks: () => ({ onDataRequest }),
+          hasUserActivation: () => true,
+          openExternal: vi.fn(),
+        });
+
+        const routed = route({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id: "request-1",
+          method,
+          payload:
+            method === "agentRequest"
+              ? { prompt: "Change it" }
+              : { provider: "mcp:calendar.example.com", tool: "list_events" },
+        });
+
+        // Elapse well past the 30s generic data-request timeout: an approval
+        // dialog can sit open this long, and the canvas must not be told it
+        // failed while a later approval could still start the run.
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(post).not.toHaveBeenCalled();
+
+        // The viewer's approval is the only response the canvas receives.
+        approve({ requestOutcome: "new_run" });
+        await routed;
+        expect(post).toHaveBeenCalledTimes(1);
+        expect(post).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: "request-1",
+            ok: true,
+            result: { requestOutcome: "new_run" },
           }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("bounds pending connectors separately from ordinary requests", async () => {
+    const post = vi.fn();
+    const completions: Array<(value: unknown) => void> = [];
+    const route = createCanvasHostMessageRouter({
+      post,
+      callbacks: () => ({
+        onDataRequest: (method) =>
+          method === "connectorCall"
+            ? new Promise((resolve) => completions.push(resolve))
+            : Promise.resolve(null),
+      }),
+      hasUserActivation: () => true,
+      openExternal: vi.fn(),
+    });
+    const requests = Array.from({ length: 8 }, (_, index) =>
+      route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: `connector-${index}`,
+        method: "connectorCall",
+        payload: { provider: "github", tool: "list_pull_requests" },
+      }),
+    );
+    await route({
+      channel: "posthog-canvas",
+      type: "data-request",
+      id: "overflow",
+      method: "connectorCall",
+      payload: { provider: "github", tool: "list_pull_requests" },
+    });
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "overflow",
+        ok: false,
+        error: "Canvas data request exceeds runtime limits",
+      }),
+    );
+    await route({
+      channel: "posthog-canvas",
+      type: "data-request",
+      id: "ordinary",
+      method: "stateGet",
+      payload: { key: "data", scope: "user" },
+    });
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "ordinary", ok: true }),
+    );
+    completions.forEach((resolve) => {
+      resolve(null);
+    });
+    await Promise.all(requests);
+  });
+
+  it.each(["agentRequest", "connectorCall"] as const)(
+    "does not count a pending %s against ordinary request slots",
+    async (pendingMethod) => {
+      const post = vi.fn();
+      const onDataRequest = vi.fn((method: string) =>
+        method === pendingMethod
+          ? new Promise<unknown>(() => {}) // dialog open, never settles
+          : Promise.resolve(null),
       );
       const route = createCanvasHostMessageRouter({
         post,
@@ -134,75 +239,32 @@ describe("createCanvasHostMessageRouter", () => {
         openExternal: vi.fn(),
       });
 
-      const routed = route({
+      void route({
         channel: "posthog-canvas",
         type: "data-request",
-        id: "request-1",
-        method: "agentRequest",
+        id: "agent-1",
+        method: pendingMethod,
         payload: { prompt: "Change it" },
       });
 
-      // Elapse well past the 30s generic data-request timeout: an approval
-      // dialog can sit open this long, and the canvas must not be told it
-      // failed while a later approval could still start the run.
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(post).not.toHaveBeenCalled();
-
-      // The viewer's approval is the only response the canvas receives.
-      approve({ requestOutcome: "new_run" });
-      await routed;
-      expect(post).toHaveBeenCalledTimes(1);
-      expect(post).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: "request-1",
-          ok: true,
-          result: { requestOutcome: "new_run" },
-        }),
+      // With the dialog sitting unanswered, the canvas's ordinary reads must
+      // still get all 8 slots: none may be rejected for runtime limits.
+      await Promise.all(
+        Array.from({ length: 8 }, (_, i) =>
+          route({
+            channel: "posthog-canvas",
+            type: "data-request",
+            id: `query-${i}`,
+            method: "stateGet",
+            payload: { scope: "user", key: `k${i}` },
+          }),
+        ),
       );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 
-  it("does not count a pending agent request against the concurrency limit", async () => {
-    const post = vi.fn();
-    const onDataRequest = vi.fn((method: string) =>
-      method === "agentRequest"
-        ? new Promise<unknown>(() => {}) // dialog open, never settles
-        : Promise.resolve(null),
-    );
-    const route = createCanvasHostMessageRouter({
-      post,
-      callbacks: () => ({ onDataRequest }),
-      hasUserActivation: () => true,
-      openExternal: vi.fn(),
-    });
-
-    void route({
-      channel: "posthog-canvas",
-      type: "data-request",
-      id: "agent-1",
-      method: "agentRequest",
-      payload: { prompt: "Change it" },
-    });
-
-    // With the dialog sitting unanswered, the canvas's ordinary reads must
-    // still get all 8 slots: none may be rejected for runtime limits.
-    await Promise.all(
-      Array.from({ length: 8 }, (_, i) =>
-        route({
-          channel: "posthog-canvas",
-          type: "data-request",
-          id: `query-${i}`,
-          method: "stateGet",
-          payload: { scope: "user", key: `k${i}` },
-        }),
-      ),
-    );
-
-    expect(post).toHaveBeenCalledTimes(8);
-    expect(post.mock.calls.every(([message]) => message.ok === true)).toBe(
-      true,
-    );
-  });
+      expect(post).toHaveBeenCalledTimes(8);
+      expect(post.mock.calls.every(([message]) => message.ok === true)).toBe(
+        true,
+      );
+    },
+  );
 });
