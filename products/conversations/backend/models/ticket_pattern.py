@@ -28,7 +28,10 @@ class TicketPattern(TeamScopedRootMixin, UUIDModel):
     minting a new one, and the partial unique constraint below is the backstop against a racing tick.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # db_index=False: both indexes below lead with team, so the implicit one only costs writes.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
     # Stable key for the topic, e.g. "terms:login password". Dedupe keys on it, not on the title.
     # Wider than `topic` because it carries the source prefix on top of a full-length topic.
     fingerprint = models.CharField(max_length=255)
@@ -88,8 +91,15 @@ class TicketPatternEvidence(TeamScopedRootMixin, UUIDModel):
     """A ticket that contributed to a pattern. Capped per pattern by the writer: a pattern points at
     tickets, it does not materialize a report."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    pattern = models.ForeignKey(TicketPattern, on_delete=models.CASCADE, related_name="evidence_tickets")
+    # db_index=False: the (team, ticket) index below leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    # db_index=False: the unique (pattern, ticket) below leads with pattern, which serves both
+    # the reverse lookup and the cascade.
+    pattern = models.ForeignKey(
+        TicketPattern, on_delete=models.CASCADE, db_index=False, related_name="evidence_tickets"
+    )
     ticket = models.ForeignKey("conversations.Ticket", on_delete=models.CASCADE, related_name="+")
     added_at = models.DateTimeField(auto_now_add=True)
 
@@ -110,7 +120,10 @@ class TicketTopicBaseline(TeamScopedRootMixin, UUIDModel):
     the topic, so a false positive gets quieter and a confirmed topic gets easier to reopen.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # db_index=False: the unique (team, topic) below leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
     topic = models.CharField(max_length=200)
     mean_per_hour = models.FloatField(default=0.0)
     spread = models.FloatField(default=0.0)
