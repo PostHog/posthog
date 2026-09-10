@@ -164,9 +164,37 @@
                     "description": "Whether proactive recommendations may use bounded public web research. Defaults to true.",
                     "type": "boolean"
                 },
+                "create_draft_pr": {
+                    "description": "Whether eligible recommendations can prepare a draft pull request. Defaults to false.",
+                    "type": "boolean"
+                },
                 "enabled": {
                     "description": "Whether this AI report generates up to three proactive recommendations after its base report is saved. Defaults to false.",
                     "type": "boolean"
+                },
+                "repository": {
+                    "anyOf": [
+                        {
+                            "maxLength": 201,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Repository name in owner/repository format. Requires draft pull request preparation."
+                },
+                "repository_integration_id": {
+                    "anyOf": [
+                        {
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "GitHub integration ID for the repository. Requires draft pull request preparation."
                 }
             },
             "type": "object"
