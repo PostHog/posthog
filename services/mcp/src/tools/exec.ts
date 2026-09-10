@@ -725,12 +725,25 @@ export function formatInputValidationError(
     // A strict schema rejects unknown keys instead of dropping them, and the
     // `unrecognized_keys` branch below already names them.
     const keysWereRejected = error.issues.some((issue) => issue.code === 'unrecognized_keys')
-    const parts = error.issues.map((issue) => {
-        const path = issue.path.map(String).join('.')
+    const describeIssue = (issue: z.core.$ZodIssue, issuePath: ReadonlyArray<PropertyKey>): string => {
+        const path = issuePath.map(String).join('.')
+        // A union reports only "Invalid input" for the whole field, naming neither
+        // the branch that came closest nor what it wanted, so a caller that sent a
+        // near-miss has nothing to correct and retries variations of the same
+        // payload. Describe the branches that got furthest instead.
+        if (issue.code === 'invalid_union') {
+            const closest = closestUnionBranches(issue.errors)
+            const described = [
+                ...new Set(closest.flatMap((branch) => branch.map((i) => describeIssue(i, [...issuePath, ...i.path])))),
+            ]
+            if (described.length > 0) {
+                return described.slice(0, MAX_UNION_ISSUES_NAMED).join('; ')
+            }
+        }
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
-                const hint = missingParameterHint(issue.path, schema)
-                if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
+                const hint = missingParameterHint(issuePath, schema)
+                if (looksLikeUnwrappedPayload(issuePath, input, schema)) {
                     const shape = acceptedWrapperShape(path, input, schema)
                     return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as ${shape}`
                 }
@@ -759,8 +772,29 @@ export function formatInputValidationError(
             return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
         }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
-    })
+    }
+    const parts = error.issues.map((issue) => describeIssue(issue, issue.path))
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
+}
+
+/** Bound on how many branch issues a union rejection names, so a wide union
+ *  cannot inflate the analytics error message. */
+const MAX_UNION_ISSUES_NAMED = 3
+
+/**
+ * The union branches that rejected the input on the fewest counts.
+ *
+ * Every branch of a union fails, so describing all of them buries the useful
+ * one: a payload that named the right node and got one field wrong collects a
+ * discriminator complaint from every other branch too. The shortest failures
+ * are the branches the caller was aiming at. Ties are kept, so a payload that
+ * matched no discriminator at all still sees each accepted value.
+ */
+function closestUnionBranches(
+    branches: ReadonlyArray<ReadonlyArray<z.core.$ZodIssue>>
+): ReadonlyArray<ReadonlyArray<z.core.$ZodIssue>> {
+    const fewest = Math.min(...branches.map((branch) => branch.length))
+    return branches.filter((branch) => branch.length === fewest)
 }
 
 /** Caps on what we record so a single failure can't blow up analytics cardinality. */
