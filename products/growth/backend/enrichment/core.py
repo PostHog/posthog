@@ -171,12 +171,8 @@ async def _resolve_fields(ctx: EnrichmentContext, lookup: ProviderLookup) -> Opt
         fields = await sync_to_async(_reconstruct_fields_from_record)(ctx.organization_id)
 
     if fields is not None and fields.country is None:
-        # The incumbent icp_country was a merge — provider country first, signup GeoIP as
-        # fallback — so the score and all three stores see the merged value here. replace()
-        # keeps the returned provider_fields verbatim for the at-signup snapshot.
-        # Callers with no GeoIP to offer (the re-enrichment sweep) fall back to the country
-        # already on the record. Without it a re-score that saw no new provider country takes
-        # the non-scored-country penalty the signup score had avoided.
+        # A re-score with no new provider country would otherwise take the non-scored-country
+        # penalty the signup score avoided. replace() keeps provider_fields verbatim for the snapshot.
         fallback_country = ctx.geoip_country_code or await sync_to_async(_stored_country)(ctx.organization_id)
         if fallback_country:
             fields = dataclasses.replace(fields, country=fallback_country)

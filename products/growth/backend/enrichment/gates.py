@@ -12,9 +12,8 @@ from posthog.utils import GenericEmails, get_instance_region
 KILL_SWITCH_SETTING = "GROWTH_SIGNUP_ENRICHMENT_ENABLED"
 CLOUD_REGIONS = ("US", "EU")
 
-# The signup creator's membership is written in the signup transaction, so it lands within
-# seconds of the org row. An earliest membership older than this means the signup user has
-# left and the remaining members cannot stand in for the signup identity.
+# The signup creator's membership is written in the signup transaction, so an earliest
+# membership older than this means that user left and nobody can stand in for them.
 SIGNUP_MEMBERSHIP_WINDOW = dt.timedelta(minutes=5)
 
 _generic_emails = GenericEmails()
