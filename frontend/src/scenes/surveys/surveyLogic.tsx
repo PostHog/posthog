@@ -193,6 +193,9 @@ type SurveyTranslationDraftPayload = {
         thankYouMessageHeader?: string
         thankYouMessageDescription?: string
         thankYouMessageCloseButtonText?: string
+        introScreenHeader?: string
+        introScreenDescription?: string
+        introScreenButtonText?: string
     }
     questions?: SurveyTranslationDraftQuestion[]
     translations?: Survey['translations']
@@ -244,6 +247,9 @@ function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTra
             thankYouMessageHeader: survey.appearance?.thankYouMessageHeader,
             thankYouMessageDescription: survey.appearance?.thankYouMessageDescription,
             thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText,
+            introScreenHeader: survey.appearance?.introScreenHeader,
+            introScreenDescription: survey.appearance?.introScreenDescription,
+            introScreenButtonText: survey.appearance?.introScreenButtonText,
         },
         questions: survey.questions.map((question, index): SurveyTranslationDraftQuestion => {
             const draftQuestion: SurveyTranslationDraftQuestion = {
@@ -3272,6 +3278,9 @@ export const surveyLogic = kea<surveyLogicType>([
                         key: 'thankYouMessageCloseButtonText',
                         defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
                     },
+                    { key: 'introScreenHeader', defaultValue: survey.appearance?.introScreenHeader },
+                    { key: 'introScreenDescription', defaultValue: survey.appearance?.introScreenDescription },
+                    { key: 'introScreenButtonText', defaultValue: survey.appearance?.introScreenButtonText },
                 ]
 
                 // Get all languages

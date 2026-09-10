@@ -117,6 +117,21 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         check: (s) => s.schedule === SurveySchedule.Always,
     },
     {
+        feature: 'Intro screen',
+        // Minimum versions are the first releases containing the intro screen renderer.
+        // Update these to the actual released versions once PostHog/posthog-js#4436 ships.
+        sdkVersions: {
+            'posthog-js': '1.411.0',
+            'posthog-react-native': '4.62.0',
+        },
+        unsupportedSdks: [
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog/issues/74064' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog/issues/74064' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog/issues/74064' },
+        ],
+        check: (s) => !!s.appearance?.displayIntroScreen,
+    },
+    {
         feature: 'Feedback button surveys',
         sdkVersions: { 'posthog-js': '1.294.0' },
         unsupportedSdks: [

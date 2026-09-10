@@ -10,7 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
-import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
+import { INTRO_SCREEN_PAGE_INDEX, SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
@@ -95,6 +95,12 @@ export function SurveyDetailsPanel(): JSX.Element {
                                 survey={survey as Survey}
                                 previewPageIndex={selectedPageIndex || 0}
                                 onPreviewSubmit={(response) => {
+                                    // The intro screen is not a question, so getNextSurveyStep
+                                    // cannot resolve it: its button always advances to question 0.
+                                    if (selectedPageIndex === INTRO_SCREEN_PAGE_INDEX) {
+                                        setSelectedPageIndex(0)
+                                        return
+                                    }
                                     const nextStep = getNextSurveyStep(survey, selectedPageIndex, response)
                                     if (
                                         nextStep === SurveyQuestionBranchingType.End &&
@@ -116,6 +122,9 @@ export function SurveyDetailsPanel(): JSX.Element {
                             value={selectedPageIndex || 0}
                             onChange={(pageIndex) => setSelectedPageIndex(pageIndex)}
                             options={[
+                                ...(survey.appearance?.displayIntroScreen
+                                    ? [{ label: 'Intro screen', value: INTRO_SCREEN_PAGE_INDEX }]
+                                    : []),
                                 ...survey.questions.map((question, index) => ({
                                     label: `${index + 1}. ${question.question ?? ''}`,
                                     value: index,

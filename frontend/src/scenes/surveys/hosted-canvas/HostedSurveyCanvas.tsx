@@ -146,6 +146,10 @@ function buildCanvasStyles(appearance: SurveyAppearance, progress: number): Canv
 }
 
 function getProgress(survey: Survey | NewSurvey, pageIndex: number): number {
+    // The intro screen sits before question 0 (negative page index): no progress yet.
+    if (pageIndex < 0) {
+        return 0
+    }
     if (pageIndex >= survey.questions.length) {
         return 100
     }
@@ -158,6 +162,8 @@ function getProgress(survey: Survey | NewSurvey, pageIndex: number): number {
 interface HostedSurveyCanvasProps {
     survey: Survey | NewSurvey
     activePageIndex: number
+    /** True when active page is the intro screen shown before the first question. */
+    isIntro: boolean
     /** True when active page is the confirmation/thank-you screen. */
     isConfirmation: boolean
     /** Mobile vs desktop frame for visual context. */
@@ -167,6 +173,7 @@ interface HostedSurveyCanvasProps {
 export function HostedSurveyCanvas({
     survey,
     activePageIndex,
+    isIntro,
     isConfirmation,
     viewport,
 }: HostedSurveyCanvasProps): JSX.Element {
@@ -197,7 +204,9 @@ export function HostedSurveyCanvas({
                 </div>
                 <div className="survey-stage">
                     <div className="posthog-survey-container">
-                        {isConfirmation ? (
+                        {isIntro ? (
+                            <IntroCanvas survey={survey} />
+                        ) : isConfirmation ? (
                             <ConfirmationCanvas survey={survey} />
                         ) : activeQuestion ? (
                             <QuestionCanvas question={activeQuestion} index={activePageIndex} />
@@ -644,6 +653,54 @@ function RatingCanvas({
                     />
                 </div>
             ) : null}
+        </div>
+    )
+}
+
+function IntroCanvas({ survey }: { survey: Survey | NewSurvey }): JSX.Element {
+    const { setSurveyValue } = useActions(surveyLogic)
+    const appearance = survey.appearance ?? {}
+
+    const updateAppearance = (patch: Partial<NonNullable<(Survey | NewSurvey)['appearance']>>): void => {
+        setSurveyValue('appearance', { ...survey.appearance, ...patch })
+    }
+
+    return (
+        <div className="intro-screen">
+            <InlineEditable
+                as="h1"
+                className="intro-screen-header"
+                value={appearance.introScreenHeader || ''}
+                onChange={(value) => updateAppearance({ introScreenHeader: value })}
+                placeholder="Help us improve"
+                ariaLabel="Intro header"
+            />
+            {appearance.introScreenDescriptionContentType === 'html' && appearance.introScreenDescription ? (
+                // HTML descriptions keep their rendered form; v1 doesn't inline-edit raw HTML.
+                <div
+                    className="intro-screen-body"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHTML(appearance.introScreenDescription) }}
+                />
+            ) : (
+                <InlineEditable
+                    as="p"
+                    className="intro-screen-body"
+                    value={appearance.introScreenDescription || ''}
+                    onChange={(value) => updateAppearance({ introScreenDescription: value })}
+                    placeholder="Add an opening message (optional)"
+                    ariaLabel="Intro description"
+                    multiline
+                />
+            )}
+            <div className="bottom-section">
+                <InlineEditable
+                    value={appearance.introScreenButtonText || ''}
+                    onChange={(value) => updateAppearance({ introScreenButtonText: value })}
+                    placeholder="Get started"
+                    ariaLabel="Intro button label"
+                    className="form-submit"
+                />
+            </div>
         </div>
     )
 }

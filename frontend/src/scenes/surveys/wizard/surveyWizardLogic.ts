@@ -449,6 +449,8 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 ? {
                       displayThankYouMessage: template.appearance.displayThankYouMessage,
                       thankYouMessageHeader: template.appearance.thankYouMessageHeader,
+                      displayIntroScreen: template.appearance.displayIntroScreen,
+                      introScreenHeader: template.appearance.introScreenHeader,
                       position: template.appearance.position,
                       shuffleQuestions: template.appearance.shuffleQuestions,
                       surveyPopupDelaySeconds: template.appearance.surveyPopupDelaySeconds,

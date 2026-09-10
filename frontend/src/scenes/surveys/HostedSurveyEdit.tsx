@@ -36,7 +36,7 @@ import { Survey, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
-import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
+import { defaultSurveyFieldValues, INTRO_SCREEN_PAGE_INDEX, NewSurvey, SurveyQuestionLabel } from './constants'
 import { CopySurveyLink } from './CopySurveyLink'
 import { HostedSurveyCanvas } from './hosted-canvas/HostedSurveyCanvas'
 import { HostedSurveySettingsPanel } from './hosted-canvas/HostedSurveySettingsPanel'
@@ -57,6 +57,7 @@ function HostedSurveyQuestionRail({
     selectedPageIndex,
     onSelectPage,
     onAddQuestion,
+    onAddIntro,
     onAddConfirmation,
     onMoveQuestion,
     onDeleteQuestion,
@@ -68,6 +69,7 @@ function HostedSurveyQuestionRail({
     selectedPageIndex: number
     onSelectPage: (pageIndex: number) => void
     onAddQuestion: (type: SurveyQuestionType) => void
+    onAddIntro: () => void
     onAddConfirmation: () => void
     onMoveQuestion: (from: number, to: number) => void
     onDeleteQuestion: (index: number) => void
@@ -98,6 +100,24 @@ function HostedSurveyQuestionRail({
                 </div>
             </div>
             <div className="flex flex-col gap-2">
+                {survey.appearance?.displayIntroScreen ? (
+                    <button
+                        type="button"
+                        className={`min-h-11 rounded border px-3 py-2 text-left text-sm transition-colors ${
+                            selectedPageIndex === INTRO_SCREEN_PAGE_INDEX
+                                ? 'border-primary bg-primary-highlight text-primary'
+                                : 'bg-bg-light hover:bg-fill-highlight-50'
+                        }`}
+                        onClick={() => onSelectPage(INTRO_SCREEN_PAGE_INDEX)}
+                    >
+                        <span className="block font-medium">Intro</span>
+                        <span className="block text-xs text-secondary">Start screen</span>
+                    </button>
+                ) : (
+                    <LemonButton type="secondary" size="small" onClick={onAddIntro} className="mb-1" fullWidth>
+                        Add intro screen
+                    </LemonButton>
+                )}
                 <DndContext onDragEnd={handleDragEnd}>
                     <SortableContext
                         disabled={survey.questions.length <= 1}
@@ -421,11 +441,21 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
         () => getSurveyWithTranslatedContent(survey, activeLanguage),
         [survey, activeLanguage]
     )
+    const minPageIndex = survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0
     const maxPageIndex = Math.max(survey.questions.length + (survey.appearance?.displayThankYouMessage ? 1 : 0) - 1, 0)
-    const activePageIndex = Math.min(selectedPageIndex ?? 0, maxPageIndex)
+    const activePageIndex = Math.min(Math.max(selectedPageIndex ?? 0, minPageIndex), maxPageIndex)
+    const isIntroSelected = !!survey.appearance?.displayIntroScreen && activePageIndex === INTRO_SCREEN_PAGE_INDEX
     const isConfirmationSelected =
         !!survey.appearance?.displayThankYouMessage && activePageIndex === survey.questions.length
     const hostedSurveyUrl = id === 'new' ? null : getHostedSurveyUrl(id)
+
+    const removeIntroScreen = (): void => {
+        setSurveyValue('appearance', {
+            ...survey.appearance,
+            displayIntroScreen: false,
+        })
+        setSelectedPageIndex(0)
+    }
 
     const removeConfirmationScreen = (): void => {
         setSurveyValue('appearance', {
@@ -525,6 +555,13 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                         selectedPageIndex={activePageIndex}
                         onSelectPage={setSelectedPageIndex}
                         onAddQuestion={addQuestion}
+                        onAddIntro={() => {
+                            setSurveyValue('appearance', {
+                                ...survey.appearance,
+                                displayIntroScreen: true,
+                            })
+                            setSelectedPageIndex(INTRO_SCREEN_PAGE_INDEX)
+                        }}
                         onAddConfirmation={() => {
                             setSurveyValue('appearance', {
                                 ...survey.appearance,
@@ -540,14 +577,17 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                         <HostedSurveyCanvas
                             survey={previewSurvey}
                             activePageIndex={activePageIndex}
+                            isIntro={isIntroSelected}
                             isConfirmation={isConfirmationSelected}
                             viewport={viewport}
                         />
                         <HostedSurveySettingsPanel
                             activePageIndex={activePageIndex}
+                            isIntro={isIntroSelected}
                             isConfirmation={isConfirmationSelected}
                             viewport={viewport}
                             onViewportChange={setViewport}
+                            onRemoveIntro={removeIntroScreen}
                             onRemoveConfirmation={removeConfirmationScreen}
                         />
                     </div>
