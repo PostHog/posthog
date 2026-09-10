@@ -1390,18 +1390,42 @@ class TestStartupFailureDiagnostics:
         assert "poll=137" in diagnostics["failure_reason"]
         sandbox._sandbox.exec.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "probe_stdout, expected, unexpected",
+        [
+            # Refused: the connection never opened, so a policy blocked it.
+            (
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "egress blocked",
+                "timed out",
+            ),
+            # Lines from an image that predates the curl_exit suffix still read as a block.
+            (
+                "api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000\nFAILED",
+                "egress blocked",
+                "timed out",
+            ),
+            # Timed out: the box was too slow to finish the handshake, so nothing was blocked.
+            (
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=28",
+                "timed out",
+                "egress blocked",
+            ),
+            # One refused host is a block even when another host only timed out.
+            (
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "egress blocked",
+                "timed out",
+            ),
+        ],
+    )
     @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
-    def test_reports_blocked_egress_host(self):
+    def test_reports_blocked_egress_host(self, probe_stdout: str, expected: str, unexpected: str):
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "http_code=" in command:
-                return ExecutionResult(
-                    stdout="api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000",
-                    stderr="",
-                    exit_code=0,
-                    error=None,
-                )
+                return ExecutionResult(stdout=probe_stdout, stderr="", exit_code=0, error=None)
             if "agent-server.log" in command:
                 return ExecutionResult(stdout="agent log tail", stderr="", exit_code=0, error=None)
             return ExecutionResult(stdout='{"status":"ok","hasSession":false}', stderr="", exit_code=0, error=None)
@@ -1413,7 +1437,8 @@ class TestStartupFailureDiagnostics:
             diagnostics = sandbox._diagnose_startup_failure(allowed_domains=["github.com"])
 
         assert diagnostics["sandbox_terminated"] == "false"
-        assert "egress blocked" in diagnostics["failure_reason"]
+        assert expected in diagnostics["failure_reason"]
+        assert unexpected not in diagnostics["failure_reason"]
         assert "mcp-eu.posthog.com" in diagnostics["failure_reason"]
 
     def test_reports_alive_without_session_when_no_block(self):

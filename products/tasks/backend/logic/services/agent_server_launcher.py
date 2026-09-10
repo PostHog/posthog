@@ -79,6 +79,10 @@ HOST_PRESSURE_PROBE_SCRIPT = (
     'else echo "cold_read_ms=unavailable file=${probe_file:-none} size=$probe_size"; fi'
 )
 
+EGRESS_PROBE_MAX_TIME_SECONDS = 3
+# curl(1): "Operation timeout. The specified time-out period was reached according to the conditions."
+CURL_EXIT_OPERATION_TIMEOUT = 28
+
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
     "gateway.eu.posthog.com",
@@ -101,6 +105,27 @@ def _session_init_probe_hosts() -> list[str]:
         if gateway_host and gateway_host not in hosts:
             hosts.insert(0, gateway_host)
     return hosts
+
+
+def _egress_failure_reason(egress: str) -> str | None:
+    """Name the failure the egress probe saw, or None when every host answered.
+
+    A refused connection (curl exit 7) or a failed lookup (exit 6) is a network policy block.
+    A timeout (exit 28) is not: the probe ran on a box that could not finish a TLS handshake
+    inside its budget, which is what a CPU-starved sandbox looks like. The two must read
+    differently, because the first sends a reader to the allowlist and the second to the host.
+    """
+    failed = [line for line in egress.splitlines() if "http_code=000" in line or line.endswith("FAILED")]
+    if not failed:
+        return None
+    timed_out = [line for line in failed if line.endswith(f"curl_exit={CURL_EXIT_OPERATION_TIMEOUT}")]
+    if len(timed_out) == len(failed):
+        return (
+            f"egress probe timed out after {EGRESS_PROBE_MAX_TIME_SECONDS}s to session-init host(s), not refused; "
+            "the sandbox is too slow to complete a TLS handshake, which points at CPU starvation rather than a "
+            "network policy block: " + "; ".join(failed)
+        )
+    return "egress blocked to required session-init host(s): " + "; ".join(failed)
 
 
 def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS) -> str:
@@ -282,9 +307,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
             egress = self._probe_session_init_egress()
             diagnostics["egress_probe"] = egress
-            blocked = [line for line in egress.splitlines() if "http_code=000" in line or line.endswith("FAILED")]
-            if blocked:
-                diagnostics["failure_reason"] = "egress blocked to required session-init host(s): " + "; ".join(blocked)
+            egress_reason = _egress_failure_reason(egress)
+            if egress_reason:
+                diagnostics["failure_reason"] = egress_reason
             else:
                 diagnostics["failure_reason"] = (
                     "agent server alive but never reported hasSession=true; no egress block detected, "
@@ -313,7 +338,9 @@ class AgentServerLaunchMixin(SandboxBase):
         hosts = _session_init_probe_hosts()
         checks = "; ".join(
             f"printf '%s ' {shlex.quote(host)}; "
-            f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
+            f"curl -sS --max-time {EGRESS_PROBE_MAX_TIME_SECONDS} -o /dev/null -w 'http_code=%{{http_code}}' "
+            f"https://{host}/ 2>/dev/null; "
+            'echo " curl_exit=$?"'
             for host in hosts
         )
         return self.execute(checks, timeout_seconds=30).stdout.strip()
