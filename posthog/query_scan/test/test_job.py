@@ -80,6 +80,8 @@ class TestQueryScanJob(BaseTest):
             trigger="fresh",
             query_kind="HogQLQuery",
             open_filters_placeholder=False,
+            insight_id=7,
+            dashboard_id=3,
         )
         with mock.patch("posthog.query_scan.job.sync_execute", side_effect=execute):
             run_query_scan(job)
@@ -126,6 +128,8 @@ class TestQueryScanJob(BaseTest):
         assert self.capture.call_args.kwargs["event"] == "query scan analyzed"
         assert properties["finding_kinds"] == expected_kinds
         assert properties["explain_ok"] is expected_explain_ok
+        # The rollout analysis groups the event by these, so they travel from the trigger to here.
+        assert (properties["insight_id"], properties["dashboard_id"]) == (7, 3)
 
     def test_158_explains_both_the_exact_and_the_stubbed_sql(self) -> None:
         self._run({"ORIGINAL_MARKER": _TOO_MANY_ROWS, "STUBBED_MARKER": "plan_no_date_bound"})

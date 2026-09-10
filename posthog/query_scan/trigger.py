@@ -92,7 +92,10 @@ def maybe_trigger_query_scan(
     query: BaseModel,
     trigger: str,
     cacheable: bool,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
     killed: bool = False,
+    error_type: str | None = None,
 ) -> QueryScanTrigger:
     """Enqueue the analysis job for this run, unless one of the skip tests holds.
 
@@ -143,7 +146,10 @@ def maybe_trigger_query_scan(
             rows_read=stats.rows_read,
             duration_ms=duration_ms,
             trigger=trigger,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
             killed=killed,
+            error_type=error_type,
             query_kind=query_kind,
             open_filters_placeholder=_open_filters_placeholder(query, query_kind),
         )

@@ -72,7 +72,10 @@ class QueryScanJob:
     trigger: str
     query_kind: str | None
     open_filters_placeholder: bool
+    insight_id: int | None = None
+    dashboard_id: int | None = None
     killed: bool = False
+    error_type: str | None = None
 
 
 @frozen(eq=False)
@@ -151,6 +154,7 @@ def _run(job: QueryScanJob, started: float) -> None:
             explain_ok=merged.explain_ok,
             findings=tuple(merged.findings),
             killed=job.killed,
+            error_type=job.error_type,
             thresholds=flag.thresholds_fingerprint,
         ),
     )
@@ -274,6 +278,8 @@ def _report(job: QueryScanJob, merged: _Merged, *, flag_event_ratio: float, job_
     query no check explains yet, which is what says which check to write next."""
     properties = {
         "cache_key": job.cache_key,
+        "insight_id": job.insight_id,
+        "dashboard_id": job.dashboard_id,
         "query_kind": job.query_kind,
         "trigger": job.trigger,
         "rows_read": job.rows_read,
@@ -284,6 +290,7 @@ def _report(job: QueryScanJob, merged: _Merged, *, flag_event_ratio: float, job_
         "explain_ok": merged.explain_ok,
         "finding_kinds": merged.finding_kinds(),
         "killed": job.killed,
+        "error_type": job.error_type,
         "job_ms": job_ms,
     }
     # A Celery worker can exit before the global client's background flush runs, so this event

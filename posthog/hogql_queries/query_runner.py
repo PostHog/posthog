@@ -2463,6 +2463,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         flag=query_scan_flag,
                         stats=query_stats,
                         cache_key=cache_key,
+                        insight_id=insight_id,
+                        dashboard_id=dashboard_id,
                         user=user,
                     )
                 raise
@@ -2553,6 +2555,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         query=self.query,
                         trigger="fresh",
                         cacheable=cacheable,
+                        insight_id=insight_id,
+                        dashboard_id=dashboard_id,
                     )
                     if scan.triggered:
                         query_scan["status"] = "pending"
@@ -2618,6 +2622,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         flag: QueryScanFlag,
         stats: Optional[QueryStats],
         cache_key: str,
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
         user: Optional[User],
     ) -> None:
         """Enqueue the analysis for a run ClickHouse stopped, and put the scan summary on the
@@ -2643,7 +2649,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 trigger="killed",
                 # A killed run has no result to cache, so only the export exclusion applies.
                 cacheable=self.limit_context != LimitContext.EXPORT,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
                 killed=True,
+                error_type=clickhouse_error_type(error),
             )
             if not scan.triggered and scan.skipped_reason != "slot_exists":
                 # With no slot behind this cache key the scan endpoint answers 404.

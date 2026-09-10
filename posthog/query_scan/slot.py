@@ -51,6 +51,7 @@ class QueryScanSlot:
     explain_ok: bool | None = None
     findings: tuple[QueryScanWarning, ...] = ()
     killed: bool = False
+    error_type: str | None = None
     thresholds: str | None = None
 
 
@@ -166,6 +167,8 @@ def _serialize(slot: QueryScanSlot) -> dict[str, Any]:
     }
     if slot.killed:
         value["killed"] = True
+    if slot.error_type is not None:
+        value["error_type"] = slot.error_type
     return value
 
 
@@ -190,5 +193,6 @@ def _deserialize(value: Any) -> QueryScanSlot | None:
         if isinstance(findings, list)
         else (),
         killed=bool(value.get("killed", False)),
+        error_type=value.get("error_type"),
         thresholds=value.get("thresholds"),
     )

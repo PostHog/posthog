@@ -82,6 +82,8 @@ class TestQueryScanTrigger(SimpleTestCase):
             "query": HogQLQuery(query="select 1"),
             "trigger": "fresh",
             "cacheable": True,
+            "insight_id": 7,
+            "dashboard_id": 3,
         }
         return maybe_trigger_query_scan(**{**arguments, **overrides})
 
@@ -137,10 +139,12 @@ class TestQueryScanTrigger(SimpleTestCase):
     def test_a_killed_run_records_that_on_the_pending_slot(self) -> None:
         # The scan endpoint answers from this slot until the job finishes, so a stopped run that
         # left no `killed` here would be reported as one that ran to completion.
-        self._trigger(killed=True)
+        self._trigger(killed=True, error_type="ClickHouseQueryTimeOut")
 
         _key, payload = self.redis.set.call_args.args
         assert json.loads(payload)["killed"] is True
+        # The job groups the analytics event by the error kind, so it travels on the payload.
+        assert self.delay.call_args.kwargs["error_type"] == "ClickHouseQueryTimeOut"
 
     def test_prints_the_heaviest_executions_and_skips_an_oversized_one(self) -> None:
         # An insight fans out into several executions; the job explains the heaviest, and an SQL
@@ -183,6 +187,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert enqueued["duration_ms"] == 2000
         assert enqueued["trigger"] == "fresh"
         assert enqueued["query_kind"] == expected_kind
+        assert (enqueued["insight_id"], enqueued["dashboard_id"]) == (7, 3)
         assert len(enqueued["executions"]) == 1
 
         key, payload = self.redis.set.call_args.args
