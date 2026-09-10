@@ -1677,15 +1677,19 @@ class TestResolveModalSandboxRegion:
             ({"EU": ["eu-west", "eu-north"]}, "EU", ["eu-west", "eu-north"]),
             ('{"EU": "eu"}', "EU", ["eu"]),
             ({"EU": "eu"}, "US", None),
+            ({"EU": "us-east"}, "EU", None),
+            ({"EU": ["eu-west", "us-east"]}, "EU", None),
+            ({"US": "eu"}, "US", None),
             ({"EU": "eu-central"}, "EU", None),
             ({"EU": ["eu", "europe"]}, "EU", None),
             ({"EU": []}, "EU", None),
             ({"EU": 1}, "EU", None),
+            ({"": "eu"}, None, None),
             ("not json", "EU", None),
             (None, "EU", None),
         ],
     )
-    def test_reads_only_this_deployments_known_regions(self, payload, deployment, expected):
+    def test_reads_only_regions_inside_this_deployments_boundary(self, payload, deployment, expected):
         assert modal_sandbox_region_from_payload(payload, deployment) == expected
 
     def test_flag_failure_keeps_the_deployment_default(self):

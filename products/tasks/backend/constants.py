@@ -27,33 +27,12 @@ DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 # Payload keyed by CLOUD_DEPLOYMENT, e.g. `{"EU": "eu"}` or `{"EU": ["eu-west", "eu-north"]}`.
 MODAL_SANDBOX_REGION_FEATURE_FLAG = "tasks-modal-sandbox-region"
-# Region ids Modal accepts on Sandbox.create (modal.com/docs/guide/region-selection).
-MODAL_REGIONS: frozenset[str] = frozenset(
-    {
-        "us",
-        "us-east",
-        "us-central",
-        "us-south",
-        "us-west",
-        "eu",
-        "eu-west",
-        "eu-north",
-        "eu-south",
-        "ap",
-        "ap-northeast",
-        "ap-southeast",
-        "ap-south",
-        "ap-melbourne",
-        "jp",
-        "au",
-        "uk",
-        "ca",
-        "me",
-        "sa",
-        "af",
-        "mx",
-    }
-)
+# Modal region ids (modal.com/docs/guide/region-selection) each deployment may pick, so the
+# flag can widen the pool but never move a sandbox out of the deployment's residency boundary.
+MODAL_REGIONS_BY_DEPLOYMENT: dict[str, frozenset[str]] = {
+    "EU": frozenset({"eu", "eu-west", "eu-north", "eu-south"}),
+    "US": frozenset({"us", "us-east", "us-central", "us-south", "us-west"}),
+}
 # Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
@@ -143,19 +122,22 @@ def _decode_vm_sandbox_payload(payload: object) -> object:
 
 
 def modal_sandbox_region_from_payload(payload: object, deployment: str | None) -> list[str] | None:
-    # Keyed by deployment so a value meant for EU can never move US compute.
     payload = _decode_vm_sandbox_payload(payload)
     if not isinstance(payload, dict):
         return None
-    return _validated_modal_regions(payload.get(deployment or ""))
+    allowed = MODAL_REGIONS_BY_DEPLOYMENT.get(deployment or "")
+    if not allowed:
+        return None
+    return _validated_modal_regions(payload.get(deployment), allowed)
 
 
-def _validated_modal_regions(value: object) -> list[str] | None:
-    # An id Modal does not know would fail every create in the deployment, so drop the whole value.
+def _validated_modal_regions(value: object, allowed: frozenset[str]) -> list[str] | None:
+    # One unusable id drops the whole value: a partial list would still send some sandboxes
+    # to a region the deployment must not use, or to one Modal rejects on every create.
     regions = [value] if isinstance(value, str) else value
     if not isinstance(regions, list) or not regions:
         return None
-    if not all(isinstance(region, str) and region in MODAL_REGIONS for region in regions):
+    if not all(isinstance(region, str) and region in allowed for region in regions):
         return None
     return list(regions)
 

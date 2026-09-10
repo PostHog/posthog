@@ -290,8 +290,8 @@ which carries two origin allowlists and an optional default image:
 
 Each deployment pins its sandboxes to one Modal region (`MODAL_REGION_BY_DEPLOYMENT`: `us-east` for US, `eu-west` for EU).
 The `tasks-modal-sandbox-region` flag overrides that per deployment: its payload is keyed by `CLOUD_DEPLOYMENT`, for example `{"EU": "eu"}` or `{"EU": ["eu-west", "eu-north"]}`.
-Values must be Modal region ids (`MODAL_REGIONS`); an unknown id leaves the default in place.
-Modal's broad regions (`eu`, `us`, `ap`) pool the narrow ones under them at a lower price multiplier, so prefer them when a narrow pool runs short of hosts.
+Values must be Modal region ids the deployment is allowed to use (`MODAL_REGIONS_BY_DEPLOYMENT` lists the EU and US pools); anything else leaves the default in place, so the flag can only widen a deployment's pool inside its residency boundary.
+Modal's broad regions (`eu`, `us`) pool the narrow ones under them at a lower price multiplier, so prefer them when a narrow pool runs short of hosts.
 
 #### The prebaked dev-stack image
 

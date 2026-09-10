@@ -880,6 +880,10 @@ def _resolve_modal_sandbox_region(*, distinct_id: str, organization_id: str, run
     region = modal_sandbox_region_from_payload(payload, settings.CLOUD_DEPLOYMENT)
     if region is not None:
         log_with_activity_context("modal_sandbox_region_flag_override", run_id=run_id, region=region)
+    elif payload is not None:
+        # A payload the deployment cannot use is silent otherwise, and it looks the same as
+        # a flag that never matched the org.
+        log_with_activity_context("modal_sandbox_region_flag_ignored", run_id=run_id, payload=payload)
     return region
 
 
