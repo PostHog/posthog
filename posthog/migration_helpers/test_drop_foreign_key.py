@@ -95,6 +95,13 @@ def test_a_second_run_is_a_no_op(temp_tables):
     assert _fk_columns(child) == {"other_id"}
 
 
+def test_the_drop_cannot_be_reversed():
+    op = DropForeignKey("test_dropfk_child", column="owner_id")
+
+    with pytest.raises(NotImplementedError, match="AddForeignKeyNotValid"):
+        op.database_backwards("posthog", None, None, None)
+
+
 def test_needs_a_column_or_a_parent():
     with pytest.raises(ValueError, match="column, a to_table"):
         DropForeignKey("test_dropfk_child")
