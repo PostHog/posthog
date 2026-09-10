@@ -106,6 +106,17 @@ class TestFingerprintWidth(SimpleTestCase):
 
 
 class TestTopicExtraction(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("subsystem_acronym", "API down", "api down"),
+            ("cyrillic", "Не работает вход", "работает вход"),
+            ("accented_latin", "Problème de connexion", "problème"),
+        ]
+    )
+    def test_a_terse_or_non_ascii_subject_still_yields_a_topic(self, _name, subject, expected):
+        # The urgent subjects are the short ones, and a support inbox is not all English.
+        assert expected in topics_for(subject)
+
     def test_topics_come_from_the_opening_of_a_long_message(self):
         # A pasted log is the realistic case: it is allowed input, and every line of it would
         # otherwise become topics that the daily refresh then holds for the whole sample window.

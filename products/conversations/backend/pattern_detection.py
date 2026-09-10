@@ -51,6 +51,13 @@ COMMENT_ID_CHUNK_SIZE = 1000
 BASELINE_WRITE_BATCH_SIZE = 1000
 MAX_TOPIC_LENGTH = 200
 MIN_TOKEN_LENGTH = 4
+# Subsystem names below the length floor. They are what a terse outage subject turns on, so without
+# them "API down" has nothing left to cluster on. Lowering the floor instead would let filler in.
+SHORT_TECHNICAL_TERMS = frozenset(
+    """
+    api cdn cpu css csv dns ftp gpu ios jwt mfa otp pdf php ram sdk sql ssh sso ssl tls url vpn xml
+    """.split()
+)
 # What a ticket is about is in its opening lines. Past this the text is a pasted log or a quoted
 # thread, and reading it only multiplies topics: the widget accepts 10k characters per message, and
 # the daily refresh holds every topic of every ticket for 30 days at once.
@@ -80,7 +87,7 @@ FREE_MAIL_DOMAINS = frozenset(
 _STOPWORDS = frozenset(
     """
     about after again against also another any because been before being between both cannot could
-    does doing down during each even every from further having here hers herself himself into itself
+    does doing during each even every from further having here hers herself himself into itself
     just more most much must myself need never none only other ought ours ourselves over same shall
     should since some still such than that their theirs them themselves then there these they this
     those through under until very were what when where which while whom whose will with within would
@@ -88,7 +95,11 @@ _STOPWORDS = frozenset(
     support ticket request team posthog
     """.split()
 )
-_TOKEN_RE = re.compile(r"[a-z]+")
+# Any letter, not just ASCII: the previous class silently returned nothing for a subject written
+# in Cyrillic, Greek, Arabic or CJK, so those teams got a detector that could never fire. A CJK run
+# still comes back as one token, which groups identical subjects but matches no sub-phrase; real
+# segmentation is a bigger job than this.
+_TOKEN_RE = re.compile(r"[^\W\d_]+")
 
 
 @frozen
@@ -149,7 +160,11 @@ def _coerce_int(value: Any, default: int) -> int:
 
 def tokenize(text: str) -> list[str]:
     opening = text[:MAX_ANALYZED_CHARS].lower()
-    tokens = [t for t in _TOKEN_RE.findall(opening) if len(t) >= MIN_TOKEN_LENGTH and t not in _STOPWORDS]
+    tokens = [
+        t
+        for t in _TOKEN_RE.findall(opening)
+        if (len(t) >= MIN_TOKEN_LENGTH or t in SHORT_TECHNICAL_TERMS) and t not in _STOPWORDS
+    ]
     return [_stem(t) for t in tokens]
 
 
