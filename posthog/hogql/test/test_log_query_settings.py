@@ -11,6 +11,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
+    CHQueryErrorAllConnectionTriesFailed,
     CHQueryErrorCorruptedParquetMetadata,
     CHQueryErrorQueryWasCancelled,
     CHQueryErrorTableIsReadOnly,
@@ -138,6 +139,15 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         server_error = ServerException("DB::Exception: Table is in readonly mode.", code=242)
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, CHQueryErrorTableIsReadOnly)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+
+    def test_wrap_clickhouse_query_error_all_connection_tries_failed_is_stable_and_transient(self):
+        # Code 279 (ALL_CONNECTION_TRIES_FAILED) means a host refused every connection, which the
+        # next attempt can get past. It must map to the importable class that lives in
+        # CH_TRANSIENT_ERRORS, not to a dynamically generated class no autoretry tuple references.
+        server_error = ServerException("DB::Exception: All connection tries failed.", code=279)
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorAllConnectionTriesFailed)
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
     def test_wrap_clickhouse_query_error_query_was_cancelled_is_stable(self):
