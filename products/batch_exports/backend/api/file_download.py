@@ -179,7 +179,7 @@ COUNT_ROWS_TIMEOUT_MESSAGE = (
     "Timeout exceeded while counting rows. The query may be too complex, or the count may be too "
     "large to finish within a short time. Running this query in an export may take too long to "
     "complete and/or may produce a very large file to download. Narrow the query with a WHERE "
-    "clause to count and export less data if you can't tolerate the additional exeuction time "
+    "clause to count and export less data if you can't tolerate the additional execution time "
     "and/or file size."
 )
 
