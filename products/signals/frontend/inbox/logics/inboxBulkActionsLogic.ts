@@ -202,9 +202,12 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             if (end === -1) {
                 return
             }
+            // The anchor only counts while something is selected, because the toggle that removed
+            // the last selected row still wrote its own id there.
+            const anchorId = selectedReportIds.length > 0 ? selectionAnchorId : null
             // No anchor yet (a shift-click as the first click): treat it as a plain toggle, which
             // also sets the anchor for the next shift-click.
-            const start = selectionAnchorId === null ? -1 : visibleReportIds.indexOf(selectionAnchorId)
+            const start = anchorId === null ? -1 : visibleReportIds.indexOf(anchorId)
             if (start === -1) {
                 actions.toggleReportSelection(reportId)
                 return

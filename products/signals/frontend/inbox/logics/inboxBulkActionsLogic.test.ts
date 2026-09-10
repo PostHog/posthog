@@ -73,6 +73,16 @@ describe('inboxBulkActionsLogic', () => {
         })
     })
 
+    it('treats a shift-click as a plain toggle once a deselect emptied the selection', async () => {
+        logic.actions.setVisibleReportIds(['a', 'b', 'c', 'd'])
+        logic.actions.toggleReportSelection('a')
+        logic.actions.toggleReportSelection('a')
+
+        await expectLogic(logic, () => logic.actions.selectRange('d')).toMatchValues({
+            selectedReportIds: ['d'],
+        })
+    })
+
     it('ranges only over the rows that are loaded', async () => {
         logic.actions.setVisibleReportIds(['a', 'b'])
         logic.actions.toggleReportSelection('a')
