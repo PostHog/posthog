@@ -50,6 +50,30 @@ function makeParams() {
 }
 
 describe("buildSessionOptions", () => {
+  it("keeps platform-disabled tools disallowed when user options try to restore them", () => {
+    const options = buildSessionOptions({
+      ...makeParams(),
+      disabledTools: ["WebFetch", "WebSearch"],
+      userProvidedOptions: { disallowedTools: ["Bash"] },
+    });
+
+    expect(options.disallowedTools).toEqual(["Bash", "WebFetch", "WebSearch"]);
+  });
+
+  it("uses only server-provided MCP configuration for a strict protected session", () => {
+    const options = buildSessionOptions({
+      ...makeParams(),
+      strictMcpConfig: true,
+      userProvidedOptions: {
+        settingSources: ["user", "project"],
+        mcpServers: { ambient: { type: "stdio", command: "ambient" } },
+      },
+    });
+
+    expect(options.settingSources).toEqual([]);
+    expect(options.mcpServers).not.toHaveProperty("ambient");
+  });
+
   it("replaces unprocessable Read images before model delivery", async () => {
     const options = buildSessionOptions(makeParams());
     const hooks = (options.hooks?.PostToolUse ?? []).flatMap(

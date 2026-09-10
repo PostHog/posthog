@@ -6,6 +6,7 @@ export type GatewayProduct =
   | "signals"
   | "slack_app"
   | "posthog_ai"
+  | "pulse_subscription"
   | "conversations"
   | "onboarding"
   | "review_hog";
@@ -24,6 +25,7 @@ export function resolveGatewayProduct({
     loop: "posthog_code",
     onboarding: "onboarding",
     posthog_ai: "posthog_ai",
+    pulse_subscription: "pulse_subscription",
     review_hog: "review_hog",
     scout_suggestions: "signals",
     signal_report: "signals",
