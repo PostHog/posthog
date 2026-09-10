@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyNumber, significantDecimalPlaces } from 'lib/utils/numbers'
 
 import {
     AlertCalculationInterval,
@@ -105,7 +105,11 @@ function forecastSummary(config: AlertFormType['forecast_config']): string {
     }
     if (config.condition === ForecastConditionType.TARGET_BY_DATE) {
         // An empty target input is stored as NaN, which would otherwise format as the text "NaN".
-        const target = Number.isFinite(config.target) ? humanFriendlyNumber(config.target) : 'a target'
+        // A target can be a rate or an average, and the default two decimals report anything under
+        // 0.005 as "0", so keep the decimals the value needs.
+        const target = Number.isFinite(config.target)
+            ? humanFriendlyNumber(config.target, significantDecimalPlaces(config.target))
+            : 'a target'
         const direction = config.target_direction === ForecastTargetDirection.AT_MOST ? 'above' : 'below'
         // An API client can store any ISO form the server reads, week dates included, and dayjs
         // reads none of those. Show the stored value rather than the words "Invalid Date".

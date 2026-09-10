@@ -19,6 +19,9 @@ describe('buildAlertSummary', () => {
     it.each([
         ['names the target once it is a number', 1500, 'the point forecast is below 1,500 on Jun 2, 2026'],
         ['stays generic while the target is empty', Number.NaN, 'the point forecast is below a target on Jun 2, 2026'],
+        // A rate or average target is a supported entry, and the default two decimals report every
+        // value under 0.005 as "0", which states a rule the alert does not run.
+        ['keeps a rate target two decimals would flatten', 0.001, 'the point forecast is below 0.001 on Jun 2, 2026'],
     ])('%s', (_name, target, expected) => {
         expect(buildAlertSummary(targetAlert(target), 0).fires).toEqual(expected)
     })
