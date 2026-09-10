@@ -856,8 +856,11 @@ class _LogPatternExampleSerializer(serializers.Serializer):
 class _LogPatternSerializer(serializers.Serializer):
     pattern = serializers.CharField(
         help_text=(
-            'Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". '
-            "Tokens: <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary."
+            'Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". '
+            "Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions "
+            "Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, "
+            "<TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and "
+            "<JSON:keys> for a JSON body reduced to its key set."
         ),
     )
     count = serializers.IntegerField(
@@ -873,10 +876,16 @@ class _LogPatternSerializer(serializers.Serializer):
         ),
     )
     volume_share_pct = serializers.FloatField(
-        help_text="Share of the sampled log volume this pattern represents (0–100).",
+        help_text=(
+            "Share of the log volume this pattern represents (0–100). Measured over the sample when "
+            "`sampled` is true, over every matching row otherwise."
+        ),
     )
     error_count = serializers.IntegerField(
-        help_text='Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display.',
+        help_text=(
+            'Occurrences at severity "error" or "fatal". A sample count when `sampled` is true, so '
+            "prefer `estimated_error_count` for display."
+        ),
     )
     estimated_error_count = serializers.IntegerField(
         help_text=(
@@ -884,8 +893,18 @@ class _LogPatternSerializer(serializers.Serializer):
             "Equals `error_count` when the window was not sampled."
         ),
     )
-    first_seen = serializers.CharField(help_text="ISO 8601 timestamp of the earliest sampled occurrence.")
-    last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the latest sampled occurrence.")
+    first_seen = serializers.CharField(
+        help_text=(
+            "ISO 8601 timestamp of the earliest occurrence. Taken from the sample when `sampled` is "
+            "true, from every matching row otherwise."
+        )
+    )
+    last_seen = serializers.CharField(
+        help_text=(
+            "ISO 8601 timestamp of the latest occurrence. Taken from the sample when `sampled` is "
+            "true, from every matching row otherwise."
+        )
+    )
     examples = _LogPatternExampleSerializer(
         many=True,
         help_text=(
@@ -900,16 +919,18 @@ class _LogPatternSerializer(serializers.Serializer):
     sparkline = serializers.ListField(
         child=serializers.IntegerField(),
         help_text=(
-            "Estimated occurrences per time bucket, aligned index-for-index with the response's "
-            "`sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows "
-            "the volume shape over the window, not exact per-bucket tallies."
+            "Occurrences per time bucket, aligned index-for-index with the response's "
+            "`sparkline_buckets`. When `sampled` is true these are extrapolated like `estimated_count` "
+            "and show the volume shape over the window rather than exact tallies. Otherwise they are "
+            "exact per-bucket counts."
         ),
     )
     severity_counts = serializers.DictField(
         child=serializers.IntegerField(),
         help_text=(
-            'Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample '
-            "counts, not extrapolated — severity dominance is a proportion, so scaling would not change it."
+            'Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, '
+            "because severity dominance is a proportion that scaling would not change. Sample counts "
+            "when `sampled` is true, counts over every matching row otherwise."
         ),
     )
     match_regex = serializers.CharField(

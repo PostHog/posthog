@@ -28,9 +28,9 @@ This is the fastest way to understand what a log stream is _saying_ without read
 - `pattern_version` identifies the version used for stored patterns. `fallback_reason` explains body mining: flag disabled, insufficient version coverage, an empty window, or comparison mode.
 - The `logs_patterns_query_v2` flag enables the stored-pattern path only when one version supplies nonempty patterns for at least 99% of **all** matching rows. This is the dominant version, not necessarily the newest.
 - On the stored-pattern path, `represented_count` counts the rows in the returned groups. `remainder_count` accounts for other versions, unstamped rows, the long tail and groups outside the display limit. Report this remainder rather than implying the returned groups cover everything.
-- `pattern` — the mined template. Masked tokens: `<uuid>`, `<ip>`, `<hex>`, `<num>`, and `<*>` for any word position that varied.
+- `pattern` — the template. Body mining masks `<uuid>`, `<ip>`, `<hex>`, `<num>`, and `<*>` for any word position that varied. Stored patterns use the ingestion vocabulary instead: `<N>`, `<TIMESTAMP>`, `<KLOGTIME>`, `<UUID>`, `<IP>`, `<HOST>`, `<HEX>`, `<ID>`, `<EMAIL>`, `<JSON_ARRAY>`, and `<JSON:keys>` for a JSON body reduced to its key set.
 - `estimated_count` / `estimated_error_count` — occurrences extrapolated to the full window. When `sampled` is false these are exact.
-- `severity_counts` — sampled occurrences per severity. A template split across `info` and `error` often means the same code path logging both outcomes.
+- `severity_counts` — occurrences per severity, never extrapolated: sample counts when `sampled` is true, exact counts over every matching row otherwise. A template split across `info` and `error` often means the same code path logging both outcomes.
 - `services` — up to 4 service names the pattern was seen in.
 - `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Null when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.
 - `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null.
