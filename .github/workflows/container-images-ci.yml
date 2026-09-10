@@ -2,16 +2,15 @@ name: Container Images CI
 
 on:
     pull_request:
-        # Mirror ci-hobby.yml's trigger types so the `hobby-preview` label can
-        # retroactively kick off a build. ci-hobby.yml omits `reopened`, so we
-        # do too — otherwise reopens would build an image with no consumer.
-        types: [opened, synchronize, labeled, unlabeled]
+        # Label additions can request a preview or uncached build. Label removals
+        # only drive ci-hobby cleanup, so they must not replace the required image check.
+        types: [opened, synchronize, labeled]
 
 concurrency:
     # A skipped label run must not cancel or replace a queued build for this branch.
     group: >-
         ${{ github.workflow }}-${{
-            contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+            github.event.action == 'labeled'
             && !contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
             && format('ignored-label-{0}', github.run_id)
             || github.head_ref || github.ref
@@ -24,7 +23,7 @@ jobs:
         timeout-minutes: 5
         if: >-
             github.repository == 'PostHog/posthog'
-            && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+            && (github.event.action != 'labeled'
                 || contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
         name: Determine need to run Docker checks
         permissions:
@@ -138,7 +137,7 @@ jobs:
         # A skipped required context would hide the real build's failure from branch protection and Hobby.
         name: >-
             ${{
-                contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+                github.event.action == 'labeled'
                 && !contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
                 && 'Ignore unrelated image label'
                 || 'Build Docker image'
@@ -149,8 +148,16 @@ jobs:
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
-        # Only on PostHog/posthog, as there's no docker login on forks
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.should_build == 'true'
+        # Only on PostHog/posthog, as there's no docker login on forks. The status
+        # function makes GitHub evaluate this job after an ignored label skips `changes`,
+        # which also resolves the alternate job name instead of publishing it verbatim.
+        if: >-
+            !cancelled()
+            && github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == github.repository
+            && (github.event.action != 'labeled'
+                || contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
+            && (needs.changes.result != 'success' || needs.changes.outputs.should_build == 'true')
 
         outputs:
             digest: ${{ steps.build.outputs.digest }}
