@@ -5,11 +5,36 @@ use std::borrow::Cow;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 
+/// Clock skew corrections are rounded to this quantum. The session replay
+/// ingester rounds the same measurement to the same quantum, so both paths move
+/// an event by the same amount.
+pub const CLOCK_SKEW_QUANTUM_MS: i64 = 5 * 60 * 1000;
+
+/// Round a measured skew to the nearest [`CLOCK_SKEW_QUANTUM_MS`], which is the
+/// amount that is safe to subtract from an event timestamp.
+///
+/// A measurement of `sent_at - now` is the device clock offset minus the time
+/// the request spent in transit, and a single request cannot separate the two.
+/// Transit delay is therefore charged to the device clock, which pushes every
+/// event of a slow request forward by the delay. Because the delay is small
+/// against the quantum, rounding drops it, and the same device gets the same
+/// correction on a slow request and on a fast one. A device clock that is
+/// really wrong is wrong by minutes or more, so it still gets corrected.
+pub fn quantize_clock_skew(measured: Duration) -> Duration {
+    let ms = measured.num_milliseconds();
+    // Integer division truncates toward zero, so add half a quantum in the
+    // direction of the measurement to round half away from zero.
+    let half = ms.signum() * (CLOCK_SKEW_QUANTUM_MS / 2);
+    let quanta = ms.saturating_add(half) / CLOCK_SKEW_QUANTUM_MS;
+    Duration::milliseconds(quanta.saturating_mul(CLOCK_SKEW_QUANTUM_MS))
+}
+
 /// Result of parsing an event timestamp.
 pub struct ParsedTimestamp {
     /// The parsed and validated event timestamp.
     pub timestamp: DateTime<Utc>,
-    /// Clock skew (sent_at - now) when correction was applied, None otherwise.
+    /// Measured skew (sent_at - now), which mixes the device clock offset with
+    /// the request transit delay. None when no measurement was possible.
     pub clock_skew: Option<Duration>,
 }
 
@@ -66,10 +91,11 @@ fn handle_timestamp(
         if let (Some(sent_at), Some(timestamp_parsed)) = (sent_at, timestamp_parsed) {
             // Clock skew: how far the client clock is ahead of the server.
             // We subtract this from the client-provided timestamp to get
-            // the event time in server clock terms.
-            let skew = sent_at - now;
-            parsed_ts = timestamp_parsed - skew;
-            clock_skew = Some(skew);
+            // the event time in server clock terms. Only the quantized part is
+            // safe to subtract, because the rest can be request transit delay.
+            let measured = sent_at - now;
+            parsed_ts = timestamp_parsed - quantize_clock_skew(measured);
+            clock_skew = Some(measured);
         } else if let Some(timestamp_parsed) = timestamp_parsed {
             parsed_ts = timestamp_parsed;
         }
@@ -175,26 +201,57 @@ mod tests {
 
     #[test]
     fn positive_skew_client_clock_ahead() {
-        // Client clock is 10s ahead of server.
-        // Skew = sent_at - now = +10s
-        // Corrected = timestamp - skew = 11:00:00 - 10s = 10:59:50
+        // Client clock is 10 minutes ahead of server.
+        // Skew = sent_at - now = +10m, which is two whole quanta.
+        // Corrected = timestamp - skew = 11:00:00 - 10m = 10:50:00
         let now = dt("2023-01-01T12:00:00Z");
-        let sent_at = Some(dt("2023-01-01T12:00:10Z"));
+        let sent_at = Some(dt("2023-01-01T12:10:00Z"));
         let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
-        assert_eq!(result.timestamp, dt("2023-01-01T10:59:50Z"));
-        assert_eq!(result.clock_skew, Some(Duration::seconds(10)));
+        assert_eq!(result.timestamp, dt("2023-01-01T10:50:00Z"));
+        assert_eq!(result.clock_skew, Some(Duration::minutes(10)));
     }
 
     #[test]
     fn negative_skew_client_clock_behind() {
-        // Client clock is 10s behind server.
-        // Skew = sent_at - now = -10s
-        // Corrected = timestamp - skew = 11:00:00 + 10s = 11:00:10
+        // Client clock is 10 minutes behind server.
+        // Skew = sent_at - now = -10m
+        // Corrected = timestamp - skew = 11:00:00 + 10m = 11:10:00
         let now = dt("2023-01-01T12:00:00Z");
-        let sent_at = Some(dt("2023-01-01T11:59:50Z"));
+        let sent_at = Some(dt("2023-01-01T11:50:00Z"));
         let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
-        assert_eq!(result.timestamp, dt("2023-01-01T11:00:10Z"));
-        assert_eq!(result.clock_skew, Some(Duration::seconds(-10)));
+        assert_eq!(result.timestamp, dt("2023-01-01T11:10:00Z"));
+        assert_eq!(result.clock_skew, Some(Duration::minutes(-10)));
+    }
+
+    #[test]
+    fn transit_delay_does_not_move_the_timestamp() {
+        // A device with a good clock on a request that took 40s to arrive:
+        // the measurement looks like a device 40s behind, and correcting it
+        // would store the event 40s late.
+        let now = dt("2023-01-01T12:00:40Z");
+        let sent_at = Some(dt("2023-01-01T12:00:00Z"));
+        let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
+        assert_eq!(result.timestamp, dt("2023-01-01T11:00:00Z"));
+        assert_eq!(result.clock_skew, Some(Duration::seconds(-40)));
+    }
+
+    #[test]
+    fn quantize_rounds_to_the_nearest_quantum() {
+        let quantum = Duration::milliseconds(CLOCK_SKEW_QUANTUM_MS);
+        let cases = [
+            (Duration::zero(), Duration::zero()),
+            (Duration::seconds(149), Duration::zero()),
+            (Duration::seconds(-149), Duration::zero()),
+            (Duration::seconds(151), quantum),
+            (Duration::seconds(-151), -quantum),
+            (Duration::seconds(150), quantum),
+            (Duration::seconds(-150), -quantum),
+            (Duration::hours(2), Duration::hours(2)),
+            (Duration::hours(-2), Duration::hours(-2)),
+        ];
+        for (measured, expected) in cases {
+            assert_eq!(quantize_clock_skew(measured), expected, "{measured}");
+        }
     }
 
     #[test]

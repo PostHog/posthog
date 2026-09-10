@@ -1506,7 +1506,7 @@ async fn test_ai_event_with_ignore_sent_at_false() {
 
     let event_uuid = "a50e8400-e29b-41d4-a716-446655440005";
     let event_timestamp = "2024-01-01T11:59:55Z";
-    let sent_at = "2024-01-01T12:00:05Z"; // 10 seconds later
+    let sent_at = "2024-01-01T12:00:00Z"; // 5 seconds later
 
     let event_data = json!({
         "uuid": event_uuid,
@@ -1553,10 +1553,10 @@ async fn test_ai_event_with_ignore_sent_at_false() {
     // With clock skew correction:
     // computed = now + (timestamp - sent_at)
     // now = DEFAULT_TEST_TIME (2025-07-01T11:00:00Z)
-    // timestamp - sent_at = 11:59:55 - 12:00:05 = -10 seconds
-    // computed = 2025-07-01T11:00:00Z - 10s = 2025-07-01T10:59:50Z
+    // timestamp - sent_at = 11:59:55 - 12:00:00 = -5 seconds
+    // computed = 2025-07-01T11:00:00Z - 5s = 2025-07-01T10:59:55Z
     let expected = chrono::Utc
-        .with_ymd_and_hms(2025, 7, 1, 10, 59, 50)
+        .with_ymd_and_hms(2025, 7, 1, 10, 59, 55)
         .unwrap();
 
     assert_eq!(
@@ -1572,7 +1572,7 @@ async fn test_ai_event_without_ignore_sent_at_defaults_to_false() {
 
     let event_uuid = "b50e8400-e29b-41d4-a716-446655440006";
     let event_timestamp = "2024-01-01T11:59:55Z";
-    let sent_at = "2024-01-01T12:00:05Z"; // 10 seconds later
+    let sent_at = "2024-01-01T12:00:00Z"; // 5 seconds later
 
     let event_data = json!({
         "uuid": event_uuid,
@@ -1618,7 +1618,7 @@ async fn test_ai_event_without_ignore_sent_at_defaults_to_false() {
 
     // Should apply clock skew correction by default
     let expected = chrono::Utc
-        .with_ymd_and_hms(2025, 7, 1, 10, 59, 50)
+        .with_ymd_and_hms(2025, 7, 1, 10, 59, 55)
         .unwrap();
 
     assert_eq!(
@@ -1865,7 +1865,7 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
 
     let event_uuid = "050e8400-e29b-41d4-a716-446655440011";
     let event_timestamp = "2024-01-01T11:59:55Z";
-    let sent_at = "2024-01-01T12:00:05Z"; // 10 seconds later
+    let sent_at = "2024-01-01T12:00:00Z"; // 5 seconds later
 
     let event_data = json!({
         "uuid": event_uuid,
@@ -1911,10 +1911,10 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
     // With clock skew correction:
     // computed = now + (timestamp - sent_at)
     // now = DEFAULT_TEST_TIME (2025-07-01T11:00:00Z)
-    // timestamp - sent_at = 11:59:55 - 12:00:05 = -10 seconds
-    // computed = 2025-07-01T11:00:00Z - 10s = 2025-07-01T10:59:50Z
+    // timestamp - sent_at = 11:59:55 - 12:00:00 = -5 seconds
+    // computed = 2025-07-01T11:00:00Z - 5s = 2025-07-01T10:59:55Z
     let expected = chrono::Utc
-        .with_ymd_and_hms(2025, 7, 1, 10, 59, 50)
+        .with_ymd_and_hms(2025, 7, 1, 10, 59, 55)
         .unwrap();
 
     assert_eq!(

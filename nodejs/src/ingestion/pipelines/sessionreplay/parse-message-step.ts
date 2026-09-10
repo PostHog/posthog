@@ -95,7 +95,9 @@ function rawClockSkewMs(sentAt: string | undefined, now: string | undefined): nu
 
 // The raw skew includes per-request network latency. Rounding to a coarse quantum gives every
 // message of a session the same correction, so latency cannot reorder events the player sorts by
-// timestamp, and a well-behaved clock rounds to zero.
+// timestamp, and a well-behaved clock rounds to zero. Capture rounds the same measurement to the
+// same quantum for the event timestamp (`quantize_clock_skew` in rust/common/types/src/timestamp.rs),
+// so the two must stay equal.
 function quantizedClockSkewMs(sentAt: string | undefined, now: string | undefined): number {
     const rawSkew = rawClockSkewMs(sentAt, now)
     if (rawSkew === null) {

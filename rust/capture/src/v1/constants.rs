@@ -86,6 +86,8 @@ pub(super) const CAPTURE_V1_PAYLOAD_SIZE: &str = "capture_v1_payload_size_bytes"
 /// PostHog-Request-Timestamp header vs. server receive time. Buckets
 /// configured in prometheus.rs (CLOCK_SKEW_SECONDS).
 pub(super) const CAPTURE_V1_CLOCK_SKEW_SECONDS: &str = "capture_v1_clock_skew_seconds";
+pub(super) const CAPTURE_V1_CLOCK_SKEW_APPLIED_SECONDS: &str =
+    "capture_v1_clock_skew_applied_seconds";
 
 /// Histogram of batch serialize wall-time (label: batch_size bucket). Sink- and
 /// product-agnostic by design — faceting comes from the per-mode service
