@@ -676,6 +676,38 @@ describe('notebook cell tools', () => {
         expect(result.cells[0].run).toMatchObject({ run_id: 'cell-1', status: 'done', row_count: 1 })
     })
 
+    it('run status writes a large catch-up in bounded batches', async () => {
+        // An agent that starts a run and comes back later finds every cell landed at once.
+        // One save per cell-batch keeps the raw envelopes it holds bounded.
+        const cells = Array.from({ length: 12 }, (_, i) => `c${i}`)
+        const state = makeState(
+            [
+                '# Doc',
+                '',
+                ...cells.map((id) => `<SQLV2 nodeId="${id}" code="select 1" returnVariable="${id}" />\n`),
+            ].join('\n')
+        )
+        state.notebookRunStatuses.push({
+            ...notebookRunStatus('done', []),
+            cell_count: cells.length,
+            cells: cells.map((id, i) => runCell(id, id, 'done', `cell-${i}`)),
+        })
+        cells.forEach(() => state.runStatusResponses.push(DONE_STATUS))
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookStatusHandler(context, {
+            notebook_id: 'aBcD1234',
+            run_id: 'nbrun-1',
+        })
+
+        expect(result.completed_count).toBe(12)
+        // 12 cells at a cap of 10 is two saves, not one unbounded save and not twelve.
+        expect(state.saveBodies).toHaveLength(2)
+        const markdown = state.saveBodies[1].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-0"')
+        expect(markdown).toContain('runId="cell-11"')
+    })
+
     it('run notebook sets the variables in the same call', async () => {
         const state = makeState(RUN_MARKDOWN)
         state.notebookRunStatuses.push(notebookRunStatus('done', []))
