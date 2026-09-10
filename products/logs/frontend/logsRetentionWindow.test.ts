@@ -29,7 +29,8 @@ describe('logsRetentionWindow', () => {
         ['a 20-day range on the 14-day tier', { date_from: '-20d', date_to: null }, 14, false],
         ['an absolute range wholly before the window', { date_from: daysAgo(60), date_to: daysAgo(40) }, 14, true],
         ['an absolute range straddling the window', { date_from: daysAgo(60), date_to: daysAgo(2) }, 14, false],
-        ['an unbounded start', { date_from: null, date_to: null }, 14, false],
+        // The query runner defaults a missing start to a window inside every retention tier.
+        ['a missing start', { date_from: null, date_to: null }, 14, null],
         ['an unparseable start', { date_from: 'last tuesday-ish', date_to: null }, 14, null],
         // The API accepts `-1mEnd`, which the picker's parser does not read, so the end is unknown.
         ['an unparseable end', { date_from: '-90d', date_to: '-1mEnd' }, 14, null],

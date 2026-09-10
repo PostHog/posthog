@@ -32,10 +32,11 @@ export function logsRetentionWindowStart(retentionDays: number, timezone: string
  * result mean "already deleted" rather than "nothing was logged". Retention is stamped at ingest, so
  * raising it never brings older logs back.
  *
- * Returns null when the range sits inside the window. A bound that cannot be parsed also returns
- * null, on either end: the query still runs against whatever the server makes of the bound, so
- * reporting deletion would be a guess. An absent `date_from` is an unbounded start, which always
- * reaches past the window.
+ * Returns null when the range sits inside the window. It also returns null when a bound cannot be
+ * resolved here, because the server decides that bound and reporting deletion would then be a
+ * guess: an expression this parser does not read, on either end, or an absent `date_from`, for
+ * which the query runner applies a default start shorter than the shortest retention tier. An
+ * absent `date_to` means now.
  */
 export function logsRangeBeyondRetention(
     dateRange: DateRange,
@@ -44,10 +45,7 @@ export function logsRangeBeyondRetention(
 ): LogsRetentionWindow | null {
     const start = logsRetentionWindowStart(retentionDays, timezone)
     const from = dateRange.date_from ? parseDateExpression(dateRange.date_from, timezone) : null
-    if (dateRange.date_from && !from) {
-        return null
-    }
-    if (from && !from.isBefore(start)) {
+    if (!from || !from.isBefore(start)) {
         return null
     }
     const to = dateRange.date_to ? parseDateExpression(dateRange.date_to, timezone) : dayjs().tz(timezone)
