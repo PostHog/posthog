@@ -375,14 +375,11 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("lowerUTF8(user_id)", 'lower("users"."user_id")'),
         ("arrayEnumerate([10, 20])", "sequence(1, cardinality(ARRAY[10, 20]))"),
         ("arrayExists(x -> x > 1, [1, 2])", 'any_match(ARRAY[1, 2], "x" -> ("x" > 1))'),
-        ("quantileExact(0.9)(length(user_id))", 'approx_percentile(length("users"."user_id"), 0.9)'),
-        ("cityHash64(user_id)", 'from_big_endian_64(xxhash64(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
         ("cutToFirstSignificantSubdomain(user_id)", "array_join(slice(filter(split(lower(trim(TRAILING '.' FROM"),
-        ("mapFromArrays([user_id], [1])", "map(filter(array_distinct(ARRAY["),
+        ("mapFromArrays([user_id], [1])", "map(__hogql_args[1], __hogql_args[2])"),
         ("equals(length(user_id), '3')", 'length("users"."user_id") = CAST('),
         ("sum(user_id)", 'sum(TRY_CAST("users"."user_id" AS DOUBLE))'),
         ("lengthUTF8(user_id)", 'length("users"."user_id")'),
-        ("ngramDistance(user_id, 'abc')", 'levenshtein_distance("users"."user_id"'),
         ("hex(user_id)", 'to_hex(to_utf8(CAST("users"."user_id" AS VARCHAR)))'),
         ("toUUIDOrDefault(user_id, user_id)", 'coalesce(TRY_CAST("users"."user_id" AS UUID)'),
         ("toFloat(created_at)", 'to_unixtime("users"."created_at")'),
@@ -414,6 +411,13 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         ("extractAllGroups(user_id, user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
         ("extractAllGroups(user_id, '(a)(b)(c)(d)(e)(f)')", "TRINO_REGEX_GROUPS_UNSUPPORTED"),
         ("replaceRegexpOne(user_id, 'a', user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
+        ("quantileExact(0.9)(length(user_id))", "TRINO_FUNCTION_UNSUPPORTED"),
+        ("cityHash64(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
+        ("ngramDistance(user_id, 'abc')", "TRINO_FUNCTION_UNSUPPORTED"),
+        (
+            "quantileExactIf(0.5)(length(user_id), length(user_id) > 1) OVER ()",
+            "TRINO_FUNCTION_UNSUPPORTED",
+        ),
     ],
 )
 def test_rejects_unsupported_printer_function_variants(expression: str, feature_code: str) -> None:
@@ -840,19 +844,19 @@ def test_lowers_select_alias_inside_array_join_function() -> None:
     assert 'UNNEST(transform("ids"' not in sql
 
 
-def test_lowers_single_row_funnel_array_join_without_unnest() -> None:
-    sql, _ = prepare_and_print_ast(
-        parse_select(
-            "SELECT groupArray(tuple(1, 2, user_id, '', [1, 2])) AS events_array, "
-            "arrayJoin(aggregate_funnel_trends(1, 2, 2, 10, 'first_touch', 'ordered', [''], events_array)) "
-            "AS funnel_result FROM users"
-        ),
-        _context_with_trino_table(),
-        "trino",
-    )
+def test_rejects_funnel_aggregation_without_matching_trino_semantics() -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(
+            parse_select(
+                "SELECT groupArray(tuple(1, 2, user_id, '', [1, 2])) AS events_array, "
+                "arrayJoin(aggregate_funnel_trends(1, 2, 2, 10, 'first_touch', 'ordered', [''], events_array)) "
+                "AS funnel_result FROM users"
+            ),
+            _context_with_trino_table(),
+            "trino",
+        )
 
-    assert "UNNEST" not in sql
-    assert "element_at(transform(slice(array_agg(" in sql
+    assert error.value.feature_code == "TRINO_FUNCTION_UNSUPPORTED"
 
 
 def test_lowers_limit_by_to_row_number_wrapper() -> None:
@@ -1254,6 +1258,19 @@ def test_rejects_map_from_arrays_with_duplicate_keys() -> None:
     assert error.value.feature_code == "TRINO_MAP_DUPLICATE_KEYS_UNSUPPORTED"
 
 
+def test_guards_dynamic_map_from_arrays_without_discarding_keys() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT mapFromArrays([user_id, user_id], [1, 2]) FROM users"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert "all_match(__hogql_args[1], __hogql_key -> __hogql_key IS NOT NULL)" in sql
+    assert "cardinality(array_distinct(__hogql_args[1])) = cardinality(__hogql_args[1])" in sql
+    assert "map(__hogql_args[1], __hogql_args[2])" in sql
+    assert "fail('mapFromArrays requires equal-length arrays with unique, non-null keys')" in sql
+
+
 @pytest.mark.parametrize(
     "expression",
     [
@@ -1287,10 +1304,6 @@ def test_rejects_trino_identifiers_that_can_collide_with_parameter_binding(ident
         (
             "countIf(user_id != '') OVER ()",
             'count_if(("users"."user_id" != %(hogql_val_0)s)) OVER ()',
-        ),
-        (
-            "quantileExactIf(0.5)(length(user_id), length(user_id) > 1) OVER ()",
-            'approx_percentile(length("users"."user_id"), 0.5) FILTER (WHERE',
         ),
         (
             "stddevPopIf(length(user_id), length(user_id) > 1) OVER ()",

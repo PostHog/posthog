@@ -499,27 +499,15 @@ class TrinoPrinter(PostgresPrinter):
             return f"approx_percentile({self.visit(node.args[0])}, 0.5) FILTER (WHERE {self._visit_predicate(node.args[1])})"
         if name == "topk":
             return self._visit_top_k(node)
-        if name == "quantileexact":
-            return self._visit_quantile(node, filtered=False)
-        if name == "aggregate_funnel_trends":
-            if len(node.args) != 8:
-                self._invalid_function_arguments(node, "aggregate_funnel_trends expects exactly 8 arguments.")
-            events = self.visit(node.args[-1])
-            return (
-                f"transform(slice({events}, 1, 1), __event -> "
-                "ROW(CAST(__event[2] AS BIGINT), "
-                "CAST(IF(contains(__event[5], 2), 1, 0) AS BIGINT), CAST(__event[4] AS VARCHAR)))"
+        if name in {"quantileexact", "aggregate_funnel_trends", "cityhash64", "ngramdistance"}:
+            self._unsupported(
+                "TRINO_FUNCTION_UNSUPPORTED",
+                f"{node.name} has no semantics-preserving Trino implementation.",
+                node,
             )
-        if name == "cityhash64":
-            value = self._visit_unary_arg(node)
-            return f"from_big_endian_64(xxhash64(to_utf8(CAST({value} AS VARCHAR))))"
         if name == "hex":
             value = self._visit_unary_arg(node)
             return f"to_hex(to_utf8(CAST({value} AS VARCHAR)))"
-        if name == "ngramdistance":
-            binary_args = self._visit_binary_args(node)
-            maximum = f"greatest(length({binary_args.left}), length({binary_args.right}), 1)"
-            return f"(CAST(levenshtein_distance({binary_args.left}, {binary_args.right}) AS DOUBLE) / {maximum})"
         if name == "touuidordefault":
             binary_args = self._visit_binary_args(node)
             return f"coalesce(TRY_CAST({binary_args.left} AS UUID), TRY_CAST({binary_args.right} AS UUID))"
@@ -1609,11 +1597,14 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_binary_function(node, "map")
         keys = self.visit(node.args[0])
         values = self.visit(node.args[1])
-        unique_keys = f"filter(array_distinct({keys}), __hogql_key -> __hogql_key IS NOT NULL)"
-        aligned_values = (
-            f"transform({unique_keys}, __hogql_key -> element_at({values}, array_position({keys}, __hogql_key)))"
+        return (
+            f"element_at(transform(ARRAY[ROW({keys}, {values})], __hogql_args -> "
+            "IF(cardinality(__hogql_args[1]) = cardinality(__hogql_args[2]) "
+            "AND all_match(__hogql_args[1], __hogql_key -> __hogql_key IS NOT NULL) "
+            "AND cardinality(array_distinct(__hogql_args[1])) = cardinality(__hogql_args[1]), "
+            "map(__hogql_args[1], __hogql_args[2]), "
+            "fail('mapFromArrays requires equal-length arrays with unique, non-null keys'))), 1)"
         )
-        return f"map({unique_keys}, {aligned_values})"
 
     def _visit_array_first(self, node: ast.Call) -> str:
         if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
@@ -1937,8 +1928,14 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_window_count_distinct(node)
         if name in {"laginframe", "leadinframe"}:
             return self._visit_offset_in_frame_function(node)
+        if name in {"quantileexact", "quantileexactif"}:
+            self._unsupported(
+                "TRINO_FUNCTION_UNSUPPORTED",
+                f"{node.name} has no semantics-preserving Trino implementation.",
+                node,
+            )
         exprs = [self.visit(expr) for expr in node.exprs or []]
-        if name in {"quantile", "quantileexact", "quantileif", "quantileexactif"}:
+        if name in {"quantile", "quantileif"}:
             filtered = name.endswith("if")
             expected_args = 2 if filtered else 1
             if node.args is None or len(node.args) != expected_args or node.exprs is None or len(node.exprs) != 1:
@@ -1956,7 +1953,7 @@ class TrinoPrinter(PostgresPrinter):
                 f"Parametric window function '{node.name}' is not supported in Trino mode.",
                 node,
             )
-        if name in {"quantile", "quantileexact", "quantileif", "quantileexactif"}:
+        if name in {"quantile", "quantileif"}:
             pass
         elif name in {"uniq", "uniqexact", "uniqif", "uniqexactif"}:
             filtered = name.endswith("if")

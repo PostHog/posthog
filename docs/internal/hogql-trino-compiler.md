@@ -196,16 +196,17 @@ still require their own compatible implementations; these mappings do not remove
 existing rejection guards.
 
 Additional build-oriented mappings cover UTF-8 string aliases, URL encoding,
-array enumeration and predicates, exact-quantile syntax, supported hashes and domain
-extraction, UUID conversion, dynamic JSON paths, and scalar tuple membership. Numeric
+array enumeration and predicates, supported hashes and domain extraction, UUID
+conversion, dynamic JSON paths, and scalar tuple membership. Numeric
 and UUID values are aligned with string branches in subqueries and set operations.
 Date/time inputs to `toFloat` and `_toUInt64` use Unix epoch conversion rather than
 casts that Trino rejects.
 
 Select aliases used by generated `UNNEST` table arguments are expanded before the
-query is re-resolved. The one-row `aggregate_funnel_trends` compatibility result uses
-scalar array access, allowing its aggregate input to remain in the grouped projection
-instead of placing an aggregate inside `UNNEST`.
+query is re-resolved. Dynamic `mapFromArrays` inputs retain their original keys and
+fail when Trino cannot represent duplicate or null keys. `quantileExact`,
+`cityHash64`, `ngramDistance`, and `aggregate_funnel_trends` remain unsupported
+because the available Trino functions do not preserve their semantics.
 
 Run the Trino printer, semantic expansion, and parameter-helper tests. Run the existing printer/resolver and direct-adapter tests to check shared behavior, and the startup-import guards to check initialization. Do not regenerate existing dialect snapshots simply to make a regression pass.
 
