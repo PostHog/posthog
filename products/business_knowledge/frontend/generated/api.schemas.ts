@@ -46,7 +46,7 @@ export interface KnowledgeSearchResultApi {
     readonly source_id: string
     /** Human label of the knowledge source this chunk belongs to. */
     readonly source_name: string
-    /** Source type (text, url, or file). */
+    /** Source type: text, URL, or file. */
     readonly source_type: string
     /** Title of the document this chunk belongs to. */
     readonly document_title: string
@@ -200,6 +200,8 @@ export interface KnowledgeSourceApi {
     readonly team_id: number
     readonly name: string
     readonly source_type: SourceTypeEnumApi
+    /** Whether PostHog manages this source with knowledge learned from resolved support tickets. */
+    readonly is_generated: boolean
     readonly status: SourceStatusEnumApi
     readonly error_message: string
     /** Number of documents belonging to this source. */

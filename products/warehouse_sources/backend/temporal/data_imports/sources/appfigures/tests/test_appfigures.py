@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -8,6 +9,7 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures import appfigures
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures import (
     AppfiguresResumeConfig,
+    _flatten_ranks,
     _flatten_report,
     _headers,
     _is_page_limit_response,
@@ -264,6 +266,206 @@ class TestIterReport:
         assert fetch.call_args_list[0].args[2]["start_date"] == "2024-02-10"
 
 
+def _ranks_body(dates: list[str], series: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"start_date": dates[0], "end_date": dates[-1], "dates": dates, "data": series}
+
+
+class TestFlattenRanks:
+    def test_columnar_series_becomes_one_row_per_date(self):
+        body = _ranks_body(
+            ["2024-01-01", "2024-01-02"],
+            [
+                {
+                    "country": "US",
+                    "product_id": 42,
+                    "category": {
+                        "id": 12,
+                        "name": "Games",
+                        "subtype": "free",
+                        "parent_id": 6000,
+                        "device": "ios",
+                        "store": "apple",
+                    },
+                    "positions": [7, 9],
+                    "deltas": [0, -2],
+                }
+            ],
+        )
+        assert _flatten_ranks(body) == [
+            {
+                "date": "2024-01-01",
+                "product_id": 42,
+                "country": "US",
+                "category_id": 12,
+                "category_name": "Games",
+                "category_subtype": "free",
+                "category_parent_id": 6000,
+                "category_device": "ios",
+                "store": "apple",
+                "position": 7,
+                "delta": 0,
+            },
+            {
+                "date": "2024-01-02",
+                "product_id": 42,
+                "country": "US",
+                "category_id": 12,
+                "category_name": "Games",
+                "category_subtype": "free",
+                "category_parent_id": 6000,
+                "category_device": "ios",
+                "store": "apple",
+                "position": 9,
+                "delta": -2,
+            },
+        ]
+
+    def test_unranked_days_are_dropped(self):
+        # Appfigures returns null for a day the product held no rank in that chart. Those aren't rank
+        # observations, and at the default rank depth they are most of the array.
+        body = _ranks_body(
+            ["2024-01-01", "2024-01-02", "2024-01-03"],
+            [
+                {
+                    "country": "US",
+                    "product_id": 1,
+                    "category": {"id": 12},
+                    "positions": [None, 3, None],
+                    "deltas": [None, 1, None],
+                }
+            ],
+        )
+        rows = _flatten_ranks(body)
+        assert [(r["date"], r["position"]) for r in rows] == [("2024-01-02", 3)]
+
+    def test_series_arrays_shorter_than_dates_do_not_index_error(self):
+        body = _ranks_body(
+            ["2024-01-01", "2024-01-02"],
+            [{"country": "US", "product_id": 1, "category": {"id": 12}, "positions": [4], "deltas": []}],
+        )
+        rows = _flatten_ranks(body)
+        assert [(r["date"], r["position"], r["delta"]) for r in rows] == [("2024-01-01", 4, None)]
+
+    @pytest.mark.parametrize("body", [None, [], {"dates": ["2024-01-01"]}, {"data": [{"positions": [1]}]}])
+    def test_missing_or_malformed_body_returns_empty(self, body: Any):
+        assert _flatten_ranks(body) == []
+
+
+class TestIterRanks:
+    @freeze_time("2024-02-15")
+    def test_fans_out_over_product_chunks_and_yields_dates_ascending(self):
+        products = {str(index): {"id": index, "type": "app"} for index in range(1, 4)}
+        # An in-app purchase never holds a store category rank, so it must not reach the /ranks path.
+        products["999"] = {"id": 999, "type": "inapp"}
+
+        ranks_calls: list[str] = []
+
+        def fake_fetch(_session, url, _params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return products
+            ranks_calls.append(url)
+            chunk = url.split("/ranks/")[1].split("/")[0].split(",")
+            return _ranks_body(
+                ["2024-02-14", "2024-02-15"],
+                [
+                    {
+                        "country": "US",
+                        "product_id": int(product_id),
+                        "category": {"id": 12, "subtype": "free"},
+                        "positions": [2, 1],
+                        "deltas": [0, 1],
+                    }
+                    for product_id in chunk
+                ],
+            )
+
+        chunked = dataclasses.replace(appfigures.APPFIGURES_ENDPOINTS["ranks"], products_per_request=2)
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch):
+            with mock.patch.dict(appfigures.APPFIGURES_ENDPOINTS, {"ranks": chunked}):
+                batches = list(
+                    get_rows(
+                        token="pat",
+                        endpoint="ranks",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=_manager(),
+                        should_use_incremental_field=True,
+                        db_incremental_field_last_value=date(2024, 2, 14),
+                    )
+                )
+
+        # Three rankable products at 2 per request => two chunked /ranks calls for the one window.
+        assert ranks_calls == [
+            f"{appfigures.APPFIGURES_BASE_URL}/ranks/1,2/daily/2024-02-14/2024-02-15",
+            f"{appfigures.APPFIGURES_BASE_URL}/ranks/3/daily/2024-02-14/2024-02-15",
+        ]
+        # Batches leave the iterator grouped by date, ascending, with every chunk's rows merged in —
+        # sort_mode="asc" is what checkpoints the watermark.
+        assert [batch[0]["date"] for batch in batches] == ["2024-02-14", "2024-02-15"]
+        assert [sorted(row["product_id"] for row in batch) for batch in batches] == [[1, 2, 3], [1, 2, 3]]
+
+    @freeze_time("2024-02-15")
+    def test_walks_date_windows_and_saves_state_after_each(self):
+        windows: list[tuple[str, str]] = []
+
+        def fake_fetch(_session, url, _params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {"1": {"id": 1, "type": "app"}}
+            _, _, start, end = url.split("/ranks/")[1].split("/")
+            windows.append((start, end))
+            return _ranks_body(
+                [start], [{"country": "US", "product_id": 1, "category": {"id": 12}, "positions": [5], "deltas": [0]}]
+            )
+
+        manager = _manager()
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch):
+            list(
+                get_rows(
+                    token="pat",
+                    endpoint="ranks",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=date(2024, 1, 1),
+                )
+            )
+
+        assert windows == [("2024-01-01", "2024-01-30"), ("2024-01-31", "2024-02-15")]
+        manager.save_state.assert_called_once_with(AppfiguresResumeConfig(window_start="2024-01-31"))
+
+    @freeze_time("2024-02-15")
+    def test_resume_starts_from_saved_window(self):
+        starts: list[str] = []
+
+        def fake_fetch(_session, url, _params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {"1": {"id": 1, "type": "app"}}
+            starts.append(url.split("/ranks/")[1].split("/")[2])
+            return {}
+
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch):
+            list(
+                get_rows(
+                    token="pat",
+                    endpoint="ranks",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(AppfiguresResumeConfig(window_start="2024-02-10")),
+                )
+            )
+        assert starts == ["2024-02-10"]
+
+    def test_account_with_no_rankable_products_makes_no_ranks_request(self):
+        def fake_fetch(_session, url, _params, _logger):
+            assert url.endswith(appfigures.PRODUCTS_PATH)
+            return {"999": {"id": 999, "type": "inapp"}}
+
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
+            batches = list(
+                get_rows(token="pat", endpoint="ranks", logger=mock.MagicMock(), resumable_source_manager=_manager())
+            )
+        assert batches == []
+        assert fetch.call_count == 1
+
+
 class TestCheckCredentials:
     @pytest.mark.parametrize("status", [200, 401, 403, 500])
     def test_returns_status_code(self, status):
@@ -287,6 +489,11 @@ class TestAppfiguresSourceResponse:
             ("reviews", ["id"], "date"),
             ("sales_report", ["date"], "date"),
             ("revenue_report", ["date"], "date"),
+            ("ranks", ["date", "product_id", "country", "category_id", "category_subtype"], "date"),
+            # The /data lookups carry no date field, so they sync unpartitioned.
+            ("stores", ["id"], None),
+            ("categories", ["id"], None),
+            ("countries", ["iso"], None),
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key):
@@ -298,8 +505,8 @@ class TestAppfiguresSourceResponse:
         )
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
+        assert response.partition_mode == ("datetime" if partition_key else None)
+        assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.sort_mode == "asc"
 
 

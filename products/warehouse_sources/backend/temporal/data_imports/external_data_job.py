@@ -185,6 +185,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
         "then re-enable the sync."
     ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a batch carries
+    # rows that aren't objects, such as a REST resource whose selected response field holds arrays or
+    # scalars. Keyless rows carry no column names to build a table from, and the same shape comes back
+    # on every retry. Keep in step with `NON_MAPPING_ROW_ERROR` in arrow_utils.
+    "Rows from this table are not JSON objects": (
+        "This table's rows aren't objects with named fields, so PostHog has no columns to import. "
+        "If the source lets you choose which part of the response to read, point it at a list of "
+        "objects, then re-enable the sync."
+    ),
 }
 
 
@@ -248,6 +257,13 @@ Transient_Error_Messages: dict[str, str] = {
     "502 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     "503 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     "504 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    # Mixpanel signals a server-side abort inside an already-committed 200 body, so the export
+    # stops part-way through a day (mixpanel.py `EXPORT_TRUNCATED_ERROR`). The day is re-fetched
+    # in-process first; this copy is what the customer reads once those retries run out.
+    "Mixpanel export: stream ended early": (
+        "Mixpanel stopped sending a day of events before the export finished. This is on "
+        "Mixpanel's side and usually clears on its own; the next sync runs on schedule."
+    ),
 }
 
 
