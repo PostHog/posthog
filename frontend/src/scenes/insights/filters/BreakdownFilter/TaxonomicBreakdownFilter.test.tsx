@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, renderInsightPage } from '~/test/insight-testing'
 
 // The disabled-reason copy shows through LemonButton's Tooltip, which has a 400ms open
@@ -12,6 +12,11 @@ import { buildTrendsQuery, renderInsightPage } from '~/test/insight-testing'
 // timeout to match, so a single waitFor can't exhaust the 5s default test budget).
 configure({ asyncUtilTimeout: 5000 })
 jest.setTimeout(15000)
+
+// Monaco does not render under jsdom, and the SQL expression tab mounts it eagerly.
+jest.mock('lib/monaco/CodeEditorInline', () => ({
+    CodeEditorInline: (): JSX.Element => <textarea aria-label="SQL expression" />,
+}))
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
@@ -94,6 +99,69 @@ describe('TaxonomicBreakdownFilter', () => {
                 expect(sqlLink).toBeInTheDocument()
                 expect(sqlLink.getAttribute('href')).toMatch(/\/sql/)
             })
+        })
+    })
+
+    describe('on a data warehouse series', () => {
+        const warehouseQuery: TrendsQuery = buildTrendsQuery({
+            series: [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'ad_stats',
+                    name: 'ad_stats',
+                    table_name: 'ad_stats',
+                    id_field: 'id',
+                    timestamp_field: 'reported_at',
+                    distinct_id_field: 'account_id',
+                },
+            ],
+        })
+
+        const warehouseSchema = {
+            tables: {
+                ad_stats: {
+                    name: 'ad_stats',
+                    type: 'data_warehouse',
+                    id: 'ad_stats',
+                    fields: {
+                        campaign_id: { name: 'campaign_id', hogql_value: 'campaign_id', type: 'string' },
+                        campaign: {
+                            name: 'campaign',
+                            hogql_value: 'campaign',
+                            type: 'lazy_table',
+                            table: 'campaigns',
+                        },
+                    },
+                },
+                campaigns: {
+                    name: 'campaigns',
+                    type: 'data_warehouse',
+                    id: 'campaigns',
+                    fields: {
+                        campaign_name: { name: 'campaign_name', hogql_value: 'campaign_name', type: 'string' },
+                    },
+                },
+            },
+        }
+
+        it('offers a joined table column and the SQL expression escape hatch', async () => {
+            renderInsightPage({
+                query: warehouseQuery,
+                mocks: {
+                    additionalMockResponses: [
+                        {
+                            match: (query) => query.kind === NodeKind.DatabaseSchemaQuery,
+                            response: warehouseSchema as any,
+                        },
+                    ],
+                },
+            })
+            await userEvent.click(await waitForBreakdownButton())
+
+            await waitFor(() => {
+                expect(screen.getAllByText('campaign.campaign_name').length).toBeGreaterThan(0)
+            })
+            expect(screen.getByText(/SQL expression/i)).toBeInTheDocument()
         })
     })
 

@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import type { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
+import { HIDDEN_FIELD_TYPES } from 'lib/components/TaxonomicFilter/dataWarehouseColumns'
 import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
 import type {
     DataWarehousePopoverField,
@@ -33,7 +34,6 @@ const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<FunnelFieldKey, DatabaseSerializ
     timestamp_field: ['datetime', 'date', 'string'],
     id_field: ['string', 'integer', 'decimal', 'float'],
 }
-const HIDDEN_FIELD_TYPES: DatabaseSerializedFieldType[] = ['lazy_table', 'virtual_table', 'view', 'materialized_view']
 const LINKED_TABLE_TYPES: DatabaseSerializedFieldType[] = ['lazy_table', 'virtual_table']
 
 export interface FunnelDataWarehouseStepDefinitionPopoverLogicProps {
