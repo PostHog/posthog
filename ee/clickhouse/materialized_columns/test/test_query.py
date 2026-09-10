@@ -7,16 +7,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with self.capture_select_queries() as queries:
             self.client.post(
                 f"/api/projects/{self.team.id}/query/",
-                {
-                    "query": {
-                        "kind": "FunnelsQuery",
-                        "series": [
-                            {"kind": "EventsNode", "event": "step one"},
-                            {"kind": "EventsNode", "event": "step two"},
-                        ],
-                        "funnelsFilter": {"funnelOrderType": "unordered"},
-                    }
-                },
+                {"query": {"kind": "HogQLQuery", "query": "select count() from events"}},
             ).json()
 
         self.assertTrue(len(queries))
