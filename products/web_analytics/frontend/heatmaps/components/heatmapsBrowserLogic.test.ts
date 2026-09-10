@@ -193,6 +193,36 @@ describe('heatmapsBrowserLogic', () => {
             jest.restoreAllMocks()
         })
 
+        it.each(['navigated', 'loaded'] as const)('ignores a queued timeout after the iframe %s', async (state) => {
+            const timers = jest.spyOn(global, 'setTimeout')
+            const iframe = document.createElement('iframe')
+            iframe.id = 'heatmap-iframe'
+            document.body.appendChild(iframe)
+            const logic = heatmapsBrowserLogic()
+            const unmount = logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setDisplayUrl('https://previous.example.com')
+                const timeout = timers.mock.calls.find(([, delay]) => delay === 7500)?.[0]
+                expect(timeout).toEqual(expect.any(Function))
+
+                if (state === 'navigated') {
+                    logic.actions.setDisplayUrl('https://next.example.com')
+                } else {
+                    logic.actions.onIframeLoad()
+                }
+                await expectLogic(logic).toFinishAllListeners()
+                ;(timeout as () => void)()
+
+                expect(logic.values.loadTimeoutBanner).toBeNull()
+                expect(logic.values.loading).toBe(state === 'navigated')
+            } finally {
+                unmount()
+                iframe.remove()
+                timers.mockRestore()
+            }
+        })
+
         // A frame blocked by X-Frame-Options still fires onload, and onIframeLoad nulls the load-timeout
         // banner via stopTrackingLoading. Before the probe result outranked it, that wiped the explanation
         // and the user was left with a blank frame and no message at all.

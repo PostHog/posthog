@@ -756,10 +756,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         startTrackingLoading: () => {
+            const loadingUrl = values.displayUrl
             actions.setIframeBanner(null)
 
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
+                    // A queued timeout must not report a previous page after navigation or load.
+                    if (!values.loading || values.displayUrl !== loadingUrl) {
+                        return
+                    }
                     // this timer also runs on scenes that never mount an iframe
                     // (screenshot detail, the new-heatmap form), where a load-failure
                     // banner would be a false positive

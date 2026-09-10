@@ -40,6 +40,7 @@ This prevents an unapproved starting page from initiating a render with project 
 Each width reloads configuration, so later requests respect secret rotation and removed approvals.
 An in-flight request can finish with the configuration it already received.
 Screenshots without eligible cookie delivery still run; live iframe previews never send the cookie.
+Live-preview timeout warnings apply only to the URL that is still loading.
 
 ## Settings workflow
 
