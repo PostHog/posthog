@@ -305,10 +305,16 @@ def build_publication_bundle(plan: PublicationBundlePlan) -> PublicationBundle:
     if plan.workspace_path.is_symlink() or plan.export_root.is_symlink():
         raise PublicationBundleError("Publication paths are unsafe")
     directory = Path(tempfile.mkdtemp(prefix="publication-script-", dir=plan.export_root))
-    os.chmod(directory, 0o700)
+    # Publication staging must be private to the worker process.
+    os.chmod(  # nosemgrep: python.lang.security.audit.insecure-file-permissions.insecure-file-permissions
+        directory, 0o700
+    )
     script = directory / "normalize.py"
     script.write_text(build_publication_bundle_script(plan), encoding="utf-8")
-    os.chmod(script, 0o700)
+    # The private helper must remain executable by the worker.
+    os.chmod(  # nosemgrep: python.lang.security.audit.insecure-file-permissions.insecure-file-permissions
+        script, 0o700
+    )
     try:
         output = subprocess.run(
             [sys.executable, str(script)],
@@ -346,7 +352,10 @@ def validate_publication_bundle(payload: bytes, plan: PublicationBundlePlan) -> 
     _validate_pack_header(payload)
     with tempfile.TemporaryDirectory(prefix="publication-validate-") as raw:
         directory = Path(raw)
-        os.chmod(directory, 0o700)
+        # Bundle validation handles untrusted content in an owner-only workspace.
+        os.chmod(  # nosemgrep: python.lang.security.audit.insecure-file-permissions.insecure-file-permissions
+            directory, 0o700
+        )
         bundle = directory / "publication.bundle"
         bundle.write_bytes(payload)
         os.chmod(bundle, 0o600)
