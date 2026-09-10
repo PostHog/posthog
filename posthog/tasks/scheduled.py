@@ -9,6 +9,7 @@ from celery.schedules import crontab
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
@@ -820,19 +821,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="mark stale pulse briefs failed",
     )
 
-    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_crontab,
-            clickhouse_clear_removed_data.s(),
-            name="clickhouse clear removed data",
-        )
+    # Self-hosted only; cloud runs clickhouse_deletion_sweep_job instead.
+    if celery_sweeps_enabled():
+        if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
+            sender.add_periodic_task(
+                clear_clickhouse_crontab,
+                clickhouse_clear_removed_data.s(),
+                name="clickhouse clear removed data",
+            )
 
-    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_deleted_person_crontab,
-            clear_clickhouse_deleted_person.s(),
-            name="clickhouse clear deleted person data",
-        )
+        if clear_clickhouse_deleted_person_crontab := get_crontab(
+            settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON
+        ):
+            sender.add_periodic_task(
+                clear_clickhouse_deleted_person_crontab,
+                clear_clickhouse_deleted_person.s(),
+                name="clickhouse clear deleted person data",
+            )
 
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),
