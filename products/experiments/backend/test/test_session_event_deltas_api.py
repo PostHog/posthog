@@ -202,6 +202,14 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
                 at=EXPOSED_AT + timedelta(minutes=30),
             )
 
+    def _sessionless_backend_event(self, distinct_id: str, event: str, *, at: datetime) -> None:
+        # An SDK that sends an explicit JSON null for `$session_id` leaves the string "null" in the
+        # column, because the materialization keeps the raw JSON token. That is a different trace
+        # from `_unsessioned_exposure`, which omits the key and leaves the column empty.
+        _create_event(
+            team=self.team, event=event, distinct_id=distinct_id, timestamp=at, properties={"$session_id": None}
+        )
+
     def _post_deltas(self, experiment: Experiment, **body: Any) -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/experiments/{experiment.id}/session_event_deltas/",
@@ -362,6 +370,12 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         self._session(
             variants=[], events=["after_event"], distinct_id=returns_after, at=EXPOSED_AT + timedelta(hours=1)
         )
+        # Backend calls that carry no session. One lands between returns_after's exposure and their
+        # next session, so it must not become the session they are read from. The other is the only
+        # thing api_only ever does after exposure, so they have no session to compare at all.
+        self._sessionless_backend_event(returns_after, "api_call", at=EXPOSED_AT + timedelta(minutes=10))
+        api_only = self._unsessioned_exposure("control", distinct_id="api_only", at=EXPOSED_AT)
+        self._sessionless_backend_event(api_only, "api_call", at=EXPOSED_AT + timedelta(minutes=10))
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -375,7 +389,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # sessions all ended before their exposure is not counted at all.
         carded_events = {card["event"] for card in self._cards(data, "behavior")}
         assert "after_event" in carded_events
-        assert {"stale_event", "before_event"}.isdisjoint(carded_events)
+        assert {"stale_event", "before_event", "api_call"}.isdisjoint(carded_events)
         # People counted once; the sessions total still says how much material sits behind the variant.
         assert [(variant["persons"], variant["sessions"]) for variant in data["variants"]] == [(1, 4), (2, 2)]
 
