@@ -3248,6 +3248,9 @@ export interface CredentialApi {
  * * `Tenjin` - Tenjin
  * * `Folk` - Folk
  * * `Cybersource` - Cybersource
+ * * `GoogleAdSense` - GoogleAdSense
+ * * `Sequenzy` - Sequenzy
+ * * `Skio` - Skio
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4585,6 +4588,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Tenjin: 'Tenjin',
     Folk: 'Folk',
     Cybersource: 'Cybersource',
+    GoogleAdSense: 'GoogleAdSense',
+    Sequenzy: 'Sequenzy',
+    Skio: 'Skio',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

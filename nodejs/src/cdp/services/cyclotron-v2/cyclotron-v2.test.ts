@@ -14,7 +14,7 @@ import {
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
 } from './types'
-import { CyclotronV2Worker } from './worker'
+import { CyclotronV2Worker, sleep } from './worker'
 import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -172,6 +172,12 @@ async function gaugeValueForQueue(queue: string): Promise<number | null> {
 }
 
 // Absent until the queue's first churning dequeue, so a missing line reads as 0.
+async function loopErrorCountForQueue(queue: string): Promise<number> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_consumer_loop_errors_total')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : 0
+}
+
 async function churnCountForQueue(queue: string): Promise<number> {
     const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_high_transition_dequeues')
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
@@ -1021,6 +1027,50 @@ describe('Cyclotron V2', () => {
             const jobs = await dequeueOneBatch(worker)
             expect(jobs).toHaveLength(2)
             expect(await countByStatus('running')).toBe(2)
+        })
+
+        // The loop swallows errors and retries, so a queue whose batches all throw looks
+        // exactly like an idle queue. The counter is the only externally visible signal.
+        it.each([
+            ['the plain worker', 'loop-errors-plain', (): CyclotronV2Worker => createWorker('loop-errors-plain')],
+            [
+                'the rate-limited worker',
+                'loop-errors-limited',
+                (): CyclotronV2Worker =>
+                    new CyclotronV2RateLimitedWorker(
+                        {
+                            pool: { dbUrl: DB_URL },
+                            queueName: 'loop-errors-limited',
+                            batchMaxSize: 100,
+                            pollDelayMs: 10,
+                        },
+                        () => Promise.resolve(undefined)
+                    ),
+            ],
+        ])('counts a consumer loop error in %s', async (_name, queue, makeWorker) => {
+            await manager.createJob({ teamId: 1, queueName: queue })
+            const before = await loopErrorCountForQueue(queue)
+            const worker = makeWorker()
+
+            let threw = false
+            await new Promise<void>((resolve) => {
+                void worker.connect(async (batch) => {
+                    if (batch.length > 0 && !threw) {
+                        threw = true
+                        resolve()
+                        return Promise.reject(new Error('processing failed'))
+                    }
+                })
+            })
+            // The throw resolves the promise before the loop's catch runs; give the
+            // catch a moment to record it before stopping the loop.
+            const deadline = Date.now() + 2_000
+            while ((await loopErrorCountForQueue(queue)) - before < 1 && Date.now() < deadline) {
+                await sleep(25)
+            }
+            await worker.stopConsuming()
+
+            expect((await loopErrorCountForQueue(queue)) - before).toBe(1)
         })
 
         // Both dequeue paths bump transition_count for the whole batch in one UPDATE, so an

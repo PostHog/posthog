@@ -111,11 +111,39 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
  * A task's state as a single dot: blue wants a decision, the brand yellow is
  * working or unread, grey is quiet. The trigger renders as a span because rows are
  * `<button>`s — a nested button would be invalid HTML.
+ *
+ * `hitArea="row"` is for the list rows, where the dot is the only thing to aim
+ * at and eight pixels of it is a target people miss — enough that the tooltip
+ * reads as absent rather than small, so the colours end up meaning nothing. The
+ * dot keeps its own box in the row's layout, so nothing moves; the trigger
+ * grows around it into the square below.
  */
-export function TaskStatusDot({ dot }: { dot: TaskDot }) {
+export function TaskStatusDot({
+  dot,
+  hitArea = "dot",
+}: {
+  dot: TaskDot;
+  /** `row`: the row's whole leading square, not just the mark drawn in it. */
+  hitArea?: "dot" | "row";
+}) {
   return (
     <RowTooltip label={dot.label} side="right">
-      {dotMark(dot)}
+      {hitArea === "row" ? (
+        <span className="relative flex shrink-0 items-center justify-center">
+          {dotMark(dot)}
+          {/* `-inset-2` around an 8px dot is a 24px square. On a 28px row whose
+              dot sits in its 8px of leading padding, that square starts at the
+              row's own left edge and stops just short of its top and bottom —
+              the target you were already aiming at. It overflows the dot's box
+              instead of widening it, so the mark stays where it was drawn, and
+              `mouseenter` counts an overflowing child as part of the trigger. */}
+          {/* `aria-hidden` because the mark inside carries the label; a second
+              named element here would announce the state twice. */}
+          <span aria-hidden className="-inset-2 absolute" />
+        </span>
+      ) : (
+        dotMark(dot)
+      )}
     </RowTooltip>
   );
 }
