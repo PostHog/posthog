@@ -1,6 +1,12 @@
 from typing import TYPE_CHECKING, cast
 
-from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode, ExperimentMeanMetric
+from posthog.schema import (
+    ActionsNode,
+    EventsNode,
+    ExperimentDataWarehouseNode,
+    ExperimentMeanMetric,
+    ExperimentMetricMathType,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -140,12 +146,22 @@ class MeanQueryBuilder:
             # INSERT would otherwise double-count sums. Same defense as the exposures read;
             # the funnel read skips it because funnel evaluation tolerates duplicate events.
             entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
+            # For ID-valued math the value is the ID itself: the stored entity_id
+            # is the person id (dau) and session_id is the unique_session value,
+            # so the downstream count(distinct) matches the direct path.
+            math_type = getattr(self._b.metric.source, "math", None) or ExperimentMetricMathType.TOTAL
+            if math_type == ExperimentMetricMathType.DAU:
+                value_select = entity_id_cast
+            elif math_type == ExperimentMetricMathType.UNIQUE_SESSION:
+                value_select = "any(t.session_id)"
+            else:
+                value_select = "any(t.numeric_value)"
             metric_events_cte = f"""
             metric_events AS (
                 SELECT
                     {entity_id_cast} AS entity_id,
                     t.timestamp AS timestamp,
-                    any(t.numeric_value) AS value
+                    {value_select} AS value
                 FROM experiment_metric_events_preaggregated AS t
                 WHERE t.job_id IN {{metric_events_job_ids}}
                     AND t.team_id = {{metric_events_team_id}}
@@ -290,9 +306,13 @@ class MeanQueryBuilder:
         Returns the SELECT query that the lazy computation system wraps in an
         INSERT INTO experiment_metric_events_preaggregated. This is the write
         path — it scans the events table and stores one row per matching metric
-        event with its per-event value in numeric_value. The value is already
-        coalesced to a non-null float by _build_value_expr(), so storing it in
-        the non-nullable numeric_value column is lossless.
+        event with its per-event value in numeric_value. For numeric math the
+        value is already coalesced to a non-null float by _build_value_expr(),
+        so storing it in the non-nullable numeric_value column is lossless.
+        For ID-valued math (dau, unique_session) the read side counts distinct
+        IDs from entity_id/session_id instead, and numeric_value stores the
+        same constant a count metric stores, so the build query hashes the same
+        as a count metric on the same source and the two share precompute jobs.
 
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket. The experiment date
@@ -323,9 +343,21 @@ class MeanQueryBuilder:
                 AND {metric_event_filter}
         """
 
+        math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
+        if math_type in (ExperimentMetricMathType.DAU, ExperimentMetricMathType.UNIQUE_SESSION):
+            # _build_value_expr() returns the ID itself for these math types, which
+            # cannot go into the Float64 column. Build the count-metric expression
+            # node for node so repr-based job hashing matches a count metric build.
+            value_expr: ast.Expr = ast.Call(
+                name="coalesce",
+                args=[ast.Call(name="toFloat", args=[ast.Constant(value=1)]), ast.Constant(value=0)],
+            )
+        else:
+            value_expr = self._b._build_value_expr()
+
         placeholders: dict[str, ast.Expr] = {
             "entity_key": parse_expr(self._b.entity_key),
-            "value_expr": self._b._build_value_expr(),
+            "value_expr": value_expr,
             "experiment_date_from": self._b.date_range_query.date_from_as_hogql(),
             "experiment_date_to": self._b.date_range_query.date_to_as_hogql(),
             "conversion_window_seconds": ast.Constant(value=self._b._get_conversion_window_seconds()),

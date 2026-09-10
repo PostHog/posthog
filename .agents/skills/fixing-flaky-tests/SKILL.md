@@ -152,15 +152,15 @@ Otherwise proceed with a fix grounded in the CI evidence and root-cause analysis
 
 Match the symptom to a cause class; never patch the symptom.
 
-| Symptom                                                | Likely cause class                                           |
-| ------------------------------------------------------ | ------------------------------------------------------------ |
-| Timeout waiting for promise/listener/element           | Unawaited async work, missing mock, hidden pending request   |
-| Passes alone, fails with neighbors (or vice versa)     | Shared state: module cache, DB rows, global config, ordering |
-| Fails near midnight/UTC boundaries, or on slow runners | Real clock usage — missing `freeze_time` / fake timers       |
-| Assertion on list order or generated IDs               | Nondeterministic ordering/IDs asserted as deterministic      |
-| Query can't see just-written data                      | Eventual consistency (ClickHouse), missing flush/commit      |
-| Only fails under `--maxWorkers=2` / contention         | Race condition surfaced by scheduling, too-tight timeout     |
-| Every attempt fails on one runner, passes on another   | Clock-granularity race: cutoff read from an earlier write    |
+| Symptom                                                | Likely cause class                                             |
+| ------------------------------------------------------ | -------------------------------------------------------------- |
+| Timeout waiting for promise/listener/element           | Unawaited async work, missing mock, hidden pending request     |
+| Passes alone, fails with neighbors (or vice versa)     | Shared state: module cache, DB rows, global config, ordering   |
+| Fails near midnight/UTC boundaries, or on slow runners | Real clock usage — missing `time_machine.travel` / fake timers |
+| Assertion on list order or generated IDs               | Nondeterministic ordering/IDs asserted as deterministic        |
+| Query can't see just-written data                      | Eventual consistency (ClickHouse), missing flush/commit        |
+| Only fails under `--maxWorkers=2` / contention         | Race condition surfaced by scheduling, too-tight timeout       |
+| Every attempt fails on one runner, passes on another   | Clock-granularity race: cutoff read from an earlier write      |
 
 ### When the cause isn't obvious, bisect
 
@@ -196,7 +196,7 @@ PostHog-specific patterns:
 ### Backend (pytest)
 
 - **DB state leakage**: shared rows across tests without isolation — check fixture scope and whether the test needs `@pytest.mark.django_db(transaction=True)`.
-- **Real time**: use `freeze_time`; never assert on `now()`-derived values.
+- **Real time**: use `time_machine.travel(..., tick=False)`; never assert on `now()`-derived values.
 - **Timestamp-derived cutoffs**: pinning or filtering "as of" the previous write's recorded time — stamp the times explicitly instead (`/writing-tests`, "Two writes in a row are not ordered in time").
 - **ClickHouse eventual consistency**: a query may not see just-inserted data — flush explicitly in the test setup rather than sleeping.
 

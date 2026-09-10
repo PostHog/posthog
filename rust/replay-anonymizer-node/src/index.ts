@@ -17,6 +17,7 @@ export interface AnonymizeEventMeta {
     flags: number
     /** Post-scrub `hrefFrom(event)` (`data.href` / `data.payload.href`, trimmed), when present. */
     href?: string
+    jsonLd?: { rootTypes: string[]; fullSnapshotTimestamp?: number }
 }
 
 /** One collected original image: `offset..offset+len` in {@link AnonymizeKafkaPayloadResult.images}. */
@@ -65,6 +66,7 @@ export interface AnonymizeMeta {
     consoleLogCount: number
     consoleWarnCount: number
     consoleErrorCount: number
+    jsonLdEventCount: number
     events: AnonymizeEventMeta[]
     /** Collected original images (hash-sorted); present only when the collection lane was enabled and images were collected. */
     images?: AnonymizeImageEntry[]
@@ -213,6 +215,36 @@ export interface CanonicalUrl {
     domain: string
 }
 
+/** The labels of the Rust `Decline` enum. The fetch lane reports them as metric reasons. */
+export type UrlPolicyDecline =
+    | 'too_long'
+    | 'not_absolute'
+    | 'bad_scheme'
+    | 'bad_port'
+    | 'no_host'
+    | 'non_public_host'
+    | 'credential'
+    | 'invalid_query'
+    | 'tracking_beacon'
+
+/**
+ * The canonical forms of a URL the policy accepts, or the rule that refused it. `unwanted` is true
+ * when the URL is well formed and safe but nobody wants it fetched, so a queue consumer drops only
+ * that job instead of rejecting the record that carries it.
+ */
+export type UrlPolicyVerdict =
+    | { ok: true; url: CanonicalUrl }
+    | { ok: false; decline: UrlPolicyDecline; unwanted: boolean }
+
+export function tryCanonicalizeUrl(url: string): UrlPolicyVerdict {
+    const result = native.tryCanonicalizeUrl(url)
+    if (typeof result.decline === 'string') {
+        return { ok: false, decline: result.decline, unwanted: result.unwanted === true }
+    }
+    return { ok: true, url: result }
+}
+
 export function canonicalizeUrl(url: string): CanonicalUrl | null {
-    return native.canonicalizeUrl(url)
+    const verdict = tryCanonicalizeUrl(url)
+    return verdict.ok ? verdict.url : null
 }

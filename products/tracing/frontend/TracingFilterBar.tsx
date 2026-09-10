@@ -38,7 +38,7 @@ const taxonomicGroupTypes = [
 
 export function TracingFilterBar(): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic)
-    const { runQuery } = useActions(tracingDataLogic)
+    const { refreshQuery } = useActions(tracingDataLogic)
     const { filters, utcDateRange, timezone } = useValues(tracingFiltersLogic)
     const { setDateRange, setTimezone, setServiceNames, setFilterGroup } = useActions(tracingFiltersLogic)
     const { dateRange, serviceNames, filterGroup } = filters
@@ -69,7 +69,7 @@ export function TracingFilterBar(): JSX.Element {
                             size="small"
                             icon={<IconRefresh />}
                             type="secondary"
-                            onClick={() => runQuery()}
+                            onClick={() => refreshQuery()}
                             loading={spansLoading}
                         />
                         <SavedViewsButton />

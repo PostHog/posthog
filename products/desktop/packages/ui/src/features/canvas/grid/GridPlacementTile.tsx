@@ -1,9 +1,10 @@
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ComponentFrame } from "./ComponentFrame";
@@ -142,7 +143,7 @@ function GeneratingTile({
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
-      <Spinner />
+      <Spinner size="lg" className="text-gray-9" />
       <Text size="sm" className="line-clamp-2">
         {placement.prompt ?? "Building this widget…"}
       </Text>

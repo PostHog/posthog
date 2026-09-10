@@ -13,17 +13,13 @@ export type OverflowType = 'events' | 'recordings' | 'ai' | 'errortracking'
 const REDIS_KEY_PREFIX = '@posthog/stateful-overflow/'
 
 /**
- * Generates a Redis key for a given type, token, and distinctId.
+ * Generates a Redis key for a given type and partition key. Capture builds
+ * partition keys as `token:suffix`, so the stored key stays byte-identical to
+ * the old `type:token:distinctId` format and other flag writers (billing
+ * limits, session overflow) remain compatible.
  */
-export function redisKey(type: OverflowType, token: string, distinctId: string): string {
-    return `${REDIS_KEY_PREFIX}${type}:${token}:${distinctId}`
-}
-
-/**
- * Generates a member key (token:distinctId) used in result sets.
- */
-export function memberKey(token: string, distinctId: string): string {
-    return `${token}:${distinctId}`
+export function redisKey(type: OverflowType, key: string): string {
+    return `${REDIS_KEY_PREFIX}${type}:${key}`
 }
 
 /**
@@ -35,20 +31,20 @@ export function memberKey(token: string, distinctId: string): string {
 export interface OverflowRedisRepository {
     /**
      * Batch check which keys exist in Redis using MGET.
-     * Returns a Map of memberKey -> isFlagged.
+     * Returns a Map of key -> isFlagged.
      */
-    batchCheck(type: OverflowType, keys: { token: string; distinctId: string }[]): Promise<Map<string, boolean>>
+    batchCheck(type: OverflowType, keys: string[]): Promise<Map<string, boolean>>
 
     /**
      * Batch flag keys in Redis using pipeline SET with EX (TTL).
      */
-    batchFlag(type: OverflowType, keys: { token: string; distinctId: string }[]): Promise<void>
+    batchFlag(type: OverflowType, keys: string[]): Promise<void>
 
     /**
      * Batch refresh TTL for keys using pipeline GETEX.
      * Only refreshes existing keys, does not create new ones.
      */
-    batchRefreshTTL(type: OverflowType, keys: { token: string; distinctId: string }[]): Promise<void>
+    batchRefreshTTL(type: OverflowType, keys: string[]): Promise<void>
 
     /**
      * Health check: PING Redis.
@@ -70,10 +66,10 @@ export class RedisOverflowRepository implements OverflowRedisRepository {
         this.redisTTLSeconds = config.redisTTLSeconds
     }
 
-    async batchCheck(type: OverflowType, keys: { token: string; distinctId: string }[]): Promise<Map<string, boolean>> {
+    async batchCheck(type: OverflowType, keys: string[]): Promise<Map<string, boolean>> {
         const defaultResult = new Map<string, boolean>()
         for (const key of keys) {
-            defaultResult.set(memberKey(key.token, key.distinctId), false)
+            defaultResult.set(key, false)
         }
 
         if (keys.length === 0) {
@@ -86,11 +82,11 @@ export class RedisOverflowRepository implements OverflowRedisRepository {
             { type, count: keys.length },
             async (client: Redis) => {
                 const results = new Map<string, boolean>()
-                const redisKeys = keys.map((key) => redisKey(type, key.token, key.distinctId))
+                const redisKeys = keys.map((key) => redisKey(type, key))
                 const values = await client.mget(...redisKeys)
 
                 for (let i = 0; i < keys.length; i++) {
-                    results.set(memberKey(keys[i].token, keys[i].distinctId), values[i] !== null)
+                    results.set(keys[i], values[i] !== null)
                 }
 
                 overflowRedirectRedisOpsTotal.labels('mget', 'success').inc()
@@ -109,7 +105,7 @@ export class RedisOverflowRepository implements OverflowRedisRepository {
         return result
     }
 
-    async batchFlag(type: OverflowType, keys: { token: string; distinctId: string }[]): Promise<void> {
+    async batchFlag(type: OverflowType, keys: string[]): Promise<void> {
         if (keys.length === 0) {
             return
         }
@@ -124,7 +120,7 @@ export class RedisOverflowRepository implements OverflowRedisRepository {
                 const pipeline = client.pipeline()
 
                 for (const key of keys) {
-                    pipeline.set(redisKey(type, key.token, key.distinctId), '1', 'EX', this.redisTTLSeconds)
+                    pipeline.set(redisKey(type, key), '1', 'EX', this.redisTTLSeconds)
                 }
 
                 await pipeline.exec()
@@ -142,7 +138,7 @@ export class RedisOverflowRepository implements OverflowRedisRepository {
         }
     }
 
-    async batchRefreshTTL(type: OverflowType, keys: { token: string; distinctId: string }[]): Promise<void> {
+    async batchRefreshTTL(type: OverflowType, keys: string[]): Promise<void> {
         if (keys.length === 0) {
             return
         }
@@ -157,7 +153,7 @@ export class RedisOverflowRepository implements OverflowRedisRepository {
                 const pipeline = client.pipeline()
 
                 for (const key of keys) {
-                    pipeline.getex(redisKey(type, key.token, key.distinctId), 'EX', this.redisTTLSeconds)
+                    pipeline.getex(redisKey(type, key), 'EX', this.redisTTLSeconds)
                 }
 
                 await pipeline.exec()

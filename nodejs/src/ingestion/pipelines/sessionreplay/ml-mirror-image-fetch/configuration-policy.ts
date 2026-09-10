@@ -110,6 +110,7 @@ export class HttpConfigurationFetcher {
         try {
             response = await fetchStreamed(target.toString(), {
                 timeoutMs: Math.max(1, deadlineMs - Date.now()),
+                allowH2: true,
                 headers: {
                     'user-agent': USER_AGENT,
                     accept: file === 'robots' ? 'text/plain,*/*;q=0.1' : 'application/json,*/*;q=0.1',

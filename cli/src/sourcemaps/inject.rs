@@ -28,17 +28,18 @@ pub struct InjectArgs {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
-    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
-    /// release id into the sourcemap so the uploaded symbol set is bound to it: the previous
-    /// behavior. EXPERIMENTAL `event` injects the release id into each chunk as
-    /// `_posthogReleaseId` so the SDK emits it on every exception, and derives
-    /// content-addressed chunk ids that are stable across rebuilds. Also settable via
-    /// `POSTHOG_RELEASE_MODE`.
+    /// How the release is associated with exceptions. `event` (the default) derives
+    /// content-addressed chunk ids that are stable across rebuilds. A web build also injects the
+    /// release id into each chunk as `_posthogReleaseId`, so the SDK emits it on every exception.
+    /// A Hermes build injects no release id, because a bytecode bundle cannot read one back out.
+    /// Each of its events resolves the release from the app version and namespace the SDK sends.
+    /// `symbol-set` stamps the release id into the sourcemap instead, so the uploaded symbol set
+    /// is bound to it. Also settable via `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
         value_enum,
-        default_value = "symbol-set"
+        default_value = "event"
     )]
     pub release_mode: ReleaseMode,
 }
