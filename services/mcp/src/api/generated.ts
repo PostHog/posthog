@@ -7020,6 +7020,7 @@ export namespace Schemas {
       Linear: 'linear',
       Github: 'github',
       Gitlab: 'gitlab',
+      Helpscout: 'helpscout',
       MetaAds: 'meta-ads',
       Instagram: 'instagram',
       Clickup: 'clickup',
@@ -48029,6 +48030,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -48081,6 +48083,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
       Intercom: 'intercom',
@@ -48133,6 +48136,7 @@ export namespace Schemas {
        * * `google-pubsub` - Google Pubsub
        * * `google-search-console` - Google Search Console
        * * `google-sheets` - Google Sheets
+       * * `helpscout` - Helpscout
        * * `hubspot` - Hubspot
        * * `instagram` - Instagram
        * * `intercom` - Intercom
@@ -99286,6 +99290,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -99349,6 +99354,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
       Intercom: 'intercom',
