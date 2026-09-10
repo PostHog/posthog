@@ -1,5 +1,6 @@
 import { exposeElectronTRPC } from "@posthog/electron-trpc/main";
 import {
+  SKETCHPAD_CHANNEL,
   SKETCHPAD_FRAME_TO_HOST_CHANNEL,
   SKETCHPAD_FROM_HOST_FLAG,
   SKETCHPAD_HOST_TO_FRAME_CHANNEL,
@@ -74,12 +75,14 @@ function setupSketchpadPreload(): void {
   window.addEventListener("message", (event) => {
     const data = event.data as Record<string, unknown> | null;
     if (!data || typeof data !== "object") return;
+    if (event.source !== window || data.channel !== SKETCHPAD_CHANNEL) return;
     if (data[SKETCHPAD_FROM_HOST_FLAG] === true) return;
     ipcRenderer.sendToHost(SKETCHPAD_FRAME_TO_HOST_CHANNEL, data);
   });
 
   ipcRenderer.on(SKETCHPAD_HOST_TO_FRAME_CHANNEL, (_event, data: unknown) => {
     if (!data || typeof data !== "object") return;
+    if (!("channel" in data) || data.channel !== SKETCHPAD_CHANNEL) return;
     window.postMessage(
       {
         ...(data as Record<string, unknown>),

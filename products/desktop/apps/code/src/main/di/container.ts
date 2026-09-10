@@ -3,7 +3,6 @@ import "reflect-metadata";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
-import { setSketchpadDocument } from "@main/protocols/sketchpad-modules";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import {
   getGatewayUsageUrl,
@@ -120,7 +119,6 @@ import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
 import { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
-import { SKETCHPAD_FRAME_HOST } from "@posthog/platform/sketchpad-frame";
 import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
@@ -356,9 +354,6 @@ export const container = new TypedContainer<MainBindings>({
   defaultScope: "Singleton",
 });
 
-container.bind(SKETCHPAD_FRAME_HOST).toConstantValue({
-  registerDocument: setSketchpadDocument,
-});
 container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);

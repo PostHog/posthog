@@ -5,6 +5,7 @@ import {
   FREEFORM_POSTHOG_JS_URL,
   FREEFORM_QUILL_CSS_URLS,
 } from "@posthog/core/canvas/freeformWhitelist";
+import { resolveExternalAnchorUrl } from "@posthog/core/canvas/sandboxLinks";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 import {
   CANVAS_SDK_MODULE_SOURCE,
@@ -157,23 +158,6 @@ export function decodeJsxUnicodeEscapes(value: string): string {
 
 // Resolves a click target to the absolute URL of an enclosing target="_blank"
 // anchor, or null. Interpolated into the sandbox bootstrap; exported for tests.
-export function resolveExternalAnchorUrl(target: unknown): string | null {
-  const anchor = target instanceof Element ? target.closest("a[href]") : null;
-  if (!anchor) return null;
-  // HTML matches the _blank keyword ASCII-case-insensitively.
-  if ((anchor.getAttribute("target") ?? "").toLowerCase() !== "_blank") {
-    return null;
-  }
-  // getAttribute, not the .href property: SVG anchors expose SVGAnimatedString
-  // there, and relative hrefs would resolve against the host's base URL.
-  const href = anchor.getAttribute("href") ?? "";
-  try {
-    return new URL(href).href;
-  } catch {
-    return null;
-  }
-}
-
 export function isInteractiveCanvasCommentTarget(target: unknown): boolean {
   return (
     target instanceof Element &&

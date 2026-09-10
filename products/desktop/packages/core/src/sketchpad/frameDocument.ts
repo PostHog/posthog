@@ -1,0 +1,1798 @@
+import {
+  CANVAS_SDK_SPECIFIER,
+  SKETCHPAD_ALLOWED_IMPORTS,
+  SKETCHPAD_CHANNEL,
+  SKETCHPAD_FIELD_MAX_ENTRIES,
+  SKETCHPAD_MAX_STATE_VALUE_BYTES,
+  SKETCHPAD_MODULE_SCHEME,
+  SKETCHPAD_TAILWIND_PREFIX,
+  vendoredModuleUrl,
+} from "@posthog/shared";
+import {
+  buildImportMap,
+  FREEFORM_ESM_HOST,
+  FREEFORM_QUILL_CSS_URLS,
+} from "../canvas/freeformWhitelist";
+import { resolveExternalAnchorUrl } from "../canvas/sandboxLinks";
+import { createFragmentCompiler } from "./fragmentCompiler";
+import { SHARED_FIELD_READ_ONLY_STATE, SHARED_TEXT_FULL } from "./frameCopy";
+
+const TAILWIND_URL = `${SKETCHPAD_TAILWIND_PREFIX}browser@4.3.1`;
+
+const TAILWIND_STYLE = `<style type="text/tailwindcss">
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+@theme inline {
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chrome: var(--chrome);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-fill-hover: var(--fill-hover);
+  --color-fill-selected: var(--fill-selected);
+  --color-fill-expanded: var(--fill-expanded);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+</style>`;
+
+export const SKETCHPAD_FRAME_SDK_MODULE_SOURCE = `import {
+  createElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+export const ph = globalThis.ph;
+export default globalThis.ph;
+
+const TEXT_MAX_CHARS = ${SKETCHPAD_FIELD_MAX_ENTRIES};
+const TEXT_FULL_MESSAGE = ${JSON.stringify(SHARED_TEXT_FULL)};
+const CARET_MIN_INTERVAL_MS = 120;
+const MIRROR_STYLES = [
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "fontStyle",
+  "lineHeight",
+  "letterSpacing",
+  "wordSpacing",
+  "textIndent",
+  "tabSize",
+  "paddingTop",
+  "paddingRight",
+  "paddingBottom",
+  "paddingLeft",
+  "borderTopWidth",
+  "borderRightWidth",
+  "borderBottomWidth",
+  "borderLeftWidth",
+];
+
+const messageOf = (error) =>
+  String(error && error.message ? error.message : error);
+
+const idAt = (ids, offset) => {
+  if (typeof offset !== "number" || offset < 0) return null;
+  return offset < ids.length ? ids[offset] : null;
+};
+const offsetOf = (ids, id, fallback) => {
+  if (id === null || id === undefined) return ids.length;
+  const at = ids.indexOf(id);
+  return at === -1 ? fallback : at;
+};
+
+export function useSharedText(key) {
+  const host = useRef({ text: "", ids: [] });
+  const queued = useRef(null);
+  const busy = useRef(false);
+  const pumpRef = useRef(null);
+  const [view, setView] = useState({ text: "", ids: [], revision: 0 });
+  const [echo, setEcho] = useState("");
+  const [limitMessage, setLimitMessage] = useState(null);
+  const [carets, setCarets] = useState([]);
+
+  const adopt = useCallback((next) => {
+    host.current = next;
+    setEcho(next.text);
+    setView((last) => ({
+      text: next.text,
+      ids: next.ids,
+      revision: last.revision + 1,
+    }));
+  }, []);
+
+  useEffect(() => {
+    const read = () => {
+      const next = globalThis.ph.fields.peekText(key);
+      host.current = next;
+      if (busy.current || queued.current !== null) return;
+      adopt(next);
+    };
+    read();
+    return globalThis.ph.fields.subscribe(key, read);
+  }, [key, adopt]);
+
+  useEffect(() => {
+    const read = () => setCarets(globalThis.ph.fields.caretsFor(key));
+    read();
+    return globalThis.ph.fields.subscribeCarets(read);
+  }, [key]);
+
+  const pump = useCallback(() => {
+    const job = queued.current;
+    queued.current = null;
+    if (job === null) {
+      busy.current = false;
+      return;
+    }
+    busy.current = true;
+    const base = host.current;
+    globalThis.ph.fields
+      .editText(key, {
+        base: base.text,
+        baseIds: base.ids,
+        next: job.next,
+        caret: job.caret,
+      })
+      .then((answer) => {
+        host.current = answer;
+        if (queued.current !== null) {
+          pumpRef.current();
+          return;
+        }
+        busy.current = false;
+        adopt(answer);
+      })
+      .catch((error) => {
+        queued.current = null;
+        busy.current = false;
+        setLimitMessage(messageOf(error));
+        adopt(host.current);
+      });
+  }, [key, adopt]);
+  pumpRef.current = pump;
+
+  const setText = useCallback((next, caret) => {
+    if (next.length > TEXT_MAX_CHARS) {
+      setLimitMessage(TEXT_FULL_MESSAGE);
+      return;
+    }
+    setLimitMessage(null);
+    setEcho(next);
+    queued.current = { next, caret: caret === undefined ? null : caret };
+    if (!busy.current) pumpRef.current();
+  }, []);
+
+  const remoteCarets = useMemo(() => {
+    const out = [];
+    for (const caret of carets) {
+      const focus = offsetOf(view.ids, caret.focus, -1);
+      if (focus === -1) continue;
+      out.push({
+        clientId: caret.clientId,
+        name: caret.name,
+        color: caret.color,
+        textColor: caret.textColor,
+        anchor: offsetOf(view.ids, caret.anchor, focus),
+        focus,
+      });
+    }
+    return out;
+  }, [carets, view.ids]);
+
+  return {
+    text: echo,
+    ids: view.ids,
+    revision: view.revision,
+    setText,
+    remoteCarets,
+    limitMessage,
+  };
+}
+
+export function useSharedList(key) {
+  const [items, setItems] = useState([]);
+  const [limitMessage, setLimitMessage] = useState(null);
+
+  useEffect(() => {
+    const read = () => setItems(globalThis.ph.fields.peekList(key));
+    read();
+    return globalThis.ph.fields.subscribe(key, read);
+  }, [key]);
+
+  const edit = useCallback(
+    (payload) => {
+      globalThis.ph.fields
+        .editList(key, payload)
+        .then((answer) => {
+          setLimitMessage(null);
+          setItems(answer.items);
+        })
+        .catch((error) => setLimitMessage(messageOf(error)));
+    },
+    [key],
+  );
+
+  const insert = useCallback(
+    (value, afterId) => {
+      let anchor = afterId;
+      if (anchor === undefined) {
+        const rows = globalThis.ph.fields.peekList(key);
+        anchor = rows.length > 0 ? rows[rows.length - 1].id : null;
+      }
+      edit({ insert: [{ afterId: anchor, value }] });
+    },
+    [key, edit],
+  );
+  const remove = useCallback((id) => edit({ remove: [id] }), [edit]);
+  const update = useCallback(
+    (id, value) => edit({ update: [{ id, value }] }),
+    [edit],
+  );
+
+  return { items, insert, remove, update, limitMessage };
+}
+
+export function SharedTextArea({ keyName, placeholder, className, rows }) {
+  const field = useSharedText(keyName);
+  const areaRef = useRef(null);
+  const mirrorRef = useRef(null);
+  const caretIds = useRef({ anchor: null, focus: null });
+  const caretSentAt = useRef(0);
+  const [bars, setBars] = useState([]);
+  const text = field.text;
+  const ids = field.ids;
+  const revision = field.revision;
+  const remoteCarets = field.remoteCarets;
+  const capture = useCallback(() => {
+    const el = areaRef.current;
+    if (!el || el.value !== text || ids.length !== text.length) return null;
+    const caret = { anchor: el.selectionStart, focus: el.selectionEnd };
+    caretIds.current = {
+      anchor: idAt(ids, caret.anchor),
+      focus: idAt(ids, caret.focus),
+    };
+    return caret;
+  }, [ids, text]);
+
+  useLayoutEffect(() => {
+    const el = areaRef.current;
+    if (!el || document.activeElement !== el) return;
+    const anchor = offsetOf(ids, caretIds.current.anchor, el.selectionStart);
+    const focus = offsetOf(ids, caretIds.current.focus, el.selectionEnd);
+    if (el.selectionStart === anchor && el.selectionEnd === focus) return;
+    el.setSelectionRange(anchor, focus);
+  }, [revision, ids]);
+
+  useLayoutEffect(() => {
+    const el = areaRef.current;
+    const mirror = mirrorRef.current;
+    if (!el || !mirror) return;
+    const style = window.getComputedStyle(el);
+    for (const name of MIRROR_STYLES) mirror.style[name] = style[name];
+    const node = mirror.firstChild;
+    if (!node || remoteCarets.length === 0) {
+      setBars([]);
+      return;
+    }
+    const box = mirror.getBoundingClientRect();
+    const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) || 16;
+    const next = [];
+    for (const caret of remoteCarets) {
+      const range = document.createRange();
+      const at = Math.max(0, Math.min(caret.focus, node.length));
+      range.setStart(node, at);
+      range.setEnd(node, at);
+      const rect = range.getBoundingClientRect();
+      next.push({
+        clientId: caret.clientId,
+        name: caret.name,
+        color: caret.color,
+        textColor: caret.textColor,
+        left: rect.left - box.left - el.scrollLeft,
+        top: rect.top - box.top - el.scrollTop,
+        height: rect.height || line,
+      });
+    }
+    setBars(next);
+  }, [remoteCarets, text]);
+
+  const reportCaret = useCallback(() => {
+    const caret = capture();
+    if (caret === null) return;
+    const now = Date.now();
+    if (now - caretSentAt.current < CARET_MIN_INTERVAL_MS) return;
+    caretSentAt.current = now;
+    field.setText(text, caret);
+  }, [capture, field, text]);
+
+  return createElement(
+    "div",
+    { className: "relative h-full w-full" + (className ? " " + className : "") },
+    createElement("textarea", {
+      ref: areaRef,
+      value: text,
+      rows,
+      placeholder,
+      spellCheck: false,
+      onChange: (event) =>
+        field.setText(event.target.value, {
+          anchor: event.target.selectionStart,
+          focus: event.target.selectionEnd,
+        }),
+      onSelect: reportCaret,
+      onBlur: (event) => field.setText(event.target.value, null),
+      className:
+        "h-full w-full resize-none rounded-(--radius-sm) border border-border bg-transparent p-2 text-sm leading-relaxed outline-none " +
+        (className || ""),
+    }),
+    createElement(
+      "div",
+      {
+        ref: mirrorRef,
+        "aria-hidden": "true",
+        className:
+          "pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-2 text-sm leading-relaxed opacity-0 " +
+          (className || ""),
+      },
+      text + "\\u200b",
+    ),
+    createElement(
+      "div",
+      { className: "pointer-events-none absolute inset-0 overflow-hidden" },
+      bars.map((bar) =>
+        createElement(
+          "div",
+          {
+            key: bar.clientId + ":" + bar.top + ":" + bar.left,
+            className: "absolute w-[2px]",
+            style: {
+              left: bar.left,
+              top: bar.top,
+              height: bar.height,
+              background: bar.color,
+            },
+          },
+          createElement(
+            "div",
+            {
+              className:
+                "ph-caret-name absolute left-0 whitespace-nowrap rounded-(--radius-sm) px-1 text-[10px] leading-4",
+              style: {
+                background: bar.color,
+                color: bar.textColor,
+                top: bar.top < 16 ? bar.height + 2 : -16,
+              },
+            },
+            bar.name,
+          ),
+        ),
+      ),
+    ),
+    field.limitMessage
+      ? createElement(
+          "div",
+          {
+            className:
+              "absolute inset-x-0 bottom-0 bg-background/90 px-2 py-1 text-[11px] text-destructive",
+          },
+          field.limitMessage,
+        )
+      : null,
+  );
+}
+
+export function useSharedState(key, initial) {
+  const read = () => {
+    const value = globalThis.ph.state.peek(key);
+    return value === null || value === undefined ? initial : value;
+  };
+  const [value, setValue] = useState(read);
+  useEffect(() => {
+    setValue(read());
+    return globalThis.ph.state.subscribe(key, (next) =>
+      setValue(next === null || next === undefined ? initial : next),
+    );
+  }, [key]);
+  const set = useCallback(
+    (next) => {
+      const resolved = typeof next === "function" ? next(read()) : next;
+      return globalThis.ph.state.set(key, resolved);
+    },
+    [key],
+  );
+  return [value, set];
+}
+
+const RANGE_UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+const RANGE_NAMES = { h: "hours", d: "days", w: "weeks", m: "months" };
+const DEFAULT_DATE_RANGE = { date_from: "-7d", date_to: null };
+const RANGE_PATTERN = /^-(\\d+)([hdwm])$/;
+
+export function useFragmentSettings(fragmentId, defaults) {
+  const key = "settings:" + String(fragmentId || "fragment");
+  const [stored, setStored] = useSharedState(key, null);
+  const settings = Object.assign(
+    {},
+    defaults,
+    stored && typeof stored === "object" ? stored : null,
+  );
+  const update = useCallback(
+    (patch) =>
+      setStored((current) =>
+        Object.assign(
+          {},
+          defaults,
+          current && typeof current === "object" ? current : null,
+          patch,
+        ),
+      ),
+    [setStored],
+  );
+  return [settings, update];
+}
+
+const SKETCHPAD_DATE_RANGE_KEY = "dateRange";
+const scopedRangeKey = (id) => "dateRange:" + String(id);
+
+export function describeRange(range) {
+  const from = range && range.date_from ? String(range.date_from) : "-7d";
+  const match = RANGE_PATTERN.exec(from);
+  const amount = match ? Number(match[1]) : 7;
+  const unit = match ? match[2] : "d";
+  const clickhouseUnit = RANGE_UNITS[unit] || "DAY";
+  return {
+    since: "now() - INTERVAL " + amount + " " + clickhouseUnit,
+    previousSince: "now() - INTERVAL " + amount * 2 + " " + clickhouseUnit,
+    label: "Last " + amount + " " + (RANGE_NAMES[unit] || "days"),
+  };
+}
+
+export function useDateRange(fragmentId) {
+  const all = useSketchpadFragments();
+  const keys = useMemo(() => {
+    const list = fragmentId
+      ? holdersOf(fragmentId, all).map((holder) => scopedRangeKey(holder.id))
+      : [];
+    list.push(SKETCHPAD_DATE_RANGE_KEY);
+    return list;
+  }, [all, fragmentId]);
+  const signature = keys.join("|");
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+
+  const [found, setFound] = useState({
+    key: SKETCHPAD_DATE_RANGE_KEY,
+    range: DEFAULT_DATE_RANGE,
+  });
+
+  useEffect(() => {
+    const read = () => {
+      for (const candidate of keysRef.current) {
+        const value = globalThis.ph.state.peek(candidate);
+        if (value && typeof value === "object") {
+          setFound({ key: candidate, range: value });
+          return;
+        }
+      }
+      setFound({ key: SKETCHPAD_DATE_RANGE_KEY, range: DEFAULT_DATE_RANGE });
+    };
+    read();
+    const offs = keysRef.current.map((candidate) =>
+      globalThis.ph.state.subscribe(candidate, read),
+    );
+    return () => {
+      for (const off of offs) off();
+    };
+  }, [signature]);
+
+  const setRange = useCallback(
+    (next) =>
+      globalThis.ph.state.set(
+        found.key,
+        typeof next === "function" ? next(found.range) : next,
+      ),
+    [found.key, found.range],
+  );
+
+  const parts = describeRange(found.range);
+  return {
+    range: found.range || DEFAULT_DATE_RANGE,
+    setRange,
+    scoped: found.key !== SKETCHPAD_DATE_RANGE_KEY,
+    since: parts.since,
+    previousSince: parts.previousSince,
+    label: parts.label,
+  };
+}
+
+export function useOwnedDateRange(fragmentId) {
+  const [range, setRange] = useSharedState(
+    scopedRangeKey(fragmentId),
+    DEFAULT_DATE_RANGE,
+  );
+  const parts = describeRange(range);
+  return {
+    range: range || DEFAULT_DATE_RANGE,
+    setRange,
+    since: parts.since,
+    previousSince: parts.previousSince,
+    label: parts.label,
+  };
+}
+
+export function hogqlString(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return "'" + text.split("\\\\").join("\\\\\\\\").split("'").join("\\\\'") + "'";
+}
+
+export function useHogQL(sql) {
+  const [state, setState] = useState({
+    loading: Boolean(sql),
+    error: null,
+    columns: [],
+    rows: [],
+  });
+  const [nonce, setNonce] = useState(0);
+  const retry = useCallback(() => setNonce((value) => value + 1), []);
+
+  useEffect(() => {
+    if (!sql) {
+      setState({ loading: false, error: null, columns: [], rows: [] });
+      return;
+    }
+    let cancelled = false;
+    setState({ loading: true, error: null, columns: [], rows: [] });
+    globalThis.ph
+      .query(sql)
+      .then((result) => {
+        if (cancelled) return;
+        setState({
+          loading: false,
+          error: null,
+          columns: (result && result.columns) || [],
+          rows: (result && result.results) || [],
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setState({
+          loading: false,
+          error: messageOf(error),
+          columns: [],
+          rows: [],
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sql, nonce]);
+
+  return {
+    loading: state.loading,
+    error: state.error,
+    columns: state.columns,
+    rows: state.rows,
+    retry,
+  };
+}
+
+export function useEventNames() {
+  const result = useHogQL(
+    "SELECT event, count() AS uses FROM events WHERE timestamp >= now() - INTERVAL 30 DAY GROUP BY event ORDER BY uses DESC LIMIT 100",
+  );
+  const names = useMemo(
+    () =>
+      result.rows
+        .map((row) => (row && row[0] ? String(row[0]) : ""))
+        .filter(Boolean),
+    [result.rows],
+  );
+  return { names, loading: result.loading, error: result.error };
+}
+
+export function formatCompact(value) {
+  const number = Number(value || 0);
+  if (Math.abs(number) >= 1000000) {
+    return (number / 1000000).toFixed(1).replace(/\\.0$/, "") + "M";
+  }
+  if (Math.abs(number) >= 1000) {
+    return (number / 1000).toFixed(1).replace(/\\.0$/, "") + "k";
+  }
+  return String(number);
+}
+
+
+const areaOf = (box) => Math.max(1, box.w * box.h);
+const boxKey = (item) => item.x + ":" + item.y + ":" + item.w + ":" + item.h;
+const holds = (box, item) => {
+  const cx = item.x + item.w / 2;
+  const cy = item.y + item.h / 2;
+  return cx > box.x && cx < box.x + box.w && cy > box.y && cy < box.y + box.h;
+};
+
+export function holdersOf(fragmentId, all) {
+  const self = all.find((item) => item.id === fragmentId);
+  if (!self) return [];
+  return all
+    .filter(
+      (other) =>
+        other.id !== fragmentId &&
+        areaOf(other) > areaOf(self) &&
+        holds(other, self),
+    )
+    .sort((a, b) => areaOf(a) - areaOf(b));
+}
+
+export function useSketchpadFragments() {
+  const [list, setList] = useState(() => globalThis.ph.board.list());
+  useEffect(() => {
+    const read = () => setList(globalThis.ph.board.list());
+    read();
+    return globalThis.ph.board.subscribe(read);
+  }, []);
+  return list;
+}
+
+export function useSketchpadSelection() {
+  const [ids, setIds] = useState(() => globalThis.ph.board.selection());
+  useEffect(() => {
+    setIds(globalThis.ph.board.selection());
+    return globalThis.ph.board.subscribeSelection(setIds);
+  }, []);
+  return ids;
+}
+
+export function useSketchpadFocus() {
+  const [id, setId] = useState(() => globalThis.ph.board.focused());
+  useEffect(() => {
+    setId(globalThis.ph.board.focused());
+    return globalThis.ph.board.subscribeFocus(setId);
+  }, []);
+  return id;
+}
+
+export function useSketchpadBusy() {
+  const [busy, setBusy] = useState(() => globalThis.ph.board.isBusy());
+  useEffect(() => {
+    setBusy(globalThis.ph.board.isBusy());
+    return globalThis.ph.board.subscribeBusy(setBusy);
+  }, []);
+  return busy;
+}
+
+export function gridRects(items, box, options) {
+  const opts = options || {};
+  const gap = typeof opts.gap === "number" ? opts.gap : 12;
+  const columns = Math.max(1, Math.min(8, Math.round(opts.columns || 2)));
+  if (items.length === 0) return [];
+  const rows = Math.ceil(items.length / columns);
+  const cellWidth = (box.w - gap * (columns - 1)) / columns;
+  const cellHeight = (box.h - gap * (rows - 1)) / rows;
+  return items.map((item, index) => ({
+    id: item.id,
+    x: box.x + (index % columns) * (cellWidth + gap),
+    y: box.y + Math.floor(index / columns) * (cellHeight + gap),
+    w: Math.max(80, cellWidth),
+    h: Math.max(60, cellHeight),
+  }));
+}
+
+export function useContainer(fragmentId, options) {
+  const opts = options || {};
+  const padding = typeof opts.padding === "number" ? opts.padding : 16;
+  const header = typeof opts.header === "number" ? opts.header : 0;
+  const layout = typeof opts.layout === "function" ? opts.layout : null;
+  const follow = opts.follow === true;
+
+  const all = useSketchpadFragments();
+  const busy = useSketchpadBusy();
+  const self = useMemo(
+    () => all.find((item) => item.id === fragmentId) || null,
+    [all, fragmentId],
+  );
+
+  const memberIds = useRef(null);
+  const memberBoxes = useRef({});
+  const children = useMemo(() => {
+    if (!self) return [];
+    const others = all.filter((item) => item.id !== fragmentId);
+    const inside = others.filter((item) => holds(self, item));
+    const mine = inside.filter((child) =>
+      inside.every(
+        (other) =>
+          other.id === child.id ||
+          areaOf(other) <= areaOf(child) ||
+          !holds(other, child),
+      ),
+    );
+    const keep = new Set(mine.map((item) => item.id));
+    const before = memberIds.current;
+    const boxes = memberBoxes.current;
+    if (before) {
+      for (const item of others) {
+        if (keep.has(item.id)) continue;
+        if (!before.has(item.id)) continue;
+        if (boxes[item.id] !== boxKey(item)) continue;
+        keep.add(item.id);
+      }
+    }
+    const members = others.filter((item) => keep.has(item.id));
+    memberIds.current = keep;
+    const next = {};
+    for (const item of members) next[item.id] = boxKey(item);
+    memberBoxes.current = next;
+    return members.sort((a, b) => a.y - b.y || a.x - b.x);
+  }, [all, fragmentId, self]);
+
+  const inner = useMemo(() => {
+    if (!self) return { x: 0, y: 0, w: 0, h: 0 };
+    return {
+      x: self.x + padding,
+      y: self.y + padding + header,
+      w: Math.max(1, self.w - padding * 2),
+      h: Math.max(1, self.h - padding * 2 - header),
+    };
+  }, [self, padding, header]);
+
+  const lastBox = useRef(null);
+  useEffect(() => {
+    if (!self) return;
+    const previous = lastBox.current;
+    const selfMoved =
+      previous !== null &&
+      (previous.x !== self.x ||
+        previous.y !== self.y ||
+        previous.w !== self.w ||
+        previous.h !== self.h);
+    if (busy && !selfMoved) return;
+    lastBox.current = { x: self.x, y: self.y, w: self.w, h: self.h };
+    if (children.length === 0) return;
+
+    let wanted = null;
+    if (layout) {
+      wanted = layout(children, inner);
+    } else if (follow && previous) {
+      const dx = self.x - previous.x;
+      const dy = self.y - previous.y;
+      if (dx === 0 && dy === 0) return;
+      wanted = children.map((child) => ({
+        id: child.id,
+        x: child.x + dx,
+        y: child.y + dy,
+      }));
+    }
+    if (!Array.isArray(wanted) || wanted.length === 0) return;
+
+    const known = new Map(children.map((child) => [child.id, child]));
+    const moves = [];
+    for (const want of wanted) {
+      const child = want ? known.get(want.id) : null;
+      if (!child) continue;
+      const next = {
+        id: child.id,
+        x: Math.round(typeof want.x === "number" ? want.x : child.x),
+        y: Math.round(typeof want.y === "number" ? want.y : child.y),
+        w: Math.round(typeof want.w === "number" ? want.w : child.w),
+        h: Math.round(typeof want.h === "number" ? want.h : child.h),
+        hidden: want.hidden === true,
+      };
+      if (
+        next.x === child.x &&
+        next.y === child.y &&
+        next.w === child.w &&
+        next.h === child.h &&
+        next.hidden === (child.hidden === true)
+      ) {
+        continue;
+      }
+      moves.push(next);
+    }
+    if (moves.length === 0) return;
+    globalThis.ph.board.arrange(moves).catch(() => {});
+  }, [self, children, inner, busy, layout, follow]);
+
+  return { self, children, inner, busy };
+}
+
+`;
+
+export interface SketchpadFrameOptions {
+  vendoredModules: boolean;
+}
+
+export function sketchpadFramePolicy(vendoredModules: boolean): string {
+  return contentSecurityPolicy(vendoredModules);
+}
+
+export function buildSketchpadFrameDocument(
+  options: SketchpadFrameOptions,
+): string {
+  const moduleUrl = (url: string): string =>
+    options.vendoredModules ? vendoredModuleUrl(url) : url;
+  const map = buildImportMap();
+  const importMap = JSON.stringify({
+    imports: Object.fromEntries(
+      Object.entries(map.imports).map(([name, url]) => [name, moduleUrl(url)]),
+    ),
+  });
+  const csp = contentSecurityPolicy(options.vendoredModules);
+
+  const bootstrap = `
+    try {
+      delete Navigator.prototype.sendBeacon;
+    } catch (error) {
+      Navigator.prototype.sendBeacon = undefined;
+    }
+
+    document.addEventListener("securitypolicyviolation", (event) => {
+      post({
+        type: "policy-violation",
+        directive: String(event.effectiveDirective || "").slice(0, 64),
+        blocked: String(event.blockedURI || "").slice(0, 512),
+      });
+    });
+
+    const linkGuard = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeName === "LINK") node.remove();
+        }
+      }
+    });
+    linkGuard.observe(document.documentElement, { childList: true, subtree: true });
+
+    for (const name of [
+      "RTCPeerConnection",
+      "webkitRTCPeerConnection",
+      "mozRTCPeerConnection",
+      "RTCDataChannel",
+      "RTCSessionDescription",
+      "RTCIceCandidate",
+    ]) {
+      try {
+        delete globalThis[name];
+      } catch (error) {
+        globalThis[name] = undefined;
+      }
+    }
+
+    const CHANNEL = ${JSON.stringify(SKETCHPAD_CHANNEL)};
+    const MAX_STATE_VALUE_BYTES = ${SKETCHPAD_MAX_STATE_VALUE_BYTES};
+    const post = (msg) => parent.postMessage({ channel: CHANNEL, ...msg }, "*");
+    const world = document.getElementById("world");
+
+    const pending = new Map();
+    let reqSeq = 0;
+    const request = (message) =>
+      new Promise((resolve, reject) => {
+        const id = String(++reqSeq);
+        pending.set(id, { resolve, reject });
+        post({ ...message, id });
+      });
+    const call = (method, payload) => request({ type: "data-request", method, payload });
+    const unavailable = (name) => () =>
+      Promise.reject(new Error("ph." + name + " is not available on sketchpads yet"));
+
+    const stateStore = new Map();
+    const subscribers = new Map();
+    const jsonOf = (value) => {
+      try {
+        return JSON.stringify(value === undefined ? null : value) ?? "null";
+      } catch {
+        return null;
+      }
+    };
+    const peek = (key) => (stateStore.has(key) ? stateStore.get(key) : null);
+    const notify = (key, value) => {
+      const subs = subscribers.get(key);
+      if (!subs) return;
+      for (const cb of Array.from(subs)) {
+        try {
+          cb(value);
+        } catch {}
+      }
+    };
+    const writePlain = (key, value) => {
+      const next = value === undefined ? null : value;
+      if (jsonOf(peek(key)) === jsonOf(next)) return false;
+      if (next === null) stateStore.delete(key);
+      else stateStore.set(key, next);
+      notify(key, next);
+      return true;
+    };
+
+    const fieldStore = new Map();
+    const fieldSubs = new Map();
+    const notifyField = (key) => {
+      const subs = fieldSubs.get(key);
+      if (!subs) return;
+      for (const cb of Array.from(subs)) {
+        try {
+          cb();
+        } catch {}
+      }
+    };
+    const unwrapField = (value) => {
+      if (!value || typeof value !== "object") return null;
+      if (typeof value.__text === "string" && Array.isArray(value.ids)) {
+        return {
+          view: { text: value.__text, ids: value.ids },
+          plain: value.__text,
+        };
+      }
+      if (Array.isArray(value.__list)) {
+        return {
+          view: { items: value.__list },
+          plain: value.__list.map((row) => (row ? row.value : null)),
+        };
+      }
+      return null;
+    };
+    const writeState = (key, value) => {
+      const field = unwrapField(value);
+      if (!field) {
+        if (fieldStore.delete(key)) notifyField(key);
+        return writePlain(key, value);
+      }
+      fieldStore.set(key, field.view);
+      notifyField(key);
+      return writePlain(key, field.plain);
+    };
+
+    const NO_CARETS = [];
+    const caretsByKey = new Map();
+    const caretSubs = new Set();
+    const applyCarets = (list) => {
+      caretsByKey.clear();
+      for (const caret of list) {
+        if (!caret || typeof caret.key !== "string") continue;
+        const bucket = caretsByKey.get(caret.key) || [];
+        bucket.push(caret);
+        caretsByKey.set(caret.key, bucket);
+      }
+      for (const cb of Array.from(caretSubs)) {
+        try {
+          cb();
+        } catch {}
+      }
+    };
+
+    const fields = {
+      peekText: (key) => {
+        const view = fieldStore.get(key);
+        if (view && Array.isArray(view.ids)) return view;
+        const plain = peek(key);
+        return { text: typeof plain === "string" ? plain : "", ids: [] };
+      },
+      peekList: (key) => {
+        const view = fieldStore.get(key);
+        if (view && Array.isArray(view.items)) return view.items;
+        const plain = peek(key);
+        if (!Array.isArray(plain)) return [];
+        return plain.map((value, index) => ({ id: "plain-" + index, value }));
+      },
+      subscribe: (key, cb) => {
+        let subs = fieldSubs.get(key);
+        if (!subs) {
+          subs = new Set();
+          fieldSubs.set(key, subs);
+        }
+        subs.add(cb);
+        const stopPlain = state.subscribe(key, cb);
+        return () => {
+          subs.delete(cb);
+          if (subs.size === 0) fieldSubs.delete(key);
+          stopPlain();
+        };
+      },
+      editText: (key, edit) => call("stateEditText", { key, ...edit }),
+      editList: (key, edit) => call("stateEditList", { key, ...edit }),
+      caretsFor: (key) => caretsByKey.get(key) || NO_CARETS,
+      subscribeCarets: (cb) => {
+        caretSubs.add(cb);
+        return () => caretSubs.delete(cb);
+      },
+    };
+    const replaceState = (state) => {
+      const incoming = state && typeof state === "object" ? state : {};
+      const keys = new Set([...stateStore.keys(), ...Object.keys(incoming)]);
+      for (const key of keys) writeState(key, incoming[key]);
+    };
+    const state = {
+      get: (key) => Promise.resolve(peek(key)),
+      peek,
+      set: (key, value) => {
+        if (typeof key !== "string" || !key) {
+          return Promise.reject(new Error("ph.state.set(key, value) requires a key"));
+        }
+        if (fieldStore.has(key)) {
+          return Promise.reject(new Error(${JSON.stringify(SHARED_FIELD_READ_ONLY_STATE)}));
+        }
+        const next = value === undefined ? null : value;
+        const json = jsonOf(next);
+        if (json === null) {
+          return Promise.reject(new Error("ph.state.set(key, value) needs a JSON value"));
+        }
+        if (new TextEncoder().encode(json).length > MAX_STATE_VALUE_BYTES) {
+          return Promise.reject(
+            new Error("ph.state.set(key, value) is limited to " + Math.floor(MAX_STATE_VALUE_BYTES / 1024) + " KB per value"),
+          );
+        }
+        if (writeState(key, next)) post({ type: "state-changed", key, value: next });
+        return Promise.resolve({ ok: true });
+      },
+      list: () => Promise.resolve(Array.from(stateStore, ([key, value]) => ({ key, value }))),
+      subscribe: (key, cb) => {
+        let subs = subscribers.get(key);
+        if (!subs) {
+          subs = new Set();
+          subscribers.set(key, subs);
+        }
+        subs.add(cb);
+        return () => {
+          subs.delete(cb);
+          if (subs.size === 0) subscribers.delete(key);
+        };
+      },
+    };
+
+    let sketchpadBusy = false;
+    let selectedIds = [];
+    const sketchpadSubs = new Set();
+    const selectionSubs = new Set();
+    const focusSubs = new Set();
+    const notifyFocus = () => {
+      for (const cb of Array.from(focusSubs)) {
+        try {
+          cb(focusedId);
+        } catch {}
+      }
+    };
+    const busySubs = new Set();
+    let sketchpadNotifyQueued = false;
+    const notifySketchpad = () => {
+      if (sketchpadNotifyQueued) return;
+      sketchpadNotifyQueued = true;
+      queueMicrotask(() => {
+        sketchpadNotifyQueued = false;
+        for (const cb of Array.from(sketchpadSubs)) {
+          try {
+            cb();
+          } catch {}
+        }
+      });
+    };
+    const setBusy = (next) => {
+      const value = next === true;
+      if (value === sketchpadBusy) return;
+      sketchpadBusy = value;
+      for (const cb of Array.from(busySubs)) {
+        try {
+          cb(value);
+        } catch {}
+      }
+    };
+    const sketchpadRects = () => {
+      const list = [];
+      for (const [fragmentId, entry] of fragments) {
+        const f = entry.fragment;
+        if (!f) continue;
+        list.push({
+          id: fragmentId,
+          title: typeof f.title === "string" ? f.title : "",
+          x: f.x,
+          y: f.y,
+          w: f.w,
+          h: f.h,
+          z: f.z ?? 0,
+          surface: f.surface === "plain" ? "plain" : "card",
+          hidden: f.hidden === true,
+        });
+      }
+      return list;
+    };
+
+    window.ph = {
+      run: unavailable("run"),
+      loadInsight: (shortId, opts) =>
+        call("loadInsight", {
+          shortId,
+          dateRange: opts && opts.dateRange,
+          variables: opts && opts.variables,
+          refresh: opts && opts.refresh,
+        }),
+      query: (queryOrHogql, params, opts) =>
+        call(
+          "query",
+          typeof queryOrHogql === "string"
+            ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
+            : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
+        ),
+      capture: unavailable("capture"),
+      state,
+      fields,
+      board: {
+        list: sketchpadRects,
+        subscribe: (cb) => {
+          sketchpadSubs.add(cb);
+          return () => sketchpadSubs.delete(cb);
+        },
+        isBusy: () => sketchpadBusy,
+        subscribeBusy: (cb) => {
+          busySubs.add(cb);
+          return () => busySubs.delete(cb);
+        },
+        focused: () => focusedId,
+        subscribeFocus: (cb) => {
+          focusSubs.add(cb);
+          return () => focusSubs.delete(cb);
+        },
+        selection: () => selectedIds.slice(),
+        subscribeSelection: (cb) => {
+          selectionSubs.add(cb);
+          return () => selectionSubs.delete(cb);
+        },
+        arrange: (items) => call("arrangeFragments", { items }),
+      },
+      actions: { invoke: unavailable("actions.invoke") },
+      agent: { request: unavailable("agent.request") },
+      openExternal: (url) => post({ type: "open-external", url }),
+      navigate: {
+        toTask: unavailable("navigate.toTask"),
+        toNewTask: unavailable("navigate.toNewTask"),
+        toCanvas: unavailable("navigate.toCanvas"),
+        toNewCanvas: unavailable("navigate.toNewCanvas"),
+      },
+    };
+
+    const resolveExternalAnchorUrl = ${resolveExternalAnchorUrl.toString()};
+    document.addEventListener(
+      "click",
+      (event) => {
+        const url = resolveExternalAnchorUrl(event.target);
+        if (!url) return;
+        setTimeout(() => {
+          if (!event.defaultPrevented) window.ph.openExternal(url);
+        }, 0);
+      },
+      true,
+    );
+
+    const closeFloating = () => {
+      let floating = false;
+      for (const node of document.body.children) {
+        if (node !== world && node.childElementCount > 0) floating = true;
+      }
+      if (!floating) return;
+      const target =
+        document.activeElement instanceof Element
+          ? document.activeElement
+          : document.body;
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    };
+
+    const applyTheme = (theme) =>
+      document.documentElement.classList.toggle("dark", theme === "dark");
+    const GRID_STEP = 24;
+    let lastViewport = null;
+    const applyViewport = (viewport) => {
+      if (!viewport) return;
+      if (framedBox !== null) {
+        lastViewport = viewport;
+        return;
+      }
+      if (
+        !lastViewport ||
+        lastViewport.x !== viewport.x ||
+        lastViewport.y !== viewport.y ||
+        lastViewport.zoom !== viewport.zoom
+      ) {
+        closeFloating();
+      }
+      lastViewport = viewport;
+      world.style.transform =
+        "translate(" + viewport.x + "px, " + viewport.y + "px) scale(" + viewport.zoom + ")";
+      const step = GRID_STEP * viewport.zoom;
+      const style = document.body.style;
+      if (focusedId !== null) {
+        style.backgroundImage = "none";
+        return;
+      }
+      if (step < 9) {
+        style.backgroundImage = "none";
+        return;
+      }
+      style.backgroundImage = "radial-gradient(var(--ph-grid-dot) 1px, transparent 1px)";
+      style.backgroundSize = step + "px " + step + "px";
+      style.backgroundPosition = viewport.x + "px " + viewport.y + "px";
+    };
+
+    const fragmentElementOf = (target) =>
+      target instanceof Element ? target.closest(".fragment") : null;
+    const onSketchpadSurface = (target) =>
+      !(target instanceof Element) ||
+      target === document.body ||
+      target === document.documentElement ||
+      world.contains(target);
+    let relayingPointer = false;
+    const modifiersOf = (e) => ({
+      shiftKey: e.shiftKey === true,
+      metaKey: e.metaKey === true,
+      ctrlKey: e.ctrlKey === true,
+      altKey: e.altKey === true,
+    });
+    const pointerPayload = (phase, e) => ({
+      type: "background-pointer",
+      phase,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      button: e.button,
+      ...modifiersOf(e),
+    });
+    document.addEventListener(
+      "pointerdown",
+      (e) => {
+        const fragmentEl = fragmentElementOf(e.target);
+        if (fragmentEl) {
+          post({
+            type: "fragment-pointer-down",
+            id: fragmentEl.dataset.id || "",
+            ...modifiersOf(e),
+          });
+          return;
+        }
+        if (!onSketchpadSurface(e.target)) return;
+        e.preventDefault();
+        relayingPointer = true;
+        post(pointerPayload("down", e));
+      },
+      true,
+    );
+    window.addEventListener("pointermove", (e) => {
+      if (relayingPointer) post(pointerPayload("move", e));
+      post({ type: "pointer-move", clientX: e.clientX, clientY: e.clientY });
+    });
+    document.addEventListener("pointerleave", () => {
+      post({ type: "pointer-leave" });
+    });
+    const endPointer = (e) => {
+      if (!relayingPointer) return;
+      relayingPointer = false;
+      post(pointerPayload("up", e));
+    };
+    window.addEventListener("pointerup", endPointer);
+    window.addEventListener("pointercancel", endPointer);
+
+    const fragmentScrolls = (target, deltaX, deltaY) => {
+      const fragmentEl = fragmentElementOf(target);
+      if (!fragmentEl) return false;
+      const vertical = Math.abs(deltaY) >= Math.abs(deltaX);
+      for (let el = target; el && fragmentEl.contains(el); el = el.parentElement) {
+        if (vertical) {
+          if (el.scrollHeight <= el.clientHeight) continue;
+          const atTop = el.scrollTop <= 0;
+          const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+          if ((deltaY < 0 && !atTop) || (deltaY > 0 && !atBottom)) return true;
+        } else {
+          if (el.scrollWidth <= el.clientWidth) continue;
+          const atStart = el.scrollLeft <= 0;
+          const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+          if ((deltaX < 0 && !atStart) || (deltaX > 0 && !atEnd)) return true;
+        }
+      }
+      return false;
+    };
+    window.addEventListener(
+      "wheel",
+      (e) => {
+        const zooming = e.ctrlKey || e.metaKey;
+        if (!onSketchpadSurface(e.target)) return;
+        if (!zooming && fragmentScrolls(e.target, e.deltaX, e.deltaY)) return;
+        e.preventDefault();
+        post({
+          type: "wheel",
+          deltaX: e.deltaX,
+          deltaY: e.deltaY,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          clientX: e.clientX,
+          clientY: e.clientY,
+        });
+      },
+      { passive: false },
+    );
+
+    const ALLOWED_IMPORTS = new Set(${JSON.stringify([...SKETCHPAD_ALLOWED_IMPORTS])});
+
+    let runtimePromise = null;
+    const loadRuntime = () => {
+      if (runtimePromise) return runtimePromise;
+      runtimePromise = Promise.all([import("react"), import("react-dom/client")])
+        .then(([React, dom]) => {
+          const ErrorBlock = ({ message }) =>
+            React.createElement(
+              "div",
+              { className: "fragment-error" },
+              React.createElement("div", { className: "fragment-error-title" }, "This fragment did not run"),
+              React.createElement("pre", null, message),
+              React.createElement("div", { className: "fragment-error-hint" }, "Select Edit code in the fragment menu to fix it."),
+            );
+          class Boundary extends React.Component {
+            constructor(props) {
+              super(props);
+              this.state = { error: null };
+            }
+            static getDerivedStateFromError(error) {
+              return { error };
+            }
+            componentDidCatch(error) {
+              this.props.onError(error);
+            }
+            render() {
+              if (this.state.error) {
+                return React.createElement(ErrorBlock, { message: describeError(this.state.error) });
+              }
+              return this.props.children;
+            }
+          }
+          return { React, createRoot: dom.createRoot, Boundary, ErrorBlock };
+        })
+        .catch((err) => {
+          runtimePromise = null;
+          throw err;
+        });
+      return runtimePromise;
+    };
+
+    const describeError = (err) => {
+      const message = String((err && err.message) || err || "Unknown error");
+      if (message.indexOf("Failed to fetch dynamically imported module") !== -1) {
+        return "The fragment libraries did not load. Reopen the board, and tell us if it happens again.";
+      }
+      return message;
+    };
+    const reportFragmentError = (id, err, message) =>
+      post({
+        type: "fragment-error",
+        id,
+        message: String(message ?? describeError(err)).slice(0, 10000),
+        stack: err && err.stack ? String(err.stack).slice(0, 50000) : undefined,
+      });
+
+    const fragments = new Map();
+    const applyGeometry = (el, f) => {
+      el.style.zIndex = String(f.z ?? 0);
+      el.style.display = f.hidden === true ? "none" : "";
+      if (framedBox !== null && f.id === focusedId) {
+        el.style.left = "0px";
+        el.style.top = "0px";
+        el.style.width = "100%";
+        el.style.height = "100%";
+        return;
+      }
+      if (framedBox !== null && boxHolds(framedBox, f)) {
+        el.style.left =
+          ((f.x - framedBox.x) / framedBox.w) * 100 + "%";
+        el.style.top = ((f.y - framedBox.y) / framedBox.h) * 100 + "%";
+        el.style.width = (f.w / framedBox.w) * 100 + "%";
+        el.style.height = (f.h / framedBox.h) * 100 + "%";
+        return;
+      }
+      el.style.left = f.x + "px";
+      el.style.top = f.y + "px";
+      el.style.width = f.w + "px";
+      el.style.height = f.h + "px";
+    };
+    const renderErrorBlock = async (entry, seq, message) => {
+      try {
+        const { React, createRoot, ErrorBlock } = await loadRuntime();
+        if (seq !== entry.mountSeq) return;
+        if (!entry.root) entry.root = createRoot(entry.el);
+        entry.root.render(React.createElement(ErrorBlock, { message }));
+      } catch {
+        if (seq !== entry.mountSeq || entry.root) return;
+        entry.el.textContent = "";
+        const block = document.createElement("div");
+        block.className = "fragment-error";
+        const title = document.createElement("div");
+        title.className = "fragment-error-title";
+        title.textContent = "This fragment did not run";
+        const pre = document.createElement("pre");
+        pre.textContent = message;
+        const hint = document.createElement("div");
+        hint.className = "fragment-error-hint";
+        hint.textContent = "Select Edit code in the fragment menu to fix it.";
+        block.append(title, pre, hint);
+        entry.el.append(block);
+      }
+    };
+    const activeSources = new Map();
+    const releaseSource = (entry) => {
+      if (!entry.sourceRef) return;
+      const count = activeSources.get(entry.sourceRef) - 1;
+      if (count) activeSources.set(entry.sourceRef, count);
+      else activeSources.delete(entry.sourceRef);
+      entry.sourceRef = null;
+    };
+    const compileFragment = (${createFragmentCompiler.toString()}) (async (refs) => {
+      const active = refs.filter((ref) => activeSources.has(ref));
+      const results = active.length ? await request({ type: "compile-request", refs: active }) : {};
+      for (const ref of refs) {
+        if (!activeSources.has(ref)) results[ref] = { error: "The fragment source changed." };
+      }
+      return results;
+    });
+    const libraries = new Map();
+    const loadLibrary = (name) => {
+      if (!ALLOWED_IMPORTS.has(name)) throw new Error("Unsupported fragment import: " + name);
+      if (!libraries.has(name)) libraries.set(name, import(name).catch((error) => {
+        libraries.delete(name);
+        throw error;
+      }));
+      return libraries.get(name);
+    };
+    const executeFragment = async (artifact) => {
+      if (artifact.error) throw new Error(artifact.error);
+      const dependencies = new Map(await Promise.all(artifact.imports.map(async (name) => [name, await loadLibrary(name)])));
+      return new Promise((resolve, reject) => {
+        const key = "__sketchpadModule_" + crypto.randomUUID().replaceAll("-", "");
+        const entry = {
+          started: false,
+          require: (name) => {
+            if (!dependencies.has(name)) throw new Error("Unsupported fragment import: " + name);
+            return dependencies.get(name);
+          },
+          exports: {}, resolve, reject,
+        };
+        const script = document.createElement("script");
+        globalThis[key] = entry;
+        const slot = "globalThis[" + JSON.stringify(key) + "]";
+        script.textContent = slot + ".started = true; (async function(require, exports) {\\n" + artifact.code + "\\nreturn exports; })(" + slot + ".require, " + slot + ".exports).then(" + slot + ".resolve, " + slot + ".reject);";
+        try {
+          document.head.append(script);
+          if (!entry.started) reject(new Error("The compiled fragment could not start."));
+        } finally {
+          delete globalThis[key];
+          script.remove();
+        }
+      });
+    };
+    const mount = async (entry, fragment) => {
+      const seq = ++entry.mountSeq;
+      releaseSource(entry);
+      const id = fragment.id;
+      try {
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(fragment.code));
+        if (seq !== entry.mountSeq) return;
+        const ref = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        entry.sourceRef = ref;
+        activeSources.set(ref, (activeSources.get(ref) || 0) + 1);
+        const artifact = await compileFragment(ref);
+        if (seq !== entry.mountSeq) return;
+        const mod = await executeFragment(artifact);
+        if (seq !== entry.mountSeq) return;
+        const Comp = mod.default;
+        if (typeof Comp !== "function") {
+          throw new Error("A fragment must export default a React component.");
+        }
+        const { React, createRoot, Boundary } = await loadRuntime();
+        if (seq !== entry.mountSeq) return;
+        if (!entry.root) entry.root = createRoot(entry.el);
+        entry.errored = false;
+        entry.root.render(
+          React.createElement(
+            Boundary,
+            {
+              key: fragment.codeVersion,
+              onError: (error) => {
+                entry.errored = true;
+                reportFragmentError(id, error);
+              },
+            },
+            React.createElement(Comp, { fragmentId: id }),
+          ),
+        );
+        requestAnimationFrame(() => {
+          if (seq !== entry.mountSeq || entry.errored) return;
+          post({ type: "fragment-rendered", id });
+        });
+      } catch (err) {
+        if (seq !== entry.mountSeq) return;
+        const message = describeError(err);
+        reportFragmentError(id, err, message);
+        await renderErrorBlock(entry, seq, message);
+      }
+    };
+    const upsert = (fragment) => {
+      if (!fragment || typeof fragment.id !== "string") return;
+      let entry = fragments.get(fragment.id);
+      if (fragment.code === undefined) {
+        if (!entry) return;
+        fragment = { ...fragment, code: entry.code };
+      }
+      if (!entry) {
+        const el = document.createElement("div");
+        el.className = "fragment";
+        if (fragment.surface === "plain") el.classList.add("fragment-plain");
+        el.dataset.id = fragment.id;
+        world.appendChild(el);
+        entry = { el, root: null, codeVersion: null, code: null, mountSeq: 0, errored: false, fragment: null };
+        fragments.set(fragment.id, entry);
+      }
+      const before = entry.fragment;
+      if (
+        before &&
+        (before.x !== fragment.x ||
+          before.y !== fragment.y ||
+          before.w !== fragment.w ||
+          before.h !== fragment.h)
+      ) {
+        closeFloating();
+      }
+      entry.fragment = {
+        id: fragment.id,
+        title: fragment.title,
+        x: fragment.x,
+        y: fragment.y,
+        w: fragment.w,
+        h: fragment.h,
+        z: fragment.z,
+        surface: fragment.surface,
+        hidden: fragment.hidden === true,
+      };
+      notifySketchpad();
+      applyGeometry(entry.el, fragment);
+      if (before && before.hidden === true && fragment.hidden !== true) {
+        entry.el.classList.remove("entering");
+        void entry.el.offsetWidth;
+        entry.el.classList.add("entering");
+      }
+      entry.el.classList.toggle("fragment-plain", fragment.surface === "plain");
+      entry.el.classList.toggle("focused", fragment.id === focusedId);
+      if (focusedId !== null) applyFocus();
+      if (entry.codeVersion === fragment.codeVersion && entry.code === fragment.code) return;
+      entry.codeVersion = fragment.codeVersion;
+      entry.code = fragment.code;
+      void mount(entry, fragment);
+    };
+    const remove = (id) => {
+      const entry = fragments.get(id);
+      if (!entry) return;
+      fragments.delete(id);
+      releaseSource(entry);
+      entry.mountSeq += 1;
+      if (entry.root) entry.root.unmount();
+      entry.el.remove();
+      notifySketchpad();
+    };
+    const syncFragments = (list) => {
+      const keep = new Set();
+      for (const fragment of list) {
+        if (fragment && typeof fragment.id === "string") keep.add(fragment.id);
+      }
+      for (const id of Array.from(fragments.keys())) {
+        if (!keep.has(id)) remove(id);
+      }
+      for (const fragment of list) upsert(fragment);
+    };
+    let focusedId = null;
+    window.addEventListener("keydown", (event) => {
+      if (
+        event.key === "Escape" && event.isTrusted &&
+        !event.defaultPrevented && !event.isComposing && focusedId !== null
+      ) {
+        event.preventDefault();
+        post({ type: "exit-focus" });
+      }
+    });
+    let framedBox = null;
+    const boxHolds = (box, item) => {
+      const cx = item.x + item.w / 2;
+      const cy = item.y + item.h / 2;
+      return cx > box.x && cx < box.x + box.w && cy > box.y && cy < box.y + box.h;
+    };
+    const applyFocus = () => {
+      const target = focusedId === null ? null : fragments.get(focusedId);
+      const box = target && target.fragment ? target.fragment : null;
+      let held = 0;
+      for (const [fragmentId, entry] of fragments) {
+        const inside =
+          box !== null &&
+          fragmentId !== focusedId &&
+          entry.fragment !== null &&
+          boxHolds(box, entry.fragment);
+        if (inside) held += 1;
+        entry.el.classList.toggle("focused", fragmentId === focusedId);
+        entry.el.classList.toggle("in-frame", inside);
+      }
+      framedBox = held > 0 ? box : null;
+      document.body.classList.toggle(
+        "ph-focus",
+        focusedId !== null && framedBox === null,
+      );
+      document.body.classList.toggle("ph-focus-frame", framedBox !== null);
+      for (const entry of fragments.values()) {
+        if (entry.fragment) applyGeometry(entry.el, entry.fragment);
+      }
+      if (focusedId !== null) document.body.style.backgroundImage = "none";
+      else applyViewport(lastViewport);
+    };
+    const setFocus = (id) => {
+      focusedId = typeof id === "string" ? id : null;
+      applyFocus();
+      notifyFocus();
+    };
+
+    const setSelection = (ids) => {
+      selectedIds = Array.isArray(ids) ? ids.slice() : [];
+      const selected = new Set(selectedIds);
+      for (const [fragmentId, entry] of fragments) {
+        entry.el.classList.toggle("selected", selected.has(fragmentId));
+      }
+      for (const cb of Array.from(selectionSubs)) {
+        try {
+          cb(selectedIds);
+        } catch {}
+      }
+    };
+
+    window.addEventListener("message", (e) => {
+      if (e.source !== window.parent) return;
+      const d = e.data;
+      if (!d || d.channel !== CHANNEL) return;
+      switch (d.type) {
+        case "init":
+          applyTheme(d.theme);
+          applyViewport(d.viewport);
+          replaceState(d.state);
+          syncFragments(Array.isArray(d.fragments) ? d.fragments : []);
+          break;
+        case "set-viewport":
+          applyViewport(d.viewport);
+          break;
+        case "set-focus":
+          setFocus(d.id);
+          break;
+        case "upsert-fragment":
+          upsert(d.fragment);
+          break;
+        case "remove-fragment":
+          remove(d.id);
+          break;
+        case "set-state":
+          writeState(d.key, d.value);
+          break;
+        case "set-theme":
+          applyTheme(d.theme);
+          break;
+        case "set-selection":
+          setSelection(d.ids);
+          break;
+        case "set-busy":
+          setBusy(d.busy);
+          break;
+        case "set-carets":
+          applyCarets(Array.isArray(d.carets) ? d.carets : []);
+          break;
+        case "data-response": {
+          const p = pending.get(d.id);
+          if (!p) return;
+          pending.delete(d.id);
+          d.ok ? p.resolve(d.result) : p.reject(new Error(d.error || "data error"));
+          break;
+        }
+      }
+    });
+
+    post({ type: "ready" });
+  `;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="x-dns-prefetch-control" content="off" />
+<meta http-equiv="Content-Security-Policy" content="${csp}" />
+<script>
+  var canvasImportMap = ${importMap};
+  canvasImportMap.imports[${JSON.stringify(CANVAS_SDK_SPECIFIER)}] =
+    URL.createObjectURL(new Blob([${JSON.stringify(SKETCHPAD_FRAME_SDK_MODULE_SOURCE)}], { type: "text/javascript" }));
+  var canvasImportMapTag = document.createElement("script");
+  canvasImportMapTag.type = "importmap";
+  canvasImportMapTag.textContent = JSON.stringify(canvasImportMap);
+  document.head.appendChild(canvasImportMapTag);
+</script>
+<script type="module" src="${moduleUrl(TAILWIND_URL)}"></script>
+${TAILWIND_STYLE}
+${FREEFORM_QUILL_CSS_URLS.map(
+  (href) => `<link rel="stylesheet" href="${moduleUrl(href)}" />`,
+).join("\n")}
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  html.dark { color-scheme: dark; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: var(--foreground, inherit); background-color: var(--background, transparent); background-image: radial-gradient(var(--ph-grid-dot) 1px, transparent 1px); background-repeat: repeat; touch-action: none; }
+  :root { --ph-plain-hover: rgba(17, 17, 17, 0.035); --ph-grid-dot: rgba(17, 17, 17, 0.10); --ph-card-shadow: 0 1px 2px rgba(16, 18, 22, 0.05), 0 4px 12px -2px rgba(16, 18, 22, 0.08); --ph-card-shadow-hover: 0 1px 2px rgba(16, 18, 22, 0.06), 0 10px 24px -6px rgba(16, 18, 22, 0.14); }
+  html.dark { --ph-plain-hover: rgba(255, 255, 255, 0.05); --ph-grid-dot: rgba(255, 255, 255, 0.09); --ph-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px -2px rgba(0, 0, 0, 0.45); --ph-card-shadow-hover: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 24px -6px rgba(0, 0, 0, 0.6); }
+  #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+  .fragment { content-visibility: auto; position: absolute; overflow: auto; background: var(--card, var(--background, #fff)); color: var(--card-foreground, inherit); border: 1px solid var(--border, rgba(128, 128, 128, 0.35)); border-radius: 10px; box-shadow: var(--ph-card-shadow); transition: box-shadow 160ms ease, filter 160ms ease; }
+  .fragment:hover { box-shadow: var(--ph-card-shadow-hover); }
+  .fragment-plain, .fragment-plain.selected { background: transparent; border-color: transparent; box-shadow: none; }
+  .fragment-plain:hover { background: var(--ph-plain-hover); border-color: transparent; box-shadow: none; }
+  body.ph-focus { background-image: none; }
+  body.ph-focus #world { transform: none !important; will-change: auto !important; }
+  body.ph-focus .fragment { display: none; }
+  body.ph-focus-frame { background-image: none; }
+  body.ph-focus-frame #world { transform: none !important; will-change: auto !important; }
+  body.ph-focus-frame .fragment { display: none; }
+  body.ph-focus-frame .fragment.focused,
+  body.ph-focus-frame .fragment.in-frame { display: block; position: fixed !important; }
+  body.ph-focus-frame .fragment.focused { border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: hidden; }
+  @keyframes ph-slide-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .fragment.entering { animation: ph-slide-in 220ms cubic-bezier(0.32, 0.72, 0, 1); }
+  @media (prefers-reduced-motion: reduce) { .fragment.entering { animation: none; } }
+  body.ph-focus .fragment.focused { display: block; position: fixed !important; left: 0 !important; top: 0 !important; right: 0 !important; bottom: 0 !important; width: auto !important; height: auto !important; border: 0; border-radius: 0; background: var(--card, var(--background, #fff)); box-shadow: none; overflow: auto; }
+  .fragment.selected { box-shadow: var(--ph-card-shadow-hover); }
+  .fragment-error { display: flex; height: 100%; flex-direction: column; gap: 8px; overflow: auto; padding: 16px; font-size: 12px; }
+  .ph-caret-name { animation: ph-caret-fade 300ms 2500ms forwards; }
+  @keyframes ph-caret-fade { to { opacity: 0; } }
+  .fragment-error-title { font-weight: 600; color: var(--destructive, #b91c1c); }
+  .fragment-error-hint { color: var(--muted-foreground, #6b7280); font-size: 11px; }
+  .fragment-error pre { margin: 0; max-height: 60%; overflow: auto; border-radius: 6px; background: var(--muted, rgba(128, 128, 128, 0.12)); padding: 8px; color: var(--muted-foreground, #6b7280); font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<div id="world"></div>
+<script type="module">${bootstrap}</script>
+</body>
+</html>`;
+}
+
+function contentSecurityPolicy(vendoredModules: boolean): string {
+  const modules = vendoredModules
+    ? `${SKETCHPAD_MODULE_SCHEME}:`
+    : `${SKETCHPAD_TAILWIND_PREFIX} ${FREEFORM_ESM_HOST}`;
+  return [
+    "default-src 'none'",
+    `script-src 'unsafe-inline' blob: ${modules}`,
+    `style-src 'unsafe-inline' ${modules}`,
+    `font-src data: ${modules}`,
+    "img-src data: blob:",
+    "media-src data: blob:",
+    "worker-src blob:",
+    "connect-src 'none'",
+    "prefetch-src 'none'",
+    "webrtc 'block'",
+    "form-action 'none'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-src 'none'",
+    "manifest-src 'none'",
+  ].join("; ");
+}

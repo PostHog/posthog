@@ -2,7 +2,6 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: [
-    "src/sketchpad-frame.ts",
     "src/host-capabilities.ts",
     "src/url-launcher.ts",
     "src/storage-paths.ts",

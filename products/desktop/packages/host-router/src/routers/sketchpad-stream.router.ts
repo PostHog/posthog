@@ -6,17 +6,17 @@ import {
   sketchpadIdInput,
   sketchpadSendPresenceInput,
 } from "@posthog/core/sketchpad/sketchpadSchemas";
-import { publicProcedure, router } from "@posthog/host-trpc/trpc";
+import { httpStatusProcedure, router } from "@posthog/host-trpc/trpc";
 
 export const sketchpadStreamRouter = router({
-  onSketchpadEvent: publicProcedure
+  onSketchpadEvent: httpStatusProcedure
     .input(sketchpadIdInput)
     .subscription((opts) =>
       opts.ctx.container
         .get<ISketchpadStreamService>(SKETCHPAD_STREAM_SERVICE)
         .streamSketchpad(opts.input.id, opts.signal),
     ),
-  sendPresence: publicProcedure
+  sendPresence: httpStatusProcedure
     .input(sketchpadSendPresenceInput)
     .mutation(({ ctx, input }) =>
       ctx.container

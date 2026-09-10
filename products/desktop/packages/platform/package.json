@@ -103,10 +103,6 @@
     "./disk-cache": {
       "types": "./dist/disk-cache.d.ts",
       "import": "./dist/disk-cache.js"
-    },
-    "./sketchpad-frame": {
-      "types": "./dist/sketchpad-frame.d.ts",
-      "import": "./dist/sketchpad-frame.js"
     }
   },
   "scripts": {

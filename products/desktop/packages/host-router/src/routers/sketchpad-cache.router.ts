@@ -1,4 +1,4 @@
-import { publicProcedure, router } from "@posthog/host-trpc/trpc";
+import { httpStatusProcedure, router } from "@posthog/host-trpc/trpc";
 import { sketchpadCacheSchema } from "@posthog/shared";
 import {
   SKETCHPAD_CACHE_SERVICE,
@@ -6,7 +6,7 @@ import {
 } from "@posthog/workspace-server/services/sketchpad-cache/identifiers";
 
 export const sketchpadCacheRouter = router({
-  write: publicProcedure
+  write: httpStatusProcedure
     .input(sketchpadCacheSchema)
     .mutation(({ ctx, input }) =>
       ctx.container
