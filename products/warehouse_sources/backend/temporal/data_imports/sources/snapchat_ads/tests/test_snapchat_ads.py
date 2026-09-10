@@ -767,6 +767,26 @@ class TestBreakdownEndpointConfig:
         ]
 
 
+class TestValidateCredentials:
+    @parameterized.expand(
+        [
+            # A deleted/disconnected integration is an expected user state — surface a clean
+            # "reconnect" message rather than the internal id the ValueError carries.
+            ("missing_integration", ValueError("Integration not found: 123"), "Snapchat Ads integration not found"),
+            ("unexpected_error", Exception("OAuth error"), "Failed to validate Snapchat Ads credentials"),
+        ]
+    )
+    def test_oauth_failures(self, _name: str, side_effect: Exception, expected_fragment: str) -> None:
+        source = SnapchatAdsSource()
+        config = MagicMock(ad_account_id="123", snapchat_integration_id=456)
+
+        with patch.object(source, "get_oauth_integration", side_effect=side_effect):
+            is_valid, error = source.validate_credentials(config, team_id=1)
+
+        assert is_valid is False
+        assert error is not None and expected_fragment in error
+
+
 class TestSchemaDefaults:
     def test_breakdown_tables_are_opt_in_and_the_rest_stay_on(self) -> None:
         # Breakdown tables multiply every day by its dimension values, so they must not be

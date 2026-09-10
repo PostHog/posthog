@@ -10,6 +10,7 @@ from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -55,6 +56,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.workflows.backend.models import HogFlow
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -549,6 +551,56 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["external_id"], "ext-1")
         self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
         self.assertEqual(data["ignored_at"], ignored_at.isoformat().replace("+00:00", "Z"))
+
+    def test_presence_returns_other_viewers_once_and_excludes_the_caller(self) -> None:
+        account = self._create_account()
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        teammate.first_name = "Alex"
+        teammate.last_name = "Rivera"
+        teammate.save(update_fields=["first_name", "last_name"])
+        presence_url = f"{self.endpoint_base}{account.id}/presence/"
+
+        self.client.force_login(teammate)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+        self.client.force_login(self.user)
+        response = self.client.post(presence_url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), [{"user_id": teammate.id, "display_name": "Alex Rivera"}])
+
+    @patch("products.customer_analytics.backend.logic.account_presence.time")
+    def test_presence_removes_expired_viewers(self, mock_time: MagicMock) -> None:
+        account = self._create_account()
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        presence_url = f"{self.endpoint_base}{account.id}/presence/"
+        mock_time.time.side_effect = [100.0, 191.0]
+
+        self.client.force_login(teammate)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+    def test_presence_does_not_leak_accounts_from_other_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = Account.objects.unscoped().create(team=other_team, name="Other")
+
+        response = self.client.post(f"{self.endpoint_base}{other_account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_presence.get_client", side_effect=RedisError("unavailable")
+    )
+    def test_presence_redis_failure_returns_an_empty_roster(self, _get_client: MagicMock) -> None:
+        account = self._create_account()
+
+        response = self.client.post(f"{self.endpoint_base}{account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), [])
 
     def test_retrieve_hides_retired_role_keys_in_stored_rows(self):
         # Rows not yet cleaned by backfill_account_relationships must not leak role keys:
@@ -1598,6 +1650,23 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         create_response = self.client.post(url, {"title": "x"}, format="json")
         self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_account_presence_404_when_object_access_denied(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.viewer_user, organization=self.organization
+            ),
+        )
+        self._set_access_level(self.viewer_user, resource="account", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(f"{self.accounts_url}{self.account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
 
 class TestCustomPropertyDefinitionViewSet(APIBaseTest):
     def setUp(self):
@@ -1857,6 +1926,34 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
+    def _create_workflow_reference(self, *, name: str) -> HogFlow:
+        return HogFlow.objects.create(
+            team=self.team,
+            name=name,
+            status="active",
+            actions=[
+                {
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-posthog-update-account-property",
+                        "inputs": {"properties": {"value": {str(self.definition.id): "enterprise"}}},
+                    },
+                }
+            ],
+        )
+
+    def _token(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="custom property definitions",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return value
+
     def test_viewer_can_list(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
@@ -1867,6 +1964,73 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_workflow_presence_is_exposed_when_object_access_hides_references(self):
+        denied = self._create_workflow_reference(name="Update plan")
+        self._set_access_level(self.editor_user, resource="account", access_level="editor")
+        self._set_access_level(self.editor_user, resource="hog_flow", access_level="viewer")
+        self._set_access_level(
+            self.editor_user,
+            resource="hog_flow",
+            resource_id=str(denied.id),
+            access_level="none",
+        )
+        self.client.force_login(self.editor_user)
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+        update_response = self.client.patch(
+            f"{self.endpoint_base}{self.definition.id}/", {"description": "Customer plan"}, format="json"
+        )
+
+        for response in (list_response, retrieve_response, update_response):
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(definition["references"], [])
+
+    def test_personal_api_key_without_workflow_scope_cannot_read_references(self):
+        self._create_workflow_reference(name="Update plan")
+        token = self._token(["account:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+
+        for response in (list_response, retrieve_response):
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(definition["references"], [])
+
+    def test_object_level_workflow_denial_filters_only_the_denied_reference(self):
+        visible = self._create_workflow_reference(name="Visible workflow")
+        denied = self._create_workflow_reference(name="Denied workflow")
+        self._set_access_level(self.editor_user, resource="account", access_level="editor")
+        self._set_access_level(self.editor_user, resource="hog_flow", access_level="viewer")
+        self._set_access_level(
+            self.editor_user,
+            resource="hog_flow",
+            resource_id=str(denied.id),
+            access_level="none",
+        )
+        self.client.force_login(self.editor_user)
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+        update_response = self.client.patch(
+            f"{self.endpoint_base}{self.definition.id}/", {"description": "Customer plan"}, format="json"
+        )
+
+        for response in (list_response, retrieve_response, update_response):
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(
+                definition["references"],
+                [{"id": str(visible.id), "name": visible.name, "status": "active", "type": "workflow"}],
+            )
 
     def test_viewer_cannot_create(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -1940,6 +2104,27 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
             endpoint or self.endpoint, {"definition": str(definition_id), "value": value}, format="json"
         )
 
+    @parameterized.expand([("text", "enterprise"), ("number", 42)])
+    def test_clear_value_preserves_history(self, property_type: str, value: str | int) -> None:
+        definition = self.text_def if property_type == "text" else self.number_def
+        created = self._set(definition.id, value).json()
+        self._set(
+            self.number_def.id if property_type == "text" else self.text_def.id,
+            7 if property_type == "text" else "other",
+        )
+
+        response = self._set(definition.id, None)
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertTrue(CustomPropertyValue.objects.for_team(self.team.id).get(id=created["id"]).is_deleted)
+        active = self.client.get(self.endpoint).json()
+        self.assertEqual(1, len(active))
+        self.assertNotEqual(str(definition.id), active[0]["definition_id"])
+        self.assertEqual(status.HTTP_204_NO_CONTENT, self._set(definition.id, None).status_code)
+
+    def test_clear_unknown_definition_is_rejected(self) -> None:
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, self._set(uuid4(), None).status_code)
+
     def test_create_value_success(self):
         response = self._set(self.text_def.id, "enterprise")
 
@@ -1986,12 +2171,13 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         values = {v["definition_id"]: v["value"] for v in response.json()}
         self.assertEqual({str(self.text_def.id): "enterprise", str(self.number_def.id): 42}, values)
 
-    def test_account_from_another_team_returns_404(self):
+    @parameterized.expand([("write", "x"), ("clear", None)])
+    def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
         other_team = Team.objects.create(organization=self.organization)
         other_account = create_account(team_id=other_team.id)
         endpoint = f"/api/projects/{self.team.id}/accounts/{other_account.id}/custom_property_values/"
 
-        response = self._set(self.text_def.id, "x", endpoint=endpoint)
+        response = self._set(self.text_def.id, value, endpoint=endpoint)
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
@@ -2011,7 +2197,30 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
 
         self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
-    def test_source_backed_definition_rejects_manual_write(self):
+    @parameterized.expand([("write", "2026-01-01T00:00:00Z"), ("clear", None)])
+    def test_canonical_definition_rejects_manual_write(self, _name: str, value: str | None) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Last Slack message at", display_type=DisplayType.DATETIME
+        )
+        recorded_at = timezone.now()
+        current = CustomPropertyValue.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            value_datetime=recorded_at,
+        )
+
+        response = self._set(definition.id, value)
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual("definition", response.json()["attr"])
+        current.refresh_from_db()
+        self.assertFalse(current.is_deleted)
+        self.assertEqual(recorded_at, current.value_datetime)
+        self.assertEqual(1, len(self.client.get(self.endpoint).json()))
+
+    @parameterized.expand([("write", "manual"), ("clear", None)])
+    def test_source_backed_definition_rejects_manual_write(self, _name: str, value: str | None) -> None:
         saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
         view = saved_query_model.objects.create(team=self.team, name="v", columns={"k": {}, "c": {}})
         CustomPropertySource.objects.unscoped().create(
@@ -2022,7 +2231,7 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
             key_column="k",
         )
 
-        response = self._set(self.text_def.id, "manual")
+        response = self._set(self.text_def.id, value)
 
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
         self.assertEqual("definition", response.json()["attr"])
@@ -3129,6 +3338,18 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+    def _create_syncable_integration(self, *, team: Team | None = None) -> Integration:
+        return Integration.objects.create(
+            team=team or self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="syncable-google-account",
+            created_by=self.user,
+            config={
+                "email": self.user.email,
+                "scope": "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly",
+            },
+        )
+
     def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
         self._become_admin()
         integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")
@@ -3143,6 +3364,70 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.assertEqual(response.json(), {"status": "started"})
         workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
         self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
+
+    @freeze_time("2026-04-10T12:00:00Z")
+    def test_backfill_starts_both_sources_for_an_inclusive_date_range(self) -> None:
+        self._become_admin()
+        integration = self._create_syncable_integration()
+
+        with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
+            mock_connect.return_value.start_workflow.return_value = _immediate_future()
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/calendar_sync/backfill/",
+                {"integration_id": integration.id, "start_date": "2026-01-11", "end_date": "2026-04-10"},
+            )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json(), {"status": "started"})
+        workflow_input = mock_connect.return_value.start_workflow.call_args.args[1]
+        self.assertEqual(workflow_input.start_at, "2026-01-11T00:00:00+00:00")
+        self.assertEqual(workflow_input.end_at, "2026-04-11T00:00:00+00:00")
+        self.assertEqual(
+            mock_connect.return_value.start_workflow.call_args.kwargs["id"],
+            f"google-calendar-sync-{integration.id}",
+        )
+
+    def test_backfill_rejects_the_connection_creator_without_admin_access(self) -> None:
+        integration = self._create_syncable_integration()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/backfill/",
+            {"integration_id": integration.id, "start_date": "2026-01-01", "end_date": "2026-01-31"},
+        )
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
+
+    @parameterized.expand(
+        [
+            ("too_old", "2025-04-09", "2026-04-10"),
+            ("future", "2026-04-10", "2026-04-11"),
+            ("reversed", "2026-04-10", "2026-04-09"),
+        ]
+    )
+    @freeze_time("2026-04-10T12:00:00Z")
+    def test_backfill_rejects_dates_outside_the_allowed_range(self, _name: str, start_date: str, end_date: str) -> None:
+        self._become_admin()
+        integration = self._create_syncable_integration()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/backfill/",
+            {"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    def test_backfill_rejects_an_account_without_gmail_permission(self) -> None:
+        self._become_admin()
+        integration = self._create_syncable_integration()
+        integration.config["scope"] = "https://www.googleapis.com/auth/calendar.readonly"
+        integration.save(update_fields=["config"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/backfill/",
+            {"integration_id": integration.id, "start_date": "2026-01-01", "end_date": "2026-01-31"},
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
 
     def test_sync_now_allows_the_connection_creator(self) -> None:
         integration = Integration.objects.create(
@@ -3184,6 +3469,16 @@ class TestCalendarSyncViewSet(APIBaseTest):
             integration_id="sub-stale",
             config={"calendar_sync_started_at": (now - timedelta(hours=2)).isoformat()},
         )
+        retrying = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="sub-retrying",
+            config={
+                "calendar_sync_started_at": (now - timedelta(hours=2)).isoformat(),
+                "calendar_last_synced_at": (now - timedelta(hours=1)).isoformat(),
+                "calendar_sync_retry_at": (now + timedelta(minutes=45)).isoformat(),
+            },
+        )
 
         response = self.client.get(f"/api/environments/{self.team.id}/calendar_sync/")
 
@@ -3193,15 +3488,28 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.assertIsNotNone(by_id[synced.id]["last_synced_at"])
         self.assertTrue(by_id[syncing.id]["is_syncing"])
         self.assertFalse(by_id[stale.id]["is_syncing"])
+        self.assertTrue(by_id[retrying.id]["is_syncing"])
 
-    def test_sync_now_404s_for_another_teams_integration(self):
+    @parameterized.expand(
+        [
+            ("sync_now", {"integration_id": "placeholder"}),
+            (
+                "backfill",
+                {"integration_id": "placeholder", "start_date": "2026-01-01", "end_date": "2026-01-31"},
+            ),
+        ]
+    )
+    def test_sync_actions_404_for_another_teams_integration(self, action: str, payload: dict[str, str]) -> None:
         self._become_admin()
         other_team = Team.objects.create(organization=self.organization, name="other")
-        integration = Integration.objects.create(team=other_team, kind="google-calendar", integration_id="sub-2")
+        integration = self._create_syncable_integration(team=other_team)
+        payload["integration_id"] = str(integration.id)
+
         response = self.client.post(
-            f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
-            {"integration_id": integration.id},
+            f"/api/environments/{self.team.id}/calendar_sync/{action}/",
+            payload,
         )
+
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
     @parameterized.expand(

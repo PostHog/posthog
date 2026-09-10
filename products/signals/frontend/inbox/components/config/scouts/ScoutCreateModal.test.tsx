@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -30,8 +30,11 @@ describe('ScoutCreateModal', () => {
             />
         )
 
-        expect(await findByText('Slack destination')).toBeTruthy()
-        expect(await findByText('Connect a Slack workspace')).toBeTruthy()
         expect(await findByText('Tags')).toBeTruthy()
+
+        // The destination section is collapsed, so its body only proves the section is wired up
+        // once the header opens it.
+        fireEvent.click(await findByText('Slack destination'))
+        expect(await findByText('Connect a Slack workspace')).toBeTruthy()
     })
 })

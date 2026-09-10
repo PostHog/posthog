@@ -1,9 +1,9 @@
 import { Optional } from 'lib/utils/types'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { type TaskRunDetailDTOApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-export function isPiTaskRuntime(runtime: RuntimeEnumApi | undefined): boolean {
-    return runtime === RuntimeEnumApi.Pi
+export function isPiTaskRuntime(runtime: TaskRuntimeEnumApi | undefined): boolean {
+    return runtime === TaskRuntimeEnumApi.Pi
 }
 
 export interface RepositoryConfig {
@@ -50,35 +50,9 @@ export enum TaskRunEnvironment {
     CLOUD = 'cloud',
 }
 
-export interface TaskRunArtifact {
-    id?: string
-    name: string
-    type: string
-    source?: string
-    size?: number
-    content_type?: string
-    storage_path: string
-    uploaded_at: string
-}
-
-export interface TaskRun {
-    id: string
-    task: string
-    stage: string | null
-    branch: string | null
+export interface TaskRun extends TaskRunDetailDTOApi {
     status: TaskRunStatus
     environment: TaskRunEnvironment
-    runtime_adapter: string | null
-    model: string | null
-    reasoning_effort: string | null
-    log_url: string | null
-    error_message: string | null
-    output: Record<string, any> | null
-    state: Record<string, any>
-    artifacts: TaskRunArtifact[]
-    created_at: string
-    updated_at: string
-    completed_at: string | null
 }
 
 export interface Task {
@@ -88,7 +62,7 @@ export interface Task {
     title: string
     description: string
     origin_product: OriginProduct
-    runtime: RuntimeEnumApi
+    runtime: TaskRuntimeEnumApi
     repository: string | null
     github_integration: number | null
     /** For signal-report-origin tasks: the inbox `SignalReport` this task ran for (set-once at creation). */

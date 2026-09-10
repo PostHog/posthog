@@ -1,0 +1,7 @@
+// Cuts the loading tile's shimmer block into the silhouette of a rising area chart, so the
+// placeholder reads as "a chart is coming" rather than as a grey slab. Tailwind cannot express a
+// polygon clip path, and the point list is long enough that an arbitrary-value class would be
+// unreadable.
+.MetricTiles__chart-skeleton {
+    clip-path: polygon(0% 100%, 0% 74%, 14% 62%, 28% 68%, 42% 46%, 57% 54%, 71% 32%, 85% 40%, 100% 20%, 100% 100%);
+}

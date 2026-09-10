@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import MagicMock, Mock, patch
 
 import requests
@@ -20,9 +21,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     metronome_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import METRONOME_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+    METRONOME_ENDPOINTS,
+    USAGE_DAILY_LOOKBACK_SECONDS,
+    USAGE_HOURLY_LOOKBACK_SECONDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.source import MetronomeSource
 
 TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome"
+
+# The instant every resolved window in these tests is measured against.
+NOW = datetime(2026, 9, 3, 12, 34, 56, tzinfo=UTC)
 
 
 def _response(body: dict[str, Any]) -> Mock:
@@ -146,6 +155,26 @@ class TestMetronomeResources:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint, should_use_incremental_field=False)
 
+    @parameterized.expand([("usage_daily", "day"), ("usage_hourly", "hour")])
+    def test_bucketed_usage_merges_on_a_body_window_with_no_injected_param(self, endpoint, window_size) -> None:
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint, should_use_incremental_field=True, window_starting_on="2026-01-01T00:00:00Z"),
+        )
+
+        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+        # The window rides the body, which the framework's incremental config cannot reach.
+        assert "incremental" not in resource["endpoint"]
+        body = resource["endpoint"]["json"]
+        assert body["window_size"] == window_size
+        assert body["starting_on"] == "2026-01-01T00:00:00Z"
+        assert body["ending_before"] > "2026-01-01T00:00:00Z"
+
+    @parameterized.expand([("usage_daily",), ("usage_hourly",)])
+    def test_get_resource_rejects_a_bucketed_endpoint_with_no_lower_bound(self, endpoint) -> None:
+        with pytest.raises(ValueError, match="needs a resolved"):
+            get_resource(endpoint, should_use_incremental_field=True)
+
     def test_usage_resource_sends_the_full_window_in_the_body(self) -> None:
         # `POST /v1/usage` rejects the request unless the body carries `window_size`, `starting_on`
         # and `ending_before`. `ending_before` is the sync time, so it can't be a static default.
@@ -161,22 +190,105 @@ class TestMetronomeResources:
 class TestMetronomeSourceResponse:
     @parameterized.expand(
         [
-            ("customers", ["id"], "created_at"),
-            ("audit_logs", ["id"], "timestamp"),
-            ("pricing_units", ["id"], None),
-            ("plans", ["id"], None),
-            ("usage", ["customer_id", "billable_metric_id"], None),
+            ("customers", ["id"], "created_at", "asc"),
+            ("audit_logs", ["id"], "timestamp", "asc"),
+            ("pricing_units", ["id"], None, "asc"),
+            ("plans", ["id"], None, "asc"),
+            ("usage", ["customer_id", "billable_metric_id"], None, "asc"),
+            # Bucketed usage arrives grouped by customer rather than by period, so its watermark
+            # may only commit once the whole walk has finished.
+            ("usage_daily", ["customer_id", "billable_metric_id", "start_timestamp"], "start_timestamp", "desc"),
+            ("usage_hourly", ["customer_id", "billable_metric_id", "start_timestamp"], "start_timestamp", "desc"),
         ]
     )
     @patch(f"{TRANSPORT}.rest_api_resource")
-    def test_top_level_response_shape(self, endpoint, primary_keys, partition_key, _mock) -> None:
+    def test_top_level_response_shape(self, endpoint, primary_keys, partition_key, sort_mode, _mock) -> None:
         response = metronome_source(api_key="tok", endpoint=endpoint, team_id=1, job_id="job-1")
 
         assert response.primary_keys == primary_keys
         assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.sort_mode == sort_mode
         # Each of these tables walks the resume path, whose checkpoint advances per page, so the
         # batcher must flush one page at a time or a resumed sync appends past unflushed pages.
         assert response.chunk_size == 1
+
+    @parameterized.expand(
+        [
+            (
+                "a_watermark_is_floored_to_the_day",
+                "usage_daily",
+                datetime(2026, 3, 14, 15, 9, 26, tzinfo=UTC),
+                None,
+                "2026-03-14T00:00:00Z",
+            ),
+            (
+                "a_watermark_is_floored_to_the_hour",
+                "usage_hourly",
+                datetime(2026, 3, 14, 15, 9, 26, tzinfo=UTC),
+                None,
+                "2026-03-14T15:00:00Z",
+            ),
+            (
+                "a_first_sync_starts_where_the_schema_recorded_its_range",
+                "usage_daily",
+                None,
+                datetime(2025, 12, 1, 6, 30, tzinfo=UTC),
+                "2025-12-01T00:00:00Z",
+            ),
+            (
+                "an_unrecorded_first_sync_falls_back_to_the_daily_bound",
+                "usage_daily",
+                None,
+                None,
+                "2025-09-03T00:00:00Z",
+            ),
+            (
+                "an_unrecorded_first_sync_falls_back_to_the_hourly_bound",
+                "usage_hourly",
+                None,
+                None,
+                "2026-08-04T12:00:00Z",
+            ),
+        ]
+    )
+    @patch(f"{TRANSPORT}.rest_api_resource")
+    def test_bucketed_usage_window_starts_where_the_table_left_off(
+        self, _name, endpoint, watermark, history_start, expected_start, mock_rest_api_resource
+    ) -> None:
+        # An unaligned lower bound asks Metronome for part of a period the table already holds, and
+        # the partial aggregate that comes back upserts as a second row, because the period start
+        # is part of the primary key.
+        with freeze_time(NOW):
+            metronome_source(
+                api_key="tok",
+                endpoint=endpoint,
+                team_id=1,
+                job_id="job-1",
+                should_use_incremental_field=watermark is not None,
+                db_incremental_field_last_value=watermark,
+                history_start=history_start,
+            )
+
+        body = mock_rest_api_resource.call_args.args[0]["resources"][0]["endpoint"]["json"]
+        assert body["starting_on"] == expected_start
+
+    @patch(f"{TRANSPORT}.rest_api_resource")
+    def test_resumed_bucketed_run_replays_the_stored_lower_bound(self, mock_rest_api_resource) -> None:
+        # Resolving the bound again on a resumed attempt would move it forward, against a cursor
+        # that belongs to the window the walk started with.
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = MetronomeResumeConfig(
+            next_page="cursor-9", ending_before="2026-06-01T00:00:00Z", starting_on="2026-05-01T00:00:00Z"
+        )
+
+        metronome_source(
+            api_key="tok", endpoint="usage_daily", team_id=1, job_id="job-1", resumable_source_manager=manager
+        )
+
+        body = mock_rest_api_resource.call_args.args[0]["resources"][0]["endpoint"]["json"]
+        assert body["starting_on"] == "2026-05-01T00:00:00Z"
+        assert body["ending_before"] == "2026-06-01T00:00:00Z"
 
     @patch(f"{TRANSPORT}.rest_api_resource")
     def test_resume_state_seeds_the_paginator_cursor(self, mock_rest_api_resource) -> None:
@@ -239,12 +351,16 @@ class TestMetronomeSourceResponse:
 
         metronome_source(api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager)
 
-        synced_window = mock_rest_api_resource.call_args.args[0]["resources"][0]["endpoint"]["json"]["ending_before"]
+        synced_body = mock_rest_api_resource.call_args.args[0]["resources"][0]["endpoint"]["json"]
         save_checkpoint = mock_rest_api_resource.call_args.kwargs["resume_hook"]
         save_checkpoint({"cursor": "cursor-3"})
 
         manager.save_state.assert_called_once_with(
-            MetronomeResumeConfig(next_page="cursor-3", ending_before=synced_window)
+            MetronomeResumeConfig(
+                next_page="cursor-3",
+                ending_before=synced_body["ending_before"],
+                starting_on=synced_body["starting_on"],
+            )
         )
 
     @patch(f"{TRANSPORT}.build_dependent_resource")
@@ -337,3 +453,33 @@ class TestMetronomeCredentials:
 
         assert valid is False
         assert message == "Couldn't reach Metronome to validate the API token. Check your connection and try again."
+
+
+class TestMetronomeSchemas:
+    def _schema(self, name: str):
+        source = MetronomeSource()
+        config = source.parse_config({"api_key": "tok"})
+        return {schema.name: schema for schema in source.get_schemas(config, team_id=1)}[name]
+
+    @parameterized.expand(
+        [
+            ("usage_daily", USAGE_DAILY_LOOKBACK_SECONDS),
+            ("usage_hourly", USAGE_HOURLY_LOOKBACK_SECONDS),
+        ]
+    )
+    def test_bucketed_usage_merges_incrementally_and_starts_off(self, name, lookback_seconds) -> None:
+        schema = self._schema(name)
+
+        assert schema.supports_incremental is True
+        # Appending would duplicate every period the lookback re-reads.
+        assert schema.supports_append is False
+        assert [field["field"] for field in schema.incremental_fields] == ["start_timestamp"]
+        assert schema.should_sync_default is False
+        assert schema.default_incremental_lookback_seconds == lookback_seconds
+
+    def test_the_lifetime_usage_table_keeps_its_defaults(self) -> None:
+        schema = self._schema("usage")
+
+        assert schema.supports_incremental is False
+        assert schema.should_sync_default is True
+        assert schema.default_incremental_lookback_seconds is None

@@ -76,6 +76,7 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       go:
                         - 'livestream/**'
+                        - 'services/hogql-language-service/**'
                         - '.github/workflows/ci-security.yaml'
                       rust:
                         - 'cli/**'
@@ -218,6 +219,7 @@ jobs:
                       --config r/go.lang.security
                       --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter
                       --include /livestream
+                      --include /services/hogql-language-service
 
     semgrep-rust:
         needs: changes
@@ -561,7 +563,7 @@ jobs:
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check matrix outcome
               run: |

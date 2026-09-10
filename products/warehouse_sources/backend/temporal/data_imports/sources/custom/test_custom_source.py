@@ -1092,24 +1092,29 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert ok, err
         assert err is None
 
-    @patch.object(
-        OAuth2Auth,
-        "_obtain_token",
-        side_effect=OAuth2AuthRequestError(
-            "HTTP 401 from the OAuth2 token endpoint: invalid_client: bad creds",
-            error_code="invalid_client",
-            is_permanent=True,
-        ),
+    @parameterized.expand(
+        [
+            ("invalid_client", "client ID or secret"),
+            ("invalid_scope", "scopes"),
+            ("some_provider_code", "client ID, secret, token URL"),
+            (None, "client ID, secret, token URL"),
+        ]
     )
-    def test_oauth2_probe_permanent_token_error_blocks_with_clear_message(self, _mock_mint):
-        # A bad client_secret / token_url must fail at create time with a pointed token-endpoint
-        # message — not the generic "resource unreachable" of the data probe.
+    def test_oauth2_probe_permanent_token_error_blocks_with_clear_message(self, error_code, expected_fragment):
+        # A bad client_secret / token_url must fail at create time with copy that names the field
+        # to change — not the provider's raw status-and-code text, and not the generic "resource
+        # unreachable" of the data probe. An unmapped or absent code falls back to the whole
+        # credential set.
+        mint_error = OAuth2AuthRequestError("raw provider text", error_code=error_code, is_permanent=True)
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
-        ok, err = source.validate_credentials(config, team_id=999)
+
+        with patch.object(OAuth2Auth, "_obtain_token", side_effect=mint_error):
+            ok, err = source.validate_credentials(config, team_id=999)
+
         assert not ok
-        assert "OAuth2 token endpoint rejected" in (err or "")
-        assert "invalid_client" in (err or "")
+        assert expected_fragment in (err or "")
+        assert "raw provider text" not in (err or "")
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     @patch.object(

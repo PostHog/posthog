@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -94,6 +95,12 @@ class SubscriptionResource:
     url: str
 
 
+class AIQueryPlanStatus(models.TextChoices):
+    FROZEN = "frozen", "Frozen"
+    NOT_FROZEN = "not_frozen", "Not frozen"
+    PLANNER_UPDATED = "planner_updated", "Planner updated"
+
+
 class Subscription(ModelActivityMixin, models.Model):
     """
     Rather than re-invent the wheel, we are roughly following the iCalender format for recurring schedules
@@ -105,6 +112,7 @@ class Subscription(ModelActivityMixin, models.Model):
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
         SLACK = "slack"
+        TEAMS = "teams", "Microsoft Teams"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"
@@ -151,20 +159,16 @@ class Subscription(ModelActivityMixin, models.Model):
     DEFAULT_AI_REPORT_WINDOW_DAYS = 7
 
     # Relations - i.e. WHAT are we exporting?
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
-    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True, related_name="+")
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True, related_name="+")
     dashboard_export_insights = models.ManyToManyField(
         "product_analytics.Insight",
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
     integration = models.ForeignKey(
-        "posthog.Integration",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_index=False,
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
     )
 
     prompt = models.TextField(null=True, blank=True)
@@ -201,7 +205,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     # False when paused or auto-disabled because the delivery prerequisite is
@@ -442,6 +446,20 @@ class Subscription(ModelActivityMixin, models.Model):
         return self.title or "Subscription"
 
     @property
+    def recipient_label(self) -> str:
+        """Names the destination in `RecipientResult.recipient` and in the
+        `SubscriptionDelivery.target_value` snapshot, both of which the API returns. A webhook URL
+        authorizes a post to the channel on its own, so only its host is recorded.
+        """
+        if self.target_type != self.SubscriptionTarget.TEAMS:
+            return self.target_value
+        try:
+            host = (urlparse(self.target_value).hostname or "").lower()
+        except ValueError:
+            host = ""
+        return host or "webhook"
+
+    @property
     def summary(self):
         try:
             human_frequency = {
@@ -580,7 +598,7 @@ class SubscriptionDelivery(UUIDModel):
         SKIPPED = "skipped"
 
     subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Temporal correlation — workflow_id for debugging, idempotency_key for dedup.
     # idempotency_key is generated via temporalio.workflow.uuid4() which is deterministic

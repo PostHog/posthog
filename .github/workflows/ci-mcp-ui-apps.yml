@@ -17,9 +17,6 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
-        # constituent PR already ran this in full.
-        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Determine need to run UI Apps checks
         outputs:
             ui-apps: ${{ steps.filter.outputs.ui-apps || 'true' }}
@@ -52,6 +49,12 @@ jobs:
                         - 'products/*/mcp/**'
                         - 'services/mcp/definitions/*.yaml'
                         - 'common/mosaic/**'
+                        # Compiled into the UI apps: the quill packages they render with, the
+                        # product-analytics chart transforms they import, and the generated
+                        # API types their views are typed against.
+                        - 'packages/quill/**'
+                        - 'products/product_analytics/frontend/insights/**'
+                        - 'products/*/frontend/generated/**'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
 
     build-and-report:
@@ -147,7 +150,7 @@ jobs:
         name: MCP UI Apps CI
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check results
               run: |

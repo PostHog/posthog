@@ -5,7 +5,7 @@ import datetime as dt
 import posixpath
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import connection, models, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 
@@ -61,10 +61,19 @@ _FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
 )
 
 
+class FileFormat(models.TextChoices):
+    PARQUET = "Parquet", "Parquet"
+    JSONLINES = "JSONLines", "JSONLines"
+
+
+class FileDownloadHogQLModel(models.TextChoices):
+    HOGQL = "hogql", "hogql"
+
+
 class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
     """Typed configuration for a FileDownload batch-export destination."""
 
-    format = serializers.ChoiceField(choices=["Parquet", "JSONLines"], default="Parquet", help_text="File format")
+    format = serializers.ChoiceField(choices=FileFormat.choices, default="Parquet", help_text="File format")
     compression = serializers.ChoiceField(
         choices=["zstd", "gzip", "brotli", "lz4", "snappy"],
         required=False,
@@ -125,7 +134,7 @@ class FileDownloadHogQLRequestSerializer(serializers.Serializer):
     """Typed configuration for the hogql model."""
 
     file = FileDownloadDestinationFileConfigSerializer()
-    model = serializers.ChoiceField(choices=["hogql"])
+    model = serializers.ChoiceField(choices=FileDownloadHogQLModel.choices)
     hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)
 
 
@@ -133,7 +142,7 @@ class FileDownloadCountRowsRequestSerializer(serializers.Serializer):
     """Request shape for counting the rows a file download batch export would produce."""
 
     model = serializers.ChoiceField(
-        choices=["hogql"],
+        choices=FileDownloadHogQLModel.choices,
         help_text="Model to count rows for. Only 'hogql' is supported.",
     )
     hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)

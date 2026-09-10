@@ -430,6 +430,16 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
                 "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
+            # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
+            # valid key for the cursor's timestamp. Retrying the same cursor always fails the same
+            # way, so it must be classified non-retryable.
+            (
+                "key_not_found_hmac",
+                "No keys found for HMAC that is valid for time: { ts: Timestamp(1000000000, 1) } "
+                "with id: 1234567890, full error: {'ok': 0.0, 'errmsg': 'No keys found for HMAC "
+                "that is valid for time: { ts: Timestamp(1000000000, 1) } with id: 1234567890', "
+                "'code': 211, 'codeName': 'KeyNotFound'}",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -465,6 +475,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
+            ("key_not_found", "No keys found for HMAC", "key management"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
@@ -511,6 +522,17 @@ class TestGetRetryableErrors(SimpleTestCase):
         # on, because the cluster clears a key rotation on its own.
         assert any(pattern in MONGO_KEYS_UNAVAILABLE_ERROR for pattern in self.retryable), (
             f"MongoDB signing keys unavailable should be classified retryable: {MONGO_KEYS_UNAVAILABLE_ERROR}"
+        )
+
+    def test_interrupted_at_shutdown_is_classified_retryable(self):
+        # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
+        # primary shutting down or stepping down); the next retry hits the new primary.
+        error_msg = (
+            "PlanExecutor error during aggregation :: caused by :: interrupted at shutdown, "
+            "full error: {'ok': 0.0, 'code': 11600, 'codeName': 'InterruptedAtShutdown'}"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB shutdown failover should be classified retryable: {error_msg}"
         )
 
 
@@ -708,9 +730,9 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
 
-    def test_cursor_closed_when_iteration_fails(self):
-        # A no_cursor_timeout cursor never expires on its own, so a mid-read failure (like the
-        # CursorNotFound this guards against) must still close it or it leaks server-side.
+    def test_cursor_closed_when_iteration_fails_with_no_progress(self):
+        # A no_cursor_timeout cursor that dies before yielding any document has no safe resume
+        # point — re-raise so Temporal retries the whole activity.
         collection = _FakeCollection([], error=CursorNotFound("cursor id 123 not found"))
 
         with self.assertRaises(CursorNotFound):
@@ -718,6 +740,29 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
 
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
+
+    def test_no_timeout_cursor_killed_mid_stream_resumes_from_last_id(self):
+        # Regression: CursorNotFound can fire even when no_cursor_timeout=True is honored
+        # (e.g. primary election, Atlas maintenance). The initial cursor is _id-ordered, so
+        # last_id is a safe resume point — resume instead of failing the whole sync.
+        collection = _FakeCollection(
+            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            error=CursorNotFound("cursor id 123 not found"),
+            error_after=2,
+            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert len(collection.find_calls) == 2
+        assert collection.find_calls[0].get("no_cursor_timeout") is True
+        assert "no_cursor_timeout" not in collection.find_calls[1]
+        # Resume query picks up after the last document that was yielded.
+        assert collection.find_queries[1] == {"_id": {"$gt": "2"}}
+        # Initial cursor is _id-sorted; resumed cursor is also _id-sorted.
+        assert collection.cursors[0].sorted_by == ["_id", 1]
+        assert collection.cursors[1].sorted_by == ["_id", 1]
 
     @parameterized.expand(
         [
