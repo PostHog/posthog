@@ -66,7 +66,7 @@ def _save_media(*, user: User, files: Mapping[str, UploadedFile]) -> tuple[dict[
             media = UploadedMedia.save_content(
                 team=media_team,
                 created_by=user,
-                file_name=file.name,
+                file_name=file.name or "desktop-feedback-image",
                 content_type=content_type,
                 content=content,
             )

@@ -1,7 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
-from products.surveys.backend.api.desktop_feedback import DesktopFeedbackViewSet
 from products.surveys.backend.api.survey import SurveyViewSet
+from products.surveys.backend.presentation.desktop_feedback import DesktopFeedbackViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

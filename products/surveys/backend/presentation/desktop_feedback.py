@@ -15,7 +15,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 
-from products.surveys.backend.desktop_feedback import DesktopFeedbackUnavailable, submit_desktop_feedback
+from products.surveys.backend.facade.api import DesktopFeedbackUnavailable, submit_desktop_feedback
 
 MAX_FEEDBACK_IMAGE_BYTES = 512 * 1024
 
@@ -40,7 +40,7 @@ class DesktopFeedbackRequestSerializer(serializers.Serializer):
         trim_whitespace=True,
         help_text="Feedback text entered by the user.",
     )
-    source = serializers.ChoiceField(
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # Field name shadows DRF Field.source.
         choices=DesktopFeedbackSource.choices,
         help_text="Desktop surface that opened the feedback form.",
     )
@@ -134,6 +134,6 @@ class DesktopFeedbackViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise DesktopFeedbackServiceUnavailable from error
 
         return Response(
-            {"accepted": True, "response_id": response_id},
+            DesktopFeedbackResponseSerializer({"accepted": True, "response_id": response_id}).data,
             status=status.HTTP_201_CREATED,
         )
