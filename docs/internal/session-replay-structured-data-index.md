@@ -5,7 +5,7 @@ Use it to find candidate labels and block locations without downloading DOM payl
 The native anonymizer extracts metadata after scrubbing and passes it beside the serialized recording bytes.
 The ordinary replay ingestion path does not extract this index.
 
-See [ML mirror team IDs](session-replay-ml-team-ids.md) for the dataset version and rollout requirements.
+See [ML mirror identifiers](session-replay-ml-team-ids.md) for identifier formats and dataset paths.
 
 ## Storage and lookup
 
