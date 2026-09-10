@@ -73,6 +73,13 @@ function resolveWindow(dateFrom: string | null, dateTo: string | null, timezone:
     }
 }
 
+/** The picker writes bounds with `toISOString()`, which always has three fractional digits, while
+ * the API writes them with DRF, which has none or six for the same instant. So the two sides never
+ * agree as strings and have to be compared as instants. */
+function isSameInstant(a: string, b: string): boolean {
+    return dayjs(a).valueOf() === dayjs(b).valueOf()
+}
+
 function backfillErrorMessage(error: unknown, fallback: string): string {
     // `formattedRetryAfter` already reads as "in 30s" or "later", so the sentence adds no preposition.
     if (error instanceof ApiError && error.formattedRetryAfter) {
@@ -388,8 +395,8 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     return null
                 }
                 if (
-                    estimate.window_start === requestedWindow.window_start &&
-                    estimate.window_end === requestedWindow.window_end
+                    isSameInstant(estimate.window_start, requestedWindow.window_start) &&
+                    isSameInstant(estimate.window_end, requestedWindow.window_end)
                 ) {
                     return null
                 }
