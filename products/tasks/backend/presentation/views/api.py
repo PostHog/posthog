@@ -126,12 +126,14 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextThreadSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
+    TaskBasicSerializer,
     TaskCommentDetailQuerySerializer,
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
     TaskCommentsResponseSerializer,
     TaskCreateSerializer,
     TaskHandoffRequestSerializer,
+    TaskListItemSerializer,
     TaskListQuerySerializer,
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
@@ -460,10 +462,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         query_serializer=TaskListQuerySerializer,
         responses={
-            200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
+            200: OpenApiResponse(
+                response=TaskListItemSerializer,
+                description="List of full task rows by default, or basic rows with description_preview when basic=true.",
+            ),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
@@ -480,8 +485,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
+        # Description bodies dominate the list payload. A summary surface asks for basic=true
+        # and gets the smaller rows without them.
+        basic = getattr(request, "validated_query_data", {}).get("basic", False)
+        serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
-            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+            serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
         )
 
     @validated_request(
@@ -623,6 +632,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ],
         responses={
             201: TaskSerializer,
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "The organization is on a Self-driving free trial, so a report implementation opens no "
+                    "pull request (code `self_driving_free_trial`), or the organization reached its "
+                    "self-driving pull request limit"
+                ),
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required for a create that can activate a warm sandbox",
@@ -1143,6 +1160,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "The organization is on a Self-driving free trial, so a report implementation opens no "
+                    "pull request (code `self_driving_free_trial`)"
+                ),
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
@@ -2040,6 +2064,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        trace_id = request.validated_data.get("trace_id")
         relay_status, relay_id = tasks_facade.relay_task_run_message(
             pk,
             task_id,
@@ -2047,6 +2072,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             text=request.validated_data["text"],
             text_parts=request.validated_data.get("text_parts"),
             message_id=request.validated_data.get("message_id"),
+            # Validated as a UUID, carried on as the string form the events it ends up on use.
+            trace_id=str(trace_id) if trace_id else None,
         )
         if relay_status == "failed":
             return Response(

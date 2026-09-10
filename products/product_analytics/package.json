@@ -9,19 +9,24 @@
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
         "@testing-library/react": "*",
-        "kea-test-utils": "catalog:"
+        "kea-test-utils": "catalog:",
+        "timekeeper": "*"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@types/react": "*",
+        "@xyflow/react": "*",
         "clsx": "*",
+        "elkjs": "*",
         "fuse.js": "*",
+        "natural-orderby": "*",
         "react": "*"
     }
 }

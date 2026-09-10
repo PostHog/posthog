@@ -75,6 +75,7 @@ from products.feature_flags.backend.api.feature_flag import (
     assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
@@ -1525,9 +1526,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         targeting_flag_id = data.get("targeting_flag_id")
         if targeting_flag_id:
             try:
-                FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
+                targeting_flag = FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")
+            # Re-saving a survey with the flag it already owns is not an adoption.
+            if self.instance is None or self.instance.targeting_flag_id != targeting_flag_id:
+                assert_flag_available_for(targeting_flag, product=FLAG_OWNER_SURVEY)
 
         linked_insight_id = data.get("linked_insight_id")
         if linked_insight_id:

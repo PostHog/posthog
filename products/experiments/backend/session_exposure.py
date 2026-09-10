@@ -1,11 +1,13 @@
 """How a session-scoped experiment surface reads exposure.
 
-The session buckets and the watch shelf both answer questions about "the sessions this experiment
-exposed someone in", and both have to mean the same thing by it: which event carries the exposure,
-which property carries the variant, and what to do when that event was only ever captured where
-there is no session to record. Resolved once here, because two surfaces disagreeing on the
-population would show up as one of them silently answering over a wider set of sessions than it
-names.
+The session buckets and the recordings list's in-session narrowing both answer questions about
+"the sessions this experiment exposed someone in", and both have to mean the same thing by it:
+which event carries the exposure, which property carries the variant, and what to do when that
+event was only ever captured where there is no session to record. Resolved once here, because two
+surfaces disagreeing on the population would show up as one of them silently answering over a
+wider set of sessions than it names. The watch shelf reads the person-scoped exposed population
+through ``replay_linkage`` instead, so it is not a reader of this seam beyond
+:func:`never_session_linked_events`.
 """
 
 from dataclasses import dataclass
