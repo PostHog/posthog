@@ -109,6 +109,12 @@ const FATAL_SESSION_ERROR_PATTERNS = [
   "session not found",
 ] as const;
 
+const REQUEST_SIZE_ERROR_PATTERNS = [
+  "this conversation is too large to continue",
+  "request body too large",
+  "payload too large",
+] as const;
+
 /**
  * Transient upstream provider failures, as surfaced by agent adapters in
  * "API Error: …" result strings (kept in sync with classifyAgentError in
@@ -275,6 +281,12 @@ export function isFatalSessionError(
   errorMessage: string,
   errorDetails?: string,
 ): boolean {
+  if (
+    includesAny(errorMessage, REQUEST_SIZE_ERROR_PATTERNS) ||
+    includesAny(errorDetails, REQUEST_SIZE_ERROR_PATTERNS)
+  ) {
+    return false;
+  }
   if (isRateLimitError(errorMessage, errorDetails)) return false;
   if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) return false;
   if (isTransientUpstreamError(errorMessage, errorDetails)) return false;

@@ -113,6 +113,40 @@ describe("SessionService prompt recovery on fatal session errors", () => {
     );
   });
 
+  it.each(["message", "details"] as const)(
+    "keeps the session connected when a size error is in the %s",
+    async (location) => {
+      const { service, sessions, promptMutate, recoverSpy, usageLimitShow } =
+        createHarness();
+      const message = "This conversation is too large to continue.";
+      const error =
+        location === "message"
+          ? new Error(`Internal error: ${message}`)
+          : Object.assign(new Error("Internal error"), {
+              data: { details: message },
+            });
+      promptMutate.mockImplementation(async () => {
+        sessions[TASK_RUN_ID].isCompacting = true;
+        throw error;
+      });
+      recoverSpy.mockResolvedValue(true);
+
+      await expect(service.sendPrompt(TASK_ID, "/compact")).rejects.toThrow(
+        error,
+      );
+
+      expect(promptMutate).toHaveBeenCalledTimes(1);
+      expect(recoverSpy).not.toHaveBeenCalled();
+      expect(usageLimitShow).not.toHaveBeenCalled();
+      expect(sessions[TASK_RUN_ID]).toMatchObject({
+        status: "connected",
+        isPromptPending: false,
+        isCompacting: false,
+        promptStartedAt: null,
+      });
+    },
+  );
+
   it.each([
     {
       case: "recovery fails",

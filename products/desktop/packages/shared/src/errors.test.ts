@@ -179,6 +179,12 @@ describe("classifyPromptFailure", () => {
     ],
     ["Authentication required", undefined, "authentication", true],
     ["process exited", undefined, "fatal_session", true],
+    [
+      "Internal error: This conversation is too large to continue.",
+      undefined,
+      "unknown",
+      false,
+    ],
     ["invalid model", undefined, "unknown", false],
   ] as const)("classifies %j as %s", (message, errorType, kind, retryable) => {
     expect(
@@ -214,6 +220,15 @@ describe("isFatalSessionError", () => {
 
   it("returns false for ordinary recoverable errors", () => {
     expect(isFatalSessionError("temporary network blip")).toBe(false);
+  });
+
+  it.each([
+    "This conversation is too large to continue.",
+    "API Error: 413 Payload Too Large",
+    "Request body too large",
+  ])("does not treat the request size error %j as fatal", (message) => {
+    expect(isFatalSessionError(`Internal error: ${message}`)).toBe(false);
+    expect(isFatalSessionError("Internal error", message)).toBe(false);
   });
 
   it.each([
