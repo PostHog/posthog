@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -52,13 +52,6 @@ class CollectedBatch:
     object_keys: list[str] = field(default_factory=list)
 
 
-# A rolling deploy has the writer and the reader of one batch on different versions, so a batch can
-# carry a field this worker does not know yet. Temporal's own converter drops unknown fields for
-# every other payload in this pipeline; this hand-rolled decode has to do the same, because the
-# alternative is a failed grouping run that takes the batch and the buffered keys with it.
-_EMIT_SIGNAL_FIELDS = frozenset(f.name for f in fields(EmitSignalInputs))
-
-
 @activity.defn
 @scoped_temporal()
 async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
@@ -67,9 +60,7 @@ async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSi
         raise ValueError(f"Signal batch not found in S3: {input.object_key}")
 
     data = json.loads(raw)
-    signals = [
-        EmitSignalInputs(**{key: value for key, value in item.items() if key in _EMIT_SIGNAL_FIELDS}) for item in data
-    ]
+    signals = [EmitSignalInputs(**item) for item in data]
 
     return ReadSignalsFromS3Output(signals=signals)
 
@@ -87,7 +78,6 @@ class TeamSignalGroupingV2Workflow:
 
     def __init__(self) -> None:
         self._batch_key_buffer: list[str] = []
-        self._pending_signal_keys: list[str] = []
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
@@ -105,11 +95,6 @@ class TeamSignalGroupingV2Workflow:
         self._batch_key_buffer.append(object_key)
         if self._batch_buffer_size_gauge is not None:
             self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-
-    @temporalio.workflow.signal
-    async def release_signal_key(self, signal_key: str) -> None:
-        if signal_key in self._pending_signal_keys:
-            self._pending_signal_keys.remove(signal_key)
 
     @temporalio.workflow.signal
     async def set_paused_until(self, timestamp: datetime) -> None:
@@ -135,7 +120,6 @@ class TeamSignalGroupingV2Workflow:
                 team_id=input.team_id,
                 pending_batch_keys=list(self._batch_key_buffer),
                 paused_until=self._paused_until,
-                pending_signal_keys=list(self._pending_signal_keys),
             )
         )
 
@@ -201,9 +185,7 @@ class TeamSignalGroupingV2Workflow:
             cached = None
 
         try:
-            dropped, type_examples = await _process_signal_batch(
-                signals, cached_type_examples=cached, pending_signal_keys=self._pending_signal_keys
-            )
+            dropped, type_examples = await _process_signal_batch(signals, cached_type_examples=cached)
             self._cached_type_examples = type_examples
             self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
             if self._signals_processed_counter is not None:
@@ -240,9 +222,7 @@ class TeamSignalGroupingV2Workflow:
             return
 
         try:
-            dropped, _type_examples = await _process_signal_batch(
-                collected.signals, pending_signal_keys=self._pending_signal_keys
-            )
+            dropped, _type_examples = await _process_signal_batch(collected.signals)
             if self._signals_processed_counter is not None:
                 self._signals_processed_counter.add(len(collected.signals))
             if self._signals_dropped_counter is not None and dropped > 0:
@@ -275,7 +255,6 @@ class TeamSignalGroupingV2Workflow:
     async def _run_impl(self, input: TeamSignalGroupingV2Input) -> None:
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
-        self._pending_signal_keys.extend(input.pending_signal_keys)
         self._paused_until = input.paused_until
         start_time = workflow.now()
 
@@ -305,22 +284,8 @@ class TeamSignalGroupingV2Workflow:
                 )
                 continue
 
-            # Carry in-flight keys into a fresh run before the entity workflow's run timeout. A run
-            # holding no keys has nothing to carry, so it waits without a timer and retires on that
-            # run timeout, rather than continuing as new every hour for as long as the team exists.
-            if workflow.patched("signals-stage-handoffs-v1") and self._pending_signal_keys:
-                try:
-                    await workflow.wait_condition(
-                        lambda: bool(self._batch_key_buffer) or not self._pending_signal_keys,
-                        timeout=timedelta(hours=1),
-                    )
-                except TimeoutError:
-                    self._continue_as_new(input)
-                if not self._batch_key_buffer:
-                    # Woken by the last key's release, with no batch to process.
-                    continue
-            else:
-                await workflow.wait_condition(lambda: len(self._batch_key_buffer) > 0)
+            # Wait for at least one batch key
+            await workflow.wait_condition(lambda: len(self._batch_key_buffer) > 0)
 
             if self._is_paused():
                 self._continue_as_new(input)

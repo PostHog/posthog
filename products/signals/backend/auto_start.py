@@ -399,8 +399,7 @@ def _create_implementation_task_if_absent(
     would let both observe "no implementation task yet" and each spawn one (duplicate Temporal
     workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
     inside the lock makes the decision atomic: the second evaluation blocks, then sees the gate and
-    returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
-    report is gone.
+    returns ``None``. Returns the created run, or ``None`` if a task already exists or the report is gone.
 
     The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
     decided and written before the task exists, so it can never race a billable PR run.
@@ -853,7 +852,7 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="org on self-driving free trial",
         )
-        return
+        return None
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
 

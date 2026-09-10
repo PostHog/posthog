@@ -19,7 +19,7 @@ from products.signals.backend.report_generation.select_repo import (
     resolve_team_github_integration,
     select_repository_for_report,
 )
-from products.signals.backend.signal_handoffs import add_task_cost, read_handoff, write_handoff
+from products.signals.backend.signal_handoffs import record_task_cost
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -27,7 +27,6 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.billing import get_task_spend
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
 GITHUB_ONLY_DOMAINS = [
@@ -42,7 +41,7 @@ GITHUB_ONLY_DOMAINS = [
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=False)
 class SelectRepositoryInput:
     team_id: int
     report_id: str
@@ -164,12 +163,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 sandbox_environment_id=sandbox_env_id,
             )
             if input.signal_key and result.task_id:
-                spend = await database_sync_to_async(get_task_spend, thread_sensitive=False)(
-                    input.team_id, result.task_id
-                )
-                handoff = await read_handoff(input.signal_key, input.team_id)
-                add_task_cost(handoff, result.task_id, spend, "research")
-                await write_handoff(handoff)
+                await record_task_cost(input.signal_key, input.team_id, result.task_id, "research")
             logger.info(
                 "signals repo selection completed",
                 report_id=input.report_id,

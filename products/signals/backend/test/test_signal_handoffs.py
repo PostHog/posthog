@@ -7,13 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from products.signals.backend.models import SignalReport
 from products.signals.backend.signal_costs import add_cost
 from products.signals.backend.signal_handoffs import SignalHandoff, publish_handoff, read_handoff, write_handoff
-from products.signals.backend.temporal.grouping import dispatch_signal_handoffs_activity
-from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
+from products.signals.backend.temporal.types import SignalData
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("deleted,unsafe", [(False, False), (True, False), (False, True)])
-async def test_handoff_round_trip_and_single_publication(deleted: bool, unsafe: bool) -> None:
+async def test_handoff_publishes_final_costs_once_with_safety_checks(deleted: bool, unsafe: bool) -> None:
     signal = SignalData(
         signal_id="signal-1",
         content="Synthetic signal",
@@ -25,8 +24,7 @@ async def test_handoff_round_trip_and_single_publication(deleted: bool, unsafe: 
         metadata={"report_id": "report-1"},
     )
     add_cost(signal.metadata, "model-a", token_cost=3)
-    add_cost(signal.metadata, "model-b", token_cost=8, compute_cost=4, stage="implementation")
-    handoff = SignalHandoff(team_id=1, signal=signal, embedding=[0.1, 0.2])
+    handoff = SignalHandoff(team_id=1, signal=signal)
     storage: dict[str, str] = {}
     report_query = MagicMock()
     report_query.values_list.return_value.afirst = AsyncMock(
@@ -36,6 +34,7 @@ async def test_handoff_round_trip_and_single_publication(deleted: bool, unsafe: 
     safety_query.order_by.return_value.values_list.return_value.afirst = AsyncMock(
         return_value=json.dumps({"choice": not unsafe})
     )
+
     with (
         patch("products.signals.backend.signal_handoffs.object_storage.read", side_effect=storage.get),
         patch("products.signals.backend.signal_handoffs.object_storage.write", side_effect=storage.__setitem__),
@@ -47,30 +46,23 @@ async def test_handoff_round_trip_and_single_publication(deleted: bool, unsafe: 
         patch("products.signals.backend.signal_handoffs.emit_embedding_request") as emit,
     ):
         key = await write_handoff(handoff)
-        stored = await read_handoff(key, 1)
-        assert stored == handoff
+        assert await read_handoff(key, 1) == handoff
+        emit.assert_not_called()
+
+        add_cost(signal.metadata, "model-b", token_cost=8, compute_cost=4, stage="implementation")
+        await write_handoff(handoff)
+        await publish_handoff(key, 1)
+        await publish_handoff(key, 1)
+        assert (await read_handoff(key, 1)).finalized is True
         with pytest.raises(ValueError, match="another team"):
             await read_handoff(key, 2)
-        assert json.loads(storage[key])["signal"]["metadata"]["token_cost"] == {
-            "research": 3,
-            "implementation": 8,
-        }
-        await publish_handoff(key, 1)
-        await publish_handoff(key, 1)
-        assert (await read_handoff(key, 1)).published is True
-        with patch("products.signals.backend.temporal.grouping.async_connect", new_callable=AsyncMock) as connect:
-            await dispatch_signal_handoffs_activity(
-                SignalReportSummaryWorkflowInputs(team_id=1, report_id="report-1", signal_keys=[key])
-            )
-        connect.assert_not_called()
 
     emit.assert_called_once()
-    record = emit.call_args.kwargs
-    metadata = record["metadata"]
-    assert metadata["token_cost"] == {"research": 3, "implementation": 8}
-    assert metadata["compute_cost"] == {"research": 0, "implementation": 4}
-    assert metadata.get("deleted", False) is (deleted or unsafe)
-    assert record["document_id"] == signal.signal_id
-    assert record["timestamp"] == signal.timestamp
-    assert record["content"] == signal.content
-    assert record["models"] == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]
+    emitted = emit.call_args.kwargs
+    assert emitted["document_id"] == signal.signal_id
+    assert emitted["timestamp"] == signal.timestamp
+    assert emitted["metadata"]["token_cost"] == {"research": 3, "implementation": 8}
+    assert emitted["metadata"]["compute_cost"] == {"research": 0, "implementation": 4}
+    assert emitted["metadata"].get("deleted", False) is (deleted or unsafe)
+    assert emitted["content"] == signal.content
+    assert emitted["models"] == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]

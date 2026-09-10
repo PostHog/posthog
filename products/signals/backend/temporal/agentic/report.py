@@ -46,7 +46,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
-from products.signals.backend.signal_handoffs import add_task_cost, read_handoff, write_handoff
+from products.signals.backend.signal_handoffs import record_task_cost
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -55,7 +55,6 @@ from products.signals.backend.temporal.agentic import (
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
-from products.tasks.backend.facade.billing import get_task_spend
 
 logger = structlog.get_logger(__name__)
 
@@ -663,12 +662,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 steering_section=steering.section,
             )
             if input.signal_key and result.research_task_id:
-                spend = await database_sync_to_async(get_task_spend, thread_sensitive=False)(
-                    input.team_id, result.research_task_id
-                )
-                handoff = await read_handoff(input.signal_key, input.team_id)
-                add_task_cost(handoff, result.research_task_id, spend, "research")
-                await write_handoff(handoff)
+                await record_task_cost(input.signal_key, input.team_id, result.research_task_id, "research")
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
                 input.team_id,

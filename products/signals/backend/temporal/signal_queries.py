@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Union
 
-import numpy as np
 import structlog
 import temporalio
 
@@ -16,12 +15,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.models import SignalReport
-from products.signals.backend.signal_handoffs import SignalHandoff, read_handoff
+from products.signals.backend.signal_handoffs import read_handoff
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     SIGNAL_DOCUMENT_PRODUCT,
@@ -258,29 +257,11 @@ class RunSignalSemanticSearchInput:
     team_id: int
     embedding: list[float]
     limit: int = 10
-    pending_signal_keys: list[str] | None = None
 
 
 @dataclass
 class RunSignalSemanticSearchOutput:
     candidates: list[SignalCandidate]
-
-
-async def _live_report_ids(team_id: int, report_ids: set[str]) -> set[str]:
-    """The reports among `report_ids` that still exist and are not deleted.
-
-    A handoff carries the `deleted` flag it was written with, and deleting a report only tombstones
-    its ClickHouse rows, so a pending handoff would keep attracting new signals to a report the user
-    dismissed. Ask Postgres for the current status instead of trusting the stored one.
-    """
-    if not report_ids:
-        return set()
-    live = (
-        SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
-        .exclude(status=SignalReport.Status.DELETED)
-        .values_list("id", flat=True)
-    )
-    return {str(report_id) async for report_id in live}
 
 
 @temporalio.activity.defn
@@ -332,45 +313,6 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
                 )
             )
 
-        pending: list[tuple[str, SignalHandoff]] = []
-        for signal_key in input.pending_signal_keys or []:
-            handoff = await read_handoff(signal_key, input.team_id)
-            if handoff.signal.metadata.get("deleted"):
-                continue
-            report_id = handoff.signal.metadata.get("report_id")
-            if not report_id:
-                continue
-            pending.append((str(report_id), handoff))
-
-        live_report_ids = await _live_report_ids(input.team_id, {report_id for report_id, _ in pending})
-        for report_id, handoff in pending:
-            if report_id not in live_report_ids:
-                continue
-            embedding = np.asarray(input.embedding)
-            handoff_embedding = np.asarray(handoff.embedding)
-            denominator = np.linalg.norm(embedding) * np.linalg.norm(handoff_embedding)
-            if denominator == 0:
-                continue
-            candidates.append(
-                SignalCandidate(
-                    signal_id=handoff.signal.signal_id,
-                    report_id=report_id,
-                    content=handoff.signal.content,
-                    source_product=handoff.signal.source_product,
-                    source_type=handoff.signal.source_type,
-                    distance=float(1 - np.dot(embedding, handoff_embedding) / denominator),
-                )
-            )
-        # A handoff stays pending from its publication until its finalizer releases the key, so for
-        # that window the same signal arrives from both ClickHouse and object storage. Count it once,
-        # or the pair takes two of the caller's candidate slots and pushes out a distinct signal.
-        closest: dict[str, SignalCandidate] = {}
-        for candidate in candidates:
-            best = closest.get(candidate.signal_id)
-            if best is None or candidate.distance < best.distance:
-                closest[candidate.signal_id] = candidate
-        candidates = sorted(closest.values(), key=lambda candidate: candidate.distance)[: input.limit]
-
         logger.debug(
             f"Found {len(candidates)} candidate signals for team {input.team_id}",
             team_id=input.team_id,
@@ -420,7 +362,6 @@ class WaitForClickHouseInput:
     signals: list[WaitForClickHouseSignal]
     max_wait_time_seconds: int = 3600
     mode: WaitForClickHouseMode = WaitForClickHouseMode.CH_CONFIRMED
-    require_visible: bool = False
 
 
 async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHouseSignal]) -> bool:
@@ -593,8 +534,6 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     metrics.increment_ch_wait_timeout()
     metrics.increment_ch_wait_completion(input.mode.value, "timeout")
-    if input.require_visible:
-        raise TimeoutError("Signal publication is not yet visible in ClickHouse")
     logger.warning(
         f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
         signal_ids=signal_ids,
@@ -607,17 +546,16 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@frozen
 class FetchSignalsForReportInput:
     team_id: int
     report_id: str
-    signal_keys: list[str] | None = None
+    signal_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
 class FetchSignalsForReportOutput:
     signals: list[SignalData]
-    signal_key_by_id: dict[str, str] = field(default_factory=dict)
 
 
 @temporalio.activity.defn
@@ -634,15 +572,13 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             placeholders=_report_placeholders(input.report_id),
         )
 
-        signals_by_id = {
-            signal.signal_id: signal for signal in (_parse_signal_row(row) for row in (result.results or []))
-        }
-        signal_key_by_id: dict[str, str] = {}
-        for signal_key in input.signal_keys or []:
+        clickhouse_signals = [_parse_signal_row(row) for row in (result.results or [])]
+        signals_by_id = {signal.signal_id: signal for signal in clickhouse_signals}
+        for signal_key in input.signal_keys:
             handoff = await read_handoff(signal_key, input.team_id)
-            if handoff.signal.metadata.get("report_id") == input.report_id:
-                signals_by_id.setdefault(handoff.signal.signal_id, handoff.signal)
-                signal_key_by_id[handoff.signal.signal_id] = signal_key
+            if handoff.signal.metadata.get("report_id") != input.report_id:
+                raise ValueError("Signal handoff belongs to another report")
+            signals_by_id[handoff.signal.signal_id] = handoff.signal
         signals = list(signals_by_id.values())
 
         logger.debug(
@@ -651,7 +587,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             report_id=input.report_id,
             signal_count=len(signals),
         )
-        return FetchSignalsForReportOutput(signals=signals, signal_key_by_id=signal_key_by_id)
+        return FetchSignalsForReportOutput(signals=signals)
     except Exception as e:
         logger.exception(
             f"Failed to fetch signals for report {input.report_id}: {e}",

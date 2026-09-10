@@ -13,21 +13,21 @@ from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
 from posthog.schema_enums import EmbeddingModelName
 from posthog.storage import object_storage
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.signal_costs import CostStage, add_cost, merge_costs
+from products.tasks.backend.facade.billing import get_task_spend
 
 if TYPE_CHECKING:
     from products.signals.backend.temporal.types import SignalData
-    from products.tasks.backend.facade.contracts import TaskRunSpend
 
 
 @frozen
 class SignalHandoff:
     team_id: int
     signal: SignalData
-    embedding: list[float]
-    published: bool = False
+    finalized: bool = False
     costed_tasks: list[str] = field(default_factory=list)
 
 
@@ -65,19 +65,24 @@ async def read_handoff(key: str, team_id: int) -> SignalHandoff:
     return SignalHandoff(
         team_id=team_id,
         signal=SignalData(**signal),
-        embedding=payload["embedding"],
-        published=payload.get("published", False),
+        finalized=payload.get("finalized", False),
         costed_tasks=payload.get("costed_tasks", []),
     )
 
 
-def add_task_cost(handoff: SignalHandoff, task_id: str, spend: TaskRunSpend, stage: CostStage) -> None:
+async def record_task_cost(handoff_key: str, team_id: int, task_id: str, stage: CostStage) -> None:
+    handoff = await read_handoff(handoff_key, team_id)
     if task_id not in handoff.costed_tasks:
+        spend = await database_sync_to_async(get_task_spend, thread_sensitive=False)(team_id, task_id)
         add_cost(handoff.signal.metadata, "task", spend.token_cost, spend.compute_cost, stage)
         handoff.costed_tasks.append(task_id)
+        await write_handoff(handoff)
 
 
-async def publish_signal(handoff: SignalHandoff) -> None:
+async def publish_handoff(key: str, team_id: int) -> None:
+    handoff = await read_handoff(key, team_id)
+    if handoff.finalized:
+        return
     signal = handoff.signal
     merge_costs(signal.metadata, {})
     report_status = (
@@ -116,10 +121,4 @@ async def publish_signal(handoff: SignalHandoff) -> None:
         result.get(timeout=1)
 
     await sync_to_async(emit, thread_sensitive=False)()
-
-
-async def publish_handoff(key: str, team_id: int) -> None:
-    handoff = await read_handoff(key, team_id)
-    if not handoff.published:
-        await publish_signal(handoff)
-        await write_handoff(replace(handoff, published=True))
+    await write_handoff(replace(handoff, finalized=True))

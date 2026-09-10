@@ -7,18 +7,17 @@ from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client import sync_execute
-from posthog.sync import database_sync_to_async
 
 from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
 from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.models import SignalReport
-from products.signals.backend.signal_handoffs import SignalHandoff
+from products.signals.backend.signal_handoffs import SignalHandoff, signal_key
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -28,12 +27,11 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
-    RunSignalSemanticSearchInput,
-    _parse_signal_row,
+    FetchSignalsForReportInput,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
+    fetch_signals_for_report_activity,
     fetch_signals_for_report_sync,
-    run_signal_semantic_search_activity,
 )
 from products.signals.backend.temporal.types import SignalData
 
@@ -380,112 +378,112 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
         assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == set()
 
 
-QUERIES_MODULE = "products.signals.backend.temporal.signal_queries"
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "status,expected_candidates",
-    [(SignalReport.Status.READY, 1), (SignalReport.Status.DELETED, 0)],
-)
-async def test_semantic_search_drops_handoffs_whose_report_is_deleted(ateam, status, expected_candidates) -> None:
-    report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=status, total_weight=1.0, signal_count=1
-    )
-    handoff = SignalHandoff(
-        team_id=ateam.pk,
-        signal=SignalData(
-            signal_id=str(uuid.uuid4()),
-            content="the pending signal",
-            source_product="github",
-            source_type="issue",
-            source_id="42",
-            weight=1.0,
-            timestamp=datetime.now(UTC),
-            # Written before the report was deleted, which is the flag the search must not trust.
-            metadata={"report_id": str(report.id), "deleted": False},
-        ),
-        embedding=[1.0, 0.0],
-    )
-
-    with (
-        patch(f"{QUERIES_MODULE}.execute_hogql_query_with_retry", AsyncMock(return_value=SimpleNamespace(results=[]))),
-        patch(f"{QUERIES_MODULE}.read_handoff", AsyncMock(return_value=handoff)),
-    ):
-        result = await ActivityEnvironment().run(
-            run_signal_semantic_search_activity,
-            RunSignalSemanticSearchInput(
-                team_id=ateam.pk, embedding=[1.0, 0.0], pending_signal_keys=[f"signals/processing/{ateam.pk}/key.json"]
+class TestFetchSignalsForReportActivity:
+    @staticmethod
+    def _handoff(signal_id: str, report_id: str, metadata: dict[str, object] | None = None) -> SignalHandoff:
+        return SignalHandoff(
+            team_id=1,
+            signal=SignalData(
+                signal_id=signal_id,
+                content=f"handoff {signal_id}",
+                source_product="errors",
+                source_type="issue",
+                source_id=signal_id,
+                weight=1.0,
+                timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+                metadata={"report_id": report_id, **(metadata or {})},
             ),
         )
 
-    assert len(result.candidates) == expected_candidates
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_semantic_search_counts_a_signal_once_while_it_sits_in_both_stores(ateam) -> None:
-    report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=SignalReport.Status.READY, total_weight=1.0, signal_count=1
-    )
-    signal_id = str(uuid.uuid4())
-    handoff = SignalHandoff(
-        team_id=ateam.pk,
-        signal=SignalData(
-            signal_id=signal_id,
-            content="the published signal",
-            source_product="github",
-            source_type="issue",
-            source_id="42",
-            weight=1.0,
-            timestamp=datetime.now(UTC),
-            metadata={"report_id": str(report.id)},
-        ),
-        embedding=[1.0, 0.0],
-        published=True,
-    )
-    clickhouse_row = (signal_id, "the published signal", str(report.id), "github", "issue", 0.2)
-
-    with (
-        patch(
-            f"{QUERIES_MODULE}.execute_hogql_query_with_retry",
-            AsyncMock(return_value=SimpleNamespace(results=[clickhouse_row])),
-        ),
-        patch(f"{QUERIES_MODULE}.read_handoff", AsyncMock(return_value=handoff)),
-    ):
-        result = await ActivityEnvironment().run(
-            run_signal_semantic_search_activity,
-            RunSignalSemanticSearchInput(
-                team_id=ateam.pk, embedding=[1.0, 0.0], pending_signal_keys=[f"signals/processing/{ateam.pk}/key.json"]
+    @staticmethod
+    async def _fetch(
+        signal_keys: list[str],
+        handoffs: list[SignalHandoff],
+        rows: list[tuple[str, str, str, datetime, datetime]] | None = None,
+    ) -> list[SignalData]:
+        with (
+            patch(
+                "products.signals.backend.temporal.signal_queries.Team.objects.aget",
+                AsyncMock(return_value=object()),
             ),
-        )
+            patch(
+                "products.signals.backend.temporal.signal_queries.execute_hogql_query_with_retry",
+                AsyncMock(return_value=SimpleNamespace(results=rows or [])),
+            ),
+            patch(
+                "products.signals.backend.temporal.signal_queries.read_handoff",
+                AsyncMock(side_effect=handoffs),
+            ) as read_handoff,
+        ):
+            result = await ActivityEnvironment().run(
+                fetch_signals_for_report_activity,
+                FetchSignalsForReportInput(team_id=1, report_id="report-1", signal_keys=signal_keys),
+            )
 
-    assert [candidate.signal_id for candidate in result.candidates] == [signal_id]
-    assert result.candidates[0].distance == 0.0
+        assert read_handoff.await_args_list == [call(key, 1) for key in signal_keys]
+        return result.signals
 
-
-class TestParseSignalRow:
-    def test_carries_only_the_metadata_the_research_selection_reads(self) -> None:
-        metadata = {
-            "report_id": str(uuid.uuid4()),
-            "source_product": "github",
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("include_clickhouse_signals", [False, True])
+    async def test_prefers_handoffs_and_merges_them_with_clickhouse_signals(
+        self, include_clickhouse_signals: bool
+    ) -> None:
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        duplicate_metadata = {
+            "report_id": "report-1",
+            "source_product": "errors",
             "source_type": "issue",
-            "source_id": "42",
-            "weight": 0.5,
+            "source_id": "duplicate",
+            "report_signal_count": 1,
+            "research_trigger": False,
+        }
+        ch_only_metadata = {
+            **duplicate_metadata,
+            "source_id": "ch-only",
             "extra": {"body": "x" * 1000},
             "remediation": {"agent": "raise the timeout"},
-            "match_metadata": {"reason": "y" * 1000, "rejected_signal_ids": ["a", "b"]},
+            "match_metadata": {"reason": "y" * 1000},
             "report_signal_count": 3,
             "research_trigger": True,
         }
-        timestamp = datetime.now(UTC)
+        clickhouse_rows = (
+            [
+                ("duplicate", "stale", json.dumps(duplicate_metadata), timestamp, timestamp),
+                ("ch-only", "visible", json.dumps(ch_only_metadata), timestamp, timestamp),
+            ]
+            if include_clickhouse_signals
+            else []
+        )
+        duplicate_handoff_metadata = {
+            "report_signal_count": 2,
+            "research_trigger": True,
+            "token_cost": {"research": 3},
+        }
+        handoffs = [
+            self._handoff("duplicate", "report-1", duplicate_handoff_metadata),
+            self._handoff("unpublished", "report-1"),
+        ]
+        signal_keys = [signal_key(1, handoff.signal.signal_id) for handoff in handoffs]
 
-        signal = _parse_signal_row(("doc-1", "the signal content", json.dumps(metadata), timestamp, timestamp))
+        signals = await self._fetch(signal_keys, handoffs, clickhouse_rows)
 
-        assert signal.metadata == {"report_signal_count": 3, "research_trigger": True}
-        assert signal.extra == {"body": "x" * 1000}
-        assert signal.remediation == {"agent": "raise the timeout"}
+        expected_ids = (
+            ["duplicate", "ch-only", "unpublished"] if include_clickhouse_signals else ["duplicate", "unpublished"]
+        )
+        assert [signal.signal_id for signal in signals] == expected_ids
+        assert signals[0].content == "handoff duplicate"
+        assert signals[0].metadata == {"report_id": "report-1", **duplicate_handoff_metadata}
+        if include_clickhouse_signals:
+            assert signals[1].metadata == {"report_signal_count": 3, "research_trigger": True}
+            assert signals[1].extra == {"body": "x" * 1000}
+            assert signals[1].remediation == {"agent": "raise the timeout"}
+
+    @pytest.mark.asyncio
+    async def test_rejects_submitted_handoff_for_another_report(self) -> None:
+        key = signal_key(1, "wrong-report")
+
+        with pytest.raises(ValueError, match="another report"):
+            await self._fetch([key], [self._handoff("wrong-report", "report-2")])
 
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):

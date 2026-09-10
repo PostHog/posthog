@@ -1,5 +1,4 @@
 import uuid
-from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -63,7 +62,6 @@ async def _run(
     signals: list[WaitForClickHouseSignal],
     max_wait_time_seconds: int = 600,
     mode: WaitForClickHouseMode = WaitForClickHouseMode.CH_CONFIRMED,
-    require_visible: bool = False,
 ) -> None:
     env = ActivityEnvironment()
     await env.run(
@@ -73,7 +71,6 @@ async def _run(
             signals=signals,
             max_wait_time_seconds=max_wait_time_seconds,
             mode=mode,
-            require_visible=require_visible,
         ),
     )
 
@@ -152,8 +149,7 @@ async def test_unconfirmed_store_defers_clickhouse_until_grace_period_elapses(st
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("require_visible", [False, True])
-async def test_gives_up_after_max_wait_and_records_timeout(require_visible: bool):
+async def test_gives_up_after_max_wait_and_records_timeout() -> None:
     signals = _signals(1)
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),
@@ -162,8 +158,7 @@ async def test_gives_up_after_max_wait_and_records_timeout(require_visible: bool
         patch(f"{MODULE}.asyncio.sleep", AsyncMock()) as sleep,
         patch(f"{MODULE}.metrics.increment_ch_wait_timeout") as timeout_metric,
     ):
-        with pytest.raises(TimeoutError, match="not yet visible") if require_visible else nullcontext():
-            await _run(signals, max_wait_time_seconds=30, require_visible=require_visible)
+        await _run(signals, max_wait_time_seconds=30)
 
     # A wait shorter than the grace period still checks ClickHouse once, on the final
     # attempt, before giving up and recording the timeout. Giving up has to happen inside

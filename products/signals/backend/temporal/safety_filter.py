@@ -164,7 +164,7 @@ def _select_safety_prompt(source_product: str | None) -> str:
     return SAFETY_FILTER_PROMPT
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterInput:
     description: str
     # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
@@ -181,7 +181,7 @@ class SafetyFilterInput:
     track_costs: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterOutput:
     safe: bool
     threat_type: str

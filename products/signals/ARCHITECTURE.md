@@ -12,11 +12,12 @@ A report is a **living document**: every piece of work done on it — judgments,
 
 ## Temporal Workflows
 
-The `signals-stage-handoffs-v1` patch keeps promoted signals and arrivals during active research in S3 until their processing finishes.
-Research reads these handoffs alongside older ClickHouse signals; an implementation finalizer waits for task completion before publishing the triggering signal.
-Temporal carries the in-flight keys across workflow runs, without a pending-signal database table.
+The `signals-stage-handoffs-v1` patch makes each stage either hand a signal to the next stage or publish it with final costs.
+Grouping waits for immediately emitted signals to become visible in ClickHouse, but does not wait for handed-off signals to finish research or implementation.
+Research reads unpublished signals through its known S3 handoff keys alongside published report context.
+Grouping uses its existing batch context and ClickHouse; it does not search pending S3 handoffs.
+Later batches can therefore miss earlier signals whose downstream work is unfinished.
 See [Signal processing costs](../../docs/internal/signals-costs.md) for pricing, handoff ownership, and replay compatibility.
-The pre-handoff publication order described below remains the replay path for older histories.
 
 Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping v2**. The emitter and buffer workflows are defined in `backend/temporal/emitter.py` and `backend/temporal/buffer.py`. The grouping v2 workflow is in `backend/temporal/grouping_v2.py` and delegates to the shared `_process_signal_batch()` implementation in `backend/temporal/grouping.py`. The report summary workflow is defined in `backend/temporal/summary.py`.
 
@@ -142,9 +143,9 @@ A long-running entity workflow that serializes all signal grouping for a single 
 3. **Embed each query**
 4. **Semantic search** the ClickHouse `document_embeddings` HogQL alias for nearest neighbors via `cosineDistance()`
 5. **LLM match** — decide whether the signal belongs to an existing report or needs a new one
-6. **Assign** the signal to a `SignalReport` in Postgres, increment counts/weights, check promotion threshold, and **emit** the signal into the embeddings pipeline in one atomic operation
-7. **Wait for ClickHouse** — poll until the just-emitted signals are query-visible so subsequent grouping decisions can find them
-8. If promoted (weight ≥ threshold), **spawn child** `SignalReportSummaryWorkflow` with `ParentClosePolicy.ABANDON`; `WorkflowAlreadyStartedError` is ignored
+6. **Assign** the signal to a `SignalReport` in Postgres, increment counts/weights, and check promotion in one transaction. Then hand off signals needing more work or emit completed signals through the embedding worker.
+7. **Wait for ClickHouse** for immediately emitted signals only. Handed-off signals remain unavailable to later batches until their final stage publishes them.
+8. **Dispatch handoffs** to the report summary workflow. The legacy path instead spawns a summary child for each promoted report with `ParentClosePolicy.ABANDON` and ignores `WorkflowAlreadyStartedError`.
 
 Steps 1–4 run in parallel across the batch. Steps 5–7 run sequentially per signal, and earlier-in-batch matches are injected into later signals’ candidate sets before the LLM match call.
 
@@ -160,7 +161,8 @@ Defined in `backend/temporal/summary.py`.
    When it blocks, the workflow exits and the report stays `candidate`.
    The gate re-runs before repository selection (`pre_repo_selection`) and before agentic research (`pre_research`) — a block there reverts the report `in_progress → candidate` via `revert_report_to_candidate_activity` before exiting, so a promotion rule can pick it up again.
    All three sites are gated with `workflow.patched("self-driving-quota-gates")`.
-1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity`
+1. **Fetch signals** for the report from ClickHouse and explicitly submitted S3 handoffs through `fetch_signals_for_report_activity`.
+   Handoffs must belong to the same team and report, and take precedence over duplicate ClickHouse rows.
    An empty result is retried up to `EMPTY_FETCH_RETRY_ATTEMPTS` times at `EMPTY_FETCH_RETRY_INTERVAL`, since freshly emitted signals can trail the run into ClickHouse.
    If it stays empty, `report_has_assigned_signals_activity` checks Postgres `signal_count`: signals assigned but not yet visible → the workflow exits and the report stays `candidate` for re-promotion; none assigned → `failed` with `failure_reason=no_signals_found`.
    Gated with `workflow.patched("signals-empty-fetch-retry")`.
@@ -1386,26 +1388,26 @@ Resume is organic, like the other pauses: nothing restarts when the flag goes of
 
 ## Data Types (`backend/temporal/types.py`)
 
-| Type                                    | Description                                                                                                                          |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `EmitSignalInputs`                      | Workflow input: `team_id`, `source_product`, `source_type`, `source_id`, `description`, `weight`, `extra`                            |
-| `BufferSignalsInput`                    | Buffer workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)                      |
-| `TeamSignalGroupingV2Input`             | Grouping v2 workflow input: `team_id`, `pending_batch_keys: list[str]` (carried over on `continue_as_new`)                           |
-| `TeamSignalGroupingInput`               | Legacy v1 entity workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)            |
-| `ReadSignalsFromS3Input`                | Activity input: `object_key`                                                                                                         |
-| `ReadSignalsFromS3Output`               | Activity output: `signals: list[EmitSignalInputs]`                                                                                   |
-| `SignalCandidate`                       | Search result: `signal_id`, `report_id`, `content`, `source_product`, `source_type`, `distance`                                      |
-| `MatchedMetadata`                       | Metadata when matched to existing report: `parent_signal_id`, `match_query`, `reason`                                                |
-| `NoMatchMetadata`                       | Metadata when no match found: `reason`, `rejected_signal_ids`                                                                        |
-| `MatchMetadata`                         | Union type: `MatchedMetadata \| NoMatchMetadata`                                                                                     |
-| `ExistingReportMatch`                   | LLM decided signal matches existing report: `report_id`, `match_metadata: MatchedMetadata`                                           |
-| `NewReportMatch`                        | LLM decided signal needs new group: `title`, `summary`, `match_metadata: NoMatchMetadata`                                            |
-| `MatchResult`                           | Union: `ExistingReportMatch \| NewReportMatch`                                                                                       |
-| `SignalReportSummaryWorkflowInputs`     | Summary workflow input: `team_id`, `report_id`                                                                                       |
-| `SignalReportDeletionWorkflowInputs`    | Deletion workflow input: `team_id`, `report_id`                                                                                      |
-| `SignalReportReingestionWorkflowInputs` | Reingestion workflow input: `team_id`, `report_id`                                                                                   |
-| `SignalTypeExample`                     | One example per `(source_product, source_type)` pair: `source_product`, `source_type`, `content`, `timestamp`, `extra`               |
-| `SignalData`                            | Signal fetched from ClickHouse: `signal_id`, `content`, `source_product`, `source_type`, `source_id`, `weight`, `timestamp`, `extra` |
+| Type                                    | Description                                                                                                                                     |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EmitSignalInputs`                      | Workflow input: `team_id`, `source_product`, `source_type`, `source_id`, `description`, `weight`, `extra`                                       |
+| `BufferSignalsInput`                    | Buffer workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)                                 |
+| `TeamSignalGroupingV2Input`             | Grouping v2 workflow input: `team_id`, `pending_batch_keys: list[str]` (carried over on `continue_as_new`)                                      |
+| `TeamSignalGroupingInput`               | Legacy v1 entity workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)                       |
+| `ReadSignalsFromS3Input`                | Activity input: `object_key`                                                                                                                    |
+| `ReadSignalsFromS3Output`               | Activity output: `signals: list[EmitSignalInputs]`                                                                                              |
+| `SignalCandidate`                       | Search result: `signal_id`, `report_id`, `content`, `source_product`, `source_type`, `distance`                                                 |
+| `MatchedMetadata`                       | Metadata when matched to existing report: `parent_signal_id`, `match_query`, `reason`                                                           |
+| `NoMatchMetadata`                       | Metadata when no match found: `reason`, `rejected_signal_ids`                                                                                   |
+| `MatchMetadata`                         | Union type: `MatchedMetadata \| NoMatchMetadata`                                                                                                |
+| `ExistingReportMatch`                   | LLM decided signal matches existing report: `report_id`, `match_metadata: MatchedMetadata`                                                      |
+| `NewReportMatch`                        | LLM decided signal needs new group: `title`, `summary`, `match_metadata: NoMatchMetadata`                                                       |
+| `MatchResult`                           | Union: `ExistingReportMatch \| NewReportMatch`                                                                                                  |
+| `SignalReportSummaryWorkflowInputs`     | Summary workflow input: `team_id`, `report_id`                                                                                                  |
+| `SignalReportDeletionWorkflowInputs`    | Deletion workflow input: `team_id`, `report_id`                                                                                                 |
+| `SignalReportReingestionWorkflowInputs` | Reingestion workflow input: `team_id`, `report_id`                                                                                              |
+| `SignalTypeExample`                     | One example per `(source_product, source_type)` pair: `source_product`, `source_type`, `content`, `timestamp`, `extra`                          |
+| `SignalData`                            | Signal from ClickHouse or a known handoff: `signal_id`, `content`, `source_product`, `source_type`, `source_id`, `weight`, `timestamp`, `extra` |
 
 ### Rendering Helpers
 

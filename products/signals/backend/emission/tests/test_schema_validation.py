@@ -22,6 +22,8 @@ def _load_fixture(filename: str) -> list[dict]:
 
 def _validate_output(output):
     data = dataclasses.asdict(output)
+    # Runtime costs are internal, not fields accepted from a signal source.
+    data.pop("metadata")
     variant_type = SIGNAL_VARIANT_LOOKUP.get((output.source_product, output.source_type))
     if variant_type is None:
         raise ValueError(f"No SignalInput variant for ({output.source_product}, {output.source_type})")

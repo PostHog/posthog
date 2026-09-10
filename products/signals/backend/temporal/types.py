@@ -60,7 +60,7 @@ IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_
 NEW_SELF_DRIVING_GRACE = timedelta(hours=24)
 
 
-@dataclass
+@dataclass(frozen=False)
 class EmitSignalInputs:
     team_id: int
     source_product: str
@@ -127,14 +127,14 @@ class NoMatchMetadata:
 MatchMetadata = MatchedMetadata | NoMatchMetadata
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExistingReportMatch:
     report_id: str
     match_metadata: MatchedMetadata
     costs: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=False)
 class NewReportMatch:
     title: str
     summary: str
@@ -171,7 +171,6 @@ class TeamSignalGroupingV2Input:
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
     paused_until: Optional[datetime] = None
-    pending_signal_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -188,7 +187,7 @@ class ReadSignalsFromS3Output:
     signals: list["EmitSignalInputs"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SignalReportSummaryWorkflowInputs:
     """Inputs for the signal report summary workflow."""
 
@@ -198,7 +197,6 @@ class SignalReportSummaryWorkflowInputs:
     # than one run each. Defaults to 0 so histories written before this field replay unchanged.
     debounce_seconds: int = 0
     signal_keys: list[str] = field(default_factory=list)
-    context_signal_keys: list[str] = field(default_factory=list)
 
 
 @dataclass

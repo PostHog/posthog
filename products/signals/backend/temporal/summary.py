@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import itertools
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -37,7 +38,10 @@ from products.signals.backend.quota import (
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.signal_handoffs import read_handoff
+from products.signals.backend.signal_handoffs import (
+    read_handoff,
+    signal_key as signal_handoff_key,
+)
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
@@ -81,51 +85,24 @@ FINALIZER_BATCH_SIZE = 20
 
 
 def select_research_signal_key(
+    team_id: int,
     signal_keys: list[str],
     fetch_result: FetchSignalsForReportOutput,
     pass_completed: bool,
     next_bucket: int | None,
 ) -> str | None:
-    signals_by_id = {signal.signal_id: signal for signal in fetch_result.signals}
-    signals_by_key = {
-        signal_key: signals_by_id.get(signal_id) for signal_id, signal_key in fetch_result.signal_key_by_id.items()
-    }
-    candidates = [(index, signal_key, signals_by_key.get(signal_key)) for index, signal_key in enumerate(signal_keys)]
-
-    def assigned_count(candidate: tuple[int, str, SignalData | None]) -> int | None:
-        signal = candidate[2]
-        count = signal.metadata.get("report_signal_count") if signal is not None else None
-        return count if isinstance(count, int) and not isinstance(count, bool) else None
-
-    def first_by_assigned_count(values: list[tuple[int, str, SignalData | None]]) -> str:
-        return min(
-            values,
-            key=lambda candidate: (
-                assigned_count(candidate) if assigned_count(candidate) is not None else float("inf"),
-                candidate[0],
-            ),
-        )[1]
-
-    promoted = [
-        candidate
-        for candidate in candidates
-        if candidate[2] is not None and candidate[2].metadata.get("research_trigger") is True
-    ]
-    if not pass_completed:
-        if promoted:
-            return first_by_assigned_count(promoted)
-        legacy = [candidate for candidate in candidates if assigned_count(candidate) is None]
-        return first_by_assigned_count(legacy) if legacy else None
-
-    if next_bucket is None:
-        return first_by_assigned_count(promoted) if promoted else None
-
-    eligible = [
-        candidate
-        for candidate in candidates
-        if candidate in promoted or ((count := assigned_count(candidate)) is not None and count >= next_bucket)
-    ]
-    return first_by_assigned_count(eligible) if eligible else None
+    signals_by_key = {signal_handoff_key(team_id, signal.signal_id): signal for signal in fetch_result.signals}
+    candidates = sorted(
+        (key for key in signal_keys if key in signals_by_key),
+        key=lambda key: signals_by_key[key].metadata["report_signal_count"],
+    )
+    for key in candidates:
+        metadata = signals_by_key[key].metadata
+        if metadata["research_trigger"] is True or (
+            pass_completed and next_bucket is not None and metadata["report_signal_count"] >= next_bucket
+        ):
+            return key
+    return None
 
 
 def _capture_report_event(
@@ -195,18 +172,6 @@ class ReportDecision:
     pending_reason: str | None = None
 
 
-@frozen
-class ImplementationRunRef:
-    """The implementation run the finalizer waits on and charges.
-
-    Only the two identifiers, never the run itself: an activity result is written to the workflow's
-    durable history, and a task run's raw state carries live sandbox credentials.
-    """
-
-    task_id: str
-    run_id: str
-
-
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
     """
@@ -234,19 +199,15 @@ class SignalReportSummaryWorkflow:
     def __init__(self) -> None:
         self._pending_signal_keys: list[str] = []
         self._submitted_signal_keys: set[str] = set()
-        self._context_signal_keys: list[str] = []
         self._pass_completed = False
         self._next_research_bucket: int | None = None
 
     @temporalio.workflow.signal(name="submit_signal_keys")
-    async def submit_signal_keys(self, signal_keys: list[str], context_signal_keys: list[str] | None = None) -> None:
+    async def submit_signal_keys(self, signal_keys: list[str]) -> None:
         for signal_key in signal_keys:
             if signal_key not in self._submitted_signal_keys:
                 self._submitted_signal_keys.add(signal_key)
                 self._pending_signal_keys.append(signal_key)
-        for signal_key in [*signal_keys, *(context_signal_keys or [])]:
-            if signal_key not in self._context_signal_keys:
-                self._context_signal_keys.append(signal_key)
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
@@ -261,7 +222,7 @@ class SignalReportSummaryWorkflow:
         # structlog renderer skips producing when team_id isn't in the event dict).
         log = logger.bind(team_id=inputs.team_id, report_id=inputs.report_id)
         if workflow.patched("signals-stage-handoffs-v1"):
-            await self.submit_signal_keys(inputs.signal_keys, inputs.context_signal_keys)
+            await self.submit_signal_keys(inputs.signal_keys)
         # Wait before researching so a burst of signals lands in one run. This workflow already holds
         # the report's workflow ID, so every signal arriving while it waits is swallowed by the
         # WorkflowAlreadyStartedError handler in grouping rather than spawning its own run, and the
@@ -304,12 +265,12 @@ class SignalReportSummaryWorkflow:
         self,
         inputs: SignalReportSummaryWorkflowInputs,
         log: FilteringBoundLogger,
-        signal_keys: list[str] | None = None,
+        signal_keys: list[str],
     ) -> FetchSignalsForReportOutput:
         fetch_input = FetchSignalsForReportInput(
             team_id=inputs.team_id,
             report_id=inputs.report_id,
-            signal_keys=signal_keys or [],
+            signal_keys=signal_keys,
         )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
@@ -334,55 +295,35 @@ class SignalReportSummaryWorkflow:
                 return fetch_result
         return fetch_result
 
-    async def _start_signal_finalizer(
-        self,
-        inputs: SignalReportSummaryWorkflowInputs,
-        signal_key: str | None,
-        implementation_run: ImplementationRunRef | None = None,
-        additional_signal_keys: tuple[str, ...] = (),
-    ) -> None:
-        if not signal_key or not workflow.patched("signals-stage-handoffs-v1"):
-            return
-        try:
-            await workflow.start_child_workflow(
-                SignalImplementationFinalizerWorkflow.run,
-                SignalImplementationInput(
-                    team_id=inputs.team_id,
-                    signal_key=signal_key,
-                    task_id=implementation_run.task_id if implementation_run else None,
-                    run_id=implementation_run.run_id if implementation_run else None,
-                    additional_signal_keys=additional_signal_keys,
-                ),
-                id=SignalImplementationFinalizerWorkflow.workflow_id_for(
-                    inputs.team_id, signal_key, additional_signal_keys
-                ),
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                parent_close_policy=ParentClosePolicy.ABANDON,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            )
-        except temporalio.exceptions.WorkflowAlreadyStartedError:
-            pass
-        except Exception:
-            # Most callers reach here after the report already transitioned to a good terminal
-            # state, and the outer handler in _run_once would flip it to FAILED. Losing this
-            # handoff's publication costs less than failing a report the user was told about.
-            workflow.logger.exception(f"Failed to start signal finalizer for {inputs.report_id}")
-
     async def _finalize_signal_keys(
         self,
         inputs: SignalReportSummaryWorkflowInputs,
         signal_keys: list[str],
         triggering_signal_key: str | None,
-        implementation_run: ImplementationRunRef | None = None,
+        implementation_run_id: str | None = None,
     ) -> None:
-        owner_key = triggering_signal_key if implementation_run and triggering_signal_key in signal_keys else None
-        if owner_key:
-            await self._start_signal_finalizer(inputs, owner_key, implementation_run)
-
+        if not signal_keys or not workflow.patched("signals-stage-handoffs-v1"):
+            return
+        owner_key = triggering_signal_key if implementation_run_id and triggering_signal_key in signal_keys else None
+        key_batches: list[tuple[str, ...]] = [(owner_key,)] if owner_key else []
         non_owner_keys = [signal_key for signal_key in signal_keys if signal_key != owner_key]
-        for batch_start in range(0, len(non_owner_keys), FINALIZER_BATCH_SIZE):
-            batch = non_owner_keys[batch_start : batch_start + FINALIZER_BATCH_SIZE]
-            await self._start_signal_finalizer(inputs, batch[0], additional_signal_keys=tuple(batch[1:]))
+        key_batches.extend(itertools.batched(non_owner_keys, FINALIZER_BATCH_SIZE, strict=False))
+        for keys in key_batches:
+            run_id = implementation_run_id if keys[0] == owner_key else None
+            try:
+                await workflow.start_child_workflow(
+                    SignalImplementationFinalizerWorkflow.run,
+                    SignalImplementationInput(team_id=inputs.team_id, signal_keys=keys, run_id=run_id),
+                    id=SignalImplementationFinalizerWorkflow.workflow_id_for(inputs.team_id, keys),
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+            except temporalio.exceptions.WorkflowAlreadyStartedError:
+                pass
+            except Exception:
+                # Publication errors must not fail an already completed report.
+                workflow.logger.exception(f"Failed to start signal finalizer for {inputs.report_id}")
 
         finalized_keys = set(signal_keys)
         self._pending_signal_keys = [
@@ -440,8 +381,8 @@ class SignalReportSummaryWorkflow:
             await self._finalize_signal_keys(inputs, signal_keys, triggering_signal_key)
             return False
 
-        # 1. Fetch ClickHouse's prior report signals and the S3-backed arrivals in one stable view.
-        fetch_result = await self._fetch_signals(inputs, log, self._context_signal_keys if signal_keys else None)
+        # Known handoffs provide research context before those signals reach ClickHouse.
+        fetch_result = await self._fetch_signals(inputs, log, signal_keys)
         if not fetch_result.signals:
             # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
             if workflow.patched("signals-empty-fetch-retry") and await workflow.execute_activity(
@@ -474,6 +415,7 @@ class SignalReportSummaryWorkflow:
             return False
         if signal_keys:
             triggering_signal_key = select_research_signal_key(
+                inputs.team_id,
                 signal_keys,
                 fetch_result,
                 self._pass_completed,
@@ -673,7 +615,7 @@ class SignalReportSummaryWorkflow:
             if has_new_signals:
                 log.info("Report has new signals since run started, looping")
             else:  # Only emit the notification if we're not going to immediately re-run
-                implementation_run = None
+                implementation_run: str | None = None
                 await self._replay_removed_report_canvas(inputs)
                 # Publish is best-effort: a Kafka/notification failure shouldn't flip a
                 # successfully-generated READY report to FAILED.
@@ -724,19 +666,13 @@ class SignalReportSummaryWorkflow:
                                 log.info("New signal arrived during implementation buffer, looping to re-research")
                                 await self._finalize_signal_keys(inputs, signal_keys, triggering_signal_key)
                                 return True
-                        autostart_input = MaybeAutostartImplementationInput(
-                            team_id=inputs.team_id,
-                            report_id=inputs.report_id,
-                            signal_key=triggering_signal_key,
-                        )
-                        if not workflow.patched("signals-stage-handoffs-v1"):
-                            autostart_input = MaybeAutostartImplementationInput(
-                                team_id=inputs.team_id,
-                                report_id=inputs.report_id,
-                            )
                         implementation_run = await workflow.execute_activity(
                             maybe_autostart_implementation_activity,
-                            autostart_input,
+                            MaybeAutostartImplementationInput(
+                                team_id=inputs.team_id,
+                                report_id=inputs.report_id,
+                                signal_key=triggering_signal_key,
+                            ),
                             start_to_close_timeout=timedelta(minutes=5),
                             retry_policy=RetryPolicy(maximum_attempts=3),
                         )
@@ -1114,7 +1050,7 @@ class MaybeAutostartImplementationInput:
 @close_db_connections
 async def maybe_autostart_implementation_activity(
     input: MaybeAutostartImplementationInput,
-) -> ImplementationRunRef | None:
+) -> str | None:
     """Evaluate self-driving auto-start from the report's current artefacts, once it has settled.
 
     Runs at the workflow's settle point (report READY, no pending signals) rather than per research
@@ -1134,7 +1070,7 @@ async def maybe_autostart_implementation_activity(
         signal_key=input.signal_key,
         pending_metadata=handoff.signal.metadata,
     )
-    return ImplementationRunRef(task_id=str(run.task_id), run_id=str(run.id)) if run else None
+    return str(run.id) if run else None
 
 
 @dataclass

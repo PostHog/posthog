@@ -115,7 +115,7 @@ async def judge_report_safety(
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyJudgeInput:
     team_id: int
     report_id: str

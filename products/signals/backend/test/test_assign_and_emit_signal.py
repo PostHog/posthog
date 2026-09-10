@@ -58,14 +58,12 @@ def patch_side_effects():
     machine is the SUT and is exercised against a real DB."""
     with (
         patch(f"{GROUPING_MODULE_PATH}.emit_embedding_request") as legacy_emit_mock,
-        patch(f"{GROUPING_MODULE_PATH}.publish_signal", new_callable=AsyncMock) as publish_mock,
         patch(f"{GROUPING_MODULE_PATH}.write_handoff", new_callable=AsyncMock) as write_handoff_mock,
         patch(f"{GROUPING_MODULE_PATH}.posthoganalytics.capture") as capture_mock,
         patch(f"{GROUPING_MODULE_PATH}.soft_delete_report_signals") as soft_delete_mock,
     ):
         yield {
             "legacy_emit": legacy_emit_mock,
-            "publish": publish_mock,
             "write_handoff": write_handoff_mock,
             "capture": capture_mock,
             "soft_delete": soft_delete_mock,
@@ -106,7 +104,6 @@ def _build_input(
         source_type="ticket",
         source_id=f"src-{uuid.uuid4()}",
         extra={},
-        embedding=[0.0] * 1536,
         match_result=match_result,
     )
 
@@ -160,7 +157,6 @@ async def test_legacy_emission_uses_embedding_request(ateam, patch_side_effects)
     result = await assign_and_emit_signal_activity(input_)
 
     patch_side_effects["legacy_emit"].assert_called_once()
-    patch_side_effects["publish"].assert_not_awaited()
     metadata = patch_side_effects["legacy_emit"].call_args.kwargs["metadata"]
     assert metadata["token_cost"]["research"] == 7
     assert metadata["report_id"] == result.report_id
@@ -170,7 +166,7 @@ async def test_legacy_emission_uses_embedding_request(ateam, patch_side_effects)
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_deferred_in_progress_signal_is_handed_off_without_promotion(ateam, patch_side_effects):
+async def test_handoffs_defer_promoted_and_in_progress_signal_publication(ateam, patch_side_effects):
     patch_side_effects["write_handoff"].side_effect = [
         "signals/processing/1/promoted.json",
         "signals/processing/1/in-progress.json",
@@ -183,19 +179,27 @@ async def test_deferred_in_progress_signal_is_handed_off_without_promotion(ateam
     )
 
     promoted = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)
-    promoted.defer_emission = True
+    promoted.metadata = {"token_cost": {"research": 17, "implementation": 0}}
+    promoted.use_handoffs = True
     in_progress = _build_input(ateam.id, _existing_match(str(report.id)))
-    in_progress.defer_emission = True
+    in_progress.use_handoffs = True
+    non_promoted = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
+    non_promoted.use_handoffs = True
 
     promoted_result = await assign_and_emit_signal_activity(promoted)
     in_progress_result = await assign_and_emit_signal_activity(in_progress)
+    non_promoted_result = await assign_and_emit_signal_activity(non_promoted)
 
     assert promoted_result.signal_key == "signals/processing/1/promoted.json"
     assert in_progress_result.promoted is False
     assert in_progress_result.signal_key == "signals/processing/1/in-progress.json"
+    assert non_promoted_result.signal_key is None
     assert patch_side_effects["write_handoff"].await_count == 2
-    patch_side_effects["publish"].assert_not_awaited()
-    patch_side_effects["legacy_emit"].assert_not_called()
+    patch_side_effects["legacy_emit"].assert_called_once()
+    assert patch_side_effects["legacy_emit"].call_args.kwargs["document_id"] == non_promoted.signal_id
+    assert (
+        patch_side_effects["write_handoff"].await_args_list[0].args[0].signal.metadata["token_cost"]["research"] == 17
+    )
     in_progress_handoff = patch_side_effects["write_handoff"].await_args_list[1].args[0]
     assert in_progress_handoff.signal.metadata["report_signal_count"] == 2
     assert in_progress_handoff.signal.metadata["research_trigger"] is False

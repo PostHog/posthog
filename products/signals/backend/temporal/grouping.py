@@ -3,7 +3,7 @@ import json
 import uuid
 import asyncio
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Literal, Optional, cast
 
@@ -38,7 +38,7 @@ from products.signals.backend.daily_limit import capture_signal_report_daily_lim
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.signal_costs import merge_costs
-from products.signals.backend.signal_handoffs import SignalHandoff, publish_signal, read_handoff, write_handoff
+from products.signals.backend.signal_handoffs import SignalHandoff, write_handoff
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -209,7 +209,7 @@ async def generate_search_queries(input: GenerateSearchQueriesInput, costs: dict
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class GenerateSearchQueriesOutput:
     queries: list[str]
     costs: dict = field(default_factory=dict)
@@ -574,7 +574,7 @@ async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> Fet
         raise
 
 
-@dataclass
+@dataclass(frozen=False)
 class VerifyMatchSpecificityInput:
     team_id: int
     report_id: str
@@ -586,7 +586,7 @@ class VerifyMatchSpecificityInput:
     track_costs: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class VerifyMatchSpecificityOutput:
     pr_title: str
     specific_enough: bool
@@ -667,7 +667,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
         raise
 
 
-@dataclass
+@dataclass(frozen=False)
 class AssignAndEmitSignalInput:
     team_id: int
     signal_id: str
@@ -677,16 +677,16 @@ class AssignAndEmitSignalInput:
     source_type: str
     source_id: str
     extra: dict
-    embedding: list[float]
     match_result: MatchResult
     timestamp: Optional[datetime] = None
     updated_title: Optional[str] = None
     remediation: Optional[dict] = None
     metadata: dict = field(default_factory=dict)
-    defer_emission: bool = False
+    # Defaults false so workflow histories written before staged handoffs replay on the direct-emission path.
+    use_handoffs: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class AssignAndEmitSignalOutput:
     report_id: str
     promoted: bool
@@ -716,7 +716,7 @@ class AssignAndEmitDbResult:
 
 
 def _build_signal_metadata(input: AssignAndEmitSignalInput, db_result: AssignAndEmitDbResult) -> dict:
-    metadata = {
+    return {
         **input.metadata,
         "source_product": input.source_product,
         "source_type": input.source_type,
@@ -730,7 +730,6 @@ def _build_signal_metadata(input: AssignAndEmitSignalInput, db_result: AssignAnd
         "report_signal_count": db_result.report_signal_count,
         "research_trigger": db_result.promoted,
     }
-    return metadata
 
 
 @temporalio.activity.defn
@@ -759,7 +758,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 if report.status == SignalReport.Status.DELETED:
                     report_id = str(report.id)
                     ts = input.timestamp or timezone.now()
-                    result = AssignAndEmitDbResult(
+                    return AssignAndEmitDbResult(
                         report_id=report_id,
                         promoted=False,
                         timestamp=ts,
@@ -771,19 +770,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         promotion_suppressed=False,
                         next_research_bucket=None,
                     )
-                    if not input.defer_emission:
-                        emit_embedding_request(
-                            content=input.description,
-                            team_id=input.team_id,
-                            product=SIGNAL_DOCUMENT_PRODUCT,
-                            document_type=SIGNAL_DOCUMENT_TYPE,
-                            rendering=SIGNAL_DOCUMENT_RENDERING,
-                            document_id=input.signal_id,
-                            models=[model.value for model in EmbeddingModelName],
-                            timestamp=ts,
-                            metadata=_build_signal_metadata(input, result),
-                        )
-                    return result
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
@@ -876,7 +862,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             report_id = str(report.id)
             ts = input.timestamp or timezone.now()
 
-            result = AssignAndEmitDbResult(
+            return AssignAndEmitDbResult(
                 report_id=report_id,
                 promoted=promoted,
                 timestamp=ts,
@@ -889,19 +875,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 next_research_bucket=bucket,
                 report_signals_researched=signals_researched,
             )
-            if not input.defer_emission:
-                emit_embedding_request(
-                    content=input.description,
-                    team_id=input.team_id,
-                    product=SIGNAL_DOCUMENT_PRODUCT,
-                    document_type=SIGNAL_DOCUMENT_TYPE,
-                    rendering=SIGNAL_DOCUMENT_RENDERING,
-                    document_id=input.signal_id,
-                    models=[model.value for model in EmbeddingModelName],
-                    timestamp=ts,
-                    metadata=_build_signal_metadata(input, result),
-                )
-            return result
 
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
@@ -914,30 +887,43 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             quota_gate.enforced or daily_gate.limited
         )
 
+        should_handoff = (
+            input.use_handoffs
+            and not db_result.matched_deleted_report
+            and (db_result.promoted or db_result.report_status == SignalReport.Status.IN_PROGRESS)
+        )
         signal_key: str | None = None
-        if input.defer_emission:
-            handoff = SignalHandoff(
-                team_id=input.team_id,
-                signal=SignalData(
-                    signal_id=input.signal_id,
-                    content=input.description,
-                    source_product=input.source_product,
-                    source_type=input.source_type,
-                    source_id=input.source_id,
-                    weight=input.weight,
-                    timestamp=db_result.timestamp,
-                    extra=input.extra,
-                    metadata=_build_signal_metadata(input, db_result),
-                    remediation=input.remediation,
-                ),
-                embedding=input.embedding,
+        if should_handoff:
+            # Later batches may miss this signal until its downstream costs are final.
+            signal_key = await write_handoff(
+                SignalHandoff(
+                    team_id=input.team_id,
+                    signal=SignalData(
+                        signal_id=input.signal_id,
+                        content=input.description,
+                        source_product=input.source_product,
+                        source_type=input.source_type,
+                        source_id=input.source_id,
+                        weight=input.weight,
+                        timestamp=db_result.timestamp,
+                        extra=input.extra,
+                        metadata=_build_signal_metadata(input, db_result),
+                        remediation=input.remediation,
+                    ),
+                )
             )
-            if not db_result.matched_deleted_report and (
-                db_result.promoted or db_result.report_status == SignalReport.Status.IN_PROGRESS
-            ):
-                signal_key = await write_handoff(handoff)
-            else:
-                await publish_signal(handoff)
+        else:
+            await database_sync_to_async(emit_embedding_request, thread_sensitive=False)(
+                content=input.description,
+                team_id=input.team_id,
+                product=SIGNAL_DOCUMENT_PRODUCT,
+                document_type=SIGNAL_DOCUMENT_TYPE,
+                rendering=SIGNAL_DOCUMENT_RENDERING,
+                document_id=input.signal_id,
+                models=[model.value for model in EmbeddingModelName],
+                timestamp=db_result.timestamp,
+                metadata=_build_signal_metadata(input, db_result),
+            )
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
@@ -1076,23 +1062,16 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 @temporalio.activity.defn
 @scoped_temporal()
 async def dispatch_signal_handoffs_activity(input: SignalReportSummaryWorkflowInputs) -> None:
-    active_keys = []
-    for key in input.signal_keys:
-        handoff = await read_handoff(key, input.team_id)
-        if handoff.signal.metadata.get("report_id") != input.report_id:
-            raise ValueError("Signal handoff belongs to another report")
-        if not handoff.published:
-            active_keys.append(key)
-    if not active_keys:
+    if not input.signal_keys:
         return
     client = await async_connect()
     await client.start_workflow(
         SignalReportSummaryWorkflow.run,
-        replace(input, signal_keys=active_keys),
+        input,
         id=SignalReportSummaryWorkflow.workflow_id_for(input.team_id, input.report_id),
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         start_signal="submit_signal_keys",
-        start_signal_args=[active_keys, input.context_signal_keys],
+        start_signal_args=[input.signal_keys],
     )
 
 
@@ -1163,7 +1142,6 @@ def _augment_candidates_with_batch(
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
-    pending_signal_keys: list[str] | None = None,
 ) -> tuple[int, FetchSignalTypeExamplesOutput]:
     """
     Process a batch of signals with parallel preparation (steps 1-4) and sequential
@@ -1175,9 +1153,7 @@ async def _process_signal_batch(
     within a batch.
     """
     team_id = batch[0].team_id
-    pending_signal_keys = pending_signal_keys if pending_signal_keys is not None else []
-    defer_emission = workflow.patched("signals-stage-handoffs-v1")
-    track_costs = defer_emission
+    use_handoffs = workflow.patched("signals-stage-handoffs-v1")
     # Purely defensive
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
@@ -1218,7 +1194,7 @@ async def _process_signal_batch(
                         source_product=s.source_product,
                         source_type=s.source_type,
                         signal_type_examples=type_examples_result.examples,
-                        track_costs=track_costs,
+                        track_costs=use_handoffs,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=5),
@@ -1228,7 +1204,7 @@ async def _process_signal_batch(
         )
         signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
         query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
-        if track_costs:
+        if use_handoffs:
             for signal, query_result in zip(batch, query_gen_results):
                 merge_costs(signal.metadata, query_result.costs)
 
@@ -1262,7 +1238,6 @@ async def _process_signal_batch(
                             team_id=team_id,
                             embedding=emb.embedding,
                             limit=10,
-                            pending_signal_keys=pending_signal_keys,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1330,16 +1305,14 @@ async def _process_signal_batch(
             per_signal_ch_results=per_signal_ch_results,
             signal_embeddings=[e.embedding for e in signal_embeddings],
             report_contexts=report_contexts,
-            defer_emission=defer_emission,
-            pending_signal_keys=pending_signal_keys,
-            track_costs=track_costs,
+            use_handoffs=use_handoffs,
         )
         dropped += _par.dropped
         promoted_reports = _par.promoted_reports
         emitted_signals = _par.emitted_signals
 
     for i, signal in enumerate(batch if not _use_parallel_sequential else []):
-        signal_id = str(workflow.uuid4() if defer_emission else uuid.uuid4())
+        signal_id = str(workflow.uuid4() if use_handoffs else uuid.uuid4())
         try:
             # Augment CH candidates with earlier-in-batch signals
             augmented_results = _augment_candidates_with_batch(
@@ -1360,13 +1333,13 @@ async def _process_signal_batch(
                     queries=per_signal_queries[i],
                     query_results=augmented_results,
                     report_contexts=report_contexts,
-                    track_costs=track_costs,
+                    track_costs=use_handoffs,
                 ),
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=5),
             )
 
-            if track_costs:
+            if use_handoffs:
                 merge_costs(signal.metadata, match_result.costs)
 
             # Step 5.5: PR-specificity verification for existing matches
@@ -1378,9 +1351,7 @@ async def _process_signal_batch(
 
                 group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
                     fetch_signals_for_report_activity,
-                    FetchSignalsForReportInput(
-                        team_id=team_id, report_id=match_result.report_id, signal_keys=pending_signal_keys
-                    ),
+                    FetchSignalsForReportInput(team_id=team_id, report_id=match_result.report_id),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
@@ -1395,13 +1366,13 @@ async def _process_signal_batch(
                         new_signal_source_product=signal.source_product,
                         new_signal_source_type=signal.source_type,
                         group_signals=group_signals_result.signals,
-                        track_costs=track_costs,
+                        track_costs=use_handoffs,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=5),
                 )
 
-                if track_costs:
+                if use_handoffs:
                     merge_costs(signal.metadata, specificity_result.costs)
 
                 specificity_meta = SpecificityMetadata(
@@ -1435,12 +1406,11 @@ async def _process_signal_batch(
                     source_type=signal.source_type,
                     source_id=signal.source_id,
                     extra=signal.extra,
-                    embedding=signal_embeddings[i].embedding,
                     match_result=match_result,
                     updated_title=updated_title,
                     remediation=signal.remediation,
                     metadata=signal.metadata,
-                    defer_emission=defer_emission,
+                    use_handoffs=use_handoffs,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1480,7 +1450,6 @@ async def _process_signal_batch(
                         team_id=signal.team_id,
                         report_id=assign_result.report_id,
                         debounce_seconds=assign_result.research_debounce_seconds,
-                        signal_keys=[assign_result.signal_key] if assign_result.signal_key else [],
                     ),
                     assign_result.run_count,
                 )
@@ -1496,27 +1465,37 @@ async def _process_signal_batch(
             )
             await capture_signal_dropped(signal, e, stage="grouping_sequential")
 
-    for report_id, (report_input, run_count) in list(promoted_reports.items()):
-        signal_keys = [
+    for report_input, _run_count in promoted_reports.values():
+        report_input.signal_keys.extend(
             result.signal_key
             for _signal_id, result in emitted_signals
-            if result.report_id == report_id
-            and (result.promoted or result.signal_key is not None)
-            and result.signal_key is not None
-        ]
-        promoted_reports[report_id] = (
-            SignalReportSummaryWorkflowInputs(
-                team_id=report_input.team_id,
-                report_id=report_input.report_id,
-                debounce_seconds=report_input.debounce_seconds,
-                signal_keys=signal_keys,
-            ),
-            run_count,
+            if result.report_id == report_input.report_id and result.signal_key is not None
         )
-        pending_signal_keys.extend(key for key in signal_keys if key not in pending_signal_keys)
-        promoted_reports[report_id][0].context_signal_keys = list(pending_signal_keys)
 
-    if defer_emission:
+    # Wait only for published signals so handoffs do not block later batches.
+    immediately_emitted_signals = [(sid, result) for sid, result in emitted_signals if result.signal_key is None]
+    if immediately_emitted_signals:
+        await workflow.execute_activity(
+            wait_for_signal_in_clickhouse_activity,
+            WaitForClickHouseInput(
+                team_id=team_id,
+                signals=[
+                    WaitForClickHouseSignal(signal_id=sid, timestamp=result.timestamp)
+                    for sid, result in immediately_emitted_signals
+                ],
+                max_wait_time_seconds=3600,
+                mode=(
+                    WaitForClickHouseMode.CH_CONFIRMED
+                    if use_handoffs or promoted_reports
+                    else WaitForClickHouseMode.OPTIMISTIC
+                ),
+            ),
+            start_to_close_timeout=timedelta(hours=1, minutes=5),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+    if use_handoffs:
         await asyncio.gather(
             *[
                 workflow.execute_activity(
@@ -1529,31 +1508,6 @@ async def _process_signal_batch(
                 if report_input.signal_keys
             ]
         )
-
-    # Step 7: Wait for all emitted signals to land in CH so the next batch can find them
-    if emitted_signals and (not defer_emission or any(result.signal_key is None for _, result in emitted_signals)):
-        await workflow.execute_activity(
-            wait_for_signal_in_clickhouse_activity,
-            WaitForClickHouseInput(
-                team_id=team_id,
-                signals=[
-                    WaitForClickHouseSignal(signal_id=sid, timestamp=result.timestamp)
-                    for sid, result in emitted_signals
-                    if result.signal_key is None
-                ],
-                max_wait_time_seconds=3600,
-                # The summary workflows spawned below read these rows from ClickHouse as their first
-                # step, so a batch that promoted a report must confirm visibility there; the store's
-                # Kafka-commit confirmation only precedes the insert. Batches that promote nothing
-                # only need the rows for the next batch's semantic search, where optimism is fine.
-                mode=(WaitForClickHouseMode.CH_CONFIRMED if promoted_reports else WaitForClickHouseMode.OPTIMISTIC),
-            ),
-            start_to_close_timeout=timedelta(hours=1, minutes=5),
-            heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
-
-    if defer_emission:
         return dropped, type_examples_result
 
     # Spawn summary workflows after CH wait. Stable ID + ALLOW_DUPLICATE: Temporal rejects concurrent

@@ -25,6 +25,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.signal_handoffs import signal_key
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
@@ -37,7 +38,6 @@ from products.signals.backend.temporal.summary import (
     EMPTY_FETCH_RETRY_ATTEMPTS,
     CheckReportQuotaGateInput,
     ImplementationBufferInput,
-    ImplementationRunRef,
     MarkReportFailedInput,
     MarkReportInProgressInput,
     MarkReportReadyInput,
@@ -197,6 +197,7 @@ class _Recorder:
         self.has_assigned_signals = has_assigned_signals
         self.gate_checks: list[str] = []
         self.fetches = 0
+        self.fetch_inputs: list[FetchSignalsForReportInput] = []
         self.assigned_signal_checks = 0
         self.failure_reasons: list[str | None] = []
         self.marks_in_progress = 0
@@ -211,21 +212,22 @@ class _Recorder:
         self.finalizer_inputs: list[SignalImplementationInput] = []
         self.expected_finalizer_inputs: list[SignalImplementationInput] = []
         self.actionability_choice = ActionabilityChoice.NOT_ACTIONABLE
-        self.implementation_run: ImplementationRunRef | None = None
+        self.implementation_run: str | None = None
         self.research_started = asyncio.Event()
         self.continue_research = asyncio.Event()
         self.continue_research.set()
 
 
-def _signal_data() -> SignalData:
+def _signal_data(signal_id: str | None = None, *, count: int = 1, promoted: bool = True) -> SignalData:
     return SignalData(
-        signal_id=str(uuid.uuid4()),
+        signal_id=signal_id or str(uuid.uuid4()),
         content="something happened",
         source_product="error_tracking",
         source_type="issue",
         source_id=str(uuid.uuid4()),
         weight=1.0,
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        metadata={"report_signal_count": count, "research_trigger": promoted},
     )
 
 
@@ -254,6 +256,7 @@ async def _run_summary_workflow(
 
     @activity.defn(name="fetch_signals_for_report_activity")
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
+        recorder.fetch_inputs.append(input)
         signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
         return FetchSignalsForReportOutput(signals=signals)
@@ -307,7 +310,7 @@ async def _run_summary_workflow(
         return 0
 
     @activity.defn(name="maybe_autostart_implementation_activity")
-    async def fake_autostart(input: MaybeAutostartImplementationInput) -> ImplementationRunRef | None:
+    async def fake_autostart(input: MaybeAutostartImplementationInput) -> str | None:
         return recorder.implementation_run
 
     @activity.defn(name="revert_report_to_candidate_activity")
@@ -389,8 +392,7 @@ async def _run_summary_workflow(
                     env.client.get_workflow_handle(
                         SignalImplementationFinalizerWorkflow.workflow_id_for(
                             workflow_inputs.team_id,
-                            finalizer_input.signal_key,
-                            finalizer_input.additional_signal_keys,
+                            finalizer_input.signal_keys,
                         )
                     ).result(),
                     timeout=30,
@@ -476,58 +478,51 @@ async def test_persistently_empty_fetch_fails_report_with_no_assigned_signals():
 
 @pytest.mark.asyncio
 async def test_handoff_batches_submitted_keys_after_the_first_pass() -> None:
-    recorder = _Recorder()
-    recorder.expected_finalizer_inputs = [
-        SignalImplementationInput(team_id=1, signal_key="first", additional_signal_keys=("covered",)),
-    ]
+    first_key = signal_key(1, "first")
+    covered_key = signal_key(1, "covered")
+    recorder = _Recorder(fetch_results=[[_signal_data("first"), _signal_data("covered", count=2, promoted=False)]])
+    recorder.expected_finalizer_inputs = [SignalImplementationInput(team_id=1, signal_keys=(first_key, covered_key))]
     await _run_summary_workflow(
         recorder,
         SignalReportSummaryWorkflowInputs(
             team_id=1,
             report_id=str(uuid.uuid4()),
-            signal_keys=["first", "covered"],
-            context_signal_keys=["previous"],
+            signal_keys=[signal_key(1, "first"), signal_key(1, "covered")],
         ),
     )
 
-    assert recorder.safety_signal_keys == ["first"]
-    assert recorder.research_signal_keys == ["first"]
+    assert [input.signal_keys for input in recorder.fetch_inputs] == [[first_key, covered_key]]
+    assert recorder.fetches == 1
+    assert recorder.safety_signal_keys == [signal_key(1, "first")]
+    assert recorder.research_signal_keys == [signal_key(1, "first")]
     assert recorder.finalizer_inputs == recorder.expected_finalizer_inputs
 
 
 @pytest.mark.asyncio
 async def test_handoff_batches_the_research_trigger_without_implementation() -> None:
-    recorder = _Recorder()
-    signal_keys = ["research-trigger", *[f"signal-{index}" for index in range(19)]]
-    recorder.expected_finalizer_inputs = [
-        SignalImplementationInput(
-            team_id=1,
-            signal_key="research-trigger",
-            additional_signal_keys=tuple(signal_keys[1:]),
-        ),
-    ]
+    signal_ids = ["research-trigger", *[f"signal-{index}" for index in range(19)]]
+    signal_keys = [signal_key(1, signal_id) for signal_id in signal_ids]
+    recorder = _Recorder(fetch_results=[[_signal_data(signal_id) for signal_id in signal_ids]])
+    recorder.expected_finalizer_inputs = [SignalImplementationInput(team_id=1, signal_keys=tuple(signal_keys))]
     await _run_summary_workflow(
         recorder,
         SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()), signal_keys=signal_keys),
     )
 
-    assert recorder.research_signal_keys == ["research-trigger"]
+    assert recorder.research_signal_keys == [signal_key(1, "research-trigger")]
     assert recorder.finalizer_inputs == recorder.expected_finalizer_inputs
 
 
 @pytest.mark.asyncio
 async def test_handoff_isolates_implementation_owner_and_batches_other_keys() -> None:
-    recorder = _Recorder()
+    signal_ids = ["owner", *[f"non-owner-{index}" for index in range(20)]]
+    signal_keys = [signal_key(1, signal_id) for signal_id in signal_ids]
+    recorder = _Recorder(fetch_results=[[_signal_data(signal_id) for signal_id in signal_ids]])
     recorder.actionability_choice = ActionabilityChoice.IMMEDIATELY_ACTIONABLE
-    recorder.implementation_run = ImplementationRunRef(task_id="task-1", run_id="run-1")
-    signal_keys = ["owner", *[f"non-owner-{index}" for index in range(20)]]
+    recorder.implementation_run = "run-1"
     recorder.expected_finalizer_inputs = [
-        SignalImplementationInput(team_id=1, signal_key="owner", task_id="task-1", run_id="run-1"),
-        SignalImplementationInput(
-            team_id=1,
-            signal_key="non-owner-0",
-            additional_signal_keys=tuple(signal_keys[2:]),
-        ),
+        SignalImplementationInput(team_id=1, signal_keys=(signal_keys[0],), run_id="run-1"),
+        SignalImplementationInput(team_id=1, signal_keys=tuple(signal_keys[1:])),
     ]
 
     await _run_summary_workflow(
@@ -535,12 +530,12 @@ async def test_handoff_isolates_implementation_owner_and_batches_other_keys() ->
         SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()), signal_keys=signal_keys),
     )
 
-    assert recorder.research_signal_keys == ["owner"]
+    assert recorder.research_signal_keys == [signal_key(1, "owner")]
     assert recorder.finalizer_inputs == recorder.expected_finalizer_inputs
 
 
 @pytest.mark.asyncio
-async def test_autostart_activity_hands_back_only_the_run_identifiers() -> None:
+async def test_autostart_activity_hands_back_only_the_run_id() -> None:
     report_id = str(uuid.uuid4())
     run = SimpleNamespace(
         id=uuid.uuid4(),
@@ -562,7 +557,7 @@ async def test_autostart_activity_hands_back_only_the_run_identifiers() -> None:
             MaybeAutostartImplementationInput(team_id=1, report_id=report_id, signal_key="key-1"),
         )
 
-    assert result == ImplementationRunRef(task_id=str(run.task_id), run_id=str(run.id))
+    assert result == str(run.id)
     assert autostart.call_args.kwargs["pending_metadata"] == handoff.signal.metadata
 
 
@@ -578,7 +573,7 @@ async def test_finalizer_start_failure_leaves_the_report_alone() -> None:
         ),
         patch(f"{SUMMARY_MODULE_PATH}.workflow.logger") as workflow_logger,
     ):
-        await SignalReportSummaryWorkflow()._start_signal_finalizer(inputs, "key-1")
+        await SignalReportSummaryWorkflow()._finalize_signal_keys(inputs, ["key-1"], "key-1")
 
     workflow_logger.exception.assert_called_once()
 
@@ -608,35 +603,38 @@ def test_select_research_signal_key_respects_buckets_and_promoted_owners(
     metadata: list[dict],
     expected: str | None,
 ) -> None:
-    signals = [_signal_data() for _ in keys]
+    signal_ids = keys
+    keys = [signal_key(1, signal_id) for signal_id in signal_ids]
+    signals = [_signal_data(signal_id) for signal_id in signal_ids]
     for signal, signal_metadata in zip(signals, metadata):
         signal.metadata = signal_metadata
-    result = FetchSignalsForReportOutput(
-        signals=signals,
-        signal_key_by_id={signal.signal_id: key for signal, key in zip(signals, keys)},
-    )
+    result = FetchSignalsForReportOutput(signals=signals)
+    expected_key = signal_key(1, expected) if expected is not None else None
 
-    assert select_research_signal_key(keys, result, pass_completed, next_bucket) == expected
+    assert select_research_signal_key(1, keys, result, pass_completed, next_bucket) == expected_key
 
 
 @pytest.mark.asyncio
 async def test_handoff_finalizes_a_key_submitted_while_the_first_pass_runs() -> None:
-    recorder = _Recorder()
+    first_key = signal_key(1, "first")
+    covered_key = signal_key(1, "covered")
+    arrived_key = signal_key(1, "arrived-during-pass")
+    recorder = _Recorder(fetch_results=[[_signal_data("first"), _signal_data("covered", count=2, promoted=False)]])
     recorder.expected_finalizer_inputs = [
-        SignalImplementationInput(team_id=1, signal_key="first", additional_signal_keys=("covered",)),
-        SignalImplementationInput(team_id=1, signal_key="arrived-during-pass"),
+        SignalImplementationInput(team_id=1, signal_keys=(first_key, covered_key)),
+        SignalImplementationInput(team_id=1, signal_keys=(arrived_key,)),
     ]
     await _run_summary_workflow(
         recorder,
         SignalReportSummaryWorkflowInputs(
             team_id=1,
             report_id=str(uuid.uuid4()),
-            signal_keys=["first", "covered"],
+            signal_keys=[first_key, covered_key],
         ),
-        signal_during_first_pass=["arrived-during-pass"],
+        signal_during_first_pass=[arrived_key],
     )
 
-    assert recorder.research_signal_keys == ["first"]
+    assert recorder.research_signal_keys == [first_key]
     assert recorder.finalizer_inputs == recorder.expected_finalizer_inputs
 
 

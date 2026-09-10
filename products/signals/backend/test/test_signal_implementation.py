@@ -16,18 +16,15 @@ from products.signals.backend.temporal.report_safety_judge import (
     report_safety_judge_activity,
 )
 from products.signals.backend.temporal.signal_implementation import (
-    FinalizedSignal,
     SignalImplementationFinalizerWorkflow,
     SignalImplementationInput,
-    check_implementation_task_workflow_closed_activity,
     finalize_signal_implementation_activity,
 )
-from products.signals.backend.temporal.signal_queries import WaitForClickHouseInput
 from products.signals.backend.temporal.types import SignalData
 
 
 @pytest.mark.asyncio
-async def test_finalizer_costs_once_after_task_workflow_closes() -> None:
+async def test_finalizer_charges_a_task_once_when_the_finish_activity_retries() -> None:
     handoff = SignalHandoff(
         team_id=1,
         signal=SignalData(
@@ -39,126 +36,87 @@ async def test_finalizer_costs_once_after_task_workflow_closes() -> None:
             weight=1.0,
             timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         ),
-        embedding=[],
     )
     workflow_handle = MagicMock(
-        describe=AsyncMock(return_value=SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED))
+        describe=AsyncMock(
+            side_effect=[
+                SimpleNamespace(status=status)
+                for status in (
+                    WorkflowExecutionStatus.RUNNING,
+                    WorkflowExecutionStatus.COMPLETED,
+                    WorkflowExecutionStatus.COMPLETED,
+                )
+            ]
+        )
     )
     client = MagicMock(get_workflow_handle=MagicMock(return_value=workflow_handle))
     run = SimpleNamespace(workflow_id="task-workflow", task_id="task-id")
     spend = SimpleNamespace(token_cost=10, compute_cost=20)
 
-    def async_boundary(fn, **_kwargs):
-        async def call(*args, **kwargs):
-            return fn(*args, **kwargs)
-
-        return call
-
     with (
-        patch("products.signals.backend.temporal.signal_implementation.database_sync_to_async", async_boundary),
         patch("products.signals.backend.temporal.signal_implementation.tasks_facade.get_task_run", return_value=run),
-        patch("products.signals.backend.temporal.signal_implementation.get_task_spend", return_value=spend),
         patch("products.signals.backend.temporal.signal_implementation.async_connect", AsyncMock(return_value=client)),
-        patch("products.signals.backend.temporal.signal_implementation.read_handoff", AsyncMock(return_value=handoff)),
-        patch("products.signals.backend.temporal.signal_implementation.write_handoff", AsyncMock()) as write_handoff,
-        patch("products.signals.backend.temporal.signal_implementation.publish_handoff", AsyncMock()),
+        patch("products.signals.backend.signal_handoffs.get_task_spend", return_value=spend),
+        patch("products.signals.backend.signal_handoffs.read_handoff", AsyncMock(return_value=handoff)),
+        patch("products.signals.backend.signal_handoffs.write_handoff", AsyncMock()) as write_handoff,
+        patch(
+            "products.signals.backend.temporal.signal_implementation.publish_handoff", AsyncMock()
+        ) as publish_handoff,
     ):
-        input = SignalImplementationInput(team_id=1, signal_key="handoff", task_id="task-id", run_id="run-id")
-        assert await check_implementation_task_workflow_closed_activity(input)
-        await finalize_signal_implementation_activity(input)
-        await finalize_signal_implementation_activity(input)
+        input = SignalImplementationInput(team_id=1, signal_keys=("handoff",), run_id="run-id")
+        assert not await finalize_signal_implementation_activity(input)
+        publish_handoff.assert_not_awaited()
+        assert handoff.costed_tasks == []
+        assert await finalize_signal_implementation_activity(input)
+        assert await finalize_signal_implementation_activity(input)
 
-    workflow_handle.describe.assert_awaited_once()
+    assert workflow_handle.describe.await_count == 3
     assert handoff.costed_tasks == ["task-id"]
     assert handoff.signal.metadata["token_cost"]["implementation"] == 10
     assert handoff.signal.metadata["compute_cost"]["implementation"] == 20
-    assert write_handoff.await_count == 2
+    write_handoff.assert_awaited_once()
+    assert publish_handoff.await_count == 2
 
 
 @pytest.mark.asyncio
-async def test_finalizer_workflow_polls_until_closed_then_publishes() -> None:
-    check_answers = iter([False, True])
-    published_inputs: list[SignalImplementationInput] = []
-    wait_inputs = []
-
-    @activity.defn(name="check_implementation_task_workflow_closed_activity")
-    async def check_closed(input: SignalImplementationInput) -> bool:
-        return next(check_answers)
+@pytest.mark.parametrize(
+    "keys,run_id,answers",
+    [(("owner",), "run-id", (False, True)), (tuple(f"signal-{i}" for i in range(20)), None, (True,))],
+)
+async def test_finalizer_polls_with_a_timer_or_publishes_a_batch(
+    keys: tuple[str, ...], run_id: str | None, answers: tuple[bool, ...]
+) -> None:
+    input = SignalImplementationInput(team_id=1, signal_keys=keys, run_id=run_id)
+    calls: list[SignalImplementationInput] = []
+    results = iter(answers)
 
     @activity.defn(name="finalize_signal_implementation_activity")
-    async def finalize(input: SignalImplementationInput) -> list[FinalizedSignal]:
-        published_inputs.append(input)
-        return [FinalizedSignal(signal_id="signal-id", timestamp=datetime(2026, 1, 1, tzinfo=UTC))]
-
-    @activity.defn(name="wait_for_signal_in_clickhouse_activity")
-    async def wait_for_clickhouse(input: WaitForClickHouseInput) -> None:
-        wait_inputs.append(input)
-
-    @activity.defn(name="release_signal_key_activity")
-    async def release(input: SignalImplementationInput) -> None:
-        return None
+    async def finalize(input: SignalImplementationInput) -> bool:
+        calls.append(input)
+        return next(results)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="signal-implementation-test",
             workflows=[SignalImplementationFinalizerWorkflow],
-            activities=[check_closed, finalize, wait_for_clickhouse, release],
+            activities=[finalize],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
                 SignalImplementationFinalizerWorkflow.run,
-                SignalImplementationInput(team_id=1, signal_key="owner", run_id="run-id"),
+                input,
                 id="signal-implementation-finalizer-test",
                 task_queue="signal-implementation-test",
             )
+            history = await env.client.get_workflow_handle("signal-implementation-finalizer-test").fetch_history()
 
-    assert len(published_inputs) == 1
-    assert len(wait_inputs) == 1
-    assert [signal.signal_id for signal in wait_inputs[0].signals] == ["signal-id"]
-
-
-@pytest.mark.asyncio
-async def test_finalizer_workflow_waits_once_for_a_signal_batch() -> None:
-    signal_keys = [f"signal-{index}" for index in range(20)]
-    wait_inputs: list[WaitForClickHouseInput] = []
-
-    @activity.defn(name="finalize_signal_implementation_activity")
-    async def finalize(input: SignalImplementationInput) -> list[FinalizedSignal]:
-        return [
-            FinalizedSignal(signal_id=signal_key, timestamp=datetime(2026, 1, 1, tzinfo=UTC))
-            for signal_key in (input.signal_key, *input.additional_signal_keys)
-        ]
-
-    @activity.defn(name="wait_for_signal_in_clickhouse_activity")
-    async def wait_for_clickhouse(input: WaitForClickHouseInput) -> None:
-        wait_inputs.append(input)
-
-    @activity.defn(name="release_signal_key_activity")
-    async def release(input: SignalImplementationInput) -> None:
-        return None
-
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue="signal-implementation-batch-test",
-            workflows=[SignalImplementationFinalizerWorkflow],
-            activities=[finalize, wait_for_clickhouse, release],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            await env.client.execute_workflow(
-                SignalImplementationFinalizerWorkflow.run,
-                SignalImplementationInput(
-                    team_id=1,
-                    signal_key=signal_keys[0],
-                    additional_signal_keys=tuple(signal_keys[1:]),
-                ),
-                id="signal-implementation-finalizer-batch-test",
-                task_queue="signal-implementation-batch-test",
-            )
-
-    assert len(wait_inputs) == 1
-    assert [signal.signal_id for signal in wait_inputs[0].signals] == signal_keys
+    assert calls == [input] * len(answers)
+    assert [
+        event.timer_started_event_attributes.start_to_fire_timeout.seconds
+        for event in history.events
+        if event.HasField("timer_started_event_attributes")
+    ] == [60] * (len(answers) - 1)
 
 
 @pytest.mark.asyncio
@@ -174,17 +132,9 @@ async def test_safety_rejection_marks_handoff_deleted_before_it_is_saved() -> No
             weight=1.0,
             timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         ),
-        embedding=[],
     )
 
-    def async_boundary(fn, **_kwargs):
-        async def call(*args, **kwargs):
-            return fn(*args, **kwargs)
-
-        return call
-
     with (
-        patch("products.signals.backend.temporal.report_safety_judge.database_sync_to_async", async_boundary),
         patch(
             "products.signals.backend.temporal.report_safety_judge.judge_report_safety",
             AsyncMock(return_value=SafetyJudgeResponse(choice=False, explanation="injection")),
@@ -203,17 +153,8 @@ async def test_safety_rejection_marks_handoff_deleted_before_it_is_saved() -> No
 
 @pytest.mark.asyncio
 async def test_finalizer_rejects_a_missing_task_run() -> None:
-    def async_boundary(fn, **_kwargs):
-        async def call(*args, **kwargs):
-            return fn(*args, **kwargs)
-
-        return call
-
-    with (
-        patch("products.signals.backend.temporal.signal_implementation.database_sync_to_async", async_boundary),
-        patch("products.signals.backend.temporal.signal_implementation.tasks_facade.get_task_run", return_value=None),
-    ):
+    with patch("products.signals.backend.temporal.signal_implementation.tasks_facade.get_task_run", return_value=None):
         with pytest.raises(ValueError, match="is missing"):
             await finalize_signal_implementation_activity(
-                SignalImplementationInput(team_id=1, signal_key="handoff", task_id="task-id", run_id="run-id")
+                SignalImplementationInput(team_id=1, signal_keys=("handoff",), run_id="run-id")
             )
