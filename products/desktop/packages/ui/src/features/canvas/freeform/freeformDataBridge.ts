@@ -1,8 +1,10 @@
 import type {
   CanvasCaptureInput,
+  CanvasConnectorCallInput,
   CanvasDataQueryInput,
   CanvasLoadInsightInput,
 } from "@posthog/core/canvas/freeformSchemas";
+import { canvasConnectorCallInput } from "@posthog/core/canvas/freeformSchemas";
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
 
@@ -54,11 +56,52 @@ function cachedRead<T>(
   return queryClient.fetchQuery({
     queryKey: [CANVAS_QUERY_KEY, method, stableStringify(input)] as const,
     queryFn: run,
+    meta: method === "connectorCall" ? { authScoped: true } : undefined,
     staleTime: (refreshSeconds ?? 5 * 60) * 1_000,
     // At least the refresh interval, or GC would evict an inactive entry
     // before it goes stale and force an early backend re-read.
     gcTime: Math.max(refreshSeconds ?? 5 * 60, 10 * 60) * 1_000,
   });
+}
+
+// Connector results describe live external state (open pull requests, today's
+// meetings), so they go stale faster than a saved insight.
+const CONNECTOR_DEFAULT_REFRESH_SECONDS = 60;
+
+async function requireConnectorConsent(
+  queryClient: QueryClient,
+  dashboardId: string,
+  sourceVersionId: string,
+  input: CanvasConnectorCallInput,
+): Promise<void> {
+  const queryKey = [
+    "canvasData/connectorConsent",
+    dashboardId,
+    sourceVersionId,
+    input.provider,
+    input.tool,
+  ] as const;
+  if (
+    queryClient.getQueryData(queryKey) === false &&
+    navigator.userActivation?.isActive === true
+  ) {
+    queryClient.removeQueries({ queryKey, exact: true });
+  }
+  const allowed = await queryClient.fetchQuery({
+    queryKey,
+    queryFn: async () =>
+      window.confirm(
+        `Allow this canvas to read ${JSON.stringify(input.tool)} from ${JSON.stringify(input.provider)} with your connection?\n\nThe canvas can receive private data and share it through its declared capabilities. Only allow canvases you trust.`,
+      ),
+    staleTime: Infinity,
+    gcTime: 10 * 60 * 1_000,
+    meta: { authScoped: true },
+  });
+  if (!allowed) {
+    throw new Error(
+      "Connector access was not granted. Click in the canvas to try again.",
+    );
+  }
 }
 
 function refreshSeconds(value: unknown): number | undefined {
@@ -85,7 +128,7 @@ export async function handleFreeformDataRequest(
   queryClient: QueryClient,
   // State and actions are canvas-scoped, unlike the content-keyed reads above,
   // so the caller passes the canvas identity in.
-  context?: { dashboardId?: string },
+  context?: { dashboardId?: string; sourceVersionId?: string },
 ): Promise<unknown> {
   const requireDashboardId = (): string => {
     if (!context?.dashboardId) {
@@ -201,6 +244,35 @@ export async function handleFreeformDataRequest(
         verb: input.verb,
         payload: input.payload ?? {},
       });
+    }
+    case "connectorCall": {
+      const dashboardId = requireDashboardId();
+      const input = canvasConnectorCallInput.parse(payload);
+      if (!context?.sourceVersionId) {
+        throw new Error("Connector calls require a saved canvas version");
+      }
+      await requireConnectorConsent(
+        queryClient,
+        dashboardId,
+        context.sourceVersionId,
+        input,
+      );
+      // Keyed by canvas as well as content: the capability check that admitted
+      // the call is per canvas, so a result must not leak into a canvas that
+      // did not declare the tool.
+      const args = {
+        id: requireDashboardId(),
+        provider: input.provider,
+        tool: input.tool,
+        arguments: input.arguments ?? {},
+      };
+      return cachedRead(
+        queryClient,
+        "connectorCall",
+        { ...args, sourceVersionId: context.sourceVersionId },
+        () => hostClient().dashboards.callConnector.mutate(args),
+        refreshSeconds(input.refresh) ?? CONNECTOR_DEFAULT_REFRESH_SECONDS,
+      );
     }
     case "run":
       // Named, server-stored insights land in Phase 3 (the live published tier).

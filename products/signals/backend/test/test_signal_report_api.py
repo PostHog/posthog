@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
@@ -16,12 +16,13 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import exceptions, status
 from social_django.models import UserSocialAuth
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthApplication
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.temporal.oauth import (
@@ -33,6 +34,7 @@ from posthog.temporal.oauth import (
 
 from products.signals.backend.artefact_schemas import ChannelAssignment
 from products.signals.backend.implementation_pr import (
+    ImplementationPr,
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
@@ -52,7 +54,12 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
     record_report_task,
 )
-from products.signals.backend.views import classify_report_list_client
+from products.signals.backend.views import (
+    PR_CI_STATUS_MAX_REPORTS,
+    SignalReportViewSet,
+    classify_report_list_client,
+    parse_pr_ci_status_report_ids,
+)
 from products.tasks.backend.facade.api import Channel
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
@@ -747,7 +754,8 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
         assert response.json()["implementation_pr_state"] == SignalReportAssignment.PrState.OPEN
 
-    def test_task_run_pr_is_used_as_fallback_when_assignment_has_no_pr(self):
+    @parameterized.expand([("missing",), ("empty",), ("task_only",)])
+    def test_task_run_pr_is_used_as_fallback_when_assignment_has_no_pr(self, source: str):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
@@ -769,12 +777,29 @@ class TestSignalReportListAPI(APIBaseTest):
             task_id=str(task.id),
             relationship=TASK_RUN_TYPE_IMPLEMENTATION,
         )
+        if source == "missing":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).delete()
+        elif source == "empty":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).update(pr_url="")
+        else:
+            SignalReportTask.objects.filter(report=report).delete()
+            SignalReportArtefact.objects.filter(report=report, type="task_run").delete()
+
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            state={"ai_stage": "research"},
+            output={"pr_url": "https://github.com/org/repo/pull/99", "pr_merged": True},
+        )
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/7"
         assert row["implementation_pr_state"] == SignalReportAssignment.PrState.UNKNOWN
         assert row["work_state"] == "in_review"
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+        assert detail["implementation_pr_url"] == row["implementation_pr_url"]
+        assert detail["implementation_pr_merged"] is False
 
         with_pr = self.client.get(self._list_url(has_implementation_pr="true"))
         assert str(report.id) in {item["id"] for item in with_pr.json()["results"]}
@@ -1367,6 +1392,50 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["dismissal_reason"] == "analysis_wrong"
 
+    def _repo_selection_artefact(
+        self, report: SignalReport, *, repository: str | None, created_at: datetime | None = None
+    ) -> SignalReportArtefact:
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=json.dumps({"repository": repository, "reason": "pick"}),
+        )
+        art.save()
+        if created_at is not None:
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+        return art
+
+    def test_list_surfaces_latest_repo_slug(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository="acme/old", created_at=timezone.now() - timedelta(days=1))
+        self._repo_selection_artefact(report, repository="acme/new")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["repo_slug"] == "acme/new"
+
+    def test_list_prefetches_only_latest_repo_selection(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository="acme/old", created_at=timezone.now() - timedelta(days=1))
+        latest = self._repo_selection_artefact(report, repository="acme/new")
+
+        reports = list(
+            SignalReportViewSet()._prefetch_signal_report_priority_artefacts(SignalReport.objects.filter(pk=report.pk))
+        )
+
+        assert reports[0].prefetched_repo_selection_artefacts == [latest]
+
+    def test_list_repo_slug_null_without_selection(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository=None)
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["repo_slug"] is None
+
 
 class TestAssociatedTaskRunsForReports(APIBaseTest):
     """`SignalReport.associated_task_runs_for_reports` — the batched, page-wide counterpart of
@@ -1794,6 +1863,47 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert json.loads(selections[-1].content)["repository"] is None
 
+    def test_repeat_wrong_repo_dismissal_does_not_record_the_correction_as_the_rejected_repo(self):
+        # The first dismissal makes the correction the report's newest selection, so the repeat reads
+        # it back as the "selected" repository. Recorded as-is, the pair says the reviewer rejected the
+        # repository they named, which tells scouts to avoid the correction and renders a
+        # self-contradictory lesson into the selection prompt.
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository="acme/website", reason="initial pick"),
+            attribution=ArtefactAttribution.system(),
+        )
+        payload = json.dumps(
+            {
+                "state": "suppressed",
+                "dismissal_reason": "wrong_repo",
+                "corrected_repository": "acme/checkout",
+            }
+        )
+
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/website", "acme/checkout"],
+        ):
+            for _ in range(2):
+                response = self.client.post(
+                    self._state_url(str(report.id)), data=payload, content_type="application/json"
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+        dismissals = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            ).order_by("created_at")
+        )
+        assert len(dismissals) == 2
+        first = json.loads(dismissals[0].content)
+        assert (first["selected_repository"], first["corrected_repository"]) == ("acme/website", "acme/checkout")
+        repeat = json.loads(dismissals[1].content)
+        assert (repeat["selected_repository"], repeat["corrected_repository"]) == (None, "acme/checkout")
+
     def test_rejects_unknown_state(self):
         report = self._create_report()
         response = self.client.post(
@@ -1871,6 +1981,72 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # A detail view that lags the server (the PR was closed on GitHub first) re-sends the
+            # verdict the report already holds; the feedback on that click must not be lost.
+            ("dismiss", "suppressed", SignalReport.Status.SUPPRESSED, SignalReport.Status.READY),
+            ("resolve", "resolved", SignalReport.Status.RESOLVED, None),
+        ]
+    )
+    def test_repeating_a_verdict_the_report_already_holds_records_the_feedback(
+        self, _name, target, current_status, prior_status
+    ):
+        report = self._create_report(report_status=current_status)
+        if prior_status is not None:
+            report.status_before_suppression = prior_status
+            report.save(update_fields=["status_before_suppression"])
+
+        with (
+            patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_close_pr,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps(
+                    {"state": target, "dismissal_reason": "report_unclear", "dismissal_note": "still can't see it"}
+                ),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["dismissal_reason"] == "report_unclear"
+        assert response.json()["dismissal_note"] == "still can't see it"
+
+        report.refresh_from_db()
+        assert report.status == current_status
+        assert report.status_before_suppression == prior_status
+
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        content = json.loads(dismissal.content)
+        assert content["reason"] == "report_unclear"
+        assert content["note"] == "still can't see it"
+        assert content["user_id"] == self.user.id
+        mock_close_pr.delay.assert_not_called()
+
+    def test_repeating_a_verdict_without_feedback_is_a_no_op_success(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "suppressed"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        ).exists()
+
+    def test_restoring_a_report_already_in_the_inbox_is_still_refused(self):
+        report = self._create_report(report_status=SignalReport.Status.POTENTIAL)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
 
     @parameterized.expand(
         [
@@ -2022,20 +2198,20 @@ class TestAvailableReviewersAPI(APIBaseTest):
             email=f"user{n:04d}@example.com",
         )
 
-    def _login_map(self, count: int) -> dict[str, SimpleNamespace]:
-        return {f"gh{n}": self._fake_user(n) for n in range(count)}
+    def _member_map(self, count: int) -> dict[str, SimpleNamespace]:
+        return {str(uuid.UUID(int=n)): self._fake_user(n) for n in range(count)}
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_returns_all_members_without_cap(self, mock_map):
         # 250 > the old hard cap of 100: every member must come back now.
-        mock_map.return_value = self._login_map(250)
+        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 250
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_search_query_filters_server_side(self, mock_map):
-        mock_map.return_value = self._login_map(250)
+        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url(query="User0123"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -2043,48 +2219,48 @@ class TestAvailableReviewersAPI(APIBaseTest):
         assert next(iter(body.values()))["email"] == "user0123@example.com"
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_no_exception_captured_under_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._login_map(50)
+        mock_map.return_value = self._member_map(50)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_exception_captured_over_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 1201
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_threshold_capture_deduplicated_across_requests(self, mock_map, mock_capture):
         # Repeated popover opens for the same over-threshold org must report at most once.
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         for _ in range(3):
             assert self.client.get(self._url()).status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_threshold_not_triggered_by_search_requests(self, mock_map, mock_capture):
         # A search-as-you-type request must not spam the threshold capture.
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         response = self.client.get(self._url(query="User0001"))
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_empty_org_returns_empty(self, mock_map):
         mock_map.return_value = {}
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_missing_team_map_returns_empty(self, mock_map):
         # The helper returns None for an unknown team; the view coalesces it to an empty result.
         mock_map.return_value = None
@@ -2882,8 +3058,20 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
-    def test_pr_checks_success_returns_checks(self):
+    @parameterized.expand([("assignment",), ("legacy",), ("claim",)])
+    def test_pr_checks_success_returns_checks(self, source: str):
         report = self._create_report()
+        if source != "assignment":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).delete()
+            Task = apps.get_model("tasks", "Task")
+            TaskRun = apps.get_model("tasks", "TaskRun")
+            task = Task.objects.create(team=self.team, title="Implementation", description="Fix a bug")
+            TaskRun.objects.create(
+                team=self.team, task=task, output={"pr_url": "https://github.com/PostHog/posthog/pull/7"}
+            )
+            SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+            if source == "claim":
+                SignalReportAssignment.objects.for_team(self.team.id).create(team=self.team, report=report)
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         checks = [{"name": "unit", "status": "completed", "conclusion": "success", "url": "https://gh/1"}]
@@ -2954,3 +3142,270 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"comments": comments}
+
+
+class TestPrCiStatusReportIdsParsing(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("blank", "   "),
+            ("only_separators", ",,"),
+            ("not_a_uuid", "not-a-uuid"),
+            ("one_bad_id_among_good_ones", "3f1e0f4a-0000-4000-8000-000000000001,nope"),
+        ]
+    )
+    def test_an_unusable_report_ids_param_is_rejected(self, _name, raw):
+        # A list scan asks about ids it holds, so a malformed list is the caller's bug. Answering for
+        # the ids that happen to parse would hide it behind rows that quietly never show CI state.
+        with self.assertRaises(exceptions.ValidationError):
+            parse_pr_ci_status_report_ids(raw)
+
+    def test_more_ids_than_one_request_may_ask_about_are_rejected(self):
+        raw = ",".join(str(uuid.uuid4()) for _ in range(PR_CI_STATUS_MAX_REPORTS + 1))
+        with self.assertRaises(exceptions.ValidationError):
+            parse_pr_ci_status_report_ids(raw)
+
+    def test_padded_ids_are_accepted(self):
+        report_id = uuid.uuid4()
+        assert parse_pr_ci_status_report_ids(f" {report_id} , {report_id} ") == [report_id, report_id]
+
+
+class TestSignalReportPrCiStatuses(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The resolved statuses are cached per team, repo, and PR, so a test must not read what an
+        # earlier one warmed.
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _create_report(self, title: str) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title=title,
+            summary="Test summary",
+            signal_count=1,
+        )
+
+    def _url(self, report_ids) -> str:
+        query = urlencode({"report_ids": ",".join(str(report_id) for report_id in report_ids)})
+        return f"/api/projects/{self.team.id}/signals/reports/pr_ci_statuses/?{query}"
+
+    @staticmethod
+    def _pr(number: int, *, merged: bool = False) -> ImplementationPr:
+        return ImplementationPr(url=f"https://github.com/PostHog/posthog/pull/{number}", merged=merged)
+
+    def _patch_github(self):
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        return github
+
+    def test_open_prs_resolve_in_one_batch_and_everything_else_is_left_out(self):
+        # The mapping is the whole contract: a report has to get its own PR's CI state, and a merged
+        # or PR-less report must not be painted at all. One GitHub call covers the page.
+        red = self._create_report("red")
+        green = self._create_report("green")
+        landed = self._create_report("landed")
+        without_pr = self._create_report("no pr")
+        github = self._patch_github()
+        github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: {
+            reference: ("failing" if reference.number == 7 else "passing") for reference in references
+        }
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={
+                str(red.id): self._pr(7),
+                str(green.id): self._pr(8),
+                str(landed.id): self._pr(9, merged=True),
+            },
+        ):
+            response = self.client.get(self._url([red.id, green.id, landed.id, without_pr.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(response.json()["statuses"], key=lambda entry: entry["report_id"]) == sorted(
+            [
+                {"report_id": str(red.id), "ci_status": "failing"},
+                {"report_id": str(green.id), "ci_status": "passing"},
+            ],
+            key=lambda entry: entry["report_id"],
+        )
+        github.return_value.get_pull_request_ci_statuses.assert_called_once()
+        requested = github.return_value.get_pull_request_ci_statuses.call_args.args[0]
+        assert sorted(reference.number for reference in requested) == [7, 8]
+        github.assert_called_once_with(
+            self.team.id,
+            "PostHog/posthog",
+            source="signals_pr_ci_status",
+            priority=Priority.NORMAL,
+        )
+
+    def test_a_second_scan_reads_the_cached_status_instead_of_calling_github(self):
+        # Every list load and poll would otherwise cost a GitHub call per open PR.
+        report = self._create_report("cached")
+        github = self._patch_github()
+        github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
+            references, "passing"
+        )
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ):
+            first = self.client.get(self._url([report.id]))
+            second = self.client.get(self._url([report.id]))
+
+        assert first.json() == second.json() == {"statuses": [{"report_id": str(report.id), "ci_status": "passing"}]}
+        github.return_value.get_pull_request_ci_statuses.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("no_integration_reaches_the_repository", "lookup", None),
+            ("the_lookup_is_rate_limited", "lookup", GitHubRateLimitError("slow down")),
+            ("the_lookup_is_shed", "lookup", GitHubEgressBudgetExhausted("shed")),
+            ("the_fetch_is_rate_limited", "fetch", GitHubRateLimitError("slow down")),
+            ("the_fetch_is_shed", "fetch", GitHubEgressBudgetExhausted("shed")),
+            ("the_fetch_fails_upstream", "fetch", Exception("boom")),
+        ]
+    )
+    def test_the_list_still_loads_when(self, _name, failing_step, failure):
+        # CI state decorates a list the reader already has. A GitHub problem has to cost them the
+        # glyph, never the list.
+        report = self._create_report("unreachable")
+        github = self._patch_github()
+        if failing_step == "lookup":
+            github.return_value = None
+            github.side_effect = failure
+        else:
+            github.return_value.get_pull_request_ci_statuses.side_effect = failure
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ):
+            response = self.client.get(self._url([report.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"statuses": []}
+
+    def test_a_batch_that_landed_before_a_rate_limit_is_kept(self):
+        # An inbox wider than one GraphQL batch splits into several calls. Throwing away the batch
+        # GitHub already answered for would cost every row its glyph, and the next poll would buy the
+        # same answer again while GitHub is still limiting us.
+        batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
+        reports = [self._create_report(f"pr {n}") for n in range(batch_size + 1)]
+        pr_by_report = {str(report.id): self._pr(n + 1) for n, report in enumerate(reports)}
+        github = self._patch_github()
+        calls: list[int] = []
+
+        def fetch(references):
+            calls.append(len(references))
+            if len(calls) > 1:
+                raise GitHubRateLimitError("slow down")
+            return dict.fromkeys(references, "passing")
+
+        github.return_value.get_pull_request_ci_statuses.side_effect = fetch
+        url = self._url([report.id for report in reports])
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value=pr_by_report,
+        ):
+            first = self.client.get(url)
+            # The batch that never went out is not remembered as unreadable, because nothing was
+            # learned about it, so it resolves as soon as GitHub answers again.
+            github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
+                references, "passing"
+            )
+            second = self.client.get(url)
+
+        assert calls == [batch_size, 1]
+        assert len(first.json()["statuses"]) == batch_size
+        assert len(second.json()["statuses"]) == batch_size + 1
+
+    def test_another_teams_report_is_never_answered_for(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_report = SignalReport.objects.create(
+            team=other_team, status=SignalReport.Status.READY, title="theirs", summary="s", signal_count=1
+        )
+        github = self._patch_github()
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(other_report.id): self._pr(7)},
+        ) as fetch_pr_state:
+            response = self.client.get(self._url([other_report.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"statuses": []}
+        fetch_pr_state.assert_not_called()
+        github.assert_not_called()
+
+    def test_a_malformed_report_ids_param_is_a_400(self):
+        # Wiring guard for the parsing covered in TestPrCiStatusReportIdsParsing.
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/pr_ci_statuses/?report_ids=nope")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("resolved", SignalReport.Status.RESOLVED), ("failed", SignalReport.Status.FAILED)])
+    def test_a_terminal_report_costs_no_github_call(self, _name, report_status):
+        # Its pull request has landed or been closed, so the pill never shows a CI glyph for it and
+        # the fetch would be spent on something no reader can act on.
+        report = self._create_report("terminal")
+        SignalReport.objects.filter(id=report.id).update(status=report_status)
+        github = self._patch_github()
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ) as fetch_pr_state:
+            response = self.client.get(self._url([report.id]))
+
+        assert response.json() == {"statuses": []}
+        fetch_pr_state.assert_not_called()
+        github.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("rate_limited", GitHubRateLimitError("slow down")),
+            ("shed", GitHubEgressBudgetExhausted("shed")),
+            ("failing_upstream", Exception("boom")),
+        ]
+    )
+    def test_a_lookup_that_never_reached_github_is_asked_again(self, _name, failure):
+        # A lookup that was throttled, shed, or failed learned nothing about the repository. Recording
+        # it as unreadable would hold the glyph off the row for the whole five-minute window, over a
+        # condition that usually clears within one poll.
+        report = self._create_report("transient")
+        github = self._patch_github()
+        github.side_effect = failure
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ):
+            first = self.client.get(self._url([report.id]))
+            github.side_effect = None
+            github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
+                references, "passing"
+            )
+            second = self.client.get(self._url([report.id]))
+
+        assert first.json() == {"statuses": []}
+        assert second.json() == {"statuses": [{"report_id": str(report.id), "ci_status": "passing"}]}
+
+    def test_a_pull_request_github_cannot_read_is_not_probed_again(self):
+        # The repository probe and the query would otherwise run on every list load and every poll
+        # for a pull request that is never going to resolve.
+        report = self._create_report("unreadable")
+        github = self._patch_github()
+        github.return_value = None
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ):
+            first = self.client.get(self._url([report.id]))
+            second = self.client.get(self._url([report.id]))
+
+        assert first.json() == second.json() == {"statuses": []}
+        github.assert_called_once()

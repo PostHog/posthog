@@ -1,7 +1,8 @@
 import { countSessionsByChannel } from "@posthog/core/canvas/channelUnread";
 import {
+  deriveTaskRunState,
   isTaskUnread,
-  readRunMode,
+  narrowFullTask,
 } from "@posthog/core/sidebar/buildSidebarData";
 import { taskActivityAt } from "@posthog/core/tasks/taskActivity";
 import { readPrUrls } from "@posthog/shared";
@@ -22,25 +23,22 @@ import { useMemo } from "react";
  * the space's dots have to mean what the session rows' dots mean, and there is
  * one function that decides that.
  *
- * The renderer-only inputs (a live session's streaming and permission prompts)
- * are absent here, and can only turn a row yellow or blue that this already
- * counts for another reason, or that is genuinely quiet in the poll. So this
- * can undercount a session that started moving since the last poll, never
- * overcount one.
+ * Live prompt and permission state are absent here, so this count can lag until
+ * the next task poll. The persisted run mode still restores background activity.
  */
 export function wantsAttention(
   task: Task,
   lastViewedAt: TaskTimestamps,
 ): boolean {
+  const sidebarTask = narrowFullTask(task);
+  const runState = deriveTaskRunState(sidebarTask, undefined);
   const { tone } = taskDot({
+    isGenerating: runState.isGenerating,
     isUnread: isTaskUnread(taskActivityAt(task), lastViewedAt[task.id]),
-    taskRunStatus: task.latest_run?.status ?? undefined,
-    // A run's mode decides whether its status is a claim about work at all, so
-    // without it the "Pending" rows never count. It rides on the run's state,
-    // which the poll already carries.
-    runMode: readRunMode(task.latest_run?.state),
+    taskRunStatus: runState.taskRunStatus,
+    runMode: sidebarTask.latest_run?.mode ?? undefined,
     workspaceMode:
-      task.latest_run?.environment === "cloud" ? "cloud" : undefined,
+      runState.taskRunEnvironment === "cloud" ? "cloud" : undefined,
     prUrl: readPrUrls(task.latest_run?.output)[0] ?? null,
   });
   return tone !== "gray";

@@ -50,6 +50,7 @@ jobs:
                       llm_gateway:
                         - 'services/llm-gateway/**'
                         - '.github/workflows/ci-llm-gateway.yml'
+                        - '.github/actions/setup-uv/**'
 
     llm-gateway:
         name: LLM Gateway Tests
@@ -71,9 +72,9 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.github/actions/setup-uv
               with:
-                  version: '0.12.5' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
 
             - name: Install dependencies
               run: uv sync --frozen --dev
@@ -104,11 +105,11 @@ jobs:
         name: LLM Services Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # always(), not !cancelled(): a skipped required check is treated as a pass by
-        # branch protection, so on cancellation the gate must run and emit an explicit
-        # result rather than skip into a green. A cancelled or timed-out job is caught
-        # by the != success && != skipped checks below; a legitimate no-change skip passes.
-        if: always()
+        # !cancelled(): a superseded run records cancelled (which branch protection
+        # does not treat as a pass) instead of running on to report failure. A cancelled
+        # or timed-out dependency on a live run is still caught by the != success &&
+        # != skipped checks below; a legitimate no-change skip passes.
+        if: ${{ !cancelled() }}
         steps:
             - name: Check outcomes
               run: |

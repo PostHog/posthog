@@ -46,6 +46,10 @@ export class PiRuntime {
     return getPiRpcClientProcess(this.client);
   }
 
+  async abort(): Promise<void> {
+    await this.sendCommand({ type: "abort" });
+  }
+
   onRuntimeEvent(listener: (event: JsonAgentSessionEvent) => void): () => void {
     this.runtimeListeners.add(listener);
     return () => this.runtimeListeners.delete(listener);
@@ -76,15 +80,25 @@ export class PiRuntime {
       });
     }
     if (command.type !== "bash") {
+      const isInterrupt = command.type === "abort";
+      if (isInterrupt) {
+        this.translator.markTurnInterrupted();
+      }
       try {
         const response = await sendPiRpcCommand(this.client, command);
         if (!response.success && isUserMessage && command.id) {
           this.removePendingUserMessageId(command.id);
         }
+        if (isInterrupt) {
+          this.translator.clearTurnInterrupted();
+        }
         return response;
       } catch (error) {
         if (isUserMessage && command.id) {
           this.removePendingUserMessageId(command.id);
+        }
+        if (isInterrupt) {
+          this.translator.clearTurnInterrupted();
         }
         throw error;
       }

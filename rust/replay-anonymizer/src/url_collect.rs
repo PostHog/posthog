@@ -1,9 +1,9 @@
-//! Collect the original URLs of remote images, for the out-of-band fetch lane.
+//! Collect remote image URLs for the out-of-band fetch lane.
 //!
 //! The sibling of [`crate::collect`]. That module handles an image the page inlined into the
 //! recording; this one handles an image the page referred to by URL. With collection enabled, a
 //! media source attribute holding an `http(s)` URL keeps the media placeholder and a namespaced
-//! sibling attribute carries the content ref. The message also carries the original URL back to
+//! sibling attribute carries the content ref. The message also carries the fetch URL back to
 //! the caller.
 //!
 //! **Two forms of one URL come out of this module. Do not confuse them.**
@@ -11,9 +11,9 @@
 //! The *dedup* URL is canonical, and its volatile parameters are removed. It is the only input to
 //! the hash, so it sets the ref and the dedup key of the fetch lane.
 //!
-//! The *fetch* URL keeps the original query bytes, and every permitted parameter stays. The
-//! fetcher requests this one. URLs that carry credentials or signatures are refused before either
-//! form is created.
+//! The *fetch* URL keeps the original path's resize suffix and query bytes. Shopify resize
+//! normalisation applies only to the dedup URL. URLs that carry credentials or signatures are
+//! refused before either form is created.
 //!
 //! That split is what makes the ref stable across non-credential cache busters. A ref that appears
 //! once joins to nothing downstream. Removing the volatile parameters matters more for that than
@@ -60,7 +60,7 @@ pub struct UrlCollection {
 pub struct CollectedUrl {
     /// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`.
     pub hash: String,
-    /// The URL with its original query bytes intact. This is what the fetcher requests.
+    /// The fetch URL, retaining the observed resize suffix and original query bytes.
     pub url: String,
     /// The host the request goes to. robots.txt and the connection limit are scoped to this.
     pub host: String,
@@ -92,6 +92,10 @@ pub struct UrlCollector {
     /// A refusal is invisible in the collected count, so the lane would look like traffic carries
     /// fewer images than it does.
     declines: HashMap<&'static str, u32>,
+    /// URLs the walker refused before they reached the policy. A repeat, or a re-walk after the
+    /// byte walker hands an event to the tree path, must not count twice. The memo cannot hold
+    /// these, because a `None` there would also stop a later visible use of the same URL.
+    walker_declined: HashSet<String>,
 }
 
 impl UrlCollector {
@@ -102,7 +106,22 @@ impl UrlCollector {
             seen: HashSet::new(),
             memo: HashMap::new(),
             declines: HashMap::new(),
+            walker_declined: HashSet::new(),
         }
+    }
+
+    /// Count a refusal the walker made for `raw`, once per distinct URL in this message. Past the
+    /// memo cap, or for an over-length URL, the refusal counts every time, because a second count
+    /// costs less than unbounded memory.
+    pub(crate) fn decline_once(&mut self, raw: &str, reason: &'static str) {
+        let remember = raw.len() <= MAX_URL_LEN && self.walker_declined.len() < MAX_MEMO_ENTRIES;
+        if self.walker_declined.contains(raw) {
+            return;
+        }
+        if remember {
+            self.walker_declined.insert(raw.to_string());
+        }
+        self.decline(reason);
     }
 
     /// Collect a remote image URL and return its ref, or `None` when the URL is not fetchable or a
@@ -132,7 +151,7 @@ impl UrlCollector {
         raw.len() <= MAX_URL_LEN && self.memo.len() < MAX_MEMO_ENTRIES
     }
 
-    fn decline(&mut self, reason: &'static str) {
+    pub(crate) fn decline(&mut self, reason: &'static str) {
         *self.declines.entry(reason).or_insert(0) += 1;
     }
 
@@ -220,11 +239,24 @@ mod tests {
     #[test]
     fn a_resize_parameter_is_not_volatile() {
         // Collapsing these onto one ref would point one ref at two different images.
-        let mut c = collector();
-        let small = c.collect("https://cdn.example.com/a.png?w=100").unwrap();
-        let large = c.collect("https://cdn.example.com/a.png?w=900").unwrap();
-        assert_ne!(small, large);
-        assert_eq!(c.into_urls().len(), 2);
+        for (small_url, large_url) in [
+            (
+                "https://cdn.example.com/a.png?w=100",
+                "https://cdn.example.com/a.png?w=900",
+            ),
+            (
+                "https://store.example.com/cdn/shop/files/photo.jpg?width=100",
+                "https://store.example.com/cdn/shop/files/photo.jpg?width=900",
+            ),
+            (
+                "https://store.example.com/cdn/shop/files/photo_480x.jpg",
+                "https://store.example.com/cdn/shop/files/photo_960x.jpg",
+            ),
+        ] {
+            let mut c = collector();
+            assert_ne!(c.collect(small_url).unwrap(), c.collect(large_url).unwrap());
+            assert_eq!(c.into_urls().len(), 2);
+        }
     }
 
     #[test]
@@ -240,6 +272,24 @@ mod tests {
         let urls = c.into_urls();
         assert_eq!(urls.len(), 1);
         assert_eq!(urls[0].url, first_url);
+    }
+
+    #[test]
+    fn shopify_sizes_share_a_ref_and_fetch_the_first_observed_url() {
+        for (first, second) in [
+            ("photo_480x.jpg", "photo_960x.jpg"),
+            ("photo_960x.jpg", "photo_480x.jpg"),
+            ("photo.jpg?width=300", "photo.jpg?width=800"),
+            ("photo.jpg?width=800", "photo.jpg?width=300"),
+        ] {
+            let mut c = collector();
+            let first_url = format!("https://example-store.myshopify.com/cdn/shop/files/{first}");
+            let second_url = format!("https://example-store.myshopify.com/cdn/shop/files/{second}");
+            assert_eq!(c.collect(&first_url), c.collect(&second_url));
+            let urls = c.into_urls();
+            assert_eq!(urls.len(), 1);
+            assert_eq!(urls[0].url, first_url);
+        }
     }
 
     #[test]

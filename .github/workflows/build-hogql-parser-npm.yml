@@ -14,6 +14,11 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
 jobs:
     check-package-version:
         name: Check npm package version
@@ -152,11 +157,12 @@ jobs:
               with:
                   node-version-file: .nvmrc
 
+            # Direct install: Publishing commits to the PR head, which may predate the local action.
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.12.5' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.12.5'
 
             - name: Update @posthog/hogql-parser in frontend
               shell: bash

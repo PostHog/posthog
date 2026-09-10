@@ -3,10 +3,10 @@ import {
   ChatMarkerContent,
   ChatMarkerIcon,
   cn,
-  Spinner,
 } from "@posthog/quill";
 import { readAgentToolName } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";

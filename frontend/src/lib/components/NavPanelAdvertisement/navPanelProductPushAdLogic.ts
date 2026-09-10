@@ -26,8 +26,10 @@ const dismissKey = (campaign: ProductPushCampaignApi): string => `product-push-$
 export interface navPanelProductPushAdLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     hidden: boolean // navPanelAdvertisementLogic
+    destination: string | null
     display: ProductPushDisplay
     flagGated: boolean
+    label: string | null
     productInfo: FileSystemImport | undefined
     shouldRender: boolean
 }
@@ -52,7 +54,9 @@ export interface navPanelProductPushAdLogicMeta {
         productInfo: (arg: any) => FileSystemImport | undefined
         display: (arg: any) => ProductPushDisplay
         flagGated: (productInfo: FileSystemImport | undefined, featureFlags: FeatureFlagsSet) => boolean
-        shouldRender: (hidden: boolean, productInfo: FileSystemImport | undefined, flagGated: boolean) => boolean
+        destination: (display: ProductPushDisplay, productInfo: FileSystemImport | undefined) => string | null
+        label: (display: ProductPushDisplay, productInfo: FileSystemImport | undefined) => string | null
+        shouldRender: (hidden: boolean, flagGated: boolean, destination: string | null) => boolean
     }
 }
 
@@ -98,10 +102,22 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): boolean => !!productInfo?.flag && !(featureFlags as Record<string, boolean>)[productInfo.flag],
         ],
+        // A surface links to its own href/label; a catalog product resolves them from its catalog entry.
+        destination: [
+            (s) => [s.display, s.productInfo],
+            (display: ProductPushDisplay, productInfo: FileSystemImport | undefined): string | null =>
+                display.href ?? productInfo?.href ?? null,
+        ],
+        label: [
+            (s) => [s.display, s.productInfo],
+            (display: ProductPushDisplay, productInfo: FileSystemImport | undefined): string | null =>
+                display.label ?? productInfo?.displayLabel ?? productInfo?.path ?? null,
+        ],
+        // flagGated is always false for a surface (no catalog entry, so no flag), so this covers both.
         shouldRender: [
-            (s) => [s.hidden, s.productInfo, s.flagGated],
-            (hidden: boolean, productInfo: FileSystemImport | undefined, flagGated: boolean): boolean =>
-                !hidden && !!productInfo && !flagGated,
+            (s) => [s.hidden, s.flagGated, s.destination],
+            (hidden: boolean, flagGated: boolean, destination: string | null): boolean =>
+                !hidden && !!destination && !flagGated,
         ],
     }),
     listeners(({ props }) => {

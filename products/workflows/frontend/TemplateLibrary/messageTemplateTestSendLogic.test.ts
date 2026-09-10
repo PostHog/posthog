@@ -29,7 +29,7 @@ describe('messageTemplateTestSendLogic', () => {
 
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/': {
+                '/api/projects/:team_id/integrations/': {
                     results: [
                         {
                             id: 4,

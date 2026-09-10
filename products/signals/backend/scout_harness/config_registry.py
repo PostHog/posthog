@@ -1,9 +1,13 @@
 """Auto-registration of `SignalScoutConfig` rows for `signals-scout-*` skills.
 
-The "author a skill, get a scout" contract: any `signals-scout-*` `LLMSkill` on a team
-gets a `SignalScoutConfig` row (default schedule, enabled) with no further wiring. The
-Temporal coordinator tick calls this so enrolled teams reconcile on schedule. The HTTP
-surface deliberately does not: reads stay side-effect free, and explicit registration
+A scout is a skill that has a `SignalScoutConfig` row. The row is the identity marker, so a
+scout may carry any valid skill name.
+
+The prefix still drives one thing: the "author a skill, get a scout" contract. Any
+`signals-scout-*` `LLMSkill` on a team gets a row (default schedule, enabled) with no further
+wiring. A bare-named skill needs the scout `create` endpoint, explicit registration, or the
+create modal. The Temporal coordinator tick calls this so enrolled teams reconcile on schedule.
+The HTTP surface deliberately does not: reads stay side-effect free, and explicit registration
 goes through the write-scoped config `create` endpoint.
 """
 
@@ -74,15 +78,18 @@ def ensure_scout_category(team_id: int, skill_name: str | None = None) -> None:
 
     `category` is server-owned, so this is how custom scouts authored via the normal skills API
     get categorized — canonical scouts are already stamped at seed time (`lazy_seed`). Without it
-    a freshly authored `signals-scout-*` skill would schedule but stay off the skills UI's Scouts
-    tab. Idempotent (skips already-stamped rows). Pass `skill_name` to stamp one scout (e.g. on
-    explicit registration), or omit to reconcile every `signals-scout-*` row for the team.
+    a freshly registered scout would schedule but stay off the skills UI's Scouts tab. Idempotent
+    (skips already-stamped rows). Pass `skill_name` to stamp one scout (e.g. on explicit
+    registration), or omit to reconcile every scout row for the team.
+
+    The bulk pass keys on config rows, not on the name, so a bare-named scout reaches the Scouts
+    tab too. Callers that create rows must run this after the creation, not before.
     """
     rows = LLMSkill.objects.filter(team_id=team_id, deleted=False).exclude(category=SCOUT_SKILL_CATEGORY)
     if skill_name is not None:
         rows = rows.filter(name=skill_name)
     else:
-        rows = rows.filter(name__startswith=SIGNALS_SCOUT_SKILL_PREFIX)
+        rows = rows.filter(name__in=SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
     rows.update(category=SCOUT_SKILL_CATEGORY)
 
 
@@ -140,25 +147,27 @@ def live_scout_skill_names(
     team_id: int,
     withheld_skill_names: frozenset[str] | set[str] | None = None,
 ) -> set[str]:
-    """Live (latest, non-deleted) `signals-scout-*` skill names for a team, minus the holdback set.
+    """Names of the team's configs whose skill is live (latest, non-deleted), minus the holdback set.
 
-    The read-only half of `register_missing_configs`'s skill scan, with no seeding side effects. The
-    coordinator dispatches only configs whose skill is in this set, so a config whose skill was
-    deleted or superseded isn't run. Used on the wildcard (no-seed) dispatch path — a team that
-    self-enrolled through the UI already has its configs, so the per-tick seed/reconcile is skipped
-    and this cheap read is what still gates dispatch correctly.
+    Liveness means "the config's skill is live", so the read is keyed on config rows and a scout
+    under any valid name is included. The coordinator dispatches only configs whose skill is in
+    this set, so a config whose skill was deleted or superseded isn't run. Used on the wildcard
+    (no-seed) dispatch path — a team that self-enrolled through the UI already has its configs, so
+    the per-tick seed/reconcile is skipped and this cheap read is what still gates dispatch.
+
+    The config names go in as a subquery, and the holdback is applied as an `exclude` on the same
+    query, so the per-team gate stays one round trip. Keep it that way — this runs once per team
+    on every tick.
     """
-    names = set(
-        LLMSkill.objects.filter(
-            team_id=team_id,
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            is_latest=True,
-            deleted=False,
-        ).values_list("name", flat=True)
+    rows = LLMSkill.objects.filter(
+        team_id=team_id,
+        name__in=SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True),
+        is_latest=True,
+        deleted=False,
     )
     if withheld_skill_names:
-        names -= set(withheld_skill_names)
-    return names
+        rows = rows.exclude(name__in=withheld_skill_names)
+    return set(rows.values_list("name", flat=True))
 
 
 def register_missing_configs(
@@ -169,9 +178,12 @@ def register_missing_configs(
     """Auto-create a config for each scout skill lacking a row, honouring an optional seed posture.
 
     Idempotent — `get_or_create` keyed on the `(team, skill_name)` unique constraint, so
-    concurrent callers (coordinator tick racing an API call) converge on one row. Returns
-    the set of live `signals-scout-*` skill names for the team, so the caller can skip
-    dispatching configs whose skill is gone.
+    concurrent callers (coordinator tick racing an API call) converge on one row.
+
+    Returns the union of the live `signals-scout-*` skills scanned here and every live skill that
+    already holds a config, so the caller can dispatch a bare-named scout and still skip a config
+    whose skill is gone. The prefix scan drives auto-registration only; a bare-named scout is
+    registered by the create endpoint, and this read is what keeps it dispatchable.
 
     `withheld_skill_names` is the per-team holdback denylist (resolved by the coordinator from
     the `signals-scout` flag's `withheld_skills` key). Withheld skills are dropped from the
@@ -218,9 +230,6 @@ def register_missing_configs(
     # — it also covers a team that was previously allowed and still has the row.
     if withheld_skill_names:
         skill_names -= set(withheld_skill_names)
-    # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
-    # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick.
-    ensure_scout_category(team_id)
     # The allowlist governs the canonical fleet only; custom (hand-authored or duplicated) scouts
     # always auto-enable. A scout is canonical iff it BOTH carries the harness `seeded_by` tag AND
     # matches an on-disk canonical name — same dual check as `views._scout_origin`. The tag alone
@@ -236,10 +245,7 @@ def register_missing_configs(
     configs = SignalScoutConfig.objects.for_team(team_id)
     existing = set(configs.values_list("skill_name", flat=True))
     missing = sorted(skill_names - existing)
-    if not missing:
-        return skill_names
-
-    enabled = enabled_scout_count(team_id)
+    enabled = enabled_scout_count(team_id) if missing else 0
     for name in missing:
         at_cap = enabled >= MAX_ENABLED_SCOUTS_PER_TEAM
         # A canonical scout is gated by the allowlist (when one is set); a custom scout never is.
@@ -278,4 +284,9 @@ def register_missing_configs(
                 skill_name=name,
                 cap=MAX_ENABLED_SCOUTS_PER_TEAM,
             )
-    return skill_names
+
+    # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
+    # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick,
+    # and after the loop above so a row created on this tick is stamped on this tick.
+    ensure_scout_category(team_id)
+    return skill_names | live_scout_skill_names(team_id, withheld_skill_names)

@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -126,6 +127,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert task.mcp_builtin_agent_key == "workflow"
         assert task.mcp_gateway_server_allowlist == []
 
+    @parameterized.expand(
+        [
+            ("codex", "gpt-5.6-terra", "codex", "openai"),
+            ("claude", "claude-sonnet-5", "claude", "anthropic"),
+        ]
+    )
+    def test_derives_the_runtime_adapter_from_the_selected_model(
+        self, _name: str, model: str, expected_adapter: str, expected_provider: str
+    ) -> None:
+        response = self._post({"model": model, "reasoning_effort": "high"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["runtime_adapter"] == expected_adapter
+        assert run.state["provider"] == expected_provider
+        assert run.state["model"] == model
+        assert run.state["reasoning_effort"] == "high"
+
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
@@ -176,6 +195,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["slack_chart_delivery"] is True
         assert run.state["slack_reply_context"] is True
         assert "Your final response will be posted to the Slack thread" in run.state["initial_prompt_override"]
+        assert f"only the first {RESULT_STRING_CAP} characters" in run.state["initial_prompt_override"]
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
@@ -186,6 +206,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         message = run.state["initial_prompt_override"]
         assert "look into the alert" in message
         assert "data, not instructions" in message
+        assert f"only the first {RESULT_STRING_CAP} characters of your final message" in message
         # The agent server self-delivers the boot prompt, and forward_pending_user_message
         # delivers any pending message on top. Seeding both channels sent the prompt twice,
         # so the run must carry only the boot-path override.
@@ -620,6 +641,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert Task.objects.filter(team=self.team).filter(task_visibility_q(teammate.id)).filter(id=task_id).exists()
         assert Task.objects.filter(team=self.team).filter(task_control_q(teammate.id)).filter(id=task_id).exists()
 
+    def test_a_teammate_cannot_finish_a_workflow_run_on_the_workflows_behalf(self) -> None:
+        task = self._seed_workflow_task(TaskRun.Status.IN_PROGRESS)
+        run = task.latest_run
+        assert run is not None
+        self.client.force_login(self._create_user("teammate@posthog.com"))
+
+        with patch("products.tasks.backend.facade.api.resume_workflow_step_for_run") as resume:
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"status": "completed", "output": {"final_message": "forged"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        resume.assert_not_called()
+
     def test_a_request_without_a_prompt_is_rejected(self) -> None:
         response = self.client.post(
             self.url,
@@ -629,6 +668,30 @@ class TestWorkflowTasksAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
+        response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.json_schema == {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
+                "score": {"type": "number"},
+            },
+            "required": ["verdict", "score"],
+        }
+        prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
+        assert "verdict (string), score (number)" in prompt
+        assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
+
+    def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:
+        response = self._post({"output_fields": {"final_message": "string"}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "output_fields"
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_includes_the_triggering_event_in_the_agent_prompt(self) -> None:
@@ -946,6 +1009,10 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
                 {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
                 "slack_context",
             ),
+            ("output_field_unknown_type", {"prompt": "p", "output_fields": {"verdict": "object"}}, "output_fields"),
+            ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
+            ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
+            ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
             (
                 "slack_context_bad_integration_id",
                 {
