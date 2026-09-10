@@ -132,11 +132,14 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             **missing_scope_errors,
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
-            # Raised by helpers._get after tenacity exhausts all 5 retry attempts where every attempt
-            # got a 401: the code refreshes the access token each time but HubSpot keeps rejecting it.
-            # A persistent 401 after token refresh means the OAuth grant is fundamentally broken
-            # (revoked, app deleted, permissions withdrawn) — Temporal retrying the activity can't help.
-            "Hubspot API 401 - refreshed token, retrying:": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            # A 401 means the OAuth grant can't read the requested object (token revoked, or the
+            # connected app lost a scope like `crm.objects.companies.read`). Every fetch loop
+            # (fetch_data._get, fetch_page, v4 associations, search) refreshes the access token on a
+            # 401 and re-raises HubspotRetryableError, so tenacity retries with a fresh token. Five
+            # straight 401s after a good refresh means the grant is dead, not a transient blip, so
+            # retrying can't recover. Match the shared message fragment all four loops emit, not the
+            # per-loop prefix or the volatile URL.
+            "401 - refreshed token, retrying": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
             # HubSpot's CRM API may also surface 401 through raise_for_status() in other fetch paths.
             # Match the stable host prefix, not the per-object URL path, which varies by endpoint.
             "401 Client Error: Unauthorized for url: https://api.hubapi.com": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",

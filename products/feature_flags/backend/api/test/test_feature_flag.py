@@ -33,6 +33,7 @@ from posthog.hogql.database.database import Database
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
 from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
+from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
@@ -63,6 +64,7 @@ from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_WRITE_COUNTER,
     FeatureFlagSerializer,
     FeatureFlagStatusResponseSerializer,
+    _flag_write_source,
     parse_created_by_ids,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -14652,7 +14654,10 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         accepted_before = self._write_count("create", "accepted")
         rejected_before = self._write_count("create", "rejected")
         violation_before = FLAG_FILTERS_VIOLATION_COUNTER.labels(
-            stage="merged_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+            stage="merged_structural",
+            rule="structural.groups[].rollout_percentage.max_value",
+            operation="create",
+            source="ui",
         )._value.get()
 
         ok = self.client.post(
@@ -14673,7 +14678,10 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(self._write_count("create", "rejected"), rejected_before + 1)
         self.assertEqual(
             FLAG_FILTERS_VIOLATION_COUNTER.labels(
-                stage="merged_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+                stage="merged_structural",
+                rule="structural.groups[].rollout_percentage.max_value",
+                operation="create",
+                source="ui",
             )._value.get(),
             violation_before + 1,
         )
@@ -14699,8 +14707,53 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(self._write_count("create", "bypassed"), bypassed_before + 1)
         self.assertEqual(self._write_count("create", "accepted"), accepted_before)
 
-    def _violation_count(self, stage: str, rule: str, operation: str) -> float:
-        return FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule, operation=operation)._value.get()
+    @parameterized.expand(
+        [
+            ("no request at all", None, "internal"),
+            ("facade system write", ServiceRequest(None, is_system=True), "internal"),
+            ("facade write for a user", ServiceRequest(object()), "other"),
+        ]
+    )
+    def test_write_source_of_non_http_callers(self, _name: str, request: object, expected: str) -> None:
+        self.assertEqual(_flag_write_source(request), expected)
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
+    def test_violations_are_attributed_to_the_caller_that_made_them(self) -> None:
+        rule = "cross_field.variant_rollout_sum_not_100"
+        ui_before = self._violation_count("cross_field", rule, "create", "ui")
+        api_before = self._violation_count("cross_field", rule, "create", "api")
+        filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [{"key": "a", "rollout_percentage": 30}, {"key": "b", "rollout_percentage": 30}]
+            },
+        }
+
+        session_write = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"key": "from-ui", "filters": filters}, format="json"
+        )
+        self.assertEqual(session_write.status_code, status.HTTP_201_CREATED, session_write.json())
+
+        auth_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="metrics-source", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+        )
+        self.client.logout()
+        api_write = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "from-api", "filters": filters},
+            format="json",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+        self.assertEqual(api_write.status_code, status.HTTP_201_CREATED, api_write.json())
+
+        self.assertEqual(self._violation_count("cross_field", rule, "create", "ui"), ui_before + 1)
+        self.assertEqual(self._violation_count("cross_field", rule, "create", "api"), api_before + 1)
+
+    def _violation_count(self, stage: str, rule: str, operation: str, source: str = "ui") -> float:
+        return FLAG_FILTERS_VIOLATION_COUNTER.labels(
+            stage=stage, rule=rule, operation=operation, source=source
+        )._value.get()
 
     def _create_flag_via_orm(self, key: str, filters: dict) -> FeatureFlag:
         return FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key, name=key, filters=filters)
