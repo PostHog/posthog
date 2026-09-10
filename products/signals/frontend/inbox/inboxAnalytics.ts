@@ -175,6 +175,7 @@ export type ScoutActionType =
     | 'leave_note'
     | 'delete_note'
     | 'run_now'
+    | 'run_now_refused'
     | 'expand_run'
     | 'collapse_run'
     | 'filter_runs'

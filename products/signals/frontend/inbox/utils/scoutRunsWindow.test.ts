@@ -7,6 +7,7 @@ import {
     deriveRunOutcome,
     formatRunCost,
     mostRecentEmittedRuns,
+    pendingScoutRun,
     runMatchesFilter,
     dayTimeToWeeklyCron,
     getScoutScheduleMode,
@@ -123,6 +124,72 @@ describe('scoutRunsWindow report channel', () => {
             const rollup = computeScoutRollups(runs).get(skill)!
             expect([...rollup.authoredReportIds]).toEqual(['r-1'])
             expect([...rollup.editedReportIds].sort()).toEqual(['r-1', 'r-2'])
+        })
+    })
+
+    describe('pendingScoutRun', () => {
+        const skill = 'signals-scout-dev-report-probe'
+
+        it('returns the newest in-flight run', () => {
+            const rollups = computeScoutRollups([
+                makeRun({ run_id: 'older', skill_name: skill }),
+                makeRun({
+                    run_id: 'newer',
+                    skill_name: skill,
+                    status: 'in_progress',
+                    started_at: '2026-06-27T21:59:00Z',
+                    completed_at: null,
+                }),
+            ])
+            expect(pendingScoutRun(rollups.get(skill), NOW)?.run_id).toEqual('newer')
+        })
+
+        it('ignores a run stranded past the deadline, so one dead run cannot hold the scout busy', () => {
+            const rollups = computeScoutRollups([
+                makeRun({
+                    run_id: 'stranded',
+                    skill_name: skill,
+                    status: 'in_progress',
+                    started_at: '2026-06-27T20:00:00Z',
+                    completed_at: null,
+                }),
+            ])
+            expect(pendingScoutRun(rollups.get(skill), NOW)).toBeNull()
+        })
+
+        // A hard-killed worker leaves a queued row with no `started_at`, and nothing reaps it for a
+        // scout whose only run path is a manual trigger. Counting it would disable the button for good.
+        it('ignores a queued run stranded past the deadline', () => {
+            const rollups = computeScoutRollups([
+                makeRun({
+                    run_id: 'stranded-queued',
+                    skill_name: skill,
+                    status: 'queued',
+                    created_at: '2026-06-27T20:00:00Z',
+                    // A row stranded before the worker reached it never gets a start stamp.
+                    started_at: undefined,
+                    completed_at: null,
+                }),
+            ])
+            expect(pendingScoutRun(rollups.get(skill), NOW)).toBeNull()
+        })
+
+        it('counts a queued run the worker has not reached yet', () => {
+            const rollups = computeScoutRollups([
+                makeRun({
+                    run_id: 'fresh-queued',
+                    skill_name: skill,
+                    status: 'queued',
+                    created_at: '2026-06-27T21:59:30Z',
+                    started_at: undefined,
+                    completed_at: null,
+                }),
+            ])
+            expect(pendingScoutRun(rollups.get(skill), NOW)?.run_id).toEqual('fresh-queued')
+        })
+
+        it('is null for a scout with no runs in the window', () => {
+            expect(pendingScoutRun(undefined, NOW)).toBeNull()
         })
     })
 

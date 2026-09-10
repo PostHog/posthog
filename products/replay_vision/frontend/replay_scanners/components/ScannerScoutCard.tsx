@@ -235,7 +235,7 @@ export function ScannerScoutCard({
                         <LemonButton
                             type="secondary"
                             size="small"
-                            onClick={() => runScoutNow(single.id)}
+                            onClick={() => runScoutNow(single.id, 'replay_vision_scanner')}
                             loading={manualRunScoutIds.includes(single.id)}
                             disabledReason={runDisabledReason}
                             data-attr="vision-scanner-scout-run-now"

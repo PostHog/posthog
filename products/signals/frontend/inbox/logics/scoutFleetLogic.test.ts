@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
+    signalsScoutConfigRun,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
@@ -30,6 +31,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
+    signalsScoutConfigRun: jest.fn(),
     signalsScoutConfigSync: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
@@ -42,6 +44,7 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
     typeof signalsScoutChatTasksCreate
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
+const mockSignalsScoutConfigRun = signalsScoutConfigRun as jest.MockedFunction<typeof signalsScoutConfigRun>
 const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction<typeof signalsScoutConfigSync>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
@@ -128,6 +131,7 @@ describe('scoutFleetLogic', () => {
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
+        mockSignalsScoutConfigRun.mockReset()
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
@@ -702,6 +706,114 @@ describe('scoutFleetLogic', () => {
         await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
 
         expect(logic.values.runningChatType).toBeNull()
+    })
+
+    describe('running a scout on demand', () => {
+        const RUN_DISPATCHED = { skill_name: BASE_CONFIG.skill_name, workflow_id: 'wf-1', started: true }
+
+        // The workflow writes the run row, not the dispatch request, so a resolved POST proves
+        // nothing has appeared on the page yet. The scout must read as busy across that gap.
+        it('stays pending after the dispatch resolves, while no run row exists yet', async () => {
+            mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
+
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
+        })
+
+        // A run that fails on spawn is terminal before the first catch-up poll, and it is exactly the
+        // one a person wants to retry. Waiting for a running row would hold the button for 45 seconds.
+        it('clears the dispatch once a run row lands, whatever status it landed in', async () => {
+            logic.actions.loadScoutRunsSuccess([])
+            mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'spawned', status: 'failed' })])
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
+
+            expect(logic.values.manualRunScoutIds).toEqual([])
+        })
+
+        // Opening a scout by direct link renders the button before the runs load answers, so the
+        // dispatch has no history to diff against. Every row in the first response is then "new",
+        // and the oldest of them would release the button before the real run row exists.
+        it('waits past a history that only arrives after the dispatch', async () => {
+            const historical = makeRun({ run_id: 'last-week' })
+            mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([historical])
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess'])
+
+            expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
+
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([historical, makeRun({ run_id: 'spawned' })])
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
+
+            expect(logic.values.manualRunScoutIds).toEqual([])
+        })
+
+        // Several rosters render a Run now button per row off this one action, so the two dispatches
+        // must not share a cancellation.
+        it('keeps one scout pending while another scout is dispatched', async () => {
+            const OTHER = { ...BASE_CONFIG, id: 'config-2', skill_name: 'signals-scout-revenue' }
+            logic.actions.loadScoutConfigsSuccess([BASE_CONFIG, OTHER])
+            mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            logic.actions.runScoutNow(OTHER.id)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.manualRunScoutIds.sort()).toEqual([BASE_CONFIG.id, OTHER.id])
+        })
+
+        // Replay Vision renders its own Run now buttons off this action, so a hardcoded surface would
+        // file their presses under the scout detail page.
+        it('releases the scout and reports a refusal against the surface it was pressed on', async () => {
+            const capture = posthog.capture as jest.Mock
+            capture.mockClear()
+            mockSignalsScoutConfigRun.mockRejectedValue(new ApiError('already running', 409))
+
+            logic.actions.runScoutNow(BASE_CONFIG.id, 'replay_vision_scanner')
+            await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
+
+            expect(logic.values.manualRunScoutIds).toEqual([])
+            expect(
+                capture.mock.calls.some(
+                    ([, properties]) =>
+                        properties?.action_type === 'run_now_refused' &&
+                        properties?.error_status === 409 &&
+                        properties?.surface === 'replay_vision_scanner'
+                )
+            ).toBe(true)
+        })
+
+        // The deadline used to be read only on a successful poll, and a scanner page loads the runs
+        // once on mount with no recurring poll behind it. One rejected read there left the button
+        // spinning and disabled for the life of the page, with no way to press it again.
+        it('releases the scout when every runs read fails', async () => {
+            jest.useFakeTimers()
+            try {
+                mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+                mockSignalsScoutRunsRecentPerScout.mockRejectedValue(new ApiError('bad gateway', 502))
+
+                logic.actions.runScoutNow(BASE_CONFIG.id)
+                await expectLogic(logic).toDispatchActions(['loadScoutRunsFailure'])
+
+                expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
+
+                // Past the 45s deadline, across retries that all reject.
+                await jest.advanceTimersByTimeAsync(60_000)
+
+                expect(logic.values.manualRunScoutIds).toEqual([])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
     })
 
     // The 60s roster poll returns freshly parsed objects every cycle. Without per-item

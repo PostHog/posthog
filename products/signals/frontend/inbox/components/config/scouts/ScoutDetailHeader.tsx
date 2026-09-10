@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -11,7 +12,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { scoutDisplayName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { pendingScoutRun, scoutDisplayName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
@@ -90,7 +91,12 @@ export function ScoutDetailHeader({
     const { updateScoutConfig, runScoutNow } = useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
-    const running = manualRunScoutIds.includes(config.id)
+    // Two states, because the workflow creates the run row rather than the dispatch request:
+    // `dispatching` covers the gap between the click and the row landing, `pendingRun` is the run
+    // itself once it appears.
+    const dispatching = manualRunScoutIds.includes(config.id)
+    const pendingRun = pendingScoutRun(rollup, new Date())
+    const running = dispatching || pendingRun !== null
     // Filed and edited stay separate — adding the weak-signal count on top produced a total of two
     // different things, which is exactly what made the old "filed" number unreadable. A report the
     // scout filed and later added to counts once, as filed.
@@ -105,7 +111,13 @@ export function ScoutDetailHeader({
                 <LemonTag size="small" type={config.scout_origin === 'canonical' ? 'muted' : 'highlight'}>
                     {config.scout_origin === 'canonical' ? 'Canonical' : 'Custom'}
                 </LemonTag>
-                <ScoutStatusTag config={config} />
+                <ScoutStatusTag config={config} running={running} />
+                {pendingRun?.started_at && (
+                    <span className="text-xs text-secondary">
+                        {/* Rule 7: the label needs its own element beside a self-updating timestamp. */}
+                        <span>Started</span> <TZLabel time={pendingRun.started_at} showPopover={false} />
+                    </span>
+                )}
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
                 <Tooltip title="Dispatch a run now, outside the schedule. Counts against the project's daily run budget.">
@@ -113,11 +125,13 @@ export function ScoutDetailHeader({
                         type="secondary"
                         size="small"
                         icon={<IconRefresh />}
-                        loading={running}
-                        disabledReason={running ? 'Starting a run' : undefined}
-                        onClick={() => runScoutNow(config.id)}
+                        loading={dispatching}
+                        disabledReason={
+                            running ? 'This scout is already running. Wait for the run to finish.' : undefined
+                        }
+                        onClick={() => runScoutNow(config.id, 'scout_detail')}
                     >
-                        Run now
+                        {running ? 'Running' : 'Run now'}
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />

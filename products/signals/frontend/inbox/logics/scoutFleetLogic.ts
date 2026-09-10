@@ -116,6 +116,21 @@ function captureScoutConfigUpdates(
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
 const RUNS_REFETCH_INTERVAL_MS = 60_000
+// A manual run's row lands a beat after the POST returns, so a click starts a faster catch-up poll
+// and the page says a run is in flight well inside the 60s fleet cadence. The timeout releases the
+// button when the row never appears — a scout the worker never picked up must not stay busy forever.
+const MANUAL_RUN_POLL_INTERVAL_MS = 3_000
+const MANUAL_RUN_WATCH_TIMEOUT_MS = 45_000
+
+/** One dispatched manual run, watched until its run row shows up in the polled window. */
+interface ManualRunWatch {
+    skillName: string
+    /** The scout's run ids at dispatch. Any id outside this set is the new run, whatever its status:
+     * a run that already failed on spawn ends the watch as surely as one that is still working.
+     * Null when the dispatch beat the first runs load, so there was no history to diff against. */
+    knownRunIds: Set<string> | null
+    expiresAt: number
+}
 // The findings feed's fixed lookback: the runs endpoint caps each page at 100 rows newest-first, so
 // covering the whole window means walking back page-by-page via a `date_to` cursor (the oldest run's
 // `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a pathologically busy
@@ -419,8 +434,12 @@ export interface scoutFleetLogicActions {
     removeScoutConfigLocally: (configId: string) => {
         configId: string
     }
-    runScoutNow: (configId: string) => {
+    runScoutNow: (
+        configId: string,
+        surface?: ScoutSurface
+    ) => {
         configId: string
+        surface: ScoutSurface
     }
     runScoutNowFinished: (configId: string) => {
         configId: string
@@ -609,7 +628,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             tags,
             owner,
         }),
-        runScoutNow: (configId: string) => ({ configId }),
+        runScoutNow: (configId: string, surface: ScoutSurface = 'scout_detail') => ({ configId, surface }),
         runScoutNowFinished: (configId: string) => ({ configId }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
@@ -1229,11 +1248,25 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
-        loadScoutRunsSuccess: () => {
+        loadScoutRunsSuccess: async (_, breakpoint) => {
             // Costs follow the runs rather than a poll of their own, so a run and its cost are
             // never a cycle apart.
             if (values.isStaff) {
                 actions.loadScoutRunCosts()
+            }
+            const watches: Map<string, ManualRunWatch> = (cache.manualRunWatches ??= new Map())
+            for (const [configId, watch] of watches) {
+                const runs = values.rollups.get(watch.skillName)?.runs ?? []
+                // A dispatch on a page that opened straight to a scout can beat the first runs load,
+                // and an absent history diffs as "everything is new". This response is that history,
+                // so adopt it as the baseline: a row from last week must not read as the run the
+                // click just started. The timeout below still bounds the wait.
+                const baseline = (watch.knownRunIds ??= new Set(runs.map((run) => run.run_id)))
+                const landed = runs.some((run) => !baseline.has(run.run_id))
+                if (landed || performance.now() >= watch.expiresAt) {
+                    watches.delete(configId)
+                    actions.runScoutNowFinished(configId)
+                }
             }
             const evaluatedAt = new Date(values.rosterEvaluatedAt)
             const now = new Date()
@@ -1247,6 +1280,37 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             if (groupChanged || pauseRecencyChanged) {
                 actions.setRosterEvaluatedAt(now.valueOf())
             }
+            if (watches.size === 0) {
+                return
+            }
+            // A dispatched run is worth a faster look than the 60s fleet cadence. The next poll's own
+            // success re-enters here, so the chain stops on its own once every watch has settled.
+            await breakpoint(MANUAL_RUN_POLL_INTERVAL_MS)
+            actions.loadScoutRuns()
+        },
+        // A failed read still burns the clock, and only a success looked at the deadline. One
+        // rejected catch-up therefore stranded the watch wherever nothing else polls the runs — a
+        // scanner page reads them once on mount — and the button spun for the life of the page.
+        // A failed read carries no new rows, so nothing can have landed: only the deadline applies.
+        loadScoutRunsFailure: async (_, breakpoint) => {
+            const watches: Map<string, ManualRunWatch> = (cache.manualRunWatches ??= new Map())
+            if (watches.size === 0) {
+                return
+            }
+            for (const [configId, watch] of watches) {
+                if (performance.now() >= watch.expiresAt) {
+                    watches.delete(configId)
+                    actions.runScoutNowFinished(configId)
+                }
+            }
+            if (watches.size === 0) {
+                return
+            }
+            // Retry on the dispatch cadence rather than waiting out the deadline: a blip that clears
+            // still gets the run row on screen, and a read that keeps failing reaches the deadline
+            // above on one of these passes.
+            await breakpoint(MANUAL_RUN_POLL_INTERVAL_MS)
+            actions.loadScoutRuns()
         },
         setScoutTagFilter: ({ tags }) => {
             captureScoutAction({
@@ -1312,30 +1376,54 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 extra: { search_length: query.length, filter_match_count: values.rosterScouts.length },
             })
         },
-        runScoutNow: async ({ configId }) => {
+        runScoutNow: async ({ configId, surface }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.runScoutNowFinished(configId)
                 return
             }
             const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
+            const knownRunIds = values.scoutRunsLoadedOnce
+                ? new Set((values.rollups.get(config?.skill_name ?? '')?.runs ?? []).map((run) => run.run_id))
+                : null
             try {
                 await signalsScoutConfigRun(String(teamId), configId)
                 captureScoutAction({
                     actionType: 'run_now',
-                    surface: 'scout_detail',
+                    surface,
                     skillName: config?.skill_name ?? null,
                 })
                 lemonToast.success('Run started. It shows up in this scout’s runs when it finishes.')
-                // The run row appears on the next poll; pull once now so the page reacts immediately.
-                actions.loadScoutRuns()
             } catch (error: any) {
                 // The endpoint refuses deliberately in several ordinary cases — already running,
                 // over the daily budget — so the backend's own message is the useful one.
                 lemonToast.error(error?.detail || error?.message || 'Could not start a run')
-            } finally {
+                // Captured too, because a refused click is the one a person repeats. Only the started
+                // branch was recorded, so every repeat press that hit a refusal was invisible.
+                captureScoutAction({
+                    actionType: 'run_now_refused',
+                    surface,
+                    skillName: config?.skill_name ?? null,
+                    extra: { error_status: error?.status ?? null },
+                })
                 actions.runScoutNowFinished(configId)
+                return
             }
+            if (!config) {
+                actions.runScoutNowFinished(configId)
+                return
+            }
+            // Hold the dispatched state until the scout's run row exists, so the header says a run is
+            // in flight rather than offering "Run now" again over an unchanged page. The watch lives in
+            // the cache and is settled by the runs poll, so one scout's dispatch cannot end another's
+            // — several rosters render a Run now button per row off this one action.
+            const watches: Map<string, ManualRunWatch> = (cache.manualRunWatches ??= new Map())
+            watches.set(configId, {
+                skillName: config.skill_name,
+                knownRunIds,
+                expiresAt: performance.now() + MANUAL_RUN_WATCH_TIMEOUT_MS,
+            })
+            actions.loadScoutRuns()
         },
         updateScoutConfig: async ({ configId, updates }) => {
             const inFlight: Set<string> = (cache.updatingScoutIds ??= new Set())
