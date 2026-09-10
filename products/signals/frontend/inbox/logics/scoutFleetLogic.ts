@@ -67,6 +67,7 @@ import type { ScoutOwnerOption } from '../utils/scoutOwners'
 import {
     computeFleetSummary,
     computeScoutRollups,
+    expensiveRunCostThreshold,
     FleetSummary,
     isSettledRun,
     scoutDisplayName,
@@ -242,6 +243,7 @@ export interface scoutFleetLogicValues {
         scoutCount: number
     }
     enabledCount: number
+    expensiveRunCostThreshold: number | null
     fleetFindingsSummary: FleetFindingsSummaryApi | null
     fleetFindingsSummaryLoadedOnce: boolean
     fleetFindingsSummaryLoading: boolean
@@ -408,6 +410,9 @@ export interface scoutFleetLogicActions {
     }
     materializeScoutFleet: () => {
         value: true
+    }
+    mergeScoutRunCosts: (costs: Map<string, number>) => {
+        costs: Map<string, number>
     }
     patchScoutConfigLocally: (
         configId: string,
@@ -623,6 +628,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
         setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => ({ outcome }),
+        mergeScoutRunCosts: (costs: Map<string, number>) => ({ costs }),
     }),
 
     loaders(({ actions, values }) => ({
@@ -763,24 +769,41 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         return values.scoutRunCosts
                     }
                     const runIds = values.scoutRuns.map((run) => run.run_id)
+                    const batches: string[][] = []
+                    for (let start = 0; start < runIds.length; start += RUN_COST_BATCH_LIMIT) {
+                        batches.push(runIds.slice(start, start + RUN_COST_BATCH_LIMIT))
+                    }
                     const costs = new Map<string, number>()
+                    const priceBatch = async (batch: string[]): Promise<boolean> => {
+                        const response = await signalsScoutRunsTokenCosts(String(teamId), { run_ids: batch })
+                        breakpoint()
+                        // This deployment has no internal project to price runs against, so every
+                        // batch answers the same way and each one costs the backend a run-row read
+                        // and a traceback. Every cost stays unknown.
+                        if (!response.available) {
+                            return false
+                        }
+                        const priced = new Map<string, number>()
+                        for (const cost of response.costs) {
+                            if (cost.token_cost_usd !== null) {
+                                priced.set(cost.run_id, cost.token_cost_usd)
+                                costs.set(cost.run_id, cost.token_cost_usd)
+                            }
+                        }
+                        // Show what this batch priced now rather than when the whole load ends,
+                        // so the strip stops reading costless while the other batches are in
+                        // flight.
+                        if (priced.size > 0) {
+                            actions.mergeScoutRunCosts(priced)
+                        }
+                        return true
+                    }
                     try {
-                        for (let start = 0; start < runIds.length; start += RUN_COST_BATCH_LIMIT) {
-                            const response = await signalsScoutRunsTokenCosts(String(teamId), {
-                                run_ids: runIds.slice(start, start + RUN_COST_BATCH_LIMIT),
-                            })
-                            breakpoint()
-                            // This deployment has no internal project to price runs against, so the
-                            // remaining batches would answer the same way and each one costs the
-                            // backend a run-row read and a traceback. Every cost stays unknown.
-                            if (!response.available) {
-                                break
-                            }
-                            for (const cost of response.costs) {
-                                if (cost.token_cost_usd !== null) {
-                                    costs.set(cost.run_id, cost.token_cost_usd)
-                                }
-                            }
+                        // The first batch also answers whether this deployment prices runs at all,
+                        // so it goes on its own; the rest then go together instead of queueing
+                        // behind each other.
+                        if (await priceBatch(batches[0])) {
+                            await Promise.all(batches.slice(1).map(priceBatch))
                         }
                     } catch (error) {
                         // Cost is a staff-only annotation on a tooltip, so a blip degrades to no
@@ -875,6 +898,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     reducers({
         // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its chat type, so only the
         // pressed chip spins (the others merely disable). A shared boolean spun all three at once.
+        // The loader owns this map's default and its end-of-load write; this half folds in a batch
+        // that landed while the rest of the load is still in flight.
+        scoutRunCosts: [
+            new Map<string, number>(),
+            {
+                mergeScoutRunCosts: (state: Map<string, number>, { costs }: { costs: Map<string, number> }) =>
+                    reuseCostsIfUnchanged(state, new Map([...state, ...costs])),
+            },
+        ],
         runningChatType: [
             null as ScoutChatType | null,
             {
@@ -1030,6 +1062,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         rollups: [
             (s) => [s.scoutRuns],
             (scoutRuns: SignalScoutRunSummary[]): Map<string, ScoutRollup> => computeScoutRollups(scoutRuns),
+        ],
+        expensiveRunCostThreshold: [
+            (s) => [s.scoutRunCosts],
+            (scoutRunCosts: Map<string, number>): number | null => expensiveRunCostThreshold(scoutRunCosts),
         ],
         isStaff: [
             () => [userLogic.selectors.user],

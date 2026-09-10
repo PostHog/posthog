@@ -158,6 +158,26 @@ export function formatRunCost(costUsd: number): string {
     return humanFriendlyCurrency(costUsd, costUsd > 0 && costUsd < 0.01 ? 4 : 2)
 }
 
+// Below this many priced runs the top decile moves with every run that lands, so the marker would
+// point at a different box each poll and mean nothing.
+const MIN_PRICED_RUNS_FOR_COST_MARKER = 20
+
+/**
+ * What the fleet's priciest tenth of runs starts at, or null while too few runs are priced to rank
+ * them. Scout spend is heavily skewed: most runs cost about a cent, so a top-decile line is what
+ * separates a run worth opening from the cheap majority.
+ */
+export function expensiveRunCostThreshold(costs: Map<string, number>): number | null {
+    if (costs.size < MIN_PRICED_RUNS_FOR_COST_MARKER) {
+        return null
+    }
+    const sorted = [...costs.values()].sort((a, b) => a - b)
+    const threshold = sorted[Math.ceil(sorted.length * 0.9) - 1]
+    // A top decile that starts at the cheapest run means the fleet spends the same on every run,
+    // and marking every box says nothing.
+    return threshold > sorted[0] ? threshold : null
+}
+
 /**
  * Scout runs are hard-killed at the ~31-minute Temporal activity deadline and
  * surface as bare "failed" with no error field. Until the serializer carries a

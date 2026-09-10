@@ -44,6 +44,40 @@ describe('ScoutRunBoxes', () => {
         expect(labels.filter((label) => label.includes('$'))).toHaveLength(1)
     })
 
+    it('marks the runs at or over the fleet threshold, and leaves the cheap ones plain', () => {
+        // Cost only reached the tooltip, so finding an expensive run meant hovering box by box.
+        // The marker is the whole point of the change: without it every box looks the same.
+        const { container } = render(
+            <ScoutRunBoxes
+                runs={[
+                    makeRun({ run_id: 'run-cheap' }),
+                    makeRun({ run_id: 'run-at' }),
+                    makeRun({ run_id: 'run-over' }),
+                ]}
+                costs={
+                    new Map([
+                        ['run-cheap', 0.05],
+                        ['run-at', 0.49],
+                        ['run-over', 3.19],
+                    ])
+                }
+                costThreshold={0.49}
+            />
+        )
+
+        expect(container.querySelectorAll('.bg-brand-yellow')).toHaveLength(2)
+        const labels = Array.from(container.querySelectorAll('.sr-only')).map((node) => node.textContent ?? '')
+        expect(labels.filter((label) => label.includes('top 10% of run cost'))).toHaveLength(2)
+    })
+
+    it('marks nothing while the fleet has too few priced runs to rank', () => {
+        const { container } = render(
+            <ScoutRunBoxes runs={[makeRun()]} costs={new Map([['run-1', 3.19]])} costThreshold={null} />
+        )
+
+        expect(container.querySelector('.bg-brand-yellow')).toBeNull()
+    })
+
     it('leaves every run unpriced when no costs are given', () => {
         const { container } = render(<ScoutRunBoxes runs={[makeRun()]} />)
 

@@ -5,6 +5,7 @@ import {
     computeFleetSummary,
     computeScoutRollups,
     deriveRunOutcome,
+    expensiveRunCostThreshold,
     formatRunCost,
     mostRecentEmittedRuns,
     runMatchesFilter,
@@ -76,6 +77,34 @@ describe('scoutRunsWindow report channel', () => {
             [0, '$0.00'],
         ])('%s → %s', (cost, expected) => {
             expect(formatRunCost(cost)).toEqual(expected)
+        })
+    })
+
+    describe('expensiveRunCostThreshold', () => {
+        function costs(values: number[]): Map<string, number> {
+            return new Map(values.map((cost, index) => [`run-${index}`, cost]))
+        }
+
+        const skewed = [...Array.from({ length: 27 }, (_, index) => 0.02 + index / 1000), 0.6, 0.9, 3.19]
+
+        it('says nothing until enough runs are priced to rank them', () => {
+            // A decile over a handful of runs moves with every run that lands, so the marker would
+            // point at a different box each poll.
+            expect(expensiveRunCostThreshold(costs(skewed.slice(0, 19)))).toBeNull()
+            expect(expensiveRunCostThreshold(costs(skewed.slice(0, 20)))).not.toBeNull()
+        })
+
+        it('says nothing when every run costs the same', () => {
+            // A flat fleet has no top decile to point at, and a marker over every box is noise.
+            expect(expensiveRunCostThreshold(costs(Array.from({ length: 30 }, () => 0.05)))).toBeNull()
+        })
+
+        it('lands the line above the cheap majority when spend is skewed', () => {
+            // Scout spend is heavily skewed: the priciest run costs 50 times the median. The line
+            // has to leave that cheap median unmarked, or the marker points at the whole strip.
+            const threshold = expensiveRunCostThreshold(costs(skewed)) ?? 0
+
+            expect(skewed.filter((cost) => cost >= threshold)).toEqual([0.046, 0.6, 0.9, 3.19])
         })
     })
 
