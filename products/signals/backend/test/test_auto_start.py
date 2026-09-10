@@ -884,8 +884,20 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("on_trial", [True, False])
-async def test_free_trial_gate_blocks_autostart(on_trial):
+@pytest.mark.parametrize(
+    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event"),
+    [
+        (True, True, False, True),
+        (False, True, True, False),
+        # An inferred repository blocks the reviewer-less fallback, so no runner resolves and the
+        # report opens no pull request off the trial either. The trial held nothing back, so the
+        # sales count must not carry it.
+        (True, False, False, False),
+    ],
+)
+async def test_free_trial_gate_blocks_autostart(
+    on_trial, repository_autostart_eligible, expect_task, expect_pause_event
+):
     # A trial org gets reports, not pull requests: the implementation task is the step that opens
     # one, so auto-start creates none while the flag is on, and counts the held-back PR.
     Task = apps.get_model("tasks", "Task")
@@ -935,11 +947,12 @@ async def test_free_trial_gate_blocks_autostart(on_trial):
             ),
             reviewers_content=[],
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+            repository_autostart_eligible=repository_autostart_eligible,
         )
 
-    assert (mock_create.call_count == 0) is on_trial
-    assert (capture_mock.call_count == 1) is on_trial
-    if on_trial:
+    assert (mock_create.call_count == 1) is expect_task
+    assert (capture_mock.call_count == 1) is expect_pause_event
+    if expect_pause_event:
         assert capture_mock.call_args.kwargs == {"report_id": str(report.id), "stage": "autostart"}
 
 

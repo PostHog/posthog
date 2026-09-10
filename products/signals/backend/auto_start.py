@@ -749,20 +749,6 @@ async def maybe_autostart_implementation_task(
     # a user's reviewer edit). The report stays ready; the next new-signal research cycle after
     # the quota lifts re-evaluates auto-start.
     team = await Team.objects.select_related("organization").aget(pk=team_id)
-
-    # Free trial gate: a trial org gets reports, not pull requests, so no implementation task on
-    # any path. The report stays ready and gets its PR after the trial, on the next re-evaluation
-    # or by hand.
-    if await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(team):
-        capture_signal_report_free_trial_paused(team, report_id=report_id, stage="autostart")
-        logger.info(
-            "self-driving auto-start skipped",
-            report_id=report_id,
-            team_id=team_id,
-            reason="org on self-driving free trial",
-        )
-        return
-
     quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
     if quota_gate.limited:
         capture_signal_report_quota_paused(team, report_id=report_id, stage="autostart", enforced=quota_gate.enforced)
@@ -810,6 +796,20 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             team_id=team_id,
             reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
+        )
+        return
+
+    # Free trial gate: a trial org gets reports, not pull requests, so no implementation task on
+    # any path. The report stays ready and gets its PR after the trial, on the next re-evaluation
+    # or by hand. The gate sits after the runner resolution because a report with no runner opens
+    # no pull request anyway, so counting it would overstate what the trial held back.
+    if await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(team):
+        capture_signal_report_free_trial_paused(team, report_id=report_id, stage="autostart")
+        logger.info(
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="org on self-driving free trial",
         )
         return
 
