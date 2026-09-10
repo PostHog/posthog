@@ -7,16 +7,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import {
-    nextRunAt,
-    SCOUT_GROUP_LABEL,
-    scoutCadenceLabel,
-    ScoutRosterRow,
-    scoutSubtitle,
-} from '../../../utils/scoutGroups'
+import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
 import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
@@ -82,7 +77,9 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                     <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-none text-tertiary select-none">
                         <span>{SCOUT_GROUP_LABEL[group]}</span>
                         <MetaSeparator />
-                        <span>{scoutCadenceLabel(config)}</span>
+                        <span>
+                            <ScoutCadenceLabel config={config} />
+                        </span>
                         {hasNextRun && (
                             <>
                                 <MetaSeparator />
