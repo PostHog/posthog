@@ -5,6 +5,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { initKeaTests } from '~/test/init'
+import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { PieChart, PieChartProps } from './PieChart'
@@ -36,6 +37,7 @@ const props: PieChartProps = {
             settings: {},
         },
     ],
+    visualizationType: ChartDisplayType.ActionsPie,
     chartSettings: {},
 }
 

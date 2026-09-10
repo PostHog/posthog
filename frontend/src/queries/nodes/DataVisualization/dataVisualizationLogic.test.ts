@@ -416,22 +416,28 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
-    it('stamps labels onto the slices when a pie chart is newly picked', async () => {
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'stamps labels onto the slices when a pie display is newly picked',
+        async (displayType) => {
+            logic.actions.setVisualizationType(displayType)
 
-        await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'labels' } }),
-        })
-    })
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: { sliceContent: 'labels' } }),
+            })
+        }
+    )
 
-    it('does not override existing pie slice content when re-picking pie', async () => {
-        logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'does not override existing pie slice content when re-picking a pie display',
+        async (displayType) => {
+            logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
+            logic.actions.setVisualizationType(displayType)
 
-        await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'values' } }),
-        })
-    })
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: { sliceContent: 'values' } }),
+            })
+        }
+    )
 
     it('moves a scatter plot onto a numeric x-axis when the selected one has no coordinates', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({

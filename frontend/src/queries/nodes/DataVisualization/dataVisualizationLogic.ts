@@ -17,6 +17,7 @@ import type { BreakPointFunction } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
@@ -538,7 +539,7 @@ export function applyVisualizationType(
     let yAxis = chartSettings.yAxis ? [...chartSettings.yAxis] : []
     const selectedYAxis = yAxis.map((series) => ({ name: series.column }))
 
-    if (visualizationType === ChartDisplayType.ActionsPie && chartSettings.pie?.sliceContent === undefined) {
+    if (PIE_DISPLAY_TYPES.includes(visualizationType) && chartSettings.pie?.sliceContent === undefined) {
         chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
     }
 
