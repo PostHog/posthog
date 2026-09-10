@@ -1261,6 +1261,38 @@ class TestCustomerPaymentMethodHistory:
             assert HISTORY_EVENT_ID_COLUMN not in row
 
 
+class TestWebhookUpsertCollapse:
+    @parameterized.expand(
+        [
+            # One Stripe operation stamps every event it emits with the same whole second, so a
+            # payment's invoice.updated and invoice.paid tie on `created`. The batch holds the
+            # rows in arrival order, so the last row carries the newer state. Keeping the first
+            # row left the invoice at `open` in the warehouse while Stripe showed `paid`, and
+            # the sync still reported success.
+            ("tie broken by arrival order", [(1788677494, "open"), (1788677494, "paid")], "paid"),
+            # A redelivery can arrive after a newer event, so a plain last-row-wins rule would
+            # reinstate the older state.
+            ("older event delivered last", [(1788677494, "paid"), (1788677400, "open")], "paid"),
+        ]
+    )
+    def test_latest_state_per_object_wins(
+        self, _name: str, deliveries: list[tuple[int, str]], expected_status: str
+    ) -> None:
+        events = table_from_py_list(
+            [
+                _event_row(
+                    f"evt_{index}",
+                    "invoice.updated",
+                    event_created,
+                    {"id": "in_1", "object": "invoice", "created": 1788677439, "status": status},
+                )
+                for index, (event_created, status) in enumerate(deliveries)
+            ]
+        )
+        rows = stripe_module._webhook_table_transformer(events).to_pylist()
+        assert [row["status"] for row in rows] == [expected_status]
+
+
 class TestEndpointCatalogWiring:
     def setup_method(self):
         self.resources = stripe_module._build_resources(MagicMock(), logger=None)
@@ -1541,6 +1573,73 @@ class TestCreateWebhookLimitErrorCopy:
         assert result.success is False
         assert "webhook endpoint limit" in (result.error or "")
         assert "manually" in (result.error or "")
+
+
+class TestRepinWebhookApiVersion:
+    _URL = "https://example.com/webhook"
+
+    def _endpoint(self, api_version: str | None) -> SimpleNamespace:
+        return SimpleNamespace(
+            id="we_old",
+            url=self._URL,
+            api_version=api_version,
+            enabled_events=["invoice.paid", "customer.created"],
+            description="PostHog data warehouse webhook",
+        )
+
+    def _client(self, mock_client_cls: MagicMock, endpoint: SimpleNamespace) -> MagicMock:
+        client = mock_client_cls.return_value
+        client.webhook_endpoints.list.return_value = _list_object([endpoint])
+        client.webhook_endpoints.create.return_value = SimpleNamespace(id="we_new", secret="whsec_new")
+        return client
+
+    def test_replacement_is_pinned_and_keeps_the_old_endpoint(self):
+        # Stripe takes api_version on create only, so the endpoint has to be replaced. The old
+        # endpoint must survive this call: its deliveries are the only ones that verify until the
+        # caller stores the new signing secret.
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            client = self._client(mock_client_cls, self._endpoint(None))
+
+            repin = stripe_module.create_pinned_webhook_replacement(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url=self._URL,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            )
+
+        params = client.webhook_endpoints.create.call_args.kwargs["params"]
+        assert params["api_version"] == STRIPE_API_VERSION_ACACIA
+        assert params["url"] == self._URL
+        assert params["enabled_events"] == ["invoice.paid", "customer.created"]
+        client.webhook_endpoints.delete.assert_not_called()
+
+        assert repin.status == "replaced"
+        assert repin.signing_secret == "whsec_new"
+        assert repin.replaced_endpoint_id == "we_old"
+
+    @parameterized.expand(
+        [
+            # A second run must not rotate the signing secret of an endpoint that is already on
+            # the version, and a source whose endpoint was removed in Stripe has nothing to repin.
+            ("already pinned", STRIPE_API_VERSION_ACACIA, "https://example.com/webhook", "already_pinned"),
+            ("no endpoint on this url", None, "https://example.com/other", "no_endpoint"),
+        ]
+    )
+    def test_no_replacement_without_drift(self, _name: str, api_version: str | None, url: str, expected: str):
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            endpoint = self._endpoint(api_version)
+            endpoint.url = url
+            client = self._client(mock_client_cls, endpoint)
+
+            repin = stripe_module.create_pinned_webhook_replacement(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url=self._URL,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            )
+
+        assert repin.status == expected
+        client.webhook_endpoints.create.assert_not_called()
 
 
 class TestStripeAppManifestCoversSourcePermissions:

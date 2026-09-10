@@ -64,10 +64,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeResumeConfig,
     StripeTransientError,
     StripeValidationError,
+    WebhookRepin,
     _all_known_webhook_events,
     check_endpoint_permissions as check_stripe_endpoint_permissions,
+    create_pinned_webhook_replacement,
     create_webhook,
     delete_webhook,
+    delete_webhook_endpoint,
     get_external_webhook_info,
     stripe_source,
     update_webhook_events,
@@ -538,6 +541,26 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     ) -> WebhookDeletionResult:
         api_key = self._get_api_key(config, team_id)
         return delete_webhook(api_key, config.stripe_account_id, webhook_url)
+
+    def create_pinned_webhook_replacement(
+        self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookRepin:
+        """Step one of moving an unpinned endpoint onto this source's API version.
+        The caller must store the returned signing secret before it calls
+        `delete_webhook_endpoint` for the replaced endpoint."""
+        api_key = self._get_api_key(config, team_id)
+        return create_pinned_webhook_replacement(
+            api_key,
+            config.stripe_account_id,
+            webhook_url,
+            api_version=self.resolve_api_version(api_version),
+        )
+
+    def delete_webhook_endpoint(
+        self, config: StripeSourceConfig, endpoint_id: str, team_id: int
+    ) -> WebhookDeletionResult:
+        api_key = self._get_api_key(config, team_id)
+        return delete_webhook_endpoint(api_key, config.stripe_account_id, endpoint_id)
 
     def source_for_pipeline(
         self,

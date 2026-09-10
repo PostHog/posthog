@@ -514,6 +514,11 @@ class ExternalWebhookInfo:
     status: str | None = None
     description: str | None = None
     created_at: str | None = None
+    # The vendor API version the endpoint delivers at, for the providers that pin one per
+    # endpoint. None means the provider has no such concept or the endpoint carries no pin, in
+    # which case the provider renders payloads at the account default and the shape can drift
+    # away from the version this source reads.
+    api_version: str | None = None
     error: str | None = None
 
 
