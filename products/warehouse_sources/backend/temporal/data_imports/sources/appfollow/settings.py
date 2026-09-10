@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -35,7 +37,7 @@ TimeMode = Literal["none", "snapshot", "window"]
 DEFAULT_START_DATE = "2008-01-01"
 
 
-@dataclass
+@frozen
 class AppfollowEndpointConfig:
     name: str
     path: str

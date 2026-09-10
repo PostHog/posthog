@@ -7,6 +7,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
     APPFOLLOW_ENDPOINTS,
     DEFAULT_START_DATE,
@@ -177,10 +179,14 @@ def _iter_collections(session: requests.Session, logger: FilteringBoundLogger) -
     yield from _extract_rows(data, "apps")
 
 
-def _iter_collection_apps(
-    session: requests.Session, logger: FilteringBoundLogger
-) -> Iterator[tuple[dict[str, Any], dict[str, Any]]]:
-    """Fan out over every collection and yield each `(collection, app)` pair, with the app enriched.
+@frozen
+class _CollectionApp:
+    collection: dict[str, Any]
+    app: dict[str, Any]
+
+
+def _iter_collection_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[_CollectionApp]:
+    """Fan out over every collection and yield each app with the collection it came from.
 
     Each app row is stamped with its `app_collection_id` and `collection_name`, and `ext_id`/`store`
     are lifted from the nested `app` object to the top level when absent so the review/rating fan-outs
@@ -198,12 +204,12 @@ def _iter_collection_apps(
                 app["ext_id"] = nested_ext_id
             if not app.get("store") and (nested_store := nested.get("store")):
                 app["store"] = nested_store
-            yield collection, app
+            yield _CollectionApp(collection=collection, app=app)
 
 
 def _iter_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
-    for _, app in _iter_collection_apps(session, logger):
-        yield app
+    for pair in _iter_collection_apps(session, logger):
+        yield pair.app
 
 
 def _resolve_country(collection: dict[str, Any], app: dict[str, Any]) -> str:
@@ -223,7 +229,7 @@ def _resolve_country(collection: dict[str, Any], app: dict[str, Any]) -> str:
     return str(country).lower()
 
 
-@dataclasses.dataclass
+@frozen
 class _AppTarget:
     ext_id: str
     store: str | None
@@ -246,12 +252,13 @@ def _iter_app_targets(
     """
     seen: set[tuple[str, str | None, str | None]] = set()
     targets: list[_AppTarget] = []
-    for collection, app in _iter_collection_apps(session, logger):
+    for pair in _iter_collection_apps(session, logger):
+        app = pair.app
         ext_id = app.get("ext_id")
         if not ext_id:
             continue
         store = app.get("store")
-        country = _resolve_country(collection, app)
+        country = _resolve_country(pair.collection, app)
         key = (str(ext_id), store if dedupe_by_store else None, country if dedupe_by_country else None)
         if key in seen:
             continue
