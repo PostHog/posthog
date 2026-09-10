@@ -79,8 +79,9 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 - Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
 
 The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
-`squash_person_overrides` rewrites `person_id` on `sharded_events` and `sharded_events_json` through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
-Skipping the second table there is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` — `sharded_events`, `sharded_events_json` and `sharded_flag_evaluations` — through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
+Skipping one of those tables is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`SQUASH_TARGETS` is deliberately its own list rather than `PERSONAL_DATA_TARGETS`, so registering a table for deletion does not silently enrol it in the squash as well.
 `posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
 ## Covered tables
@@ -171,10 +172,10 @@ The fix would belong to the producer, not the scanner.
 Keeping the fork downstream of person resolution is the contract, tracked on #81002.
 
 Write-time parity is not sufficient on its own, because a later merge moves the person the sweep looks for.
-`squash_person_overrides` rewrites `person_id` on `EVENTS_TARGETS` only, so after person A merges into B the events rows carry B while the flag-evaluation rows still carry A.
-A deletion of B is queued under B's uuid, so it misses those rows and they survive, with their event `properties` and their stale `person_id`, until the TTL drops the part.
-The squash deletes the overrides right after applying them, so nothing can reconcile the divergence afterwards.
-Extending the squash to `FLAG_EVALUATIONS` is the fix, and it belongs to `posthog/dags/person_overrides.py` rather than to this table. Tracked on #93035.
+`squash_person_overrides` rewrote `person_id` on `EVENTS_TARGETS` only, so after person A merged into B the events rows carried B while the flag-evaluation rows still carried A.
+A deletion of B is queued under B's uuid, so it missed those rows, and they survived with their event `properties` and their stale `person_id` until the TTL dropped the part.
+`sharded_flag_evaluations` is now a squash target as well as a deletion target: it is in `SQUASH_TARGETS` in `posthog/dags/person_overrides.py`, and `person_id` is not in its sort key, so it takes the same `ALTER UPDATE` the events tables take.
+Rows a merge stranded before that landed cannot be reconciled, because the squash deletes the overrides that recorded the mapping right after applying them; they age out with their partition.
 
 ## Related, and deliberately unchanged
 
