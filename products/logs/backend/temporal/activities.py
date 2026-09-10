@@ -185,7 +185,7 @@ def _derive_breaches(
 @dataclasses.dataclass(frozen=True)
 class CheckAlertsInput:
     max_alerts_per_run: int = DEFAULT_MAX_ALERTS_PER_RUN
-    region: str = "local"
+    region: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -330,7 +330,7 @@ class CheckAlertsOutput:
 @dataclasses.dataclass(frozen=True)
 class DiscoverCohortsInput:
     max_alerts_per_run: int = DEFAULT_MAX_ALERTS_PER_RUN
-    region: str = "local"
+    region: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -380,12 +380,16 @@ def _due_alerts_qs(now: datetime):
     )
 
 
-def _validate_scheduler_region(region: str) -> None:
-    if not region.strip() or len(region) > 32:
-        raise ValueError("region must contain between 1 and 32 characters")
+def _resolve_scheduler_region(region: str) -> str:
     configured_region = (settings.CLOUD_DEPLOYMENT or "").lower()
-    if configured_region and region != configured_region:
-        raise ValueError(f"region {region!r} does not match configured deployment region {configured_region!r}")
+    resolved_region = region or configured_region or "local"
+    if not resolved_region.strip() or len(resolved_region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+    if configured_region and resolved_region != configured_region:
+        raise ValueError(
+            f"region {resolved_region!r} does not match configured deployment region {configured_region!r}"
+        )
+    return resolved_region
 
 
 @temporalio.activity.defn
@@ -398,7 +402,7 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
     """
     if not 1 <= input.max_alerts_per_run <= MAX_ALERTS_PER_RUN:
         raise ValueError(f"max_alerts_per_run must be between 1 and {MAX_ALERTS_PER_RUN}")
-    _validate_scheduler_region(input.region)
+    input = dataclasses.replace(input, region=_resolve_scheduler_region(input.region))
 
     page = await database_sync_to_async_pool(_discover_cohorts_page_sync)(input)
     discovered = page.output

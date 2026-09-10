@@ -618,7 +618,19 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     team_timezone=team.timezone,
                     schedule_restriction=schedule_restriction,
                 )
-            return super().create(validated_data)
+            snooze_until = validated_data.get("snooze_until")
+            if snooze_until is not None:
+                validated_data["next_check_at"] = snooze_until
+
+            instance = super().create(validated_data)
+            if snooze_until is not None:
+                changed_fields = apply_outcome(
+                    instance,
+                    apply_snooze(instance.to_snapshot()),
+                    kind=LogsAlertEvent.Kind.SNOOZE,
+                )
+                instance.save(update_fields=changed_fields)
+            return instance
 
 
 def _validate_filters(filters: dict) -> None:

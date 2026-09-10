@@ -2050,6 +2050,17 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     @freeze_time("2026-05-05T10:00:00Z")
+    def test_legacy_region_uses_the_configured_deployment_namespace(self):
+        from posthog.models.temporal_scheduler import TemporalSchedulerState
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        with override_settings(CLOUD_DEPLOYMENT="EU"):
+            asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        assert TemporalSchedulerState.objects.filter(scheduler="logs_alerts", region="eu").exists()
+
+    @freeze_time("2026-05-05T10:00:00Z")
     def test_bounds_discovery_and_selects_fairly_across_teams(self):
         from posthog.models import Team
 
