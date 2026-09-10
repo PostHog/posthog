@@ -27,8 +27,12 @@ Manual operations:
 """
 
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from functools import partial
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -1310,6 +1314,77 @@ def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
     _enqueue_invalidation(team_id)
 
 
+# The two caches a cohort save rebuilds: the local-evaluation definitions cache and the
+# flags-service cache.
+FlagsCacheName = Literal["definitions", "service"]
+
+_deferred_rebuild_teams: ContextVar[dict[int, set[FlagsCacheName]] | None] = ContextVar(
+    "deferred_flags_cache_rebuild_teams", default=None
+)
+
+
+def defer_flags_cache_rebuild(team_id: int, cache: FlagsCacheName) -> bool:
+    """Record the team's rebuild of `cache` if a coalescing block is active.
+
+    Returns True when the rebuild was recorded, which means the caller must not enqueue its
+    own.
+    """
+    teams = _deferred_rebuild_teams.get()
+    if teams is None:
+        return False
+    teams.setdefault(team_id, set()).add(cache)
+    return True
+
+
+def _dispatch_flags_cache_rebuilds(team_id: int, caches: set[FlagsCacheName], failed_teams: set[int]) -> None:
+    """Enqueue the recorded rebuilds for one team, recording the team when a publish fails."""
+    from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
+
+    tasks = {"definitions": update_team_flags_cache, "service": update_team_service_flags_cache}
+
+    failed = False
+    for cache in sorted(caches):
+        # One try per task, so a broker failure on one does not drop the other.
+        try:
+            tasks[cache].delay(team_id)
+        except Exception:
+            # The saves already committed, so raising would abort the rest of a fleet-wide run.
+            # The caller reports the team instead.
+            failed = True
+            logger.error("coalesced_flags_cache_dispatch_failed", team_id=team_id, cache=cache, exc_info=True)
+
+    if failed:
+        failed_teams.add(team_id)
+    else:
+        logger.info("coalesced_flags_cache_dispatch", team_id=team_id)
+
+
+@contextmanager
+def coalesced_cohort_flags_cache_rebuilds() -> Iterator[set[int]]:
+    """Coalesce the cohort-save flags-cache rebuilds inside the block to one dispatch per team.
+
+    A bulk cohort resave otherwise enqueues two whole-team rebuilds per cohort, where two per
+    team are sufficient. Only the two cohort receivers coalesce; flag and experiment saves
+    inside the block still enqueue their own rebuild. Each receiver records the cache it was
+    about to rebuild, so the dispatch enqueues exactly what the receivers wanted.
+
+    Yields the set of team ids whose dispatch failed, so the caller can report them. In
+    autocommit it is filled by the time the block exits; under an open transaction the dispatch
+    waits for the commit and the set fills later.
+    """
+    failed_teams: set[int] = set()
+    token = _deferred_rebuild_teams.set({})
+    try:
+        yield failed_teams
+    finally:
+        teams = _deferred_rebuild_teams.get() or {}
+        # Reset before dispatching: eager Celery runs the rebuild inline, and a cohort save
+        # inside it would otherwise record into a dict nobody reads again.
+        _deferred_rebuild_teams.reset(token)
+        for team_id, caches in sorted(teams.items()):
+            transaction.on_commit(partial(_dispatch_flags_cache_rebuilds, team_id, caches, failed_teams))
+
+
 @receiver(post_save, sender=FeatureFlag)
 @receiver(post_delete, sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
@@ -1411,6 +1486,9 @@ def cohort_changed_flags_cache(sender, instance: "Cohort", **kwargs):
 
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and frozenset(update_fields) <= _COHORT_RECALCULATION_FIELDS:
+        return
+
+    if defer_flags_cache_rebuild(instance.team_id, "service"):
         return
 
     from products.feature_flags.backend.tasks import update_team_service_flags_cache
