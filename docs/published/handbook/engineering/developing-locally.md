@@ -125,22 +125,6 @@ Set up your development environment instantly using [Flox](https://flox.dev/).
 
 Flox manages your development environment. The `manifest.toml` file declares all dependencies (similar to `package.json`), and Flox automatically provides the correct versions for your system.
 
-Flox uses uv 0.12.5 on Linux and Apple Silicon Macs, matching CI.
-Intel Macs retain uv 0.11.25 because the Flox catalog does not provide a newer version for `x86_64-darwin`.
-This supports the repository's Python 3.13.13 pin; it does not establish Intel Mac support for a later Python upgrade.
-
-When upgrading uv, update the exact pin in `.github/actions/setup-uv/action.yml`, its Depot mirror, and the [older-revision exceptions](https://github.com/PostHog/posthog/blob/master/docs/internal/uv-in-ci.md).
-Keep the container and sandbox installer pins aligned.
-Regenerate `.flox/env/manifest.lock` through Flox, then run `python bin/check_uv_python_compatibility.py` to check CI pins, Python download support, and Flox alignment.
-The checker allows patch differences and reports the Intel Mac exception; other major or minor version differences fail.
-Keep `tool.uv.required-version` in `pyproject.toml` as a minimum supported version, rather than raising it with every CI pin update.
-
-Review [uv's breaking changes](https://github.com/astral-sh/uv/blob/main/CHANGELOG.md#0120) before upgrading.
-In uv 0.12, `uv run path/to/script.py` discovers its project from the script's directory.
-Use `uv run --project . path/to/script.py` when the current project must supply its dependencies.
-If package downloads fail with a custom `SSL_CERT_FILE` or `SSL_CERT_DIR`, verify that the path contains readable certificates.
-uv no longer falls back to its default certificates when an explicit override is invalid.
-
 To get PostHog running in a dev environment:
 
 1. Once you have cloned the repo and installed OrbStack, install Flox:
