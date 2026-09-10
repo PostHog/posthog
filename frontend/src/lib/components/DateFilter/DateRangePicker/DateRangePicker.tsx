@@ -1,7 +1,7 @@
 import './DateRangePicker.scss'
 
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconCalendar, IconClock } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Popover } from '@posthog/lemon-ui'
@@ -88,6 +88,8 @@ export interface DateRangePickerProps {
     /** Both required to show the timezone selector; absent => hidden, parsing defaults to UTC. */
     timezone?: string
     onTimezoneChange?: (timezone: string) => void
+    /** Note about how far back this surface holds data, shown under the custom range. */
+    dataAvailabilityNotice?: ReactNode
 }
 
 export const DateRangePicker = ({
@@ -98,6 +100,7 @@ export const DateRangePicker = ({
     allowedRollingDateOptions = ['minutes', 'hours', 'days'],
     timezone,
     onTimezoneChange,
+    dataAvailabilityNotice,
 }: DateRangePickerProps): JSX.Element => {
     const logic = dateRangePickerLogic({ key: logicKey })
     const { popoverOpen, customFrom, customTo, history } = useValues(logic)
@@ -211,6 +214,13 @@ export const DateRangePicker = ({
                                 Apply
                             </LemonButton>
                         </div>
+
+                        {dataAvailabilityNotice && (
+                            <>
+                                <LemonDivider className="my-0" />
+                                <div className="text-xs text-secondary max-w-60">{dataAvailabilityNotice}</div>
+                            </>
+                        )}
 
                         {history.length > 0 && (
                             <>
