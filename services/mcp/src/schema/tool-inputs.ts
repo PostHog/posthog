@@ -75,28 +75,28 @@ export const ExternalDataJobsSchemasSchema = z
 
 export const BillingTeamIdsSchema = z
     .array(z.number().int().positive())
-    .optional()
+    .nullish()
     .describe(
         'Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.'
     )
 
 export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
-    .optional()
+    .nullish()
     .describe(
         'Usage type identifiers to filter by, e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
     )
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
-    .optional()
+    .nullish()
     .describe(
         'Dimensions to break spend down by. Pass `["type"]` for per-product series, `["team"]` for one series per project summed across products, or `["type","team"]` for per-project series within each product. Omit for one aggregate series.'
     )
 
 export const BillingUsageBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
-    .optional()
+    .nullish()
     .describe(
         'Dimensions to break usage down by. Pass `["type"]` for per-usage-type series or `["type","team"]` for per-project series within each usage type. Team breakdowns require `"type"`; do not pass `["team"]` by itself. Omit for one aggregate series.'
     )
