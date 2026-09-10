@@ -598,7 +598,10 @@ jobs:
 
                       healthCheck:
                         - 'posthog/temporal/health_checks/**'
-                        - 'products/.*/backend/temporal/health_checks/**'
+                        - 'products/*/backend/temporal/health_checks/**'
+                        # `.dockerignore` keeps test files out of every image, so a
+                        # test-only edit cannot reach the running worker.
+                        - '!products/*/backend/temporal/health_checks/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - 'posthog/clickhouse/migrations/**'
@@ -1033,8 +1036,26 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            # The product path list for this worker lives in the filter step above and
+            # is not itself one of its paths. This clause deploys once when that list
+            # changes, so detectors the list newly covers ship with the worker.
+            - name: Check whether this workflow added health check worker coverage
+              id: check_health_check_coverage_added
+              env:
+                  BEFORE: ${{ github.event.before }}
+              run: |
+                  BASE="$BEFORE"
+                  if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
+                      BASE="HEAD^"
+                  fi
+                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*backend/temporal/health_checks'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Trigger Health Check Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true'
+              if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true' || steps.check_health_check_coverage_added.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
