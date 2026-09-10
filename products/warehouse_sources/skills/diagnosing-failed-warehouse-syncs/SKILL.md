@@ -88,20 +88,20 @@ almost certainly stuck, even though the status isn't `Failed`.
 
 Map the `latest_error` string to a root cause. Common patterns:
 
-| Error substring                                             | Root cause                                                    | Fix                                                                                             |
-| ----------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `authentication failed`, `401`, `invalid credentials`       | Credentials expired or rotated                                | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs`           |
-| `403`, `Forbidden` on some tables only                      | Source gates the endpoint on the account plan or key scope    | Plan gate: user asks the source to enable the endpoint. Scope gate: user fixes the key's scopes |
-| `403`, `Forbidden` on every table                           | Credentials, or a source that gates its whole API on the plan | Read the source's own message first. Rotate creds only when it names the credential             |
-| `Could not establish session to SSH gateway`                | SSH tunnel misconfigured or remote host down                  | User checks SSH host/key/bastion                                                                |
-| `Primary key required for incremental syncs`                | Table has no PK and sync_type is `incremental`/`cdc`          | Either add PK in source, or switch schema to `full_refresh`                                     |
-| `primary keys for this table are not unique`                | Declared PK columns aren't actually unique                    | Pick different PK columns via `partial-update`                                                  |
-| `Integration matching query does not exist`                 | Source's saved integration was deleted                        | Recreate the source                                                                             |
-| `column "X" does not exist`, `does not have a column named` | Schema drift — incremental field or tracked column removed    | Use `incremental-fields-create` to re-detect, then `partial-update`                             |
-| `relation "..." does not exist`                             | Source table was dropped/renamed                              | Remove schema or rename source-side                                                             |
-| `SSL`, `connection refused`, `timeout`, `unreachable`       | Network / firewall / host reachability                        | User side — check host/port/allowlist                                                           |
-| `replication slot`, `publication`, `wal_level`              | CDC prerequisites broken                                      | Run `check-cdc-prerequisites-create`; may need slot recreate                                    |
-| `Schema exceeds row limit`, `billing`                       | Billing limit                                                 | Upgrade plan or disable the schema                                                              |
+| Error substring                                             | Root cause                                                                    | Fix                                                                                             |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `authentication failed`, `401`, `invalid credentials`       | Credentials expired or rotated                                                | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs`           |
+| `403`, `Forbidden` on some tables only                      | Source gates the endpoint on the plan or key scope, if a sibling synced later | Plan gate: user asks the source to enable the endpoint. Scope gate: user fixes the key's scopes |
+| `403`, `Forbidden` on every table                           | Credentials, or a source that gates its whole API on the plan                 | Read the source's own message first. Rotate creds only when it names the credential             |
+| `Could not establish session to SSH gateway`                | SSH tunnel misconfigured or remote host down                                  | User checks SSH host/key/bastion                                                                |
+| `Primary key required for incremental syncs`                | Table has no PK and sync_type is `incremental`/`cdc`                          | Either add PK in source, or switch schema to `full_refresh`                                     |
+| `primary keys for this table are not unique`                | Declared PK columns aren't actually unique                                    | Pick different PK columns via `partial-update`                                                  |
+| `Integration matching query does not exist`                 | Source's saved integration was deleted                                        | Recreate the source                                                                             |
+| `column "X" does not exist`, `does not have a column named` | Schema drift — incremental field or tracked column removed                    | Use `incremental-fields-create` to re-detect, then `partial-update`                             |
+| `relation "..." does not exist`                             | Source table was dropped/renamed                                              | Remove schema or rename source-side                                                             |
+| `SSL`, `connection refused`, `timeout`, `unreachable`       | Network / firewall / host reachability                                        | User side — check host/port/allowlist                                                           |
+| `replication slot`, `publication`, `wal_level`              | CDC prerequisites broken                                                      | Run `check-cdc-prerequisites-create`; may need slot recreate                                    |
+| `Schema exceeds row limit`, `billing`                       | Billing limit                                                                 | Upgrade plan or disable the schema                                                              |
 
 If `latest_error` is null but the schema is `Failed`, retrieve the schema directly — the error may only be populated
 on the detail view.
@@ -124,9 +124,14 @@ The recovery action depends on root cause, not just status. Match the user's sit
 
 **B2. One table gets a 403 while its siblings sync**
 
-- Only some schemas under the source fail with a `403` / `Forbidden`. The rest keep completing, so the key is
-  valid and the source refuses this one endpoint — usually the account plan does not include it, or the key's
-  scope excludes it.
+- Only some schemas under the source fail with a `403` / `Forbidden`, and a sibling completed **after** the
+  failing attempt. Confirm that with `last_synced_at`. Sync schedules are per schema and run from every minute to
+  every 30 days, so a sibling can hold a `Completed` it earned before the key died. Only a sibling success that
+  postdates the 403 proves the key still works. The source is then refusing this one endpoint, usually because
+  the account plan does not include it, or the key's scope excludes it.
+- If no sibling succeeded after the failing attempt, the cause stays open. Read the source's own message, because
+  several sources answer a revoked or expired credential with a 403 rather than a 401. Treat it as case B when
+  that message names the credential.
 - Read the source's own message to tell the two apart, because the recovery differs:
   - **Plan gate.** The user asks the source to enable the endpoint, then re-enables the sync. Do not send them to
     rotate credentials. A new key on the same plan fails the same way.
@@ -248,9 +253,10 @@ Agent:
   to extract — check their database and its credentials rather than the source's. Every destination shares one
   lifecycle, so one unreachable destination holds up the whole sync, PostHog included.
 - **A 403 is not proof of a bad key.** Many sources return 403 for an endpoint the account plan does not include,
-  with a key that is completely valid. Check whether sibling tables under the same source still sync: if they do,
-  the key works, so route the user to endpoint access from the source, or to a key carrying the missing scope,
-  rather than to a routine rotation.
+  with a key that is completely valid. Check whether a sibling table synced **after** the failing attempt, not
+  just that it succeeded once. Sibling schedules are independent, so a stale `Completed` can predate the key's
+  death. A sibling success that postdates the 403 shows the key works, so route the user to endpoint access from
+  the source, or to a key carrying the missing scope, rather than to a routine rotation.
   An all-table 403 is not proof either. Some sources gate their complete API on the plan, so a downgrade fails
   every table while the key stays valid. Treat 403 as a credential problem only when the error text names the
   credential.
