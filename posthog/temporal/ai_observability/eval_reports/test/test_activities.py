@@ -71,6 +71,16 @@ def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
     return sorted(visitor.timestamps)
 
 
+class TestGroupCountTriggeredReportRows(SimpleTestCase):
+    def test_chunks_stay_single_team_and_interleave_by_rank(self):
+        rows = [(f"a{index}", 1) for index in range(5)] + [("b0", 2), ("c0", 3)]
+
+        with patch("posthog.temporal.ai_observability.eval_reports.activities.COUNT_TRIGGER_QUERY_WIDTH", 2):
+            groups = _group_count_triggered_report_rows(rows)
+
+        assert groups == [["a0", "a1"], ["b0"], ["c0"], ["a2", "a3"], ["a4"]]
+
+
 class TestUpdateNextDeliveryDate(SimpleTestCase):
     @parameterized.expand(
         [
@@ -618,7 +628,9 @@ class TestCountTriggeredReportChecks(BaseTest):
 
     def test_fetch_candidates_groups_by_team_and_chunks_by_width(self):
         # One check activity handles one group, so a group must never span teams (its counts
-        # would run against the wrong team's data) nor exceed the per-query width cap.
+        # would run against the wrong team's data) nor exceed the per-query width cap. The
+        # quiet team's only chunk comes before the busy team's second chunk, so it is checked
+        # in an early window instead of waiting behind the whole busy team.
         team_a_report_ids = sorted(str(self._create_report().id) for _ in range(3))
         other_team = Team.objects.create(organization=self.organization, name="other")
         team_b_report = self._create_report(team=other_team)
@@ -626,7 +638,7 @@ class TestCountTriggeredReportChecks(BaseTest):
         with patch("posthog.temporal.ai_observability.eval_reports.activities.COUNT_TRIGGER_QUERY_WIDTH", 2):
             groups = _fetch_count_triggered_eval_report_candidate_groups()
 
-        self.assertEqual(groups, [team_a_report_ids[:2], team_a_report_ids[2:], [str(team_b_report.id)]])
+        self.assertEqual(groups, [team_a_report_ids[:2], [str(team_b_report.id)], team_a_report_ids[2:]])
 
     def test_bounded_candidate_page_gives_a_quiet_team_a_slot(self):
         for _ in range(5):
@@ -759,10 +771,28 @@ class TestCountTriggeredReportChecks(BaseTest):
             candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
             rotate_item_cursor=True,
         )
+        _advance_eval_report_cursors(
+            second_page,
+            second_page.rows,
+            scheduler="test_eval_reports_count_item_rotation",
+            region="test",
+            rotate_item_cursor=True,
+        )
+        # The third poll is the one that proves a ring: it has to wrap past the highest id
+        # and pick the last report up, not restart at the lowest one and strand it forever.
+        third_page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler="test_eval_reports_count_item_rotation",
+            region="test",
+            max_reports_per_run=2,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
 
         expected_ids = sorted(str(report.id) for report in reports)
         self.assertEqual([report_id for report_id, _team_id in first_page.rows], expected_ids[:2])
         self.assertEqual([report_id for report_id, _team_id in second_page.rows], expected_ids[2:4])
+        self.assertEqual([report_id for report_id, _team_id in third_page.rows], [expected_ids[4], expected_ids[0]])
 
     def test_item_rotation_tracks_each_tenant_independently(self):
         own_reports = [self._create_report() for _ in range(5)]

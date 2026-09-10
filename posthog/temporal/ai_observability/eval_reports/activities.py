@@ -5,7 +5,7 @@ import time
 import datetime as dt
 from collections import Counter, defaultdict
 from collections.abc import Sequence
-from itertools import batched
+from itertools import batched, zip_longest
 from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -135,12 +135,18 @@ _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
             selected_teams.team_id,
             selected_teams.team_order,
             candidate.id,
-            candidate.item_wrapped
+            candidate.team_rank
         FROM selected_teams
         CROSS JOIN LATERAL (
             SELECT
                 report.id,
-                report.id <= selected_teams.item_cursor AS item_wrapped
+                -- Ranked here, in the same cursor-relative order the rows are taken in, so
+                -- the wrapped-around ids keep their place at the front of the team. Ranking
+                -- the page again by plain id would sort them back to last and drop them at
+                -- the outer LIMIT, which strands the tail of the ring on every poll.
+                ROW_NUMBER() OVER (
+                    ORDER BY (report.id <= selected_teams.item_cursor), report.id
+                ) AS team_rank
             FROM llm_analytics_evaluationreport AS report
             INNER JOIN llm_analytics_evaluation AS evaluation ON evaluation.id = report.evaluation_id
             WHERE report.team_id = selected_teams.team_id
@@ -149,20 +155,12 @@ _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
               AND report.frequency = 'every_n'
               AND report.trigger_threshold IS NOT NULL
               AND {_REPORTABLE_EVALUATION_SQL}
-            ORDER BY item_wrapped, report.id
+            ORDER BY team_rank
             LIMIT %s
         ) AS candidate
-    ),
-    ranked_candidates AS (
-        SELECT
-            id,
-            team_id,
-            team_order,
-            ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY item_wrapped, id) AS team_rank
-        FROM bounded_candidates
     )
     SELECT id, team_id
-    FROM ranked_candidates
+    FROM bounded_candidates
     ORDER BY team_rank, team_order, id
     LIMIT %s
 """
@@ -373,13 +371,14 @@ def _group_count_triggered_report_rows(rows: Sequence[tuple[str, int]]) -> list[
     ids_by_team: dict[int, list[str]] = defaultdict(list)
     for report_id, team_id in rows:
         ids_by_team[team_id].append(report_id)
-    chunks_by_team = [list(batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)) for ids in ids_by_team.values()]
-    return [
-        list(team_chunks[chunk_rank])
-        for chunk_rank in range(max((len(team_chunks) for team_chunks in chunks_by_team), default=0))
-        for team_chunks in chunks_by_team
-        if chunk_rank < len(team_chunks)
+    chunks_by_team = [
+        [list(chunk) for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)] for ids in ids_by_team.values()
     ]
+    # Interleaved by chunk rank, so every team's first chunk lands in an early check window.
+    # The workflow takes fixed-size windows off this list in order, so emitting one team's
+    # chunks back to back would let a team with several chunks hold the early windows and
+    # push the rest of the page behind it.
+    return [chunk for rank in zip_longest(*chunks_by_team) for chunk in rank if chunk is not None]
 
 
 def _count_triggered_payload(
