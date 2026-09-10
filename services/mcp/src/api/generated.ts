@@ -1327,11 +1327,6 @@ export namespace Schemas {
       Show: 'show',
     } as const;
 
-    export interface QueryScanRange {
-      date_from: string;
-      date_to: string;
-    }
-
     export type QueryScanStatus = typeof QueryScanStatus[keyof typeof QueryScanStatus];
 
 
@@ -1343,12 +1338,8 @@ export namespace Schemas {
     export interface QueryScanSummary {
       /** ClickHouse time for the last fresh run. */
       duration_ms: number;
-      /** Events in `range` for this team, counted by the analysis and compared with `rows_read`. */
-      events_in_range?: number | null;
       /** What clients may show for this response. The server evaluated the flag once for this query; clients and the assistant read this field and never evaluate the flag themselves. */
       mode: QueryScanMode;
-      /** The date range `events_in_range` was counted over. */
-      range?: QueryScanRange | null;
       /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
       rows_read: number;
       /** Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`. */

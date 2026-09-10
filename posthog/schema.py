@@ -2629,14 +2629,6 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryScanRange(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    date_from: str
-    date_to: str
-
-
 class QueryTiming(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6630,10 +6622,6 @@ class QueryScanSummary(BaseModel):
         extra="forbid",
     )
     duration_ms: int = Field(..., description="ClickHouse time for the last fresh run.")
-    events_in_range: int | None = Field(
-        default=None,
-        description=("Events in `range` for this team, counted by the analysis and compared with `rows_read`."),
-    )
     mode: QueryScanMode = Field(
         ...,
         description=(
@@ -6642,7 +6630,6 @@ class QueryScanSummary(BaseModel):
             " evaluate the flag themselves."
         ),
     )
-    range: QueryScanRange | None = Field(default=None, description="The date range `events_in_range` was counted over.")
     rows_read: int = Field(
         ...,
         description=("Rows ClickHouse read for the last fresh run of this query, all tables included."),

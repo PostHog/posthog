@@ -592,11 +592,6 @@ export type QueryScanMode = 'log_only' | 'show'
 
 export type QueryScanStatus = 'pending' | 'done'
 
-export interface QueryScanRange {
-    date_from: string
-    date_to: string
-}
-
 export interface QueryScanSummary {
     /**
      * What clients may show for this response. The server evaluated the flag once for this query;
@@ -609,10 +604,6 @@ export interface QueryScanSummary {
     duration_ms: integer
     /** Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`. */
     status?: QueryScanStatus
-    /** Events in `range` for this team, counted by the analysis and compared with `rows_read`. */
-    events_in_range?: integer
-    /** The date range `events_in_range` was counted over. */
-    range?: QueryScanRange
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {

@@ -49348,19 +49348,6 @@
             "enum": ["log_only", "show"],
             "type": "string"
         },
-        "QueryScanRange": {
-            "additionalProperties": false,
-            "properties": {
-                "date_from": {
-                    "type": "string"
-                },
-                "date_to": {
-                    "type": "string"
-                }
-            },
-            "required": ["date_from", "date_to"],
-            "type": "object"
-        },
         "QueryScanStatus": {
             "enum": ["pending", "done"],
             "type": "string"
@@ -49372,17 +49359,9 @@
                     "$ref": "#/definitions/integer",
                     "description": "ClickHouse time for the last fresh run."
                 },
-                "events_in_range": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Events in `range` for this team, counted by the analysis and compared with `rows_read`."
-                },
                 "mode": {
                     "$ref": "#/definitions/QueryScanMode",
                     "description": "What clients may show for this response. The server evaluated the flag once for this query; clients and the assistant read this field and never evaluate the flag themselves."
-                },
-                "range": {
-                    "$ref": "#/definitions/QueryScanRange",
-                    "description": "The date range `events_in_range` was counted over."
                 },
                 "rows_read": {
                     "$ref": "#/definitions/integer",
