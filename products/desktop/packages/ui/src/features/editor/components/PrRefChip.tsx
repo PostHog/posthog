@@ -75,6 +75,7 @@ export function PrRefChip({
             icon={StatusIcon}
             iconLabel={iconLabel}
             toneClass={toneClass}
+            preservePrNumber
           >
             {children}
           </GithubRefChipLink>

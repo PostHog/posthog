@@ -29,7 +29,7 @@ export const WithoutLiveDetails: Story = {
 
 const LIFECYCLE_CASES: { number: number; details: PrRefDetails }[] = [
   {
-    number: 101,
+    number: 123456789,
     details: {
       state: "open",
       merged: false,

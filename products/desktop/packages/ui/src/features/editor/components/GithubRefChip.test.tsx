@@ -7,13 +7,14 @@ describe("GithubRefChip", () => {
     const href = "https://github.com/PostHog/posthog/pull/23985";
     const { container } = render(
       <GithubRefChip href={href} kind="pr">
-        PostHog/posthog#23985
+        #123456789
       </GithubRefChip>,
     );
 
     const carrier = container.querySelector(`[${GITHUB_REF_URL_ATTR}]`);
     expect(carrier).not.toBeNull();
     expect(carrier?.getAttribute(GITHUB_REF_URL_ATTR)).toBe(href);
+    expect(screen.getByText("#123456789")).toHaveClass("min-w-[10ch]");
   });
 
   it("lets a nested right-click target resolve the URL via closest()", () => {
