@@ -4,6 +4,7 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 
 import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
+import { logsRetentionRulesSettingsUrl } from 'products/logs/frontend/logsRetentionRulesSettingsUrl'
 import { logsRetentionSettingsUrl } from 'products/logs/frontend/logsRetentionSettingsUrl'
 import { LOGS_RETENTION_DATE_FORMAT, LogsRetentionWindow } from 'products/logs/frontend/logsRetentionWindow'
 
@@ -28,11 +29,16 @@ export function LogsListEmptyState({
 }: LogsListEmptyStateProps): JSX.Element {
     let headline = 'No logs found'
     let body: JSX.Element | string =
-        'Try adjusting your filters, expanding the time range, or checking that your app is sending logs. Drop rules can also remove logs before they are stored.'
+        'Try adjusting your filters, expanding the time range, or checking that your app is sending logs. Drop rules can remove logs before they are stored, and retention rules can delete matching logs sooner than your default retention.'
     let settingsLink = (
-        <Link to={logsDropRulesSettingsUrl()} data-attr="logs-empty-state-drop-rules">
-            Check drop rules
-        </Link>
+        <>
+            <Link to={logsDropRulesSettingsUrl()} data-attr="logs-empty-state-drop-rules">
+                Check drop rules
+            </Link>
+            <Link to={logsRetentionRulesSettingsUrl()} data-attr="logs-empty-state-retention-rules">
+                Check retention rules
+            </Link>
+        </>
     )
     let action = onExpandTimeRange && (
         <LemonButton type="secondary" size="small" onClick={onExpandTimeRange}>
@@ -46,17 +52,22 @@ export function LogsListEmptyState({
             : 'Part of this range is older than your log retention'
         body = (
             <>
-                Your logs are kept for <span translate="no">{retention.retentionDays}</span> days. Logs from before{' '}
-                <span translate="no">{retention.start.format(LOGS_RETENTION_DATE_FORMAT)}</span> have been deleted,
-                unless a retention rule keeps them longer. Retention is applied when a log is stored, so raising it does
-                not bring older logs back.
+                Your logs are kept for <span translate="no">{retention.retentionDays}</span> days by default. Logs from
+                before <span translate="no">{retention.start.format(LOGS_RETENTION_DATE_FORMAT)}</span> have been
+                deleted. Retention rules can keep matching logs longer or delete them sooner. Retention is applied when
+                a log is stored, so raising it does not bring older logs back.
                 {!retention.coversWholeRange && ' No logs matched the rest of the range.'}
             </>
         )
         settingsLink = (
-            <Link to={logsRetentionSettingsUrl()} data-attr="logs-empty-state-retention">
-                Change log retention
-            </Link>
+            <>
+                <Link to={logsRetentionSettingsUrl()} data-attr="logs-empty-state-retention">
+                    Change log retention
+                </Link>
+                <Link to={logsRetentionRulesSettingsUrl()} data-attr="logs-empty-state-retention-rules">
+                    Check retention rules
+                </Link>
+            </>
         )
         action = onSearchRetainedRange && (
             <LemonButton

@@ -32,6 +32,11 @@ export function logsRetentionWindowStart(retentionDays: number, timezone: string
  * result mean "already deleted" rather than "nothing was logged". Retention is stamped at ingest, so
  * raising it never brings older logs back.
  *
+ * This reads the environment default only. A retention rule can set a shorter or a longer tier for
+ * the logs its filters match, so a range inside this window can still miss logs that a shorter rule
+ * deleted. The explorer does not load rules, and a rule applies only to the logs it matches, so the
+ * copy names rules as a possible cause and never says one caused the result.
+ *
  * Returns null when the range sits inside the window. It also returns null when a bound cannot be
  * resolved here, because the server decides that bound and reporting deletion would then be a
  * guess: an expression this parser does not read, on either end, or an absent `date_from`, for
