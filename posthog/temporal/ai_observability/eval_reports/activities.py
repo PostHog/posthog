@@ -331,14 +331,6 @@ async def fetch_count_triggered_eval_report_candidates_activity(
 
     record_coordinator_check_count(len(report_ids), "count_triggered")
     record_scheduler_metrics_safely(
-        lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
-            _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER,
-            inputs.region,
-            "discovery",
-            selection.encoded_size_bytes,
-        )
-    )
-    record_scheduler_metrics_safely(
         lambda: record_coordinator_candidate_inventory(
             candidates.items_lower_bound,
             "count_triggered",
