@@ -593,10 +593,18 @@ class TestMCPToolSampleIntentsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clic
 
 
 class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    def _run(self, direction: NeighborDirection, tool_name: str = "query_run") -> list[Any]:
+    def _run(
+        self,
+        direction: NeighborDirection,
+        tool_name: str = "query_run",
+        properties: list[Any] | None = None,
+    ) -> list[Any]:
         runner = MCPToolNeighborsQueryRunner(
             query=MCPToolNeighborsQuery(
-                toolName=tool_name, neighborDirection=direction, dateRange=DateRange(date_from="-7d")
+                toolName=tool_name,
+                neighborDirection=direction,
+                dateRange=DateRange(date_from="-7d"),
+                properties=properties,
             ),
             team=self.team,
         )
@@ -622,6 +630,40 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         assert len(rows) == 1
         assert rows[0].neighbor_tool == expected_neighbor
         assert rows[0].co_occurrences == 1
+
+    def test_shared_filters_do_not_change_which_call_counts_as_the_neighbor(self) -> None:
+        # Regression: a property filter that drops the middle call from the CTE before
+        # lagInFrame/leadInFrame run would make the runner see tool_c as query_run's immediate
+        # successor instead of the true next call, tool_b. Only the target call's own match
+        # should decide whether the occurrence counts; every call must stay in the window so
+        # adjacency reflects the real conversation order.
+        now = datetime.now(tz=UTC)
+        _emit_tool_call(
+            self.team,
+            tool_name="query_run",
+            session_id="conv1",
+            client_name="matches",
+            timestamp=now - timedelta(minutes=2),
+        )
+        _emit_tool_call(
+            self.team,
+            tool_name="tool_b",
+            session_id="conv1",
+            client_name="excluded",
+            timestamp=now - timedelta(minutes=1),
+        )
+        _emit_tool_call(self.team, tool_name="tool_c", session_id="conv1", client_name="matches", timestamp=now)
+        flush_persons_and_events()
+
+        rows = self._run(
+            NeighborDirection.AFTER,
+            properties=[
+                EventPropertyFilter(key="$mcp_client_name", value=["matches"], operator=PropertyOperator.EXACT)
+            ],
+        )
+
+        assert len(rows) == 1
+        assert rows[0].neighbor_tool == "tool_b"
 
 
 def _setup_two_tool_calls(team: Any) -> None:
