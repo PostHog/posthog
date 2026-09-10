@@ -65,8 +65,14 @@ class Migration(migrations.Migration):
                         name="tsc_tenant_status",
                     ),
                     models.Index(
-                        fields=["scheduler", "region", "status", "updated_at"],
-                        name="tsc_inactive_cleanup",
+                        condition=models.Q(("status", "completed")),
+                        fields=["scheduler", "region", "updated_at", "id"],
+                        name="tsc_completed_cleanup",
+                    ),
+                    models.Index(
+                        condition=models.Q(("status", "available")),
+                        fields=["scheduler", "region", "updated_at", "id"],
+                        name="tsc_available_cleanup",
                     ),
                 ],
                 "constraints": [

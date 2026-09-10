@@ -1,3 +1,5 @@
+import sys
+import time
 from collections.abc import Callable
 from typing import Literal
 
@@ -5,11 +7,11 @@ from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histo
 
 from posthog.temporal.common.logger import get_write_only_logger
 
-PayloadKind = Literal["discovery", "hydrated", "activation"]
+PayloadKind = Literal["discovery", "hydrated"]
 AdmissionOutcome = Literal["reserved", "already_claimed", "deferred_capacity"]
 ClaimTransition = Literal["confirmed", "renewed", "completed", "released", "quarantined"]
 
-_PAYLOAD_KINDS = {"discovery", "hydrated", "activation"}
+_PAYLOAD_KINDS = {"discovery", "hydrated"}
 _ADMISSION_OUTCOMES = {"reserved", "already_claimed", "deferred_capacity"}
 _CLAIM_TRANSITIONS = {"confirmed", "renewed", "completed", "released", "quarantined"}
 
@@ -41,18 +43,35 @@ class SchedulerMetrics:
             "posthog_temporal_scheduler_permits_in_flight",
             "Globally admitted scheduler items that have not reached a terminal claim state.",
             ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
             registry=registry,
         )
         self._backlog_items_lower_bound = Gauge(
             "posthog_temporal_scheduler_backlog_items_lower_bound",
             "Bounded lower bound for scheduler items due at the most recent discovery.",
             ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
             registry=registry,
         )
         self._backlog_oldest_age_seconds = Gauge(
             "posthog_temporal_scheduler_backlog_oldest_age_seconds",
             "Age in seconds of the oldest eligible due item at the most recent scheduler discovery.",
             ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
+            registry=registry,
+        )
+        self._permits_snapshot_unixtime = Gauge(
+            "posthog_temporal_scheduler_permits_snapshot_unixtime",
+            "Unix time when this worker last sampled the durable scheduler permit pool.",
+            ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
+            registry=registry,
+        )
+        self._backlog_snapshot_unixtime = Gauge(
+            "posthog_temporal_scheduler_backlog_snapshot_unixtime",
+            "Unix time when this worker last sampled scheduler backlog state.",
+            ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
             registry=registry,
         )
 
@@ -105,6 +124,7 @@ class SchedulerMetrics:
         if count < 0:
             raise ValueError("permit count must not be negative")
         self._permits_in_flight.labels(scheduler=scheduler, region=region).set(count)
+        self._permits_snapshot_unixtime.labels(scheduler=scheduler, region=region).set(time.time())
 
     def set_backlog(
         self,
@@ -120,12 +140,24 @@ class SchedulerMetrics:
             raise ValueError("oldest_age_seconds must not be negative")
         self._backlog_items_lower_bound.labels(scheduler=scheduler, region=region).set(due_items_lower_bound)
         self._backlog_oldest_age_seconds.labels(scheduler=scheduler, region=region).set(oldest_age_seconds)
+        self._backlog_snapshot_unixtime.labels(scheduler=scheduler, region=region).set(time.time())
 
 
 DEFAULT_SCHEDULER_METRICS = SchedulerMetrics()
 
 
+def _should_record() -> bool:
+    if "temporalio" not in sys.modules:
+        return True
+
+    from temporalio import workflow  # noqa: PLC0415 -- avoid adding SDK import work to Django startup
+
+    return not (workflow.in_workflow() and workflow.unsafe.is_replaying())
+
+
 def record_scheduler_metrics_safely(operation: Callable[[], None]) -> None:
+    if not _should_record():
+        return
     try:
         operation()
     except Exception:
