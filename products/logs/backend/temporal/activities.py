@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from itertools import batched
 from uuid import UUID
 
+from django.conf import settings
 from django.db import connection, transaction
 from django.db.utils import IntegrityError
 
@@ -379,6 +380,14 @@ def _due_alerts_qs(now: datetime):
     )
 
 
+def _validate_scheduler_region(region: str) -> None:
+    if not region.strip() or len(region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+    configured_region = (settings.CLOUD_DEPLOYMENT or "").lower()
+    if configured_region and region != configured_region:
+        raise ValueError(f"region {region!r} does not match configured deployment region {configured_region!r}")
+
+
 @temporalio.activity.defn
 async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
     """Phase 1: lightweight discovery. Returns serialisable manifests; no full ORM hydration.
@@ -389,8 +398,7 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
     """
     if not 1 <= input.max_alerts_per_run <= MAX_ALERTS_PER_RUN:
         raise ValueError(f"max_alerts_per_run must be between 1 and {MAX_ALERTS_PER_RUN}")
-    if not input.region.strip() or len(input.region) > 32:
-        raise ValueError("region must contain between 1 and 32 characters")
+    _validate_scheduler_region(input.region)
 
     page = await database_sync_to_async_pool(_discover_cohorts_page_sync)(input)
     discovered = page.output
