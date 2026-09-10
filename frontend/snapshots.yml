@@ -3160,6 +3160,10 @@ snapshots:
         hash: v1.k794b7964.3958ab3fd470dfbf3a3dde5536bdbccdfd5205289f25a3ba5f3d98e069fdc4e7.WqKR9SVpum4z1_KyM3TXG6nN9BLC7cUiDWp0w0vpYms
     insights-sqlbargraph--grouped-bar-with-negative-values--light:
         hash: v1.k794b7964.f650a19c898a1b45659a824ca56b78b832d3229e15216e775abf225c39fc76b7.0GEkJRi-qzoYtdTtlPgeJD1FLrEu4N19aOMCQ3eMdoA
+    insights-sqlbargraph--horizontal-bar--dark:
+        hash: v1.k794b7964.198d11e486296652fca6921ecf76d8627a8257f3c94df2a2198919c87b76b502.fMwrM7mMAlzwrf5aFt-6YLfILYVbyM4yu9qhyUT8MbQ
+    insights-sqlbargraph--horizontal-bar--light:
+        hash: v1.k794b7964.eb99bf633cae565be567f33a544ce22c9ffe728585e64b1ca23b7933df751e6d.RuuY0Z82oyFutR0tkY7wZGvOH2_oKY-E6mwehd2wky4
     insights-sqlbargraph--stacked-bar--dark:
         hash: v1.k794b7964.213a5a22d4f777cf9f8ffa14d648b85b5b1949d0a2c96c476be9011736b5183b.liwM0IzwJRoqi0PSOuGNiaWpcLTPexevSaGc3FyxYHI
     insights-sqlbargraph--stacked-bar--light:
