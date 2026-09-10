@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { LemonButton, LemonSwitch, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
@@ -10,8 +11,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils/strings'
 
@@ -41,8 +44,8 @@ const BACKFILL_DATE_OPTIONS: DateMappingOption[] = [
 ]
 
 const BACKFILL_STATUS_TAG: Record<EvaluationBackfillStatusEnumApi, { label: string; type: LemonTagType }> = {
-    running: { label: 'Running', type: 'success' },
-    completed: { label: 'Completed', type: 'default' },
+    running: { label: 'Running', type: 'primary' },
+    completed: { label: 'Completed', type: 'success' },
     cancelled: { label: 'Cancelled', type: 'muted' },
 }
 
@@ -72,9 +75,14 @@ function ConditionSetScope({
 interface EvaluationBackfillsTabProps {
     evaluationId: string
     userAccessLevel?: AccessControlLevel
+    onConfigurationClick: () => void
 }
 
-export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: EvaluationBackfillsTabProps): JSX.Element {
+export function EvaluationBackfillsTab({
+    evaluationId,
+    userAccessLevel,
+    onConfigurationClick,
+}: EvaluationBackfillsTabProps): JSX.Element {
     const logic = evaluationBackfillsLogic({ evaluationId })
     const {
         backfills,
@@ -88,6 +96,7 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
         estimateLoading,
         expandedBackfillIds,
         rerunExisting,
+        settleWait,
         startDisabledReason,
         transitioningIds,
         unit,
@@ -104,6 +113,28 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
         collapseBackfill,
         loadBackfills,
     } = useActions(logic)
+
+    const confirmStart = (): void => {
+        LemonDialog.open({
+            title: 'Start this backfill?',
+            description: estimate ? (
+                <>
+                    {pluralize(estimate.total_units, estimate.unit)}
+                    {clampedWindow ? ` between ${clampedWindow.start} and ${clampedWindow.end}` : ''} will be evaluated,
+                    and each one is billed as an AI observability event. You can cancel a run while it is in progress,
+                    but results it already saved will stay.
+                </>
+            ) : undefined,
+            primaryButton: {
+                children: 'Start backfill',
+                onClick: createBackfill,
+                'data-attr': 'llma-eval-backfill-start-confirm',
+            },
+            secondaryButton: { children: 'Cancel' },
+            // The overlay aligns modals to the top by default, as in WebAnalyticsFilterPresets.
+            overlayClassName: '!items-center',
+        })
+    }
 
     const unitPlural = pluralize(2, unit, undefined, false)
 
@@ -138,16 +169,9 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
             title: 'Status',
             key: 'status',
             render: (_, backfill) => (
-                <div className="flex items-center gap-1 flex-wrap">
-                    <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
-                        {BACKFILL_STATUS_TAG[backfill.status].label}
-                    </LemonTag>
-                    {backfill.rerun_existing && (
-                        <LemonTag type="muted" size="small">
-                            Includes evaluated units
-                        </LemonTag>
-                    )}
-                </div>
+                <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
+                    {BACKFILL_STATUS_TAG[backfill.status].label}
+                </LemonTag>
             ),
         },
         {
@@ -194,28 +218,36 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                                 {backfillSamplingLabel(first)}
                             </LemonTag>
                         )}
+                        {backfill.rerun_existing && (
+                            <LemonTag type="muted" size="small">
+                                Includes {rowUnitPlural} with a result
+                            </LemonTag>
+                        )}
                     </div>
                 )
             },
         },
         {
-            title: 'Progress',
+            title: 'Started',
             key: 'progress',
             render: (_, backfill) => {
-                // A unit counts as handled once dispatched, or skipped because the live path covered it.
-                // A rerun over a window that keeps growing can hand back more than the total it
-                // started from, so the progress it shows stops at that total.
+                // The walk has handled a unit once it started it, or skipped it because the live
+                // path had covered it already. A rerun over a window that keeps growing can hand
+                // back more than the total it started from, so the bar stops at that total.
                 const handled = Math.min(backfill.dispatched_count + backfill.skipped_count, backfill.total_count)
                 return (
-                    <Tooltip
-                        title={`${backfill.dispatched_count.toLocaleString('en-US')} dispatched, ${backfill.skipped_count.toLocaleString(
-                            'en-US'
-                        )} skipped`}
-                    >
+                    <Tooltip title="How many units this backfill has started evaluating. It does not track which of them have finished.">
                         <div className="min-w-24">
                             <span className="whitespace-nowrap">
-                                {handled.toLocaleString('en-US')} / {backfill.total_count.toLocaleString('en-US')}
+                                {backfill.dispatched_count.toLocaleString('en-US')} /{' '}
+                                {backfill.total_count.toLocaleString('en-US')}
                             </span>
+                            {backfill.skipped_count > 0 && (
+                                <span className="text-muted whitespace-nowrap">
+                                    {' '}
+                                    · {backfill.skipped_count.toLocaleString('en-US')} skipped
+                                </span>
+                            )}
                             <LemonProgress
                                 className="mt-1"
                                 percent={backfill.total_count > 0 ? (handled / backfill.total_count) * 100 : 0}
@@ -275,11 +307,18 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
             <div className="rounded border p-4 flex flex-col gap-3">
                 <div>
                     <h3 className="mb-1">Evaluate past {unitPlural}</h3>
-                    <p className="text-muted mb-0">
-                        Run this evaluation over a time range that has already happened. Any {unit} that already has a
-                        result is skipped, unless you turn that off below.
-                    </p>
+                    <p className="text-muted mb-0">Run this evaluation over a past time range.</p>
                 </div>
+
+                {settleWait && (
+                    <p className="text-muted mb-0">
+                        This evaluation waits {settleWait} before it evaluates a {unit}, so a backfill can only cover
+                        what is older than that.{' '}
+                        <Link onClick={onConfigurationClick} data-attr="llma-eval-backfill-settle-configuration">
+                            Change the wait
+                        </Link>
+                    </p>
+                )}
 
                 <div className="flex items-center gap-2 flex-wrap">
                     <DateFilter
@@ -295,7 +334,7 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                         bordered
                         checked={rerunExisting}
                         onChange={setRerunExisting}
-                        label={`Evaluate ${unitPlural} that already have a result`}
+                        label={`Include ${unitPlural} that already have a result`}
                         data-attr="llma-eval-backfill-rerun"
                     />
                 </div>
@@ -330,7 +369,7 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                     >
                         <LemonButton
                             type="primary"
-                            onClick={createBackfill}
+                            onClick={confirmStart}
                             loading={creatingBackfill}
                             disabledReason={startDisabledReason}
                             data-attr="llma-eval-backfill-start"
@@ -352,27 +391,57 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                     onRowExpand: (backfill) => expandBackfill(backfill.id),
                     onRowCollapse: (backfill) => collapseBackfill(backfill.id),
                     expandedRowRender: (backfill) => (
-                        <div className="flex flex-col gap-2 py-2">
-                            {backfill.conditions.map((condition, index) => (
-                                <div key={index} className="flex items-center gap-1 flex-wrap">
-                                    <ConditionSetScope
-                                        condition={condition}
-                                        unitPlural={backfillUnitPlural(backfill)}
-                                    />
-                                    <span className="text-muted whitespace-nowrap">
-                                        {backfillSamplingLabel(condition)}
+                        <div className="flex items-center justify-between gap-4 px-2 py-3">
+                            <div className="flex flex-col gap-2 min-w-0">
+                                {backfill.conditions.map((condition, index) => (
+                                    <div key={index} className="flex items-center gap-1 flex-wrap">
+                                        <ConditionSetScope
+                                            condition={condition}
+                                            unitPlural={backfillUnitPlural(backfill)}
+                                        />
+                                        <span className="text-muted whitespace-nowrap">
+                                            {backfillSamplingLabel(condition)}
+                                        </span>
+                                    </div>
+                                ))}
+                                <div className="flex items-center gap-2 flex-wrap text-muted">
+                                    <span className="flex items-center gap-1">
+                                        <TZLabel
+                                            time={backfill.window_start}
+                                            timestampStyle="absolute"
+                                            {...WINDOW_TIME_FORMAT}
+                                        />
+                                        <span>→</span>
+                                        <TZLabel
+                                            time={backfill.window_end}
+                                            timestampStyle="absolute"
+                                            {...WINDOW_TIME_FORMAT}
+                                        />
+                                    </span>
+                                    <span>·</span>
+                                    <span>
+                                        {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
+                                        {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
+                                        {pluralize(backfill.total_count, backfill.target)} in range
+                                        {backfill.rerun_existing &&
+                                            `, including ${backfillUnitPlural(backfill)} that already had a result`}
                                     </span>
                                 </div>
-                            ))}
-                            <div className="flex items-center gap-1 flex-wrap">
-                                <TZLabel
-                                    time={backfill.window_start}
-                                    timestampStyle="absolute"
-                                    {...WINDOW_TIME_FORMAT}
-                                />
-                                <span className="text-muted">→</span>
-                                <TZLabel time={backfill.window_end} timestampStyle="absolute" {...WINDOW_TIME_FORMAT} />
                             </div>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                to={
+                                    combineUrl(router.values.location.pathname, {
+                                        ...router.values.searchParams,
+                                        evaluation_tab: 'runs',
+                                        backfill_id: backfill.id,
+                                    }).url
+                                }
+                                data-attr="llma-eval-backfill-view-results"
+                            >
+                                View results from this run
+                            </LemonButton>
                         </div>
                     ),
                 }}

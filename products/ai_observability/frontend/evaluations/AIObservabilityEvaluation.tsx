@@ -20,10 +20,12 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -69,6 +71,8 @@ import {
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
 
+const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
+
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
@@ -79,6 +83,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         formValid,
         isNewEvaluation,
         runsSummary,
+        runsBackfillId,
+        runsBackfill,
         evaluationProviderKeyIssue,
         activeTab,
         canEnable,
@@ -405,6 +411,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </>
                                             )}
                                         </p>
+
                                         {isReportableEvaluation && (
                                             <EvaluationReportsCallout
                                                 evaluationId={evaluation.id}
@@ -442,10 +449,51 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="text-muted">Errors</div>
                                                 </div>
                                             </div>
-                                            <div className="text-muted text-xs">Across all runs, all time</div>
+                                            <div className="text-muted text-xs">
+                                                {runsBackfillId ? 'From this backfill' : 'Across all runs, all time'}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
+                                {runsBackfillId && (
+                                    <LemonBanner
+                                        type="info"
+                                        className="mb-4"
+                                        action={{
+                                            children: 'Show all runs',
+                                            onClick: () =>
+                                                router.actions.push(
+                                                    router.values.location.pathname,
+                                                    { ...router.values.searchParams, backfill_id: undefined },
+                                                    router.values.hashParams
+                                                ),
+                                        }}
+                                    >
+                                        <span className="font-semibold">Showing runs from one backfill.</span>
+                                        {runsBackfill && (
+                                            <>
+                                                {' '}
+                                                It covered {pluralize(
+                                                    runsBackfill.total_count,
+                                                    runsBackfill.target
+                                                )}{' '}
+                                                between{' '}
+                                                <TZLabel
+                                                    time={runsBackfill.window_start}
+                                                    timestampStyle="absolute"
+                                                    {...RUNS_BACKFILL_TIME_FORMAT}
+                                                />
+                                                {' and '}
+                                                <TZLabel
+                                                    time={runsBackfill.window_end}
+                                                    timestampStyle="absolute"
+                                                    {...RUNS_BACKFILL_TIME_FORMAT}
+                                                />
+                                                .
+                                            </>
+                                        )}
+                                    </LemonBanner>
+                                )}
                                 <EvaluationRunsTable />
                             </div>
                         ),
@@ -472,6 +520,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 <EvaluationBackfillsTab
                                     evaluationId={evaluation.id}
                                     userAccessLevel={evaluation.user_access_level ?? undefined}
+                                    onConfigurationClick={() => setActiveTab('configuration')}
                                 />
                             ),
                         },

@@ -4,6 +4,7 @@ import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -109,6 +110,7 @@ export interface evaluationBackfillsLogicValues {
     pollFailures: number
     requestedWindow: BackfillWindow | null
     rerunExisting: boolean
+    settleWait: string | null
     startDisabledReason: string | undefined
     transitioningIds: string[]
     unit: EvaluationTargetEnumApi
@@ -196,6 +198,7 @@ export interface evaluationBackfillsLogicMeta {
             estimateLoading: boolean,
             estimateError: string | null
         ) => string | undefined
+        settleWait: (estimate: EvaluationBackfillEstimateApi | null) => string | null
         clampedWindow: (
             estimate: EvaluationBackfillEstimateApi | null,
             requestedWindow: BackfillWindow | null,
@@ -369,6 +372,18 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     return 'Nothing in this range matches these conditions'
                 }
                 return undefined
+            },
+        ],
+        // The server holds the window back by the evaluation's wait, so the gap between the
+        // counted end and now is that wait. Reading it back keeps one definition of the rule.
+        settleWait: [
+            (s) => [s.estimate],
+            (estimate: EvaluationBackfillEstimateApi | null): string | null => {
+                if (!estimate) {
+                    return null
+                }
+                const seconds = dayjs().diff(dayjs(estimate.window_end), 'second')
+                return seconds > 60 ? humanFriendlyDuration(seconds, { maxUnits: 1 }) : null
             },
         ],
         clampedWindow: [

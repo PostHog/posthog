@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils/guards'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
@@ -1240,12 +1240,13 @@ export async function queryEvaluationRuns(params: {
     evaluationId?: string
     traceId?: string
     sessionId?: string
+    backfillId?: string
     /** Bounds the scan so it can prune partitions. Omitted for the trace and generation surfaces,
      * which read a single unit's runs and have always been unbounded. */
     lookbackDays?: number
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, traceId, sessionId, lookbackDays, forceRefresh } = params
+    const { evaluationId, traceId, sessionId, backfillId, lookbackDays, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId || sessionId
 
@@ -1279,6 +1280,7 @@ export async function queryEvaluationRuns(params: {
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
             ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
         ORDER BY timestamp DESC
         LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
@@ -1306,9 +1308,10 @@ export interface EvaluationRunsStats {
 export async function queryEvaluationRunsStats(params: {
     evaluationId?: string
     traceId?: string
+    backfillId?: string
     forceRefresh?: boolean
 }): Promise<EvaluationRunsStats> {
-    const { evaluationId, traceId, forceRefresh } = params
+    const { evaluationId, traceId, backfillId, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId
 
@@ -1327,6 +1330,7 @@ export async function queryEvaluationRunsStats(params: {
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
     `
 
     const response = await api.queryHogQL(
