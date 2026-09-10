@@ -44,7 +44,7 @@ _NOT_PRUNED_OPS = frozenset(
     }
 )
 
-# Worst first, so the aggregate across events reads is the first class any read reports.
+# Worst first, so taking the minimum over this order picks the worst class any read reported.
 _CLASS_ORDER: tuple[EventFilterClass, ...] = ("none", "not_used", "usable")
 
 

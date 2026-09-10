@@ -1,7 +1,6 @@
 """The single entry point the query scan job calls once it has the tree, the plan and the counts.
 
-Everything here is pure: no ClickHouse, no Redis, no Celery. The job gathers the inputs and stores
-the result, and this module decides what the person is told.
+Everything here is pure: no ClickHouse, no Redis, no Celery.
 """
 
 from datetime import date

@@ -208,7 +208,6 @@ def build_warning(
     evidence: str | None = None,
 ) -> QueryScanWarning:
     copy = _COPY[(kind, reason)]
-    # The clause is the person's own text, so it sits inside the sentence that describes it.
     lead = copy.lead.format(clause=f" (`{clause}`)" if clause else "")
     return QueryScanWarning(
         kind=kind,
