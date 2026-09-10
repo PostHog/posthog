@@ -34,10 +34,9 @@ runs:
               ARGS: ${{ inputs.args }}
           run: |
               read -ra args <<< "$ARGS"
-              stdout=$(PYTHONPATH=tools/hogli-commands uv run --no-project --with click python -m hogli_commands.quarantine.cli "${args[@]}")
-              [ -z "$stdout" ] || printf '%s\n' "$stdout"
+              PYTHONPATH=tools/hogli-commands uv run --no-project --with click python -m hogli_commands.quarantine.cli "${args[@]}" | tee "$RUNNER_TEMP/test-quarantine-stdout"
               {
                   echo 'stdout<<EOF'
-                  [ -z "$stdout" ] || printf '%s\n' "$stdout"
+                  cat "$RUNNER_TEMP/test-quarantine-stdout"
                   echo 'EOF'
               } >> "$GITHUB_OUTPUT"

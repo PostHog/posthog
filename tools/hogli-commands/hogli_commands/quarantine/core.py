@@ -221,8 +221,13 @@ def _parse_entry(raw: Any, index: int, result: LoadResult) -> Entry | None:
     )
 
 
+def lapses_on(entry: Entry) -> date:
+    """First day ``entry`` no longer quarantines its tests."""
+    return entry.expires + timedelta(days=1)
+
+
 def is_active(entry: Entry, today: date) -> bool:
-    return today <= entry.expires
+    return today < lapses_on(entry)
 
 
 def active_entries(entries: list[Entry], runner: str, today: date) -> list[Entry]:
@@ -334,7 +339,7 @@ def _validate_name_qualified_selector(selector: str) -> str | None:
 
 def check_failure_date(entry: Entry) -> date:
     """First day ``check`` rejects ``entry`` for outliving the grace period."""
-    return entry.expires + timedelta(days=GRACE_DAYS + 1)
+    return lapses_on(entry) + timedelta(days=GRACE_DAYS)
 
 
 def entries_failing_check_in(entries: list[Entry], today: date, days: tuple[int, ...]) -> list[Entry]:
@@ -378,7 +383,7 @@ def check(result: LoadResult, today: date) -> tuple[list[str], list[str]]:
         fails_on = check_failure_date(entry)
         if today >= fails_on:
             violations.append(f"{label}: expired {expired_for} days ago (grace is {GRACE_DAYS}) — remove or re-triage")
-        elif expired_for > 0:
+        elif not is_active(entry, today):
             days_left = (fails_on - today).days - 1
             deadline = f"within {days_left} days" if days_left else "today — grace period ends"
             warnings.append(f"{label}: expired {expired_for} days ago — remove {deadline}")

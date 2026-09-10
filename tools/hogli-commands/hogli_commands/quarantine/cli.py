@@ -140,7 +140,6 @@ def check(path: Path) -> None:
 @quarantine.command(name="due", help="List entries that start failing `check` in exactly the given number of days.")
 @click.option(
     "--in-days",
-    "in_days",
     type=click.IntRange(min=1),
     multiple=True,
     required=True,
@@ -149,7 +148,6 @@ def check(path: Path) -> None:
 @click.option(
     "--max-chars",
     type=click.IntRange(min=1),
-    default=None,
     help="Keep the output within this many characters. The last line counts the entries left out.",
 )
 @click.pass_obj
