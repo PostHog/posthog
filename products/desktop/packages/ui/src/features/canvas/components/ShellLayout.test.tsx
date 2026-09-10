@@ -30,6 +30,7 @@ const {
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => null,
   useNavigate: () => vi.fn(),
+  useSearch: () => ({}),
   useParams: (opts?: {
     select?: (p: Record<string, string | undefined>) => unknown;
   }) => {
