@@ -58,9 +58,6 @@ class TestPromptSuggestions(_VisionAPITestCase):
     def _suggestions_url(self, suffix: str = "") -> str:
         return f"{self.scanners_url}{self.scanner.id}/prompt_suggestions/{suffix}"
 
-    def _captured(self, capture: Any, event: str) -> list[dict[str, Any]]:
-        return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs.get("event") == event]
-
     def _create_rated_observation(
         self, session_id: str, is_correct: bool, feedback: str = "", *, scanner: ReplayScanner | None = None
     ) -> ReplayObservation:
