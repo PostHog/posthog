@@ -855,13 +855,17 @@ def _actual_breakdown(query: dict[str, Any]) -> str | None:
     return str(breakdown) if breakdown else None
 
 
-def _actual_events(query: dict[str, Any]) -> list[str | None]:
-    events: list[str | None] = []
+def _actual_events(query: dict[str, Any]) -> list[str | float | None]:
+    events: list[str | float | None] = []
     for node in query.get("series") or []:
         if not isinstance(node, dict):
             continue
         inner = node.get("nodes") if node.get("kind") == "GroupNode" else [node]
         for entry in inner or []:
-            if isinstance(entry, dict) and "event" in entry:
+            if not isinstance(entry, dict):
+                continue
+            if "event" in entry:
                 events.append(entry.get("event"))
+            elif entry.get("kind") == "ActionsNode":
+                events.append(entry.get("id"))
     return events

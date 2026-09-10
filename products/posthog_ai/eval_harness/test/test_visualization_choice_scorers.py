@@ -104,6 +104,35 @@ PAGEVIEWS_BY_BROWSER = {
             [],
         ),
         (
+            [
+                (
+                    "mcp__posthog__query-trends",
+                    {"series": [{"kind": "ActionsNode", "id": 13, "name": "Interacted with file"}]},
+                    "ok",
+                )
+            ],
+            {"tool": "query-trends", "events": [13]},
+            1.0,
+            [],
+        ),
+        (
+            [
+                (
+                    "mcp__posthog__query-funnel",
+                    {
+                        "series": [
+                            {"kind": "EventsNode", "event": "signed_up"},
+                            {"kind": "ActionsNode", "id": 13, "name": "Interacted with file"},
+                        ]
+                    },
+                    "ok",
+                )
+            ],
+            {"tool": "query-funnel", "event_sequence": ["signed_up", 13]},
+            1.0,
+            [],
+        ),
+        (
             [_funnel_call(["uploaded_file", "signed_up"])],
             {"tool": "query-funnel", "event_sequence": ["signed_up", "uploaded_file"]},
             0.0,
