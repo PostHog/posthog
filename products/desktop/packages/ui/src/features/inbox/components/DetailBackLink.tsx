@@ -1,9 +1,6 @@
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
-import {
-  prettifyScoutSkillName,
-  scoutSkillNameFromSlug,
-} from "@posthog/core/scouts/scoutPresentation";
+import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import type { SignalReport } from "@posthog/shared/types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
@@ -113,7 +110,7 @@ function reportCrumbs(
   if (source?.settingsCategory) {
     crumbs.push({
       label: source.label,
-      render: source.agentSlug ? (
+      render: source.agentSkillName ? (
         <Link
           to="/settings/$category"
           params={{ category: source.settingsCategory }}
@@ -122,9 +119,9 @@ function reportCrumbs(
         exact
       ),
     });
-    if (source.agentSlug) {
+    if (source.agentSkillName) {
       crumbs.push({
-        label: prettifyScoutSkillName(scoutSkillNameFromSlug(source.agentSlug)),
+        label: prettifyScoutSkillName(source.agentSkillName),
         render: exact,
       });
     }

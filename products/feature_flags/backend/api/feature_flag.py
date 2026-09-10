@@ -573,27 +573,15 @@ def find_dependent_flags_batch(
 def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
     """Compute rollout state for a flag to include in bulk delete response.
 
-    Thin adapter over ``FeatureFlagStatusChecker.get_rollout_summary`` so the
-    "fully rolled out" determination has a single source of truth. Maps the
-    summary to the bulk-delete vocabulary:
+    Thin adapter over ``rollout_state_and_variant`` so the "fully rolled out"
+    determination has a single source of truth. Maps the summary to the
+    bulk-delete vocabulary:
       - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
       - active_variant: variant key if a multivariate flag is fully rolled out to one variant
     """
     summary = checker.get_rollout_summary(flag)
-
-    if summary.effectively_full_rollout:
-        active_variant = None
-        if summary.is_multivariate:
-            # summary already established full rollout; this only fetches the winning variant key.
-            # Both calls read the same in-memory flag, so they cannot disagree.
-            _, active_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
-        return {"rollout_state": "fully_rolled_out", "active_variant": active_variant}
-
-    # Effectively at 0%: every release condition is at 0 (max across groups is 0).
-    if summary.max_rollout_percentage == 0:
-        return {"rollout_state": "not_rolled_out", "active_variant": None}
-
-    return {"rollout_state": "partial", "active_variant": None}
+    rollout_state, active_variant = checker.rollout_state_and_variant(flag, summary)
+    return {"rollout_state": rollout_state, "active_variant": active_variant}
 
 
 def calculate_filter_size_bytes(filters: dict | None) -> int:
@@ -4201,6 +4189,8 @@ class FeatureFlagViewSet(
         queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
 
         # Exclude internal flags (same as list/matching_ids endpoints)
+        # The stale-flags health check mirrors this guard's reference checks in
+        # products/feature_flags/backend/temporal/health_checks/stale_flags.py. Keep the two in step.
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False

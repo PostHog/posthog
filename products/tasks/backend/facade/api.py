@@ -51,6 +51,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
+from products.canvas.backend.models import Canvas
 from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -126,6 +127,11 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.repository_config_analytics import (
+    capture_repository_config_changed,
+    capture_space_context_changed,
+    repositories_differ,
+)
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
     task_control_q,
@@ -232,6 +238,7 @@ __all__ = [
     "resolve_task_run_preview_redirect",
     "task_run_preview_ready",
     "get_task_run_living_artifact",
+    "capture_context_wiki_changed",
     "capture_relay_command_telemetry",
     "PermissionResponseUnavailable",
     "validate_permission_response_target",
@@ -1392,6 +1399,7 @@ def create_and_run_task(
     start_workflow: bool = True,
     branch: str | None = None,
     signal_report_id: str | None = None,
+    free_trial_enabled: bool | None = None,
     internal: bool = False,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
@@ -1406,6 +1414,10 @@ def create_and_run_task(
     ``channel_id`` files the task into a channel's feed; left NULL for non-channel surfaces.
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
+
+    ``free_trial_enabled`` is a free-trial verdict the caller already resolved. Auto-start reads
+    that flag before it takes the report row lock, so handing the result over keeps the flag
+    request out of the lock. Left NULL, the gate reads the flag itself.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1414,6 +1426,9 @@ def create_and_run_task(
         # auto-start pipeline, whose over-quota hits must not pollute the manual-path
         # dark-launch bucket.
         enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+        enforce_self_driving_free_trial(
+            team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
+        )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
         channel = _ensure_personal_channel(team.id, user_id)[0]
@@ -2638,6 +2653,32 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
 
+def enforce_self_driving_free_trial(
+    team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
+) -> None:
+    """Refuse to create or start a PR-opening self-driving task while the team's org is on a
+    Self-driving free trial: a trial org gets reports, not pull requests, on any path (the
+    auto-start gate in products/signals/backend/auto_start.py holds the pipeline back the same
+    way). Emits `signal_report_free_trial_paused` at ``stage``. Raises
+    ``FreeTrialPullRequestRefused`` (402, code ``self_driving_free_trial``) so clients can show
+    the trial message.
+
+    ``enabled`` takes a verdict the caller already resolved, and then the gate reads no flag of
+    its own. A caller that holds a database lock resolves the flag before it takes the lock,
+    because the read does network I/O.
+    """
+    from products.signals.backend.free_trial import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        FreeTrialPullRequestRefused,
+        capture_signal_report_free_trial_paused,
+        self_driving_free_trial_enabled,
+    )
+
+    if not (self_driving_free_trial_enabled(team) if enabled is None else enabled):
+        return
+    capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
+    raise FreeTrialPullRequestRefused()
+
+
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
     """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
     credits quota with enforcement on. The implementation task is the step that leads to the
@@ -2700,6 +2741,14 @@ def update_task_run(
         # A human-driven status write on an analysis run is a way to buy another funded analysis:
         # marking it failed or cancelled frees the per-run idempotency slot. The workflow and the
         # run's own agent write status through paths that do not pass through here.
+        validated_data.pop("status")
+    if (
+        "status" in validated_data
+        and not caller_is_agent
+        and run.task.origin_product == Task.OriginProduct.WORKFLOW
+        and validated_data["status"] != TaskRun.Status.CANCELLED
+    ):
+        # A finished status wakes the workflow step with this run's output, so only the agent may set it.
         validated_data.pop("status")
 
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
@@ -6089,6 +6138,10 @@ def create_task(
     )
     if signal_report_id:
         enforce_self_driving_pr_quota(team, report_id=signal_report_id)
+        # Only Create PR is held back on a trial. Discuss keeps working, and a Discuss run can still
+        # open a PR that billing never counts. That is an accepted risk of a sales trial.
+        if signal_report_task_relationship in (None, "implementation"):
+            enforce_self_driving_free_trial(team, report_id=signal_report_id)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -6111,6 +6164,23 @@ def create_task(
                 task_id=str(task.id),
                 relationship=signal_report_task_relationship,
             )
+
+    # Only an override is a change. The inherited case is already counted by `task_created`.
+    if channel is not None and repositories_differ(channel.repositories, task.repositories):
+        capture_repository_config_changed(
+            team=team,
+            user_id=user_id,
+            subject="task",
+            trigger="task_created",
+            previous_repositories=channel.repositories,
+            repositories=task.repositories,
+            previous_integration_id=channel.github_integration_id,
+            integration_id=task.github_integration_id,
+            channel_id=str(channel.id),
+            task_id=str(task.id),
+            origin_product=task.origin_product,
+            space_repositories=channel.repositories,
+        )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
@@ -6144,6 +6214,8 @@ def update_task(
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
+        previous_repositories = list(task.repositories or [])
+        previous_integration_id = task.github_integration_id
 
         # Repo and credential are immutable for code-access-exempt tasks: a mutable repo reopens the
         # gate (see task_exempt_from_code_access), and provisioning injects whatever integration is
@@ -6166,11 +6238,33 @@ def update_task(
         if "archived" in validated_data and validated_data["archived"] != task.archived:
             validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
 
+        repo_fields_touched = any(key in validated_data for key in ("repositories", "repository", "github_integration"))
         logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
         for key, value in validated_data.items():
             setattr(task, key, value)
         task.save()
         logger.info("Task %s updated successfully", task.id)
+
+    if repo_fields_touched:
+        space_repositories = (
+            Channel.objects.filter(id=task.channel_id).values_list("repositories", flat=True).first()
+            if task.channel_id
+            else None
+        )
+        capture_repository_config_changed(
+            team=task.team,
+            user_id=user_id,
+            subject="task",
+            trigger="task_settings_edit",
+            previous_repositories=previous_repositories,
+            repositories=task.repositories,
+            previous_integration_id=previous_integration_id,
+            integration_id=task.github_integration_id,
+            channel_id=str(task.channel_id) if task.channel_id else None,
+            task_id=str(task.id),
+            origin_product=task.origin_product,
+            space_repositories=space_repositories,
+        )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
@@ -7140,10 +7234,12 @@ def run_task(
 
     Returns ``None`` if the task isn't found/visible (the view raises 404). Otherwise a
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
-    gate (429) is applied by the view before calling this.
+    gate (429) is applied by the view before calling this. A report implementation raises
+    ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
     """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
+        is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
         get_task_run_artifacts_by_id,
@@ -7167,6 +7263,17 @@ def run_task(
         else None
     )
     if report_id_for_slot_check is not None:
+        # Free trial gate: the create-time gate refuses a new implementation, but a task created
+        # before sales turned the flag on can still be started or retried from here, and its pull
+        # request bills the trial org. Only the implementation relationship opens one, so a
+        # discussion keeps running. Outside the transaction below, because the flag read does
+        # network I/O and must not hold the report row lock.
+        if is_report_implementation_task(team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)):
+            enforce_self_driving_free_trial(
+                Team.objects.select_related("organization").get(id=team_id),
+                report_id=report_id_for_slot_check,
+                stage="task_run",
+            )
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
         # its runs all failed, so another implementation may hold it by now. Refusing here also
         # avoids the sandbox and repository lookups a doomed run would otherwise do first. The
@@ -8274,6 +8381,8 @@ def update_channel(
             if (name is not None or channel_type is not None) and _is_general_channel(channel):
                 return "general"
             update_fields: list[str] = []
+            previous_repositories = list(channel.repositories or [])
+            previous_integration_id = channel.github_integration_id
             if channel_type is not None and channel_type != channel.channel_type:
                 channel.channel_type = channel_type
                 update_fields.append("channel_type")
@@ -8294,9 +8403,21 @@ def update_channel(
             if not update_fields:
                 return _channel_to_dto(channel)
             channel.save(update_fields=[*update_fields, "updated_at"])
-            return _channel_to_dto(channel)
     except IntegrityError:
         return "name_taken"
+    if repositories is not None:
+        capture_repository_config_changed(
+            team=channel.team,
+            user_id=user_id,
+            subject="space",
+            trigger="space_settings_edit",
+            previous_repositories=previous_repositories,
+            repositories=channel.repositories,
+            previous_integration_id=previous_integration_id,
+            integration_id=channel.github_integration_id,
+            channel_id=str(channel.id),
+        )
+    return _channel_to_dto(channel)
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
@@ -8310,7 +8431,7 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
             return "general"
         if (
             channel.tasks.filter(deleted=False, archived=False).exists()
-            or channel.canvases.filter(deleted=False).exists()
+            or Canvas.objects.filter(channel=channel, deleted=False).exists()
         ):
             return "not_empty"
 
@@ -8575,6 +8696,41 @@ def loop_context_channel_id_for_task(task_id: str | UUID) -> str | None:
     return str(channel_id) if channel_id else None
 
 
+def capture_context_wiki_changed(
+    organization_id: str | UUID,
+    team_id: int,
+    channel_id: str | UUID,
+    user_id: int | None,
+    *,
+    actor_type: Literal["user_or_api", "task_agent", "loop_agent"],
+    is_first_version: bool,
+    content_bytes: int,
+    base_version_provided: bool,
+) -> bool:
+    channel = (
+        Channel.objects.unscoped()
+        .select_related("team")
+        .filter(id=channel_id, team_id=team_id, team__organization_id=organization_id)
+        .first()
+    )
+    if channel is None:
+        return False
+    capture_space_context_changed(
+        team=channel.team,
+        user_id=user_id,
+        channel_id=str(channel.id),
+        action="published",
+        source="user" if actor_type == "user_or_api" else "agent",
+        previous_version=None,
+        content_bytes=content_bytes,
+        base_version_provided=base_version_provided,
+        storage="context_wiki",
+        actor_type=actor_type,
+        is_first_version=is_first_version,
+    )
+    return True
+
+
 def publish_channel_instructions(
     channel_id: str | UUID,
     team_id: int,
@@ -8582,6 +8738,7 @@ def publish_channel_instructions(
     *,
     content: str,
     base_version: int | None = None,
+    source: Literal["user", "agent"] = "user",
 ) -> contracts.ChannelInstructionsDTO | None:
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
@@ -8596,6 +8753,7 @@ def publish_channel_instructions(
             .first()
         )
         current_version = current_latest.version if current_latest is not None else 0
+        previous_content_bytes = len(current_latest.content.encode("utf-8")) if current_latest is not None else None
         if base_version is not None and base_version != current_version:
             raise ChannelInstructionsVersionConflictError(current_version=current_version)
         if current_version >= MAX_CHANNEL_INSTRUCTIONS_VERSION:
@@ -8621,20 +8779,51 @@ def publish_channel_instructions(
             raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
 
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    capture_space_context_changed(
+        team=channel.team,
+        user_id=user_id,
+        channel_id=str(channel.id),
+        action="published",
+        source=source,
+        previous_version=current_version,
+        new_version=published.version,
+        content_bytes=len(content.encode("utf-8")),
+        previous_content_bytes=previous_content_bytes,
+        base_version_provided=base_version is not None,
+    )
     return _instructions_to_dto(published)
 
 
-def delete_channel_instructions(channel_id: str | UUID, team_id: int, user_id: int | None) -> int | None:
+def delete_channel_instructions(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, source: Literal["user", "agent"] = "user"
+) -> int | None:
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
             return None
+        previous_version = (
+            ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
+            .order_by("-version")
+            .values_list("version", flat=True)
+            .first()
+            or 0
+        )
         count = (
             ChannelInstructions.objects.select_for_update()
             .filter(channel_id=channel.id, deleted=False)
             .update(deleted=True, is_latest=False)
         )
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    if count:
+        capture_space_context_changed(
+            team=channel.team,
+            user_id=user_id,
+            channel_id=str(channel.id),
+            action="cleared",
+            source=source,
+            previous_version=previous_version,
+            versions_deleted=count,
+        )
     return count
 
 

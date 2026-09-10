@@ -11,9 +11,9 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { scoutCadenceLabel } from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { scoutDisplayName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
+import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
@@ -101,7 +101,7 @@ export function ScoutDetailHeader({
     return (
         <div className="flex flex-col gap-3 border-b border-primary bg-surface-primary px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
-                <h2 className="mb-0 text-lg font-semibold">{prettifyScoutSkillName(config.skill_name)}</h2>
+                <h2 className="mb-0 text-lg font-semibold">{scoutDisplayName(config)}</h2>
                 <LemonTag size="small" type={config.scout_origin === 'canonical' ? 'muted' : 'highlight'}>
                     {config.scout_origin === 'canonical' ? 'Canonical' : 'Custom'}
                 </LemonTag>
@@ -150,7 +150,7 @@ export function ScoutDetailHeader({
             {config.description && <ScoutDescription text={config.description} />}
 
             <div className="flex flex-wrap rounded border border-primary">
-                <Metric value={scoutCadenceLabel(config)} label="Cadence" />
+                <Metric value={<ScoutCadenceLabel config={config} />} label="Cadence" />
                 <Metric value={<ScoutNextRunLabel config={config} />} label="Next run" />
                 <Metric value={rollup?.runCount ?? 0} label={`Runs · last ${SCOUT_RUNS_PER_SCOUT}`} />
                 <Metric value={authored} label="Reports filed" />

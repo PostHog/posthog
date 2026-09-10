@@ -7,6 +7,7 @@ import dataclasses
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -17,14 +18,15 @@ from django.conf import settings
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
-from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig, SandboxTemplate
+from products.tasks.backend.models import SandboxSnapshot, TaskRun
 from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
 from products.tasks.backend.temporal.constants import (
     INACTIVITY_TIMEOUT_USER_SECONDS,
@@ -43,6 +45,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     PrepareSandboxForRepositoryOutput,
     SendPermissionDenialGuidanceInput,
     SendPermissionResponseToSandboxInput,
+    StartAgentServerInput,
     StartAgentServerOutput,
     TaskProcessingContext,
     checkout_branch_in_sandbox,
@@ -175,15 +178,73 @@ class TestProcessTaskWorkflow:
     or timeout. Tests verify the workflow starts correctly and handles signals.
     """
 
+    @pytest.fixture
+    def sandbox_task_api(self, settings, test_task_run: TaskRun) -> Callable[[SandboxBase], None]:
+        settings.SANDBOX_API_URL = "http://127.0.0.1:8765"
+        test_task_run.state = {"prewarmed": True, "await_user_message": True}
+        test_task_run.save(update_fields=["state"])
+        task = test_task_run.task
+        payload = json.dumps(
+            {
+                "task": {
+                    "id": str(task.id),
+                    "team_id": task.team_id,
+                    "title": task.title,
+                    "description": task.description,
+                    "repository": task.repository,
+                    "origin_product": task.origin_product,
+                },
+                "run": {
+                    "id": str(test_task_run.id),
+                    "task": str(task.id),
+                    "state": test_task_run.state,
+                    "status": "in_progress",
+                },
+            }
+        ).encode()
+        server = Path(__file__).with_name("workflow_api.py").read_bytes()
+
+        def prepare_api(sandbox: SandboxBase) -> None:
+            # The remote agent cannot read this process's test database. Serve its
+            # task context inside the sandbox, without sending a prompt to an LLM.
+            for path, content in [("/tmp/workflow-api.json", payload), ("/tmp/workflow_api.py", server)]:
+                result = sandbox.write_file(path, content)
+                assert result.exit_code == 0, result.stderr
+            result = sandbox.execute("nohup python3 /tmp/workflow_api.py >/tmp/workflow-api.log 2>&1 </dev/null &")
+            assert result.exit_code == 0, result.stderr
+            result = sandbox.execute(
+                "curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 "
+                "--max-time 2 http://127.0.0.1:8765/health",
+                timeout_seconds=30,
+            )
+            assert result.exit_code == 0, result.stderr
+
+        return prepare_api
+
     async def _run_workflow_with_signal(
         self,
         run_id: str,
+        prepare_api: Callable[[SandboxBase], None],
         signal_status: str = "completed",
         signal_error: str | None = None,
         create_pr: bool = True,
     ) -> ProcessTaskOutput:
         workflow_id = str(uuid.uuid4())
         workflow_input = ProcessTaskInput(run_id=str(run_id), create_pr=create_pr)
+        ready = asyncio.Event()
+
+        @activity.defn(name="start_agent_server")
+        async def start_and_observe(input: StartAgentServerInput) -> StartAgentServerOutput:
+            sandbox = await sync_to_async(Sandbox.get_by_id)(input.sandbox_id)
+            await sync_to_async(prepare_api)(sandbox)
+            try:
+                result = await start_agent_server(input)
+            except Exception:
+                diagnostic = await sync_to_async(sandbox.execute)("cat /tmp/workflow-api.log /tmp/agent-server.log")
+                activity.logger.error("Fixture API diagnostics: %s %s", diagnostic.stdout, diagnostic.stderr)
+                raise
+            ready.set()
+            return result
 
         async with (
             await WorkflowEnvironment.start_time_skipping() as env,
@@ -199,7 +260,8 @@ class TestProcessTaskWorkflow:
                     inject_fresh_tokens_on_resume,
                     clone_repository_in_sandbox,
                     checkout_branch_in_sandbox,
-                    start_agent_server,
+                    start_and_observe,
+                    emit_progress_activity,
                     read_sandbox_logs,
                     cleanup_sandbox,
                     complete_run_stream,
@@ -219,11 +281,23 @@ class TestProcessTaskWorkflow:
                 execution_timeout=timedelta(minutes=60),
             )
 
-            await asyncio.sleep(2)
-
-            await handle.signal(ProcessTaskWorkflow.complete_task, args=[signal_status, signal_error])
-
-            result = await handle.result()
+            result_task = asyncio.create_task(handle.result())
+            ready_task = asyncio.create_task(ready.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    [ready_task, result_task], timeout=180, return_when=asyncio.FIRST_COMPLETED
+                )
+                if result_task in done:
+                    raise AssertionError(f"Workflow finished before completion signal: {result_task.result()}")
+                assert ready_task in done, "Agent did not become ready"
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=[signal_status, signal_error])
+                result = await result_task
+            finally:
+                ready_task.cancel()
+                await asyncio.gather(ready_task, return_exceptions=True)
+                if not result_task.done():
+                    await handle.cancel()
+                    await asyncio.gather(result_task, return_exceptions=True)
 
         return result
 
@@ -253,47 +327,25 @@ class TestProcessTaskWorkflow:
             if sandbox:
                 sandbox.destroy()
 
-    async def test_workflow_starts_agent_server_and_waits_for_signal(self, test_task_run, github_integration):
-        """Workflow starts agent-server and completes when signaled."""
-        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
-
-        try:
-            result = await self._run_workflow_with_signal(test_task_run.id, signal_status="completed")
-
-            assert result.success is True
-            assert result.sandbox_id is not None
-
-        finally:
-            await sync_to_async(snapshot.delete)()
-
-    async def test_workflow_handles_failure_signal(self, test_task_run, github_integration):
-        """Workflow handles failure signal correctly."""
+    @pytest.mark.parametrize("signal_status,signal_error", [("completed", None), ("failed", "Test error")])
+    async def test_workflow_starts_agent_handles_signal_and_cleans_up(
+        self, test_task_run, github_integration, sandbox_task_api, assert_sandbox_shutdown, signal_status, signal_error
+    ):
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
             result = await self._run_workflow_with_signal(
-                test_task_run.id, signal_status="failed", signal_error="Test error"
+                test_task_run.id, sandbox_task_api, signal_status, signal_error
             )
 
             assert result.success is True
             assert result.sandbox_id is not None
 
-        finally:
-            await sync_to_async(snapshot.delete)()
+            await test_task_run.arefresh_from_db()
+            assert test_task_run.status == signal_status
+            assert test_task_run.error_message == signal_error
 
-    async def test_workflow_cleans_up_sandbox(self, test_task_run, github_integration):
-        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
-
-        try:
-            result = await self._run_workflow_with_signal(test_task_run.id)
-
-            assert result.success is True
-            assert result.sandbox_id is not None
-
-            await asyncio.sleep(10)
-
-            sandbox = Sandbox.get_by_id(result.sandbox_id)
-            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+            await sync_to_async(assert_sandbox_shutdown)(result.sandbox_id, timeout_seconds=10)
 
         finally:
             await sync_to_async(snapshot.delete)()
