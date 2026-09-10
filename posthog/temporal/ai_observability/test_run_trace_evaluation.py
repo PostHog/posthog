@@ -190,7 +190,9 @@ class TestFormatTraceForJudge:
     def test_oversized_messages_do_not_allocate_the_full_transcript(self, event_count: int, message_count: int) -> None:
         content = "start " + "x" * 500_000 + " end"
         messages = [{"role": "user", "content": content} for _ in range(message_count)]
-        trace = create_trace([create_trace_event(**{"$ai_input": messages}) for _ in range(event_count)])
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{"$ai_input": messages}) for _ in range(event_count)]
+        )
 
         tracemalloc.start()
         try:
