@@ -59,6 +59,64 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
     return queryset
 
 
+def _full_rollout_group_exists(extra_condition: str = "") -> str:
+    """SQL that finds a release condition serving everyone: 100% rollout, no property targeting.
+
+    An absent `properties` key and an explicit JSON `null` both mean the same as `[]` here, so
+    that the predicate agrees with `FeatureFlagStatusChecker.is_group_fully_rolled_out`, which
+    reads all three as no targeting. A JSON `null` is not a SQL NULL, so it needs its own arm.
+    """
+    return f"""
+        EXISTS (
+            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+            WHERE elem->>'rollout_percentage' = '100'
+            AND (elem->'properties' IS NULL OR elem->'properties' IN ('[]'::jsonb, 'null'::jsonb))
+            {extra_condition}
+        )
+    """
+
+
+# A flag with no release conditions serves everyone, so `NULL`, `{}` and `{"groups": []}` all
+# count as fully rolled out, the same way `is_boolean_flag_fully_rolled_out` reads them.
+_NO_RELEASE_CONDITIONS = "COALESCE(jsonb_array_length(posthog_featureflag.filters->'groups'), 0) = 0"
+
+_NO_VARIANTS = """
+    (posthog_featureflag.filters->>'multivariate' IS NULL
+        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
+        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+"""
+
+_HAS_VARIANTS = """
+    (posthog_featureflag.filters->>'multivariate' IS NOT NULL
+        AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
+"""
+
+_FULLY_ROLLED_OUT_SQL = f"""
+    (
+        -- Boolean flag that always evaluates to true.
+        (
+            ({_NO_RELEASE_CONDITIONS} OR {_full_rollout_group_exists()})
+            AND {_NO_VARIANTS}
+        )
+        OR
+        -- Multivariate flag where one variant takes all the traffic of a full rollout.
+        (
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
+                WHERE variant->>'rollout_percentage' = '100'
+            )
+            AND {_full_rollout_group_exists()}
+        )
+        OR
+        -- Multivariate flag whose full rollout condition overrides the variant.
+        (
+            {_full_rollout_group_exists("AND elem->'variant' IS NOT NULL AND elem->>'variant' IS NOT NULL")}
+            AND {_HAS_VARIANTS}
+        )
+    )
+"""
+
+
 def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     """
     Narrow a FeatureFlag queryset to the flags that count as stale.
@@ -67,15 +125,12 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     question for one flag and also produces the human-readable reason. The two are meant to
     classify the same flags, so change them together.
 
-    They do not agree yet, on two shapes. First, the checker calls a flag with no release
-    conditions fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE
-    to the checker and not stale here; the config branch below matches an empty `filters` only
-    as `NULL` or `{}`. Second, the checker reads a group that omits the `properties` key, e.g.
-    `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting list and calls it STALE,
-    while the config branch requires a literal `[]` and Postgres `->` returns NULL for the
-    absent key, so no branch matches. The editor and the filters serializer now write
-    `properties: []`, so only unedited legacy rows hold the second shape.
-    `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
+    `test_stale_filter_agrees_with_status_checker` holds the two to the same answer, shape by
+    shape. Two shapes need care, because Postgres and Python read absent keys differently. A
+    flag with no release conditions is fully rolled out, so `filters` of `{"groups": []}` (the
+    model default), `{}` and `NULL` are all stale. A group that omits `properties`, e.g.
+    `{"groups": [{"rollout_percentage": 100}]}`, targets nobody in particular and is stale too,
+    so the group test accepts an absent key as well as a literal `[]`.
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
 
@@ -104,48 +159,7 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
         last_called_at__isnull=True,
         active=True,
         created_at__lt=stale_threshold,
-    ).extra(
-        where=[
-            """
-            (
-                (
-                    EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
-                    )
-                    AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
-                )
-                OR
-                (
-                    EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
-                        WHERE variant->>'rollout_percentage' = '100'
-                    )
-                    AND EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
-                    )
-                )
-                OR
-                (
-                    EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
-                        AND elem->'variant' IS NOT NULL
-                        AND elem->>'variant' IS NOT NULL
-                    )
-                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
-                )
-                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
-            )
-            """
-        ]
-    )
+    ).extra(where=[_FULLY_ROLLED_OUT_SQL])
     return queryset.filter(usage_based_stale) | config_based_queryset
 
 
@@ -346,7 +360,8 @@ class FeatureFlagStatusChecker:
 
     def is_group_fully_rolled_out(self, group: dict) -> bool:
         rollout_percentage = group.get("rollout_percentage")
-        properties = group.get("properties", [])
+        # The filters schema allows an explicit null here, which means no targeting, same as `[]`.
+        properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
@@ -362,7 +377,7 @@ class FeatureFlagStatusChecker:
         # The fully rolled out release condition must have no properties set.
         for release_condition in release_conditions:
             rollout_percentage = release_condition.get("rollout_percentage")
-            properties = release_condition.get("properties", [])
+            properties = release_condition.get("properties") or []
             if rollout_percentage == 100 and len(properties) == 0:
                 logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
                 return True
