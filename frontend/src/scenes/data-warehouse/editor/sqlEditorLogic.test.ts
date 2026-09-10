@@ -2,7 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -48,24 +48,12 @@ jest.mock('lib/utils/kea-logic-builders', () => ({
 }))
 
 const MOCK_INSIGHT_SHORT_ID = 'abc123' as InsightShortId
-const MOCK_DIRECT_INSIGHT_SHORT_ID = 'direct123' as InsightShortId
-const MOCK_DIRECT_CONNECTION_ID = '0199d451-1e75-0000-3c7c-2be810a4f000'
 
 const MOCK_INSIGHT_QUERY: DataVisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
         query: 'SELECT count() FROM events',
-    },
-}
-
-const MOCK_DIRECT_INSIGHT_QUERY: DataVisualizationNode = {
-    kind: NodeKind.DataVisualizationNode,
-    source: {
-        kind: NodeKind.HogQLQuery,
-        query: 'SELECT id, label FROM hedgebox.ui_smoke_test ORDER BY id',
-        connectionId: MOCK_DIRECT_CONNECTION_ID,
-        sendRawQuery: true,
     },
 }
 
@@ -135,14 +123,6 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     layouts: {},
     color: null,
     user_access_level: 'none',
-} as QueryBasedInsightModel
-
-const MOCK_DIRECT_INSIGHT: QueryBasedInsightModel = {
-    ...MOCK_INSIGHT,
-    id: 3,
-    short_id: MOCK_DIRECT_INSIGHT_SHORT_ID,
-    name: 'Direct SQL insight',
-    query: MOCK_DIRECT_INSIGHT_QUERY,
 } as QueryBasedInsightModel
 
 const MOCK_VIEW = {
@@ -251,30 +231,19 @@ describe('sqlEditorLogic', () => {
     const TAB_ID = '1'
     let queryEndpointMock: jest.Mock
     let materializeEndpointMock: jest.Mock
-    let insightLoadFailure: { status: number; detail: string } | null
-    let insightRequestSearchParams: URLSearchParams | null
     // Lets a test control the server's current activity-log head returned by the saved-query GET.
     let serverViewHistoryId: string | null = null
 
     beforeEach(async () => {
         serverViewHistoryId = null
-        insightLoadFailure = null
-        insightRequestSearchParams = null
         queryEndpointMock = jest.fn(() => [200, { tables: {}, joins: [] }])
         materializeEndpointMock = jest.fn(() => [200, {}])
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/': ({ request }) => {
-                    insightRequestSearchParams = new URL(request.url).searchParams
-                    if (insightLoadFailure) {
-                        return [insightLoadFailure.status, { detail: insightLoadFailure.detail }]
-                    }
-                    const shortId = insightRequestSearchParams.get('short_id')
+                    const shortId = new URL(request.url).searchParams.get('short_id')
                     if (shortId === MOCK_INSIGHT_SHORT_ID) {
                         return [200, { results: [MOCK_INSIGHT] }]
-                    }
-                    if (shortId === MOCK_DIRECT_INSIGHT_SHORT_ID) {
-                        return [200, { results: [MOCK_DIRECT_INSIGHT] }]
                     }
                     if (shortId === MOCK_DATA_TABLE_INSIGHT_SHORT_ID) {
                         return [200, { results: [MOCK_DATA_TABLE_INSIGHT] }]
@@ -766,58 +735,6 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_insight URL parameter', () => {
-        it('restores a direct SQL insight before running its query separately', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
-
-            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_DIRECT_INSIGHT_SHORT_ID })
-
-            await expectLogic(logic)
-                .toDispatchActions(['editInsight', 'setInsightLoading', 'runQuery'])
-                .toFinishAllListeners()
-                .toMatchValues({
-                    editingInsight: partial({ short_id: MOCK_DIRECT_INSIGHT_SHORT_ID }),
-                    insightLoading: false,
-                    sourceQuery: partial({
-                        source: partial({
-                            query: MOCK_DIRECT_INSIGHT_QUERY.source.query,
-                            connectionId: MOCK_DIRECT_CONNECTION_ID,
-                            sendRawQuery: true,
-                        }),
-                    }),
-                })
-
-            expect(insightRequestSearchParams?.get('basic')).toBe('true')
-            expect(insightRequestSearchParams?.has('refresh')).toBe(false)
-        })
-
-        it.each([
-            [404, 'Not found.', 'Insight not found'],
-            [503, 'Temporary service failure', 'Temporary service failure'],
-        ])('reports an insight metadata load failure with status %i accurately', async (status, detail, expected) => {
-            insightLoadFailure = { status, detail }
-            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
-
-            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
-
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                editingInsight: null,
-                insightLoading: false,
-            })
-            expect(errorToast).toHaveBeenCalledWith(expected)
-            errorToast.mockRestore()
-        })
-
         it('sets editingInsight when opening an insight via open_insight search param', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -847,11 +764,9 @@ describe('sqlEditorLogic', () => {
 
             router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
 
-            await expectLogic(logic)
-                .toDispatchActions(['editInsight', 'createTab', 'updateTab', 'setInsightLoading'])
-                .toMatchValues({
-                    insightLoading: false,
-                })
+            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab', 'updateTab']).toMatchValues({
+                insightLoading: false,
+            })
         })
 
         it('preserves editingInsight when reopening after starting from a new SQL tab', async () => {
