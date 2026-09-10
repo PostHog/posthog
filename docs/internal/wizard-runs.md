@@ -58,6 +58,8 @@ PATCH /api/projects/{project_id}/wizard/runs/{run_id}/
 GET   /api/projects/{project_id}/wizard/runs/{run_id}/artifacts/
 ```
 
+Run responses include the creator ID and basic creator details for attribution in project-level run lists.
+
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
 Failed runs can also include an `error_code`.
 Local agents can create runs and update runs they created.
