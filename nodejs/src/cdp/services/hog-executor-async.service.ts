@@ -456,9 +456,8 @@ export class HogExecutorAsyncService {
 
         let signedHeaders = headers
 
-        // Credential headers are resolved here rather than in Hog so that they never enter the
-        // queue payload. They are merged before signing so that a signature covers them, and they
-        // are never written back to queueParameters, so a retry resolves them again.
+        // Secret headers are merged before signing so that the signatures cover them, and they are never written
+        // back to queueParameters, so every attempt resolves them again from the hog function.
         if (params.secret_headers_input) {
             const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
             if (!resolved.ok) {
@@ -476,7 +475,7 @@ export class HogExecutorAsyncService {
                 method,
                 url: params.url,
                 body: params.body ?? '',
-                headers,
+                headers: signedHeaders,
                 credentials: resolved.credentials,
             })
         }

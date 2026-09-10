@@ -1851,6 +1851,41 @@ describe('Hog Executor', () => {
                 }
             })
 
+            it('keeps the resolved headers inside an AWS SigV4 signed request', async () => {
+                let received: Record<string, string | string[] | undefined> = {}
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    received = req.headers
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: {
+                        service: 'kinesis',
+                        region: 'us-east-1',
+                        access_key_id_input: 'aws_access_key_id',
+                        secret_access_key_input: 'aws_secret_access_key',
+                    },
+                    secret_headers_input: 'secret_headers',
+                })
+                seedSecretHeadersInput(invocation)
+                invocation.hogFunction.encrypted_inputs = {
+                    ...invocation.hogFunction.encrypted_inputs,
+                    aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                    aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                } as any
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(received['x-api-key']).toBe('key_test_token')
+                expect(received['authorization']).toMatch(/^AWS4-HMAC-SHA256 .*SignedHeaders=[a-z0-9;-]*x-api-key/)
+            })
+
             it('errors loudly instead of sending the request when the secret headers input is missing', async () => {
                 const invocation = await createFetchInvocation({
                     url: `${baseUrl}/`,
