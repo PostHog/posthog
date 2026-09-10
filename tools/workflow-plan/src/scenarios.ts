@@ -189,9 +189,14 @@ export function allFiltersChanged(workflow: Workflow): Record<string, Record<str
     return stubs
 }
 
+// The Depot shadow gates its whole graph on a sampling variable and a dice-roll script output.
+// Plan every run as sampled in, because the plan is about the gates behind the sample.
+const DEPOT_SHADOW_VARS: Record<string, string> = { CI_DEPOT_SHADOW_PERCENT: '100' }
+const DEPOT_SHADOW_OUTPUTS: Record<string, Record<string, string>> = { sample: { sampled: 'true' } }
+
 export function defaultScenarios(workflow: Workflow): Scenario[] {
     const steps = allFiltersChanged(workflow)
-    return [
+    const scenarios: Scenario[] = [
         { name: 'draft', github: pullRequest({ draft: true }), steps },
         { name: 'ready', github: pullRequest(), steps },
         { name: 'fork', github: pullRequest({ fork: true }), steps },
@@ -200,4 +205,5 @@ export function defaultScenarios(workflow: Workflow): Scenario[] {
         { name: 'scheduled', github: schedule(), steps },
         { name: 'dispatched', github: workflowDispatch(), steps },
     ]
+    return scenarios.map((scenario) => ({ ...scenario, vars: DEPOT_SHADOW_VARS, jobOutputs: DEPOT_SHADOW_OUTPUTS }))
 }

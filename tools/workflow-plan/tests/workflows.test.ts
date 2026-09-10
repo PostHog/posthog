@@ -255,7 +255,7 @@ describe('.github/workflows run plans', () => {
     it.each(workflowFiles)('%s evaluates every job and step condition under the built-in scenarios', (file) => {
         const wf = workflow(file)
         const errors = defaultScenarios(wf).flatMap(({ name, ...scenario }) =>
-            planWorkflow(wf, { name, ...scenario, jobOutputs: SCRIPT_OUTPUTS[file] ?? {} })
+            planWorkflow(wf, { name, ...scenario, jobOutputs: { ...scenario.jobOutputs, ...SCRIPT_OUTPUTS[file] } })
                 .errors.filter((error) => error.where !== 'matrix')
                 .map(
                     (error) =>

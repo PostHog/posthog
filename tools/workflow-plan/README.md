@@ -14,6 +14,7 @@ The table has one row per job and one column per built-in scenario: `draft`, `re
 A cell reads `RUN`, `FAIL`, `CANC`, or `.` for a skipped job; a trailing `0` marks a job whose matrix expands to zero cells.
 Every paths filter is stubbed as if all of its filters matched.
 Outputs that scripts produce at runtime are empty, so a job gated on `needs.x.outputs.matrix != ''` shows as skipped until a scenario stubs that output, and a matrix built from such an output has no cell count.
+The Depot shadow in `.depot/workflows/` is planned as sampled in: every scenario sets `vars.CI_DEPOT_SHADOW_PERCENT` and stubs the `sample` job's `sampled` output to `true`, so the table shows the gates behind the sampling roll.
 
 ## Pin the intended behavior in a test
 

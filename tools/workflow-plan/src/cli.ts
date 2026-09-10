@@ -11,7 +11,8 @@ const USAGE = `Usage: hogli ci:plan <workflow.yml | workflow name> [--steps <job
 
 Prints which jobs of the workflow run under each built-in scenario. --steps lists the
 steps of one job instead. Every paths filter is stubbed as if all of its filters matched;
-outputs that scripts produce are empty, so a matrix built from them cannot be sized here.`
+outputs that scripts produce are empty, so a matrix built from them cannot be sized here.
+The Depot shadow is planned as sampled in (CI_DEPOT_SHADOW_PERCENT set, sample.sampled stubbed to true).`
 
 const WORKFLOWS_DIR = fileURLToPath(new URL('../../../.github/workflows/', import.meta.url))
 
