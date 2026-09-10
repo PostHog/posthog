@@ -335,6 +335,19 @@ Otherwise the fallback is full on drafts too: `ci-nodejs.yml` has a bare `pull_r
 `turbo-discover.js` (`draft ? 'skip' : 'full'`) and `ci-frontend.yml`'s `fall_back` are the two reference implementations of the draft/ready split; `ci-nodejs.yml` and `ci-e2e-playwright.yml` are the reference for always-full.
 Foot-gun: if the job that selects tests is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
 
+### Forcing the full matrix on a draft
+
+The `run-ci-backend` and `run-ci-frontend` labels force the full matrix, but a label alone starts nothing.
+It takes effect on the next push, or when the PR is marked ready for review. An empty commit is enough:
+
+```bash
+git commit --allow-empty -m "chore(ci): run the full matrix" && git push
+```
+
+Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
+GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
+Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: !cancelled()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
+
 ### A selector needs telemetry, or nobody knows whether it bites
 
 A narrowing that falls back on most runs looks identical in the YAML to one that works.
