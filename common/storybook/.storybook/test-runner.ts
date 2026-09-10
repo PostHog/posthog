@@ -208,14 +208,10 @@ export default {
     },
 
     async preVisit(page, context) {
-        // One page serves every story in the file, and the color scheme `takeSnapshotWithTheme`
-        // emulates is a page-level override that outlives a navigation. Without this reset the dark
-        // pass leaves the next story to mount under a dark scheme, which a component that reads the
-        // media query once at mount would keep for its light snapshot. This runs before the story
-        // renders, so it cannot affect the snapshot the story goes on to produce.
-        // Reset to light rather than to `null`: a Playwright context reports light when nothing
-        // emulates a scheme, but `null` means "stop emulating", which in WebKit reaches the host
-        // appearance and reports dark on a dark host.
+        // `takeSnapshotWithTheme` emulates a color scheme, which is page-level state, and one page
+        // serves every story in the file. Without this reset the dark pass leaves the next story to
+        // mount under a dark scheme. Reset to light and not to `null`, because `null` stops emulation,
+        // so the page follows the host appearance and WebKit reports dark on a dark host.
         await page.emulateMedia({ colorScheme: 'light' })
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
@@ -521,12 +517,9 @@ async function takeSnapshotWithTheme(
 
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
-    // CSS variables follow the attribute above, but `themeLogic.isDarkModeOn` does not, because the
-    // attribute is not one of that selector's inputs. The selector keeps the value it computed when
-    // the story mounted, so a component that themes itself in JavaScript, like a Monaco editor,
-    // stays light in the dark snapshot. A change of the emulated color scheme moves
-    // `darkModeSystemPreference`, which is an input, so the selector runs again and reads the
-    // attribute.
+    // `themeLogic.isDarkModeOn` reads the attribute above but does not list it as a selector input, so
+    // a JavaScript-themed component like a Monaco editor stays light in the dark snapshot. Emulating
+    // the scheme moves `darkModeSystemPreference`, which is an input, so the selector runs again.
     await page.emulateMedia({ colorScheme: theme })
 
     // Wait until we're sure we've finished loading everything

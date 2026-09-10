@@ -73,9 +73,7 @@ describe('themeLogic', () => {
         document.body.setAttribute('theme', 'light')
         expect(themeLogic.values.isDarkModeOn).toBe(false)
 
-        // The snapshot runner changes the attribute after the story rendered, and emulates a dark
-        // color scheme alongside it. Both lines below are load-bearing: drop the system change and
-        // `darkModeSystemPreference` never moves, so this selector holds the value it already had.
+        // The snapshot runner emulates a matching color scheme when it sets this attribute
         document.body.setAttribute('theme', 'dark')
         emitSystemThemeChange(true)
         expect(themeLogic.values.isDarkModeOn).toBe(true)

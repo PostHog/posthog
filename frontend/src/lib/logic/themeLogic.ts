@@ -147,10 +147,8 @@ export const themeLogic = kea<themeLogicType>([
                 sceneConfig: null | import('../../scenes/sceneTypes').SceneConfig,
                 theme: Theme | null
             ) => {
-                // The snapshot runner forces dark mode with this attribute instead of the user
-                // setting, and it changes the emulated color scheme at the same time so that
-                // `darkModeSystemPreference` makes this selector run again. Keep that value in the
-                // input list above, or the runner's dark snapshots hold light-mode values.
+                // The attribute below is not a selector input, so this branch re-evaluates only when one
+                // of the inputs above moves. The snapshot runner emulates a matching color scheme for that.
                 if (
                     typeof window !== 'undefined' &&
                     window.document &&
