@@ -128,8 +128,8 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
         display_kind="match",
         header="🔔 {event.properties.matched_count} new matching observations for '{event.properties.alert_name}'",
         details=(("Matches", "{event.properties.summary}"),),
-        primary_action_url=_OBSERVATIONS_URL,
-        primary_action_label="View observations",
+        primary_action_url="{project.url}/replay-vision/observations/{event.properties.observation_ids[1]}",
+        primary_action_label="View observation",
         webhook_body={
             "id": "{event.uuid}",
             "type": "replay_vision_alert.match",
