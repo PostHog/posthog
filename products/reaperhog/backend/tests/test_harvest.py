@@ -36,7 +36,13 @@ def _hit(root: str, *, decisive: bool = True) -> Hit:
         files=["a.py"],
         decisive=decisive,
         summary="Experiment lost",
-        evidence={"conclusion": "lost", "end_date": "2026-04-13", "users": 4211, "enabled_users": 0},
+        evidence={
+            "conclusion": "lost",
+            "end_date": "2026-04-13",
+            "users": 4211,
+            "enabled_users": 0,
+            "an_unlisted_key": "must-not-publish",
+        },
     )
 
 
@@ -91,6 +97,7 @@ def test_pr_body_carries_the_evidence_and_the_archive_checklist():
     assert "never merged automatically" in body
     assert "4211" not in body
     assert "users=" not in body
+    assert "must-not-publish" not in body
 
 
 @pytest.mark.parametrize(
