@@ -36,7 +36,7 @@ class TestLegacyDestinationMigration(BaseTest):
         plugin.save()
         return plugin
 
-    def _migrate(self, dry_run=False, drop_unmapped_inputs=False):
+    def _migrate(self, dry_run=False, drop_unmapped_inputs=True):
         return migrate_legacy_destinations(
             dry_run=dry_run, team_ids=[self.team.id], drop_unmapped_inputs=drop_unmapped_inputs
         )
@@ -139,16 +139,16 @@ class TestLegacyDestinationMigration(BaseTest):
     def test_refuses_a_config_whose_inputs_the_template_schema_does_not_cover(self):
         plugin_config = self._plugin_config(config={"customerioSiteId": "site-1", "removedOption": "x"})
 
-        result = self._migrate()
+        result = self._migrate(drop_unmapped_inputs=False)
 
         assert result.created == []
         assert result.skipped == {plugin_config.id: "inputs not in the template schema: removedOption"}
         assert not self._hog_functions().exists()
 
-    def test_drops_unmapped_inputs_when_asked_and_reports_what_went(self):
+    def test_drops_unmapped_inputs_by_default_and_reports_what_went(self):
         plugin_config = self._plugin_config(config={"customerioSiteId": "site-1", "removedOption": "x"})
 
-        result = self._migrate(drop_unmapped_inputs=True)
+        result = self._migrate()
 
         assert result.created == [plugin_config.id]
         assert result.dropped_inputs == {plugin_config.id: ["removedOption"]}

@@ -17,9 +17,9 @@ class Command(BaseCommand):
         parser.add_argument("--team-ids", type=str, help="Comma separated team ids to limit the migration to")
         parser.add_argument("--plugin-config-ids", type=str, help="Comma separated plugin config ids to migrate")
         parser.add_argument(
-            "--drop-unmapped-inputs",
+            "--strict-inputs",
             action="store_true",
-            help="Migrate configs carrying inputs the template schema does not declare, dropping those inputs",
+            help="Skip a config carrying inputs the template schema does not declare, rather than dropping them",
         )
         parser.add_argument("--batch-size", type=int, default=100, help="Plugin configs to load per batch")
         parser.add_argument("--limit", type=int, default=None, help="Stop after this many plugin configs")
@@ -29,7 +29,7 @@ class Command(BaseCommand):
             dry_run=options["dry_run"],
             team_ids=_int_list(options["team_ids"]),
             plugin_config_ids=_int_list(options["plugin_config_ids"]),
-            drop_unmapped_inputs=options["drop_unmapped_inputs"],
+            drop_unmapped_inputs=not options["strict_inputs"],
             batch_size=options["batch_size"],
             limit=options["limit"],
         )

@@ -138,7 +138,7 @@ def migrate_legacy_destinations(
     dry_run: bool = True,
     team_ids: list[int] | None = None,
     plugin_config_ids: list[int] | None = None,
-    drop_unmapped_inputs: bool = False,
+    drop_unmapped_inputs: bool = True,
     batch_size: int = 100,
     limit: int | None = None,
 ) -> MigrationResult:
@@ -147,9 +147,8 @@ def migrate_legacy_destinations(
     The plugin config is left enabled. The consumer prefers the hog function for a matching template, so
     rolling back means deleting the hog function rather than restoring the plugin config.
 
-    A config carrying inputs the template schema does not declare is refused, because saving it would
-    drop them silently. Read them off a dry run, confirm the bundled processor ignores them, then pass
-    drop_unmapped_inputs to migrate anyway.
+    Inputs the template schema does not declare are dropped, and every one is reported, because no
+    bundled processor reads them. Pass drop_unmapped_inputs=False to refuse those configs instead.
     """
     candidates = (
         PluginConfig.objects.values("id")
