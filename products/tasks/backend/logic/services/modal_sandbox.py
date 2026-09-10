@@ -1050,12 +1050,14 @@ class ModalSandbox(AgentServerLaunchMixin):
             )
 
             if result.exit_code == MODAL_EXEC_TIMEOUT_RETURNCODE:
+                # Not captured: the launcher re-raises this with startup diagnostics and captures that instead.
                 raise SandboxTimeoutError(
                     f"Execution timed out after {timeout_seconds} seconds",
                     {"sandbox_id": self.id, "timeout_seconds": timeout_seconds, "command": redacted_command},
                     cause=TimeoutError(
                         f"exec returned {MODAL_EXEC_TIMEOUT_RETURNCODE} after {timeout_seconds} seconds"
                     ),
+                    capture=False,
                 )
 
             return result

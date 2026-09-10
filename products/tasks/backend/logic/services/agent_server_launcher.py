@@ -50,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+# The whole diagnostics dict rides in the Temporal failure payload, which is capped at about 2 MiB.
+STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
 
 SESSION_INIT_PROBE_HOSTS = (
@@ -240,8 +242,13 @@ class AgentServerLaunchMixin(SandboxBase):
                 return diagnostics
 
             diagnostics["sandbox_terminated"] = "false"
-            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            log_result = self.execute(
+                f"tail -c {STARTUP_LOG_MAX_BYTES} /tmp/agent-server.log 2>/dev/null || echo 'No log file'",
+                timeout_seconds=5,
+            )
             diagnostics["log"] = log_result.stdout
+            if len(log_result.stdout.encode()) >= STARTUP_LOG_MAX_BYTES:
+                diagnostics["log_truncated"] = "true"
             health_result = self.execute(
                 f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
                 timeout_seconds=5,

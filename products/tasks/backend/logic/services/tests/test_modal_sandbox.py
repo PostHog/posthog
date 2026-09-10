@@ -30,7 +30,10 @@ from products.tasks.backend.exceptions import (
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
 )
-from products.tasks.backend.logic.services.agent_server_launcher import AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+from products.tasks.backend.logic.services.agent_server_launcher import (
+    AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
+    STARTUP_LOG_MAX_BYTES,
+)
 from products.tasks.backend.logic.services.local_packages import LocalPackage
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
@@ -500,10 +503,14 @@ class TestModalSandboxAgentServer:
         process.stderr.read.return_value = ""
         mock_sandbox._sandbox.exec.return_value = process
 
-        with pytest.raises(SandboxTimeoutError) as exc:
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(SandboxTimeoutError) as exc,
+        ):
             mock_sandbox.execute("sleep 999", timeout_seconds=5)
 
         assert exc.value.context["timeout_seconds"] == 5
+        capture_exception.assert_not_called()
 
     def test_start_agent_server_launch_timeout_carries_startup_diagnostics(self, mock_sandbox: Any):
         launch_timeout = SandboxTimeoutError(
@@ -528,11 +535,16 @@ class TestModalSandboxAgentServer:
 
         mock_sandbox.execute = MagicMock(side_effect=_exec)
 
-        with pytest.raises(SandboxTimeoutError) as exc:
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(SandboxTimeoutError) as exc,
+        ):
             mock_sandbox.start_agent_server(repository=None, task_id="task-1", run_id="run-1")
 
         assert exc.value.__cause__ is launch_timeout
         assert "never reported hasSession=true" in exc.value.context["failure_reason"]
+        capture_exception.assert_called_once()
+        assert "never reported hasSession=true" in str(capture_exception.call_args.args[0])
         assert exc.value.context["timeout_seconds"] == 30 + health_check_timeout_seconds(
             AGENT_SERVER_HEALTH_MAX_ATTEMPTS
         )
@@ -1420,6 +1432,36 @@ class TestStartupFailureDiagnostics:
 
         assert diagnostics["sandbox_terminated"] == "false"
         assert "never reported hasSession=true" in diagnostics["failure_reason"]
+
+    @pytest.mark.parametrize(
+        ("log_bytes", "expected_truncated"),
+        [(120, None), (STARTUP_LOG_MAX_BYTES, "true")],
+    )
+    def test_bounds_the_agent_server_log(self, log_bytes: int, expected_truncated: str | None):
+        sandbox = self._sandbox()
+        log_commands: list[str] = []
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "agent-server.log" in command:
+                log_commands.append(command)
+                return ExecutionResult(stdout="x" * log_bytes, stderr="", exit_code=0, error=None)
+            if "printf" in command:
+                return ExecutionResult(
+                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                )
+            return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec),
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=None)
+
+        assert log_commands == [
+            f"tail -c {STARTUP_LOG_MAX_BYTES} /tmp/agent-server.log 2>/dev/null || echo 'No log file'"
+        ]
+        assert len(diagnostics["log"]) == log_bytes
+        assert diagnostics.get("log_truncated") == expected_truncated
 
 
 class TestModalSandboxCreateAllowlist:
