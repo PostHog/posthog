@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from itertools import batched
+from typing import TypeVar
 from uuid import UUID
 
 from django.db import connections, transaction
@@ -22,6 +23,8 @@ from ..storage import ArtifactStorage
 from . import artifact_store, run_queries
 
 logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
 
 # A superseded run on a PR branch is history that no page reads after the next
 # push replaces it. Its last readers are the "stale" review-state filter and the
@@ -271,6 +274,20 @@ class RetentionSweep:
                 objects_leaked=objects_leaked,
             )
         return ArtifactSweepResult(deleted=deleted, objects_leaked=objects_leaked)
+
+
+def rotate_for_day(items: list[T], day: date) -> list[T]:
+    """Move the start of the list on by one place a day.
+
+    The repos share one time budget, so a repo with a backlog big enough to
+    spend it keeps the repos behind it from being swept at all. A fixed order
+    starves the same repos every night, and rotating the start gives each of
+    them the front of the queue in turn.
+    """
+    if not items:
+        return items
+    offset = day.toordinal() % len(items)
+    return items[offset:] + items[:offset]
 
 
 def sweep_repo(repo: Repo, now: datetime | None = None, deadline: float | None = None) -> RetentionSweepResult:

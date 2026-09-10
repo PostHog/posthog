@@ -180,14 +180,7 @@ def sweep_visual_review_retention() -> None:
     # open for its whole run.
     # nosemgrep: idor-lookup-without-team — cross-team retention sweep, no user input
     repos = list(Repo.objects.unscoped().using(READER_DB).order_by("created_at"))
-    # One repo with a large backlog can spend the whole time budget, and a fixed
-    # order would then starve the same repos every night. Moving the starting
-    # point one repo a day gives each of them the front of the queue in turn.
-    # Repos with nothing to delete cost milliseconds, so this does not slow the
-    # repos that do have a backlog.
-    if repos:
-        offset = date.today().toordinal() % len(repos)
-        repos = repos[offset:] + repos[:offset]
+    repos = retention.rotate_for_day(repos, date.today())
     for swept, repo in enumerate(repos):
         if time.monotonic() >= deadline:
             logger.warning(
