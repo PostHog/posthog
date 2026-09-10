@@ -17,7 +17,8 @@ Other query failures do not point at the time range, so the check repeats the sa
 These are a query the cluster stopped before it ran, a dropped connection, and a full query budget.
 
 Queries and their retries share a 100-second execution budget within a 120-second activity timeout.
-The initial query keeps its 30-second limit; retries request at most 15 seconds each.
+The initial query keeps its 30-second limit, and the two halves of a divided range request at most 15 seconds each.
+A repeat of the same range keeps the limit of the query it repeats.
 Each attempt reserves room for a twofold overrun and reduces its limit when the remaining budget requires it.
 One check sends at most seven queries, because each query holds one of the AI observability query slots.
 If the remaining budget or the query allowance cannot support another attempt, the activity fails and follows its retry policy.
