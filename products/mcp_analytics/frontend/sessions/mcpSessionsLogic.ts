@@ -14,7 +14,12 @@ import {
     mcpAnalyticsSessionsToolCalls,
 } from '../generated/api'
 import type { MCPSessionApi, MCPSessionIntentApi, MCPToolCallApi } from '../generated/api.schemas'
-import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic, sharedFilterParams } from '../mcpAnalyticsFiltersLogic'
+import {
+    isSharedFilterActive,
+    type MCPSharedQueryFilters,
+    mcpAnalyticsFiltersLogic,
+    sharedFilterParams,
+} from '../mcpAnalyticsFiltersLogic'
 
 export interface MCPSessionsFilters {
     search: string
@@ -321,6 +326,10 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                         offset: 0,
                         ...sharedFilterParams(values.sharedQueryFilters),
                     })
+                    // A newer reset load supersedes this one. Publishing a superseded page would
+                    // put stale session rows on screen, and loadSessionsSuccess reads session_start
+                    // off them to bound the selected session's detail scan.
+                    breakpoint()
                     actions.setHasNext(response.has_next ?? false)
                     return [...(response.results ?? [])]
                 },
@@ -414,13 +423,19 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return null
                     }
+                    // The summary is persisted per (team, session_id) and describes the whole
+                    // session, so it must not be generated from a filtered slice of it. Under a
+                    // shared filter session_start is the first *matching* call, which would cut the
+                    // scan short and store a summary of part of the session for good; drop the
+                    // bound then and let the server fall back to its own lookback.
+                    const narrowed = isSharedFilterActive(values.sharedQueryFilters)
                     // session_id comes from untrusted event properties — encode it so path/query
                     // delimiters can't redirect this POST to another same-origin endpoint. Bound the
                     // intent scan by the session's start so older sessions resolve, mirroring loadToolCalls.
                     return await mcpAnalyticsSessionsGenerateIntent(
                         String(values.currentProjectId),
                         encodeURIComponent(sessionId),
-                        { date_from: values.selectedSession?.session_start || undefined }
+                        { date_from: (!narrowed && values.selectedSession?.session_start) || undefined }
                     )
                 },
             },

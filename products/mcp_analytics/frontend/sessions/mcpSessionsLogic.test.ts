@@ -3,7 +3,11 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
+import {
+    mcpAnalyticsSessionsGenerateIntent,
+    mcpAnalyticsSessionsList,
+    mcpAnalyticsSessionsToolCalls,
+} from '../generated/api'
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 
@@ -15,6 +19,7 @@ jest.mock('../generated/api', () => ({
 
 const listMock = mcpAnalyticsSessionsList as jest.Mock
 const toolCallsMock = mcpAnalyticsSessionsToolCalls as jest.Mock
+const generateIntentMock = mcpAnalyticsSessionsGenerateIntent as jest.Mock
 
 const toolCall = (eventId: string): any => ({
     event_id: eventId,
@@ -157,6 +162,58 @@ describe('mcpSessionsLogic', () => {
             }).toDispatchActions(['loadMoreToolCallsSuccess'])
 
             expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(['filtered'])
+        })
+
+        // The summary is persisted per session and never regenerated, so generating one from the
+        // first *matching* call would store a summary of part of the session for good.
+        it.each([
+            ['no shared filter is set', false, '2026-01-01T00:05:00Z'],
+            ['a shared filter narrows the session', true, undefined],
+        ])('bounds intent generation by the session start when %s', async (_label, narrowed, expected) => {
+            listMock.mockResolvedValue({
+                results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }],
+                has_next: false,
+            })
+            toolCallsMock.mockResolvedValue({ results: [], has_next: false })
+            generateIntentMock.mockResolvedValue({ session_id: 'A', intent: 'looked at signups' })
+            await expectLogic(logic, () => {
+                logic.actions.loadSessions()
+            }).toDispatchActions(['loadSessionsSuccess'])
+            if (narrowed) {
+                await expectLogic(logic, () => {
+                    mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+                }).toDispatchActions(['loadSessionsSuccess'])
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.generateIntent('A')
+            }).toDispatchActions(['generateIntentSuccess'])
+
+            expect(generateIntentMock.mock.calls[0][2]).toEqual({ date_from: expected })
+        })
+
+        // Two rapid filter changes leave two list requests in flight. If the first one still
+        // publishes, its stale session rows bound the detail scan the second one asked for.
+        it('drops a superseded session page', async () => {
+            let resolveFirst: (value: any) => void = () => {}
+            listMock.mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
+            await expectLogic(logic, () => {
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+            }).toDispatchActions(['loadSessions'])
+
+            listMock.mockResolvedValue({
+                results: [{ session_id: 'current', session_start: '2026-01-01T00:00:00Z' }],
+                has_next: false,
+            })
+            toolCallsMock.mockResolvedValue({ results: [], has_next: false })
+            await expectLogic(logic, () => {
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([])
+            }).toDispatchActions(['loadSessionsSuccess'])
+
+            resolveFirst({ results: [{ session_id: 'superseded', session_start: '2026-01-01T00:09:00Z' }] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.sessions.map((s) => s.session_id)).toEqual(['current'])
         })
     })
 })
