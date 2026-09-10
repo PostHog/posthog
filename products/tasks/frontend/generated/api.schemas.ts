@@ -1809,6 +1809,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `mcp_analytics` - MCP Analytics
  * * `signals_chat` - Signals Chat
  * * `task_analysis` - Task Analysis
+ * * `pulse_subscription` - Pulse Subscription
  * * `workflow` - Workflow
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
@@ -1834,6 +1835,7 @@ export const TaskOriginProductEnumApi = {
     McpAnalytics: 'mcp_analytics',
     SignalsChat: 'signals_chat',
     TaskAnalysis: 'task_analysis',
+    PulseSubscription: 'pulse_subscription',
     Workflow: 'workflow',
 } as const
 
@@ -1891,6 +1893,7 @@ export interface TaskCreateApi {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
+     * * `pulse_subscription` - Pulse Subscription
      * * `workflow` - Workflow */
     origin_product?: TaskOriginProductEnumApi
     /**
@@ -2045,6 +2048,7 @@ export interface TaskWriteApi {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
+     * * `pulse_subscription` - Pulse Subscription
      * * `workflow` - Workflow */
     origin_product?: TaskOriginProductEnumApi
     /**
@@ -2177,6 +2181,7 @@ export interface PatchedTaskWriteApi {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
+     * * `pulse_subscription` - Pulse Subscription
      * * `workflow` - Workflow */
     origin_product?: TaskOriginProductEnumApi
     /**
@@ -5116,6 +5121,7 @@ export type TasksListParams = {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
+     * * `pulse_subscription` - Pulse Subscription
      * * `workflow` - Workflow
      * @minLength 1
      */
@@ -5249,6 +5255,7 @@ export const TasksListExcludeOriginProduct = {
     McpAnalytics: 'mcp_analytics',
     SignalsChat: 'signals_chat',
     TaskAnalysis: 'task_analysis',
+    PulseSubscription: 'pulse_subscription',
     Workflow: 'workflow',
 } as const
 

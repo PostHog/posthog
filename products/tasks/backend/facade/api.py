@@ -3866,13 +3866,17 @@ def task_uses_pi_runtime(task_id: str | UUID, team_id: int) -> bool:
 
 
 def task_is_one_shot_analysis(task_id: str | UUID, team_id: int) -> bool:
-    """Whether this task is a server-created analysis, which accepts no further runs.
+    """Whether this task is a server-created staged analysis, which accepts no further runs.
 
-    Analysis generations are excluded from the customer's credit rollup by their task origin,
-    so a second run under the same task would be unbilled model time for any prompt its owner
-    sends. The run the server created is the whole task.
+    A staged analysis has a caller-bound lifecycle reader, so generic task controls must not
+    create, resume, or steer additional runs under the same binding. Legacy task analysis rows
+    retain their existing one-shot behavior.
     """
-    return Task.objects.filter(id=task_id, team_id=team_id, origin_product=Task.OriginProduct.TASK_ANALYSIS).exists()
+    return (
+        Task.objects.filter(id=task_id, team_id=team_id)
+        .filter(Q(origin_product=Task.OriginProduct.TASK_ANALYSIS) | Q(staged_runs__isnull=False))
+        .exists()
+    )
 
 
 def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
@@ -5331,7 +5335,13 @@ def _list_tasks_queryset(
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
-    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by(*ordering)
+    # Staged work has a caller-bound result reader. It is not a user-controllable Tasks item,
+    # including in the internal maintenance view.
+    qs = (
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
+        .exclude(staged_runs__isnull=False)
+        .order_by(*ordering)
+    )
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -5575,7 +5585,10 @@ def search_tasks(
     if not normalized:
         return []
     visible_task_ids = (
-        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).filter(internal=False).values("id")
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
+        .filter(internal=False)
+        .exclude(staged_runs__isnull=False)
+        .values("id")
     )
     visibility = Q(task_id__in=Subquery(visible_task_ids)) | (
         Q(task__isnull=True, channel__deleted=False) & Channel.visible_to_q(user_id, relation="channel")

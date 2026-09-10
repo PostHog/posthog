@@ -33,6 +33,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
     "posthog_ai": "posthog_ai",
+    "pulse_subscription": "pulse_subscription",
     "review_hog": "review_hog",
     "scout_suggestions": "signals",
     "signal_report": "signals",
@@ -63,6 +64,7 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # reservation resolve to posthog_code and cannot mint.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "pulse_subscription",
         "review_hog",
         "signals_scout",
         "signals_research",

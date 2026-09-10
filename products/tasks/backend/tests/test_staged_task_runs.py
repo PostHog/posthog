@@ -10,6 +10,7 @@ from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
+from products.tasks.backend.facade.api import _list_tasks_queryset, task_is_one_shot_analysis
 from products.tasks.backend.facade.staged_execution import (
     AdvanceStagedTaskInput,
     CreateStagedTaskInput,
@@ -19,6 +20,7 @@ from products.tasks.backend.facade.staged_execution import (
     advance_staged_task,
     cancel_staged_task,
     create_staged_task,
+    read_staged_task_result,
 )
 from products.tasks.backend.logic.services.staged_task_runs import get_staged_execution_binding
 from products.tasks.backend.models import Task, TaskRun, TaskStagedRun, TaskWorkflowDispatch
@@ -141,6 +143,90 @@ class TestStagedTaskRuns(TestCase):
         assert binding is not None
         assert binding.network_egress == "posthog_mcp_only"
         assert binding.disabled_tools == PULSE_DISABLED_TOOLS
+
+    def test_pulse_staged_task_is_hidden_from_generic_listing_and_one_shot(self) -> None:
+        input = self._create_input(idempotency_key="pulse-hidden")
+        input = CreateStagedTaskInput(
+            **{
+                **input.__dict__,
+                "origin_product": "pulse_subscription",
+                "analysis_manifest": self._pulse_analysis_manifest(),
+            }
+        )
+
+        created = create_staged_task(input)
+
+        assert Task.objects.get(id=created.task_id).internal is True
+        assert not _list_tasks_queryset(self.team.id, self.user.id, filters={}).filter(id=created.task_id).exists()
+        assert (
+            not _list_tasks_queryset(self.team.id, self.user.id, filters={"internal": "all"})
+            .filter(id=created.task_id)
+            .exists()
+        )
+        assert task_is_one_shot_analysis(created.task_id, self.team.id)
+
+    def test_read_staged_task_result_requires_the_original_team_caller_and_handle(self) -> None:
+        input = self._create_input(idempotency_key="read-result")
+        input = CreateStagedTaskInput(
+            **{
+                **input.__dict__,
+                "output_schema": {
+                    "type": "object",
+                    "required": ["recommendations"],
+                    "properties": {"recommendations": {"type": "array"}},
+                },
+            }
+        )
+        created = create_staged_task(input)
+        TaskRun.objects.filter(id=created.analysis_run_id).update(
+            status=TaskRun.Status.COMPLETED,
+            output={"recommendations": []},
+        )
+
+        result = read_staged_task_result(
+            team_id=self.team.id,
+            caller_id=self.caller_id,
+            staged_run_id=created.staged_run_id,
+            task_id=created.task_id,
+            analysis_run_id=created.analysis_run_id,
+        )
+
+        assert result is not None
+        assert result.status == "completed"
+        assert result.output == {"recommendations": []}
+        assert (
+            read_staged_task_result(
+                team_id=self.team.id,
+                caller_id=uuid4(),
+                staged_run_id=created.staged_run_id,
+                task_id=created.task_id,
+                analysis_run_id=created.analysis_run_id,
+            )
+            is None
+        )
+
+    def test_read_staged_task_result_fails_closed_for_invalid_structured_output(self) -> None:
+        input = self._create_input(idempotency_key="invalid-result")
+        input = CreateStagedTaskInput(
+            **{
+                **input.__dict__,
+                "output_schema": {"type": "object", "required": ["recommendations"]},
+            }
+        )
+        created = create_staged_task(input)
+        TaskRun.objects.filter(id=created.analysis_run_id).update(status=TaskRun.Status.COMPLETED, output={"other": []})
+
+        result = read_staged_task_result(
+            team_id=self.team.id,
+            caller_id=self.caller_id,
+            staged_run_id=created.staged_run_id,
+            task_id=created.task_id,
+            analysis_run_id=created.analysis_run_id,
+        )
+
+        assert result is not None
+        assert result.status == "failed"
+        assert result.failure_code == "invalid_output"
 
     def test_advance_rejects_a_staged_run_outside_the_callers_team(self) -> None:
         """Break caught: a caller can create an execution run for another team's staged task."""

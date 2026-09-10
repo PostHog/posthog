@@ -7,6 +7,8 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
+
 PULSE_ANALYSIS_DISABLED_TOOLS = ("Bash", "WebFetch", "WebSearch", "Write", "Edit")
 PULSE_ANALYSIS_NETWORK_EGRESS = "posthog_mcp_only"
 
@@ -52,6 +54,17 @@ class CreatedStagedTask:
 
 
 @frozen
+class StagedTaskResult:
+    """A caller-bound, validated read of one analysis run's structured result."""
+
+    status: Literal["pending", "completed", "failed"]
+    output: dict[str, object] | None = None
+    failure_code: str | None = None
+    completed_mcp_call_ids: tuple[str, ...] = ()
+    completed_mcp_calls: tuple[CompletedMCPCallEvidence, ...] = ()
+
+
+@frozen
 class AdvanceStagedTaskInput:
     team_id: int
     caller_id: UUID
@@ -76,6 +89,20 @@ def create_staged_task(input: CreateStagedTaskInput) -> CreatedStagedTask:
     from products.tasks.backend.logic.services.staged_task_runs import create_staged_task_run
 
     return create_staged_task_run(input)
+
+
+def read_staged_task_result(
+    *, team_id: int, caller_id: UUID, staged_run_id: UUID, task_id: UUID, analysis_run_id: UUID
+) -> StagedTaskResult | None:
+    from products.tasks.backend.logic.services.staged_task_runs import read_staged_task_run_result
+
+    return read_staged_task_run_result(
+        team_id=team_id,
+        caller_id=caller_id,
+        staged_run_id=staged_run_id,
+        task_id=task_id,
+        analysis_run_id=analysis_run_id,
+    )
 
 
 def advance_staged_task(input: AdvanceStagedTaskInput) -> AdvancedStagedTask:

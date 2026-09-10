@@ -17,6 +17,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.temporal.oauth import McpScopePreset, PosthogMcpScopes
 
+from products.tasks.backend.facade.staged_evidence import read_completed_posthog_mcp_calls
 from products.tasks.backend.facade.staged_execution import (
     PULSE_ANALYSIS_DISABLED_TOOLS,
     PULSE_ANALYSIS_NETWORK_EGRESS,
@@ -27,6 +28,7 @@ from products.tasks.backend.facade.staged_execution import (
     InvalidStagedTaskBindingError,
     StagedCapabilityManifest,
     StagedRepositoryBinding,
+    StagedTaskResult,
 )
 from products.tasks.backend.logic.services.run_actor import user_has_current_team_access
 from products.tasks.backend.models import Task, TaskRun, TaskStagedRun
@@ -114,7 +116,7 @@ def _validate_manifest(manifest: StagedCapabilityManifest, *, expected_phase: st
         or len(manifest.disabled_tools) != len(set(manifest.disabled_tools))
     ):
         raise ValueError("Staged capability manifest is invalid")
-    if manifest.mcp_scope_preset == "pulse_analysis" and (
+    if manifest.mcp_scope_preset in {"pulse_analysis", "pulse_analysis_no_research"} and (
         expected_phase != "analysis"
         or manifest.network_egress != PULSE_ANALYSIS_NETWORK_EGRESS
         or manifest.disabled_tools != PULSE_ANALYSIS_DISABLED_TOOLS
@@ -221,6 +223,48 @@ def _created(staged_run: TaskStagedRun) -> CreatedStagedTask:
     )
 
 
+def read_staged_task_run_result(
+    *, team_id: int, caller_id: UUID, staged_run_id: UUID, task_id: UUID, analysis_run_id: UUID
+) -> StagedTaskResult | None:
+    """Read only the result owned by this caller's immutable analysis binding."""
+
+    staged_run = (
+        TaskStagedRun.objects.for_team(team_id)
+        .select_related("task", "analysis_run")
+        .filter(id=staged_run_id, caller_id=caller_id, task_id=task_id, analysis_run_id=analysis_run_id)
+        .first()
+    )
+    if staged_run is None:
+        return None
+
+    run = staged_run.analysis_run
+    if not run.is_terminal:
+        return StagedTaskResult(status="pending")
+    if run.status != TaskRun.Status.COMPLETED:
+        return StagedTaskResult(status="failed", failure_code=f"task_{run.status}")
+    if not isinstance(run.output, dict) or not _matches_output_schema(run.output, staged_run.task.json_schema):
+        return StagedTaskResult(status="failed", failure_code="invalid_output")
+    evidence = read_completed_posthog_mcp_calls(run)
+    return StagedTaskResult(
+        status="completed",
+        output=run.output,
+        completed_mcp_call_ids=tuple(call.citation_id for call in evidence),
+        completed_mcp_calls=evidence,
+    )
+
+
+def _matches_output_schema(output: dict[str, object], schema: dict | None) -> bool:
+    if schema is None:
+        return True
+    import jsonschema  # noqa: PLC0415 - avoids the dependency on the staged-task create path
+
+    try:
+        jsonschema.validate(instance=output, schema=schema)
+    except jsonschema.ValidationError:
+        return False
+    return True
+
+
 def _advanced(staged_run: TaskStagedRun) -> AdvancedStagedTask:
     if staged_run.execution_run_id is None:
         raise RuntimeError("Staged task execution run is missing")
@@ -278,6 +322,7 @@ def create_staged_task_run(input: CreateStagedTaskInput) -> CreatedStagedTask:
                 title=input.title,
                 description=input.description,
                 origin_product=input.origin_product,
+                internal=True,
                 json_schema=input.output_schema,
                 repository=repository,
                 repositories=[repository] if repository else [],

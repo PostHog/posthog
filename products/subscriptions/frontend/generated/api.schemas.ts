@@ -776,6 +776,49 @@ export interface PaginatedSubscriptionDeliveryListApi {
     results: SubscriptionDeliveryApi[]
 }
 
+export interface PulseResearchRequestApi {
+    /**
+     * A public-web research query. It is searched once and only public results are considered.
+     * @maxLength 500
+     */
+    query: string
+}
+
+export interface PulseResearchCitationApi {
+    /** Stable citation ID for this research call. */
+    id: string
+    /** Validated public URL returned by the provider. */
+    url: string
+    /** Bounded page title. */
+    title: string
+    /** Bounded extracted page evidence. */
+    excerpt: string
+}
+
+/**
+ * * `not_configured` - not_configured
+ * * `busy` - busy
+ * * `unavailable` - unavailable
+ */
+export type DegradationEnumApi = (typeof DegradationEnumApi)[keyof typeof DegradationEnumApi]
+
+export const DegradationEnumApi = {
+    NotConfigured: 'not_configured',
+    Busy: 'busy',
+    Unavailable: 'unavailable',
+} as const
+
+export interface PulseResearchResponseApi {
+    /** At most three bounded public citations. */
+    citations: PulseResearchCitationApi[]
+    /** Why public research was unavailable, when it could not run.
+     *
+     * * `not_configured` - not_configured
+     * * `busy` - busy
+     * * `unavailable` - unavailable */
+    degradation?: DegradationEnumApi | null
+}
+
 export type SubscriptionsListParams = {
     /**
      * Filter by creator user UUID.

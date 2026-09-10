@@ -1,0 +1,1 @@
+"""Internal subscription business logic."""

@@ -27820,6 +27820,20 @@ export namespace Schemas {
       Default: 'default',
     } as const;
 
+    /**
+     * * `not_configured` - not_configured
+     * * `busy` - busy
+     * * `unavailable` - unavailable
+     */
+    export type DegradationEnum = typeof DegradationEnum[keyof typeof DegradationEnum];
+
+
+    export const DegradationEnum = {
+      NotConfigured: 'not_configured',
+      Busy: 'busy',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface DeleteTileRequest {
       /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
       tile_id: number;
@@ -68722,6 +68736,7 @@ export namespace Schemas {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
+     * * `pulse_subscription` - Pulse Subscription
      * * `workflow` - Workflow
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
@@ -68748,6 +68763,7 @@ export namespace Schemas {
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
+      PulseSubscription: 'pulse_subscription',
       Workflow: 'workflow',
     } as const;
 
@@ -68805,6 +68821,7 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
+       * * `pulse_subscription` - Pulse Subscription
        * * `workflow` - Workflow */
       origin_product?: TaskOriginProductEnum;
       /**
@@ -72331,6 +72348,36 @@ export namespace Schemas {
      */
     export interface PullRequestReviewCommentReactionCreateResponse {
       readonly reaction: PullRequestCommentReaction;
+    }
+
+    export interface PulseResearchCitation {
+      /** Stable citation ID for this research call. */
+      id: string;
+      /** Validated public URL returned by the provider. */
+      url: string;
+      /** Bounded page title. */
+      title: string;
+      /** Bounded extracted page evidence. */
+      excerpt: string;
+    }
+
+    export interface PulseResearchRequest {
+      /**
+         * A public-web research query. It is searched once and only public results are considered.
+         * @maxLength 500
+         */
+      query: string;
+    }
+
+    export interface PulseResearchResponse {
+      /** At most three bounded public citations. */
+      citations: PulseResearchCitation[];
+      /** Why public research was unavailable, when it could not run.
+       *
+       * * `not_configured` - not_configured
+       * * `busy` - busy
+       * * `unavailable` - unavailable */
+      degradation?: DegradationEnum | null;
     }
 
     /**
@@ -85449,6 +85496,7 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
+       * * `pulse_subscription` - Pulse Subscription
        * * `workflow` - Workflow */
       origin_product?: TaskOriginProductEnum;
       /**
@@ -86901,6 +86949,7 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
+       * * `pulse_subscription` - Pulse Subscription
        * * `workflow` - Workflow */
       origin_product?: TaskOriginProductEnum;
       /**
@@ -101416,6 +101465,7 @@ export namespace Schemas {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
+     * * `pulse_subscription` - Pulse Subscription
      * * `workflow` - Workflow
      * @minLength 1
      */
@@ -101551,6 +101601,7 @@ export namespace Schemas {
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
+      PulseSubscription: 'pulse_subscription',
       Workflow: 'workflow',
     } as const;
 

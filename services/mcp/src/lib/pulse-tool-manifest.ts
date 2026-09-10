@@ -16,5 +16,9 @@ export function filterPulseAnalysisTools<T extends { name: string }>(tools: T[],
     if (!isPulseAnalysisScopePosture(scopes)) {
         return tools
     }
-    return tools.filter((tool) => PULSE_ANALYSIS_TOOL_MANIFEST_V1.has(tool.name))
+    return tools.filter(
+        (tool) =>
+            PULSE_ANALYSIS_TOOL_MANIFEST_V1.has(tool.name) &&
+            (tool.name !== 'pulse-research-search' || scopes.includes(PULSE_RESEARCH_INTERNAL_SCOPE))
+    )
 }

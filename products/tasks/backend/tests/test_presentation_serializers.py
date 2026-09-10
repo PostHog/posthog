@@ -71,6 +71,7 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
             # internally funded inference under a per-run cap.
             ("signals_chat", True),
             ("scout_suggestions", True),
+            ("pulse_subscription", True),
             ("user_created", False),
         ]
     )
@@ -78,6 +79,12 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         serializer = TaskWriteSerializer(data={"origin_product": origin_product})
         serializer.is_valid()
         assert ("origin_product" in serializer.errors) is expected_rejected
+
+    def test_pulse_subscription_origin_is_reserved_not_unknown(self) -> None:
+        serializer = TaskWriteSerializer(data={"origin_product": "pulse_subscription"})
+
+        assert not serializer.is_valid()
+        assert "reserved for server-created tasks" in str(serializer.errors["origin_product"])
 
 
 class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):

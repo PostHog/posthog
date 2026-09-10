@@ -351,6 +351,9 @@ class Task(DeletedMetaFields, models.Model):
         # through the generally-available Inbox rather than PostHog Desktop.
         SIGNALS_CHAT = "signals_chat", "Signals Chat"
         TASK_ANALYSIS = "task_analysis", "Task Analysis"
+        # Proactive subscription analysis is server-created and billable. The Task
+        # origin lets sandbox usage retain that product attribution.
+        PULSE_SUBSCRIPTION = "pulse_subscription", "Pulse Subscription"
         # A workflow's "Create AI task" action. Unattended like LOOP; the run executes as
         # the workflow's creator.
         WORKFLOW = "workflow", "Workflow"
