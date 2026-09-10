@@ -75,11 +75,17 @@ describe('useKeyboardInsets', () => {
         unmount()
     })
 
-    // iOS scrolls the visual viewport within the layout viewport that `position: fixed` resolves against.
-    it('counts the offset as occlusion and reports it as the top inset', () => {
+    // iOS scrolls the visual viewport within the layout viewport that `position: fixed` resolves
+    // against. A deep pan moves occlusion from below the visible band to above it, so the floor has
+    // to gate on the whole gap: gating on the part below the band alone drops the top inset here,
+    // and the modal then renders above the visible band where nothing can scroll it into view.
+    it.each([
+        { name: 'a shallow pan', offsetTop: 60, expected: ['280px', '60px'] },
+        { name: 'a pan leaving less than the floor below the band', offsetTop: 280, expected: ['60px', '280px'] },
+    ])('splits a keyboard-sized gap around $name', ({ offsetTop, expected }) => {
         const { unmount } = renderHook(() => useKeyboardInsets(true))
-        resizeTo(504, 60)
-        expect(insets()).toEqual(['280px', '60px'])
+        resizeTo(504, offsetTop)
+        expect(insets()).toEqual(expected)
         unmount()
     })
 

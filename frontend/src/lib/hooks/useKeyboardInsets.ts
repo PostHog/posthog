@@ -49,14 +49,18 @@ function attach(): void {
         return
     }
     const update = (): void => {
-        const hidden = document.documentElement.clientHeight - visualViewport.height - visualViewport.offsetTop
-        if (hidden < KEYBOARD_MIN_HEIGHT) {
+        // Measure the whole occluded band before splitting it. A pan moves occlusion from below the
+        // visible band to above it while the keyboard stays up, so a floor applied to the lower part
+        // alone would drop the top inset and leave the modal stranded above the visible band.
+        const occluded = document.documentElement.clientHeight - visualViewport.height
+        if (occluded < KEYBOARD_MIN_HEIGHT) {
             clear()
             return
         }
+        const top = Math.min(visualViewport.offsetTop, occluded)
         const { style } = document.documentElement
-        style.setProperty('--keyboard-inset-bottom', `${hidden}px`)
-        style.setProperty('--keyboard-inset-top', `${visualViewport.offsetTop}px`)
+        style.setProperty('--keyboard-inset-bottom', `${occluded - top}px`)
+        style.setProperty('--keyboard-inset-top', `${top}px`)
     }
     update()
     visualViewport.addEventListener('resize', update)
