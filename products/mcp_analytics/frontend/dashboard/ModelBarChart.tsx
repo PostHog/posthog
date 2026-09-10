@@ -1,5 +1,7 @@
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconChevronDown } from '@posthog/icons'
 import {
     BarChart,
     type BarChartConfig,
@@ -22,6 +24,8 @@ import { type ModelRow } from '../mcpDashboardOverviewLogic'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
 import { buildModelExplorationQuery, summarizeModelBreakdown } from './modelBreakdown'
+import { modelBreakdownLogic } from './modelBreakdownLogic'
+import { ModelBreakdownTable } from './ModelBreakdownTable'
 import { modelColor } from './modelColors'
 
 function modelLabel(model: string): string {
@@ -77,6 +81,9 @@ export function ModelBarChart({
     theme: ChartTheme
     filters?: HogQLFilters
 }): JSX.Element {
+    const logic = modelBreakdownLogic({ filters })
+    const { expanded, modelPageLoading } = useValues(logic)
+    const { setExpanded } = useActions(logic)
     const {
         totalCalls,
         unknownCalls,
@@ -180,6 +187,21 @@ export function ModelBarChart({
                         : ''}
                     Unknown means no model identifier was captured. Model names are reported by clients or agents.
                 </p>
+                {expanded || sortedRows.some((row) => row.model === 'Other') ? (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        fullWidth
+                        center
+                        icon={<IconChevronDown className={expanded ? 'rotate-180' : undefined} />}
+                        loading={modelPageLoading}
+                        aria-expanded={expanded}
+                        onClick={() => setExpanded(!expanded)}
+                    >
+                        {expanded ? 'Show fewer models' : 'Show all models'}
+                    </LemonButton>
+                ) : null}
+                {expanded ? <ModelBreakdownTable filters={filters} totalCalls={totalCalls} /> : null}
             </div>
         </LemonCard>
     )
