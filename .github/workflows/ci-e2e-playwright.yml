@@ -873,6 +873,7 @@ jobs:
 
             - name: Start PostHog web, Celery worker, Temporal worker & ingestion
               run: |
+                  python manage.py register_temporal_search_attributes
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python manage.py start_temporal_worker --task-queue analytics-platform-task-queue &> /tmp/temporal-worker.log &
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
