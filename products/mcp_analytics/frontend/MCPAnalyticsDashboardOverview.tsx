@@ -14,7 +14,7 @@ import { McpDateFilter } from './components/McpDateFilter'
 import { ActivityChart } from './dashboard/ActivityChart'
 import { HarnessDonut } from './dashboard/HarnessDonut'
 import { KpiTiles } from './dashboard/KpiTiles'
-import { ModelDonut } from './dashboard/ModelDonut'
+import { ModelBarChart } from './dashboard/ModelBarChart'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
@@ -122,7 +122,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             />
                         </div>
                         <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
-                        {hasKnownModelData ? <ModelDonut rows={modelRows} theme={theme} /> : null}
+                        {hasKnownModelData ? <ModelBarChart rows={modelRows} theme={theme} /> : null}
                     </div>
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
                         <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />

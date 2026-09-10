@@ -17,7 +17,7 @@ import {
 import { ActivityChart } from './ActivityChart'
 import { HarnessDonut } from './HarnessDonut'
 import { KpiTiles } from './KpiTiles'
-import { ModelDonut } from './ModelDonut'
+import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
 import { ToolUsageChart } from './ToolUsageChart'
@@ -219,7 +219,27 @@ export const ShareByHarness: Story = {
 }
 
 export const ShareByModel: Story = {
-    render: withTheme((theme) => <ModelDonut rows={MODEL_ROWS} theme={theme} />),
+    render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
+}
+
+export const ShareByModelNarrow: Story = {
+    render: () => (
+        <div className="w-80">
+            <ModelBarChart
+                rows={[
+                    { model: 'Other', total_calls: 30 },
+                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+                    { model: 'gpt-5.6-sol', total_calls: 3100 },
+                    { model: 'Unknown', total_calls: 1400 },
+                    { model: 'example-model-c', total_calls: 800 },
+                    { model: 'example-model-d', total_calls: 600 },
+                    { model: 'example-model-e', total_calls: 400 },
+                    { model: 'example-model-f', total_calls: 1 },
+                ]}
+                theme={buildTheme()}
+            />
+        </div>
+    ),
 }
 
 export const ErrorRateByTool: Story = {
