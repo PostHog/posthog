@@ -4155,6 +4155,115 @@ describe('PersonState.processEvent()', () => {
             expect(sourceRowAfter.rows[0]).toEqual({ merged_into_id: targetRow.id, is_deleted: false })
         })
 
+        it('pointer-mode fold merges multiple sources as pointer writes without moving mappings', async () => {
+            const thirdDistinctId = 'third'
+            const thirdUserUuid = uuidFromDistinctId(teamId, thirdDistinctId)
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, true, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            await createPerson(hub, timestamp, { b: 1 }, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
+            await createPerson(hub, timestamp, { c: 1 }, {}, {}, teamId, null, false, thirdUserUuid, {
+                distinctId: thirdDistinctId,
+            })
+
+            const producerObserver = new KafkaProducerObserver(kafkaProducer)
+            const personsStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer), {
+                mergeTombstoneTeamAllowlist: '*',
+                mergePointerTeamAllowlist: '*',
+            })
+            const eventUuid = new UUIDT().toString()
+            const result = await personsStore.mergePersons(
+                {
+                    teamId,
+                    targetDistinctId: firstUserDistinctId,
+                    sources: [
+                        { distinctId: secondUserDistinctId, eventUuid },
+                        { distinctId: thirdDistinctId, eventUuid },
+                    ],
+                    eventOps: {
+                        set: {},
+                        setOnce: {},
+                        unset: [],
+                        denied: false,
+                        shouldForceUpdate: true,
+                        eventName: '$merge_dangerously',
+                    },
+                    eventUuid,
+                    allowIdentifiedSources: true,
+                    mergeMode: createDefaultSyncMergeMode(),
+                    createdAtMs: timestamp.toMillis(),
+                },
+                0
+            )
+
+            // The fold path must settle both sources as merged, not fall back or abort.
+            expect(result.foldAborted).toBeUndefined()
+            expect(result.results.map((r) => r.outcome)).toEqual(['merged', 'merged'])
+            await flushPersonStoreToKafka(
+                kafkaProducer,
+                new BatchBoundPersonsStore(personsStore, 0),
+                result.kafkaAck ?? Promise.resolve()
+            )
+
+            // Both sources live on as pointers at the target; their mappings did not move.
+            const personRows = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT id, uuid, merged_into_id, is_deleted, properties FROM posthog_person WHERE team_id = $1',
+                [teamId],
+                'fetchFoldPointerRows'
+            )
+            const rowByUuid = Object.fromEntries(personRows.rows.map((row: any) => [row.uuid, row]))
+            const targetRow = rowByUuid[firstUserUuid]
+            expect(targetRow).toMatchObject({ merged_into_id: null, is_deleted: false })
+            expect(targetRow.properties).toMatchObject({ b: 1, c: 1 })
+            for (const uuid of [secondUserUuid, thirdUserUuid]) {
+                expect(rowByUuid[uuid]).toMatchObject({
+                    merged_into_id: targetRow.id,
+                    is_deleted: false,
+                    properties: {},
+                })
+            }
+
+            const mappingRows = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT distinct_id, person_id FROM posthog_persondistinctid WHERE team_id = $1',
+                [teamId],
+                'fetchFoldMappingRows'
+            )
+            const personIdByDistinctId = Object.fromEntries(
+                mappingRows.rows.map((row: any) => [row.distinct_id, row.person_id])
+            )
+            expect(personIdByDistinctId[secondUserDistinctId]).toBe(rowByUuid[secondUserUuid].id)
+            expect(personIdByDistinctId[thirdDistinctId]).toBe(rowByUuid[thirdUserUuid].id)
+
+            // Override messages point both source distinct ids at the target at the
+            // fold's merged version, and each source got its ClickHouse death message.
+            const overrideMessages = producerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_PERSON_DISTINCT_ID)
+                .filter(
+                    (m) =>
+                        (m.value as any)?.person_id === firstUserUuid &&
+                        [secondUserDistinctId, thirdDistinctId].includes((m.value as any)?.distinct_id)
+                )
+            // Derived version: mapping version 0 + the fold's merged target version (1).
+            expect(
+                Object.fromEntries(
+                    overrideMessages.map((m) => [(m.value as any).distinct_id, (m.value as any).version])
+                )
+            ).toEqual({ [secondUserDistinctId]: 1, [thirdDistinctId]: 1 })
+            const deathMessages = producerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_PERSON)
+                .filter((m) => (m.value as any)?.is_deleted === 1)
+            expect(deathMessages.map((m) => (m.value as any).id).sort()).toEqual([secondUserUuid, thirdUserUuid].sort())
+
+            // Reads through either source's distinct id resolve to the target.
+            const repo = new PostgresPersonRepository(hub.postgres)
+            const resolved = await repo.fetchPerson(teamId, thirdDistinctId)
+            expect(resolved?.uuid).toBe(firstUserUuid)
+        })
+
         describe('SYNC mode with batch processing', () => {
             it('merges all distinct IDs when batch size is larger than total distinct IDs', async () => {
                 await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {

@@ -657,7 +657,12 @@ export class PostgresPersonMerge {
                     throw new MergeFoldConflictError('Fold target was deleted concurrently')
                 }
             }
-            const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
+            // Move limits bound physical row moves; pointer writes move nothing,
+            // so pointer folds skip the bounds check and rely on the per-source
+            // pointer guard to surface concurrent-merge races.
+            const expectedMoveCount = this.pointerMergeEnabled()
+                ? 0
+                : await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
 
             let person = currentTarget
             let updateMessages: PersonMessage[] = []
@@ -674,18 +679,41 @@ export class PostgresPersonMerge {
                 )
             }
 
-            const moveResult = await tx.moveDistinctIdsFromPersons(mergeSources, currentTarget, this.targetDistinctId)
-            if (!moveResult.success) {
-                throw new TargetPersonNotFoundError('Target person no longer exists')
+            let mappingMessages: PersonMessage[] = []
+            let deleteMessages: PersonMessage[] = []
+            if (this.pointerMergeEnabled()) {
+                // A pointer fold is N O(1) pointer writes; each also emits the
+                // source's ClickHouse death message, so no deletePersons call.
+                for (const source of mergeSources) {
+                    const pointerResult = await tx.writeMergePointer(source, person, this.targetDistinctId)
+                    if (!pointerResult.success) {
+                        // A concurrent merge claimed the source after our locked fetch
+                        // released its locks; abort so the sequential fallback re-reads
+                        // committed state instead of merging stale source properties.
+                        throw new MergeFoldConflictError('fold source was pointered or deleted concurrently')
+                    }
+                    this.recordOverrideCount('bothExistPointer', pointerResult.distinctIdsMoved.length)
+                    mappingMessages.push(...pointerResult.messages)
+                }
+            } else {
+                const moveResult = await tx.moveDistinctIdsFromPersons(
+                    mergeSources,
+                    currentTarget,
+                    this.targetDistinctId
+                )
+                if (!moveResult.success) {
+                    throw new TargetPersonNotFoundError('Target person no longer exists')
+                }
+                // A mismatch means a concurrent merge touched the sources
+                // between the count and the move; abort so the sequential path
+                // (whose zero-moved handling retries with fresh persons) takes
+                // over rather than merging stale source properties.
+                if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
+                    throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
+                }
+                this.recordOverrideCount('bothExistMove', moveResult.distinctIdsMoved.length)
+                mappingMessages = moveResult.messages
             }
-            // A mismatch means a concurrent merge touched the sources
-            // between the count and the move; abort so the sequential path
-            // (whose zero-moved handling retries with fresh persons) takes
-            // over rather than merging stale source properties.
-            if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
-                throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
-            }
-            this.recordOverrideCount('bothExistMove', moveResult.distinctIdsMoved.length)
 
             const addMessages: PersonMessage[] = []
             for (const pair of missingSources) {
@@ -695,7 +723,6 @@ export class PostgresPersonMerge {
                 addMessages.push(...(await tx.addDistinctId(person, pair.distinctId, distinctIdVersion)))
             }
 
-            let deleteMessages: PersonMessage[] = []
             if (mergeSources.length > 0) {
                 await tx.updateCohortsAndFeatureFlagsForMergeBatch(
                     teamId,
@@ -703,13 +730,15 @@ export class PostgresPersonMerge {
                     currentTarget.id,
                     this.targetDistinctId
                 )
-                deleteMessages = await tx.deletePersons(mergeSources, this.targetDistinctId)
+                if (!this.pointerMergeEnabled()) {
+                    deleteMessages = await tx.deletePersons(mergeSources, this.targetDistinctId)
+                }
             }
 
             if (this.tombstoneEnabled()) {
                 await tx.releaseLifecycleMarks(lifecycleOpId, teamId, this.targetDistinctId)
             }
-            return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
+            return [person, [...updateMessages, ...mappingMessages, ...addMessages, ...deleteMessages]]
         })
 
         this.flushOverrideCounts()
