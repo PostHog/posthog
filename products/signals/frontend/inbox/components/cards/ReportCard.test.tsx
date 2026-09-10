@@ -2,13 +2,17 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
+import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { SELECTION_HOLD_MS } from '../../utils/reportSelection'
 import { ReportCard } from './ReportCard'
+
+jest.mock('posthog-js')
 
 function makeReport(id: string): SignalReport {
     return {
@@ -57,6 +61,14 @@ describe('ReportCard', () => {
         fireEvent(cardLink(), new MouseEvent(type, { bubbles: true, ...init }))
     }
 
+    /** Properties of the last `Inbox selection mode entered` event, if one was captured. */
+    function lastSelectionEntry(): Record<string, unknown> | undefined {
+        const calls = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SELECTION_MODE_ENTERED
+        )
+        return calls[calls.length - 1]?.[1]
+    }
+
     /** The card body, which is the link a plain click follows. */
     function cardLink(): HTMLElement {
         return screen.getByText('Report r-1').closest('a') as HTMLElement
@@ -103,6 +115,19 @@ describe('ReportCard', () => {
         jest.advanceTimersByTime(SELECTION_HOLD_MS)
 
         expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    test.each([
+        ['cmd-click', { metaKey: true }, 'meta_click'],
+        ['shift-click', { shiftKey: true }, 'shift_click'],
+    ])('records the entry method when a %s starts the selection', (_name, modifiers, entryMethod) => {
+        // The rendered order, which a shift-range measures itself against.
+        logic.actions.setVisibleReportIds(['r-1'])
+
+        fireEvent.click(cardLink(), modifiers)
+
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+        expect(lastSelectionEntry()).toMatchObject({ entry_method: entryMethod })
     })
 
     it('selects from the gutter checkbox', () => {

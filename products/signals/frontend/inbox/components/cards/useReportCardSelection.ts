@@ -122,6 +122,11 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
             event.preventDefault()
             event.stopPropagation()
             if (intent === 'range') {
+                // A shift-click can open selection mode on its own, and it never goes through
+                // `toggle`, so it records its own entry.
+                if (!hasSelection) {
+                    captureInboxSelectionModeEntered({ method: 'shift_click' })
+                }
                 selectRange(reportId)
                 return
             }
