@@ -90,11 +90,6 @@ export interface SandboxComputePricingApi {
     history: ComputeRateCardApi[]
 }
 
-export interface DesktopBetaTermsAcceptanceDTOApi {
-    /** Whether the organization has accepted the PostHog Desktop beta terms. */
-    readonly is_desktop_beta_terms_accepted: boolean
-}
-
 export interface DesktopAccessResponseApi {
     /** Whether the selected project can use PostHog Desktop. */
     allowed: boolean
@@ -103,6 +98,11 @@ export interface DesktopAccessResponseApi {
      * * `startup_plan` - startup_plan
      * * `prepaid_credits` - prepaid_credits */
     reason: DesktopAccessReasonEnumApi | null
+}
+
+export interface DesktopBetaTermsAcceptanceDTOApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
 }
 
 export interface LoopRepositoryEntryDTOApi {
@@ -3935,6 +3935,11 @@ export interface TaskRunRelayMessageRequestApi {
      * @items.maxLength 10000
      */
     text_parts?: string[]
+    /**
+     * AI observability trace id of the turn that wrote this answer, when the sandbox reported one.
+     * @nullable
+     */
+    trace_id?: string | null
 }
 
 export interface TaskRunRelayMessageResponseApi {
@@ -4444,6 +4449,101 @@ export interface ModelCatalogueResponseApi {
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
+}
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface RepoRoutingRuleApi {
+    readonly id: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository: string
+    readonly priority: number
+    /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedRepoRoutingRuleApi {
+    readonly id?: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text?: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository?: string
+    readonly priority?: number
+    /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 export interface TaskRepositoriesResponseApi {
@@ -5070,6 +5170,10 @@ export type TasksListParams = {
      * @minLength 1
      */
     archived?: TasksListArchived
+    /**
+     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     */
+    basic?: boolean
     /**
      * Filter tasks to a channel's feed.
      */

@@ -803,6 +803,15 @@ def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
     return exports
 
 
+def names_defined_in(product: str, location: str) -> frozenset[str]:
+    """The names a wiring location, or a subtree of one, defines and hands out.
+
+    A product may watch one subtree of a computed wiring location rather than the whole of it, and
+    that is only sound while every `drives(...)` line names something inside the watched subtree.
+    This is how such a check reads the subtree."""
+    return frozenset(export.name for export in _wiring_location_exports(product, location))
+
+
 def _top_level_names(tree: ast.Module) -> list[str]:
     """Every public name a module defines at top level: classes, functions, and assigned constants."""
     names: list[str] = []
