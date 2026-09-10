@@ -184,7 +184,7 @@ export interface mcpAnalyticsToolDetailLogicActions {
     loadAllSections: () => {
         value: true
     }
-    loadByHarnessRows: () => any
+    loadByHarnessRows: (_: void) => void
     loadByHarnessRowsFailure: (
         error: string,
         errorObject?: any
@@ -194,10 +194,10 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadByHarnessRowsSuccess: (
         byHarnessRows: ResultRows,
-        payload?: any
+        payload?: void
     ) => {
         byHarnessRows: ResultRows
-        payload?: any
+        payload?: void
     }
     loadDailyStats: (_: void) => void
     loadDailyStatsFailure: (
@@ -214,7 +214,7 @@ export interface mcpAnalyticsToolDetailLogicActions {
         dailyStats: DailyToolStat[]
         payload?: void
     }
-    loadDescriptions: () => any
+    loadDescriptions: (_: void) => void
     loadDescriptionsFailure: (
         error: string,
         errorObject?: any
@@ -224,12 +224,12 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadDescriptionsSuccess: (
         descriptions: DescriptionRevision[],
-        payload?: any
+        payload?: void
     ) => {
         descriptions: DescriptionRevision[]
-        payload?: any
+        payload?: void
     }
-    loadFailureBuckets: () => any
+    loadFailureBuckets: (_: void) => void
     loadFailureBucketsFailure: (
         error: string,
         errorObject?: any
@@ -239,10 +239,10 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadFailureBucketsSuccess: (
         failureBuckets: MCPToolFailureItem[],
-        payload?: any
+        payload?: void
     ) => {
         failureBuckets: MCPToolFailureItem[]
-        payload?: any
+        payload?: void
     }
     loadFailureOccurrences: (bucket: MCPToolFailureItem) => MCPToolFailureItem
     loadFailureOccurrencesFailure: (
@@ -259,7 +259,7 @@ export interface mcpAnalyticsToolDetailLogicActions {
         failureOccurrences: MCPToolFailureOccurrenceItem[]
         payload?: MCPToolFailureItem
     }
-    loadIntentCoverage: () => any
+    loadIntentCoverage: (_: void) => void
     loadIntentCoverageFailure: (
         error: string,
         errorObject?: any
@@ -269,12 +269,12 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadIntentCoverageSuccess: (
         intentCoverage: IntentCoverage | null,
-        payload?: any
+        payload?: void
     ) => {
         intentCoverage: IntentCoverage | null
-        payload?: any
+        payload?: void
     }
-    loadNeighborsAfterRows: () => any
+    loadNeighborsAfterRows: (_: void) => void
     loadNeighborsAfterRowsFailure: (
         error: string,
         errorObject?: any
@@ -284,12 +284,12 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadNeighborsAfterRowsSuccess: (
         neighborsAfterRows: ResultRows,
-        payload?: any
+        payload?: void
     ) => {
         neighborsAfterRows: ResultRows
-        payload?: any
+        payload?: void
     }
-    loadNeighborsBeforeRows: () => any
+    loadNeighborsBeforeRows: (_: void) => void
     loadNeighborsBeforeRowsFailure: (
         error: string,
         errorObject?: any
@@ -299,12 +299,12 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadNeighborsBeforeRowsSuccess: (
         neighborsBeforeRows: ResultRows,
-        payload?: any
+        payload?: void
     ) => {
         neighborsBeforeRows: ResultRows
-        payload?: any
+        payload?: void
     }
-    loadSampleIntentRows: () => any
+    loadSampleIntentRows: (_: void) => void
     loadSampleIntentRowsFailure: (
         error: string,
         errorObject?: any
@@ -314,12 +314,12 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadSampleIntentRowsSuccess: (
         sampleIntentRows: ResultRows,
-        payload?: any
+        payload?: void
     ) => {
         sampleIntentRows: ResultRows
-        payload?: any
+        payload?: void
     }
-    loadSummary: () => any
+    loadSummary: (_: void) => void
     loadSummaryFailure: (
         error: string,
         errorObject?: any
@@ -329,12 +329,12 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadSummarySuccess: (
         summary: ToolSummary | null,
-        payload?: any
+        payload?: void
     ) => {
         summary: ToolSummary | null
-        payload?: any
+        payload?: void
     }
-    loadTopUserRows: () => any
+    loadTopUserRows: (_: void) => void
     loadTopUserRowsFailure: (
         error: string,
         errorObject?: any
@@ -344,10 +344,10 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadTopUserRowsSuccess: (
         topUserRows: ResultRows,
-        payload?: any
+        payload?: void
     ) => {
         topUserRows: ResultRows
-        payload?: any
+        payload?: void
     }
     selectFailure: (bucket: MCPToolFailureItem | null) => {
         bucket: MCPToolFailureItem | null
@@ -427,13 +427,16 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         summary: [
             null as ToolSummary | null,
             {
-                loadSummary: async (): Promise<ToolSummary | null> => {
+                // Guarded with breakpoint: a shared filter change reloads every section, so a slower
+                // response from before the change must not overwrite the current filter's summary.
+                loadSummary: async (_: void, breakpoint): Promise<ToolSummary | null> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolStatsQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolStatsItem[] }
+                    breakpoint()
                     const row = response?.results?.[0]
                     if (!row) {
                         return null
@@ -452,13 +455,14 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         descriptions: [
             [] as DescriptionRevision[],
             {
-                loadDescriptions: async (): Promise<DescriptionRevision[]> => {
+                loadDescriptions: async (_: void, breakpoint): Promise<DescriptionRevision[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolDescriptionsQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolDescriptionItem[] }
+                    breakpoint()
                     return (response?.results ?? []).map((r) => ({
                         description: r.description,
                         last_seen: r.last_seen,
@@ -470,13 +474,14 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             null as IntentCoverage | null,
             {
                 // Reads the same MCPToolStatsQuery as `summary`; the coverage denominator is the call count.
-                loadIntentCoverage: async (): Promise<IntentCoverage | null> => {
+                loadIntentCoverage: async (_: void, breakpoint): Promise<IntentCoverage | null> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolStatsQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolStatsItem[] }
+                    breakpoint()
                     const row = response?.results?.[0]
                     if (!row) {
                         return null
@@ -515,13 +520,14 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         failureBuckets: [
             [] as MCPToolFailureItem[],
             {
-                loadFailureBuckets: async (): Promise<MCPToolFailureItem[]> => {
+                loadFailureBuckets: async (_: void, breakpoint): Promise<MCPToolFailureItem[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolFailuresQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolFailureItem[] }
+                    breakpoint()
                     return response?.results ?? []
                 },
             },
@@ -553,13 +559,14 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         sampleIntentRows: [
             [] as ResultRows,
             {
-                loadSampleIntentRows: async (): Promise<ResultRows> => {
+                loadSampleIntentRows: async (_: void, breakpoint): Promise<ResultRows> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolSampleIntentsQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolSampleIntentItem[] }
+                    breakpoint()
                     return (response?.results ?? []).map((r) => [r.timestamp, r.intent, r.intent_source, r.harness])
                 },
             },
@@ -567,15 +574,31 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         neighborsBeforeRows: [
             [] as ResultRows,
             {
-                loadNeighborsBeforeRows: async (): Promise<ResultRows> =>
-                    neighborRows(props.toolName, 'before', values.dateRange, values.sharedQueryFilters),
+                loadNeighborsBeforeRows: async (_: void, breakpoint): Promise<ResultRows> => {
+                    const rows = await neighborRows(
+                        props.toolName,
+                        'before',
+                        values.dateRange,
+                        values.sharedQueryFilters
+                    )
+                    breakpoint()
+                    return rows
+                },
             },
         ],
         neighborsAfterRows: [
             [] as ResultRows,
             {
-                loadNeighborsAfterRows: async (): Promise<ResultRows> =>
-                    neighborRows(props.toolName, 'after', values.dateRange, values.sharedQueryFilters),
+                loadNeighborsAfterRows: async (_: void, breakpoint): Promise<ResultRows> => {
+                    const rows = await neighborRows(
+                        props.toolName,
+                        'after',
+                        values.dateRange,
+                        values.sharedQueryFilters
+                    )
+                    breakpoint()
+                    return rows
+                },
             },
         ],
         byHarnessRows: [
@@ -583,13 +606,14 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             {
                 // Server-resolved harness labels via the same runner as the dashboard (scoped to this
                 // tool's new-SDK calls by toolName), so the pill matches the dashboard's bucketing exactly.
-                loadByHarnessRows: async (): Promise<ResultRows> => {
+                loadByHarnessRows: async (_: void, breakpoint): Promise<ResultRows> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPHarnessBreakdownQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPHarnessBreakdownItem[] }
+                    breakpoint()
                     return (response?.results ?? []).map((r) => [
                         r.harness,
                         r.total_calls,
@@ -604,13 +628,14 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             [] as ResultRows,
             {
                 // The person tuple is rebuilt into the [distinct_id, _, properties] shape renderPersonCell expects.
-                loadTopUserRows: async (): Promise<ResultRows> => {
+                loadTopUserRows: async (_: void, breakpoint): Promise<ResultRows> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolTopUsersQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolTopUserItem[] }
+                    breakpoint()
                     return (response?.results ?? []).map((r) => [
                         [r.distinct_id, '', r.person_properties],
                         r.calls,

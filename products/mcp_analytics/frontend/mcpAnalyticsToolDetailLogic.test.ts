@@ -275,4 +275,32 @@ describe('shared filter wiring', () => {
         expect(reloads.length).toBe(10)
         expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
     })
+
+    // Regression: every section loader now depends on the shared filters, so a filter change while
+    // one is in flight fires it again. Without a breakpoint, a slower response from before the
+    // change could resolve last and overwrite the section with results for a stale filter.
+    it('discards a superseded summary response so a slow earlier request cannot overwrite it', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+
+        let resolveSlow: (value: unknown) => void = () => {}
+        const slow = new Promise((resolve) => {
+            resolveSlow = resolve
+        })
+        jest.spyOn(mockApi, 'query')
+            .mockImplementationOnce(() => slow as any)
+            .mockImplementationOnce(() => Promise.resolve({ results: [{ calls: 42 }] }))
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSummary()
+            logic.actions.loadSummary()
+        }).toDispatchActions(['loadSummarySuccess'])
+
+        expect(logic.values.summary?.calls).toBe(42)
+
+        // The stale first request resolving late must not overwrite the fresher result.
+        resolveSlow({ results: [{ calls: 1 }] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(logic.values.summary?.calls).toBe(42)
+    })
 })
