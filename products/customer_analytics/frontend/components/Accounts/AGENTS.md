@@ -174,7 +174,9 @@ When `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` is off, the scene renders `CustomerAnaly
 `AccountsTable` keeps the left expansion button in both flag states.
 With the flag on, `AccountPinnedPropertiesExpansion` shows only the user's pinned properties, read-only and in saved order.
 It reuses the project-keyed pin configuration and account-keyed sidebar values, without mounting the legacy tabs.
-Properties wrap horizontally within the table container. Empty pins link to account details.
+Properties use content widths capped at 16rem and wrap horizontally with 1rem gaps.
+LemonTable reserves 3rem for the expansion button under fixed layout.
+Empty pins link to account details.
 Loading, failed requests, refresh failures, and missing definitions remain distinct states.
 
 ## The expanded row

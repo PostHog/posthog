@@ -34,7 +34,7 @@ export function AccountPinnedPropertiesExpansion({ accountId }: { accountId: str
             data-attr="account-pinned-properties-expansion"
         >
             {propertiesPanelState === 'loading' ? (
-                <div className="flex flex-wrap gap-8" data-attr="account-pinned-properties-loading">
+                <div className="flex flex-wrap gap-4" data-attr="account-pinned-properties-loading">
                     <LemonSkeleton className="h-10 w-48 max-w-full" />
                     <LemonSkeleton className="h-10 w-48 max-w-full" />
                 </div>
@@ -61,9 +61,9 @@ export function AccountPinnedPropertiesExpansion({ accountId }: { accountId: str
                         </LemonBanner>
                     ) : null}
                     {sidebarProperties.length > 0 ? (
-                        <dl className="flex flex-wrap gap-x-8 gap-y-4 m-0">
+                        <dl className="flex flex-wrap gap-4 m-0">
                             {sidebarProperties.map((property) => (
-                                <div key={property.key} className="flex flex-col gap-1 w-48 max-w-full min-w-0">
+                                <div key={property.key} className="flex flex-col gap-1 max-w-64 min-w-0">
                                     <dt className="text-xs text-secondary truncate" title={property.definition.name}>
                                         {property.definition.name}
                                     </dt>
