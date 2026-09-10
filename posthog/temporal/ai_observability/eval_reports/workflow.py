@@ -57,6 +57,7 @@ from posthog.temporal.ai_observability.eval_reports.metrics import record_coordi
 from posthog.temporal.ai_observability.eval_reports.types import (
     AckEvalReportCursorsInput,
     CheckCountTriggeredEvalReportInput,
+    CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchInput,
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
@@ -76,6 +77,27 @@ logger = get_logger(__name__)
 class _DueReportCandidates(NamedTuple):
     report_ids: list[str]
     occurrence_keys: dict[str, str]
+
+
+def _collect_count_triggered_output(
+    output: CheckCountTriggeredEvalReportOutput,
+    due_report_ids: list[str],
+    occurrence_keys: dict[str, str],
+    skipped_counts: dict[str, int],
+    *,
+    window_due_report_ids: list[str] | None = None,
+    window_occurrence_keys: dict[str, str] | None = None,
+) -> None:
+    if output.due:
+        due_report_ids.append(output.report_id)
+        if window_due_report_ids is not None:
+            window_due_report_ids.append(output.report_id)
+        if output.occurrence_key is not None:
+            occurrence_keys[output.report_id] = output.occurrence_key
+            if window_occurrence_keys is not None:
+                window_occurrence_keys[output.report_id] = output.occurrence_key
+    elif output.skipped_reason is not None:
+        skipped_counts[output.skipped_reason] = skipped_counts.get(output.skipped_reason, 0) + 1
 
 
 @temporalio.workflow.defn(name=SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME)
@@ -249,14 +271,14 @@ async def _check_count_triggered_eval_report_candidates_batched(
                     failed.append((report_id, f"{type(group_result).__name__}: {group_result}"))
                 continue
             for output in group_result.results:
-                if output.due:
-                    due_report_ids.append(output.report_id)
-                    window_due_report_ids.append(output.report_id)
-                    if output.occurrence_key is not None:
-                        occurrence_keys[output.report_id] = output.occurrence_key
-                        window_occurrence_keys[output.report_id] = output.occurrence_key
-                elif output.skipped_reason is not None:
-                    skipped_counts[output.skipped_reason] = skipped_counts.get(output.skipped_reason, 0) + 1
+                _collect_count_triggered_output(
+                    output,
+                    due_report_ids,
+                    occurrence_keys,
+                    skipped_counts,
+                    window_due_report_ids=window_due_report_ids,
+                    window_occurrence_keys=window_occurrence_keys,
+                )
 
         # Start reports as each bounded check window completes. If the coordinator later
         # reaches its execution timeout, results from earlier windows are still delivered;

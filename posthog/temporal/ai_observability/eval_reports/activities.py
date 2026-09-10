@@ -552,6 +552,19 @@ def _load_eval_report_item_cursors(
     return cursors
 
 
+def _eval_report_cursor_ack_already_applied(
+    state: TemporalSchedulerState,
+    next_team_cursor: str,
+    item_states: dict[int, TemporalSchedulerState],
+    last_report_id_by_team: dict[int, str],
+) -> bool:
+    if state.discovery_cursor != next_team_cursor:
+        return False
+    return not item_states or all(
+        item_states[team_id].discovery_cursor == report_id for team_id, report_id in last_report_id_by_team.items()
+    )
+
+
 def _advance_eval_report_cursors(
     page: _EvalReportCandidatePage,
     selected_rows: Sequence[tuple[str, int]],
@@ -579,14 +592,12 @@ def _advance_eval_report_cursors(
             # The activity may have committed and then lost its reply. Treat the exact
             # post-ack state as success so Temporal retries are idempotent, while a genuinely
             # different cursor still exposes concurrent or stale work.
-            if state.discovery_cursor != next_team_cursor:
-                return False
-            if item_states and any(
-                item_states[team_id].discovery_cursor != report_id
-                for team_id, report_id in last_report_id_by_team.items()
-            ):
-                return False
-            return True
+            return _eval_report_cursor_ack_already_applied(
+                state,
+                next_team_cursor,
+                item_states,
+                last_report_id_by_team,
+            )
 
         if state.discovery_cursor != next_team_cursor:
             state.discovery_cursor = next_team_cursor
