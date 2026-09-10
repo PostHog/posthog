@@ -231,14 +231,14 @@ Note: Verified against the published OpenAPI spec linked from https://alguna.com
 
 ## AlphaVantage — **thin**
 
-Today (9): `balance_sheet`, `cash_flow`, `company_overview`, `earnings`, `global_quote`, `income_statement`, `time_series_daily`, `time_series_monthly`, `time_series_weekly`
+Today (13): `balance_sheet`, `cash_flow`, `company_overview`, `dividends`, `earnings`, `global_quote`, `income_statement`, `listing_status`, `splits`, `time_series_daily`, `time_series_daily_adjusted`, `time_series_monthly`, `time_series_weekly`
 
 Diffed against: <https://www.alphavantage.co/documentation/>
 
-- [ ] `LISTING_STATUS` — lookup table of every listed and delisted symbol with exchange, asset type and IPO/delisting dates - resolves the tickers already synced (high)
-- [ ] `TIME_SERIES_DAILY_ADJUSTED` — split/dividend-adjusted closes, required for any correct return or backtest calculation (high)
-- [ ] `DIVIDENDS` — corporate action history per symbol (high)
-- [ ] `SPLITS` — split history needed to reconcile the unadjusted price series already synced (high)
+- [x] `LISTING_STATUS` — lookup table of every listed and delisted symbol with exchange, asset type and IPO/delisting dates - resolves the tickers already synced (high)
+- [x] `TIME_SERIES_DAILY_ADJUSTED` — split/dividend-adjusted closes, required for any correct return or backtest calculation (high)
+- [x] `DIVIDENDS` — corporate action history per symbol (high)
+- [x] `SPLITS` — split history needed to reconcile the unadjusted price series already synced (high)
 - [ ] `NEWS_SENTIMENT` — news and sentiment feed - the vendor's headline alternative-data product (high)
 - [ ] `EARNINGS_CALENDAR` — upcoming earnings dates to join against the earnings table already synced (medium)
 - [ ] `INSIDER_TRANSACTIONS` — insider buy/sell transaction rows per symbol (medium)
