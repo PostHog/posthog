@@ -52,6 +52,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
     DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
     MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
+    AdvanceSubscriptionSchedulerCursorInputs,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
@@ -61,6 +62,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    FetchDueSubscriptionsActivityOutput,
     NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
@@ -123,7 +125,7 @@ class _DueSubscriptionsPage:
     due_items_lower_bound: int
     oldest_due_at: dt.datetime | None
     discovery_cursor: str
-    scanned_team_cursor: str
+    selected_team_ids: tuple[int, ...]
 
 
 def _subscription_child_workflow_id(subscription: DueSubscription) -> str:
@@ -193,10 +195,10 @@ def _select_due_subscription_candidate_ids(
                 fetched_counts[team_id] += 1
             teams_to_fetch = [team_id for team_id in teams_to_fetch if fetched_counts[team_id] == candidates_per_team]
 
-    candidates: list[tuple[int, dt.datetime, int, int]] = []
+    candidates: list[tuple[int, int, dt.datetime, int]] = []
     for team_id, rows in candidates_by_team.items():
         candidates.extend(
-            (team_rank, next_delivery_date, team_order[team_id], subscription_id)
+            (team_rank, team_order[team_id], next_delivery_date, subscription_id)
             for team_rank, (subscription_id, next_delivery_date) in enumerate(rows, start=1)
         )
     candidates.sort()
@@ -304,8 +306,11 @@ async def _persist_content_snapshot(
     return snapshot_bytes
 
 
-@temporalio.activity.defn
-async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
+async def _fetch_due_subscriptions(
+    inputs: FetchDueSubscriptionsActivityInputs,
+    *,
+    advance_cursor_before_return: bool,
+) -> FetchDueSubscriptionsActivityOutput:
     if not 1 <= inputs.max_subscriptions_per_run <= MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN:
         raise ValueError(f"max_subscriptions_per_run must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
     if not 0 <= inputs.buffer_minutes <= 60:
@@ -369,7 +374,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 deferred_teams = deferred_teams or due_subscriptions.filter(team_id__lte=team_cursor).exists()
 
             if not selected_team_ids:
-                return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor, discovery_cursor)
+                return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor, ())
 
             candidate_limit = _SUBSCRIPTION_CANDIDATE_LIMIT
             bounded_candidate_ids = _select_due_subscription_candidate_ids(
@@ -380,7 +385,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             candidate_ids = bounded_candidate_ids
 
         if not candidate_ids:
-            return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor, str(selected_team_ids[-1]))
+            return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor, tuple(selected_team_ids))
 
         subscriptions_by_id = {
             sub["id"]: sub
@@ -427,13 +432,13 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             due_items_lower_bound,
             oldest_due_at,
             discovery_cursor,
-            str(selected_team_ids[-1]),
+            tuple(selected_team_ids),
         )
 
     page = await get_subscriptions()
 
     @database_sync_to_async(thread_sensitive=False)
-    def reserve_candidates(candidates: list[DueSubscription]) -> dict[str, tuple[str, str]]:
+    def reserve_candidates(candidates: list[DueSubscription]) -> tuple[dict[str, tuple[str, str]], bool]:
         result = reserve_scheduler_claims(
             scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
             region=inputs.region,
@@ -451,11 +456,16 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 lease_duration=_SUBSCRIPTION_RESERVATION_LEASE,
             ),
         )
-        return {
-            reservation.occurrence_key: (str(reservation.claim_id), str(reservation.claim_token))
-            for reservation in result.reservations
-        }
+        return (
+            {
+                reservation.occurrence_key: (str(reservation.claim_id), str(reservation.claim_token))
+                for reservation in result.reservations
+            },
+            result.deferred_for_capacity > 0,
+        )
 
+    covered_team_ids: set[int] = set()
+    capacity_deferred = False
     if inputs.use_durable_claims:
         claimed_subscriptions: list[DueSubscription] = []
         candidate_index = 0
@@ -482,7 +492,10 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 break
             safe_candidates = candidates[:safe_candidate_count]
             candidate_index += safe_candidate_count
-            reservations = await reserve_candidates(safe_candidates)
+            reservations, batch_capacity_deferred = await reserve_candidates(safe_candidates)
+            capacity_deferred = capacity_deferred or batch_capacity_deferred
+            if not batch_capacity_deferred:
+                covered_team_ids.update(candidate.team_id for candidate in safe_candidates)
             for candidate in safe_candidates:
                 claim = reservations.get(_subscription_occurrence_key(candidate))
                 if claim is not None:
@@ -517,27 +530,26 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                     )
 
         await release_payload_deferred_claims()
-    cursor_team_id = (
-        page.scanned_team_cursor
-        if inputs.use_durable_claims and page.subscriptions
-        else str(selection.items[-1].team_id)
-        if selection.items
-        else None
-    )
-    if cursor_team_id is not None:
+    if inputs.use_durable_claims:
+        selected_item_team_ids = {subscription.team_id for subscription in selection.items}
+        covered_team_ids.update(selected_item_team_ids)
+        cursor_team_id: str | None = None
+        if not capacity_deferred:
+            for team_id in page.selected_team_ids:
+                if team_id not in covered_team_ids:
+                    break
+                cursor_team_id = str(team_id)
+    else:
+        cursor_team_id = str(selection.items[-1].team_id) if selection.items else None
 
-        @database_sync_to_async(thread_sensitive=False)
-        def advance_discovery_cursor() -> None:
-            TemporalSchedulerState.objects.filter(
-                scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
+    if advance_cursor_before_return and cursor_team_id is not None:
+        await database_sync_to_async(_advance_subscription_scheduler_cursor, thread_sensitive=False)(
+            AdvanceSubscriptionSchedulerCursorInputs(
                 region=inputs.region,
-                discovery_cursor=page.discovery_cursor,
-            ).update(
-                discovery_cursor=cursor_team_id,
-                updated_at=tz.now(),
+                expected_discovery_cursor=page.discovery_cursor,
+                next_discovery_cursor=cursor_team_id,
             )
-
-        await advance_discovery_cursor()
+        )
     limited_by = (
         "item_limit"
         if selection.limited_by == "none" and page.due_items_lower_bound > len(selection.items)
@@ -571,7 +583,51 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
         oldest_age_seconds=oldest_age_seconds,
     )
 
-    return list(selection.items)
+    return FetchDueSubscriptionsActivityOutput(
+        subscriptions=list(selection.items),
+        expected_discovery_cursor=page.discovery_cursor,
+        next_discovery_cursor=cursor_team_id,
+    )
+
+
+def _advance_subscription_scheduler_cursor(inputs: AdvanceSubscriptionSchedulerCursorInputs) -> bool:
+    state = TemporalSchedulerState.objects.filter(
+        scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
+        region=inputs.region,
+    )
+    updated = state.filter(discovery_cursor=inputs.expected_discovery_cursor).update(
+        discovery_cursor=inputs.next_discovery_cursor,
+        updated_at=tz.now(),
+    )
+    if updated:
+        return True
+    return state.filter(discovery_cursor=inputs.next_discovery_cursor).exists()
+
+
+@temporalio.activity.defn
+async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
+    if inputs.use_durable_claims:
+        raise ValueError("fetch_due_subscriptions_activity does not support durable claims")
+    output = await _fetch_due_subscriptions(inputs, advance_cursor_before_return=True)
+    return output.subscriptions
+
+
+@temporalio.activity.defn
+async def fetch_claimed_due_subscriptions_activity(
+    inputs: FetchDueSubscriptionsActivityInputs,
+) -> FetchDueSubscriptionsActivityOutput:
+    if not inputs.use_durable_claims:
+        raise ValueError("fetch_claimed_due_subscriptions_activity requires use_durable_claims=True")
+    return await _fetch_due_subscriptions(inputs, advance_cursor_before_return=False)
+
+
+@temporalio.activity.defn
+async def advance_subscription_scheduler_cursor_activity(
+    inputs: AdvanceSubscriptionSchedulerCursorInputs,
+) -> bool:
+    if not inputs.region.strip() or len(inputs.region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+    return await database_sync_to_async(_advance_subscription_scheduler_cursor, thread_sensitive=False)(inputs)
 
 
 @temporalio.activity.defn

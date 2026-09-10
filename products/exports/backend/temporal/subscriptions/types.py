@@ -163,6 +163,20 @@ class FetchDueSubscriptionsActivityInputs:
 
 
 @dataclasses.dataclass(frozen=True)
+class FetchDueSubscriptionsActivityOutput:
+    subscriptions: list[DueSubscription]
+    expected_discovery_cursor: str
+    next_discovery_cursor: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class AdvanceSubscriptionSchedulerCursorInputs:
+    region: str
+    expected_discovery_cursor: str
+    next_discovery_cursor: str
+
+
+@dataclasses.dataclass(frozen=True)
 class RecoverSubscriptionSchedulerClaimsInputs:
     region: str
     limit: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
