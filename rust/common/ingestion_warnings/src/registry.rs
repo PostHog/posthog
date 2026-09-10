@@ -28,15 +28,32 @@ impl WarningType {
     /// Types capture emits directly, with no error tag behind them.
     ///
     /// The tag route only reaches conditions capture already models as an
-    /// `Error` or a per-event drop detail. Some warnings aren't failures at all:
-    /// a rate-limited event is ingested (degraded, not dropped), so there is no
-    /// tag to map and inventing one would mean inventing an error that never
-    /// gets returned. Emit sites for these name the variant directly.
+    /// `Error` or a per-event drop detail. Two kinds of warning sit outside it:
+    ///
+    /// * Ones that aren't failures at all. A rate-limited event is ingested
+    ///   (degraded, not dropped), so there is no tag to map and inventing one
+    ///   would mean inventing an error that never gets returned.
+    /// * Ones from a pipeline that has no tag vocabulary. The AI endpoints
+    ///   reject via their own typed conditions, not `v1::Error`, so their tags
+    ///   would be strings no `Error` ever produces. The replay endpoint is the
+    ///   same case from the other direction: its conditions are `CaptureError`
+    ///   variants v1 analytics never returns, so no `Error::tag()` names them.
+    ///
+    /// Emit sites for these name the variant directly.
     ///
     /// This list exists so the trust-allowlist invariant below can still be
     /// airtight: `captureProduced` must equal "reachable by one of capture's two
     /// emit routes", and without this the direct route would be invisible to it.
-    pub const DIRECT_EMIT: [Self; 1] = [Self::HighVolumeDistinctId];
+    pub const DIRECT_EMIT: [Self; 8] = [
+        Self::HighVolumeDistinctId,
+        Self::DistinctIdTruncated,
+        Self::InvalidAiEvent,
+        Self::InvalidAiPayload,
+        Self::NoAiSpansIngested,
+        Self::MissingSessionId,
+        Self::InvalidSessionId,
+        Self::MissingSnapshotData,
+    ];
 
     /// Map a capture error tag (`v1::Error::tag()` / per-event drop detail) to a
     /// registered warning type. Returns `None` for anything not on the allowlist —
@@ -56,6 +73,14 @@ impl WarningType {
             "missing_event_uuid" => Some(Self::MissingEventUuid),
             "invalid_event_uuid" => Some(Self::InvalidEventUuid),
             "duplicate_event_uuid" => Some(Self::DuplicateEventUuid),
+            "message_size_too_large" => Some(Self::MessageSizeTooLarge),
+            // The v1 AI lane's per-event ceiling. v0 reports the same condition
+            // as `CaptureError::AiEventTooBig`, which already maps here, so
+            // moving AI traffic onto the v1 endpoint keeps the warning a
+            // project owner already sees for an oversized event. An alias, not
+            // a second route: `MessageSizeTooLarge` stays tag-derived, so the
+            // one-route-per-type invariant below is untouched.
+            "ai_event_too_big" => Some(Self::MessageSizeTooLarge),
             _ => None,
         }
     }
@@ -102,7 +127,13 @@ mod tests {
     }
 
     // Excluded on purpose: intentional drops, auth/transport/server errors, and
-    // post-validation drops are not data-quality signals for the v2 surface.
+    // ops-imposed drops are not data-quality signals for the v2 surface.
+    //
+    // "Post-validation" is not itself the test -- customer-actionable is.
+    // `event_restriction` is excluded because the operator caused it and the
+    // project owner cannot act on it; `ai_event_too_big` is included, after the
+    // same stage, because the customer sent an oversized event and v0 already
+    // tells them so.
     #[rstest]
     #[case::intentional_drop("dropped_performance_event")]
     #[case::auth("invalid_api_token")]

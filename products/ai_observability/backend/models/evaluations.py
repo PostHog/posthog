@@ -1,6 +1,7 @@
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -42,6 +43,11 @@ class EvaluationStatusReason(models.TextChoices):
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
+def evaluation_status_reason_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(EvaluationStatusReason.choices)
+
+
 class EvaluationQuerySet(models.QuerySet):
     def using_provider_keys(self) -> "EvaluationQuerySet":
         return self.filter(evaluation_type=EvaluationType.LLM_JUDGE)
@@ -50,6 +56,7 @@ class EvaluationQuerySet(models.QuerySet):
 class EvaluationTarget(models.TextChoices):
     GENERATION = "generation", "Generation"
     TRACE = "trace", "Trace"
+    SESSION = "session", "Session"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
@@ -60,6 +67,10 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["team", "enabled"]),
             models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
+            models.Index(
+                fields=["team", "directory", "-created_at", "id"],
+                name="llma_eval_team_dir_created_idx",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -75,12 +86,21 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
+    directory = models.ForeignKey(
+        "ai_observability.EvaluationDirectory",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="evaluations",
+        db_index=False,
+        db_constraint=False,
+    )
 
     # Lifecycle state. `status` is authoritative; `enabled` is a boolean projection kept in sync by save() for
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.
     enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
-    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
+    status_reason = models.CharField(max_length=50, choices=evaluation_status_reason_choices, null=True, blank=True)
     status_reason_detail = models.TextField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType)

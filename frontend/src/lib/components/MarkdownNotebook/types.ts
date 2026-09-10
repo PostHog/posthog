@@ -36,8 +36,18 @@ export type NotebookPropValue =
 
 export type NotebookComponentProps = Record<string, NotebookPropValue>
 
-export type NotebookTextBlockNode = {
+/** A run of consecutive text-like blocks shares one card (see `getMarkdownNotebookVisualGroups`).
+ * `startsGroup` opts a block out of the run above it, so it gets a card of its own: it is set when
+ * the block was added as a node in its own right — the insert menu's "+", an MCP cell insert, a
+ * block appended into the notebook — rather than typed as a continuation of the text before it.
+ * Stored in the markdown as a second blank line before the block so the split survives a save.
+ * Never set on the first block, which has no separator to widen and always starts a card. */
+type NotebookBlockNodeBase = {
     id: string
+    startsGroup?: boolean
+}
+
+export type NotebookTextBlockNode = NotebookBlockNodeBase & {
     type: 'paragraph' | 'heading' | 'blockquote'
     level?: 1 | 2 | 3 | 4 | 5 | 6
     /** A heading that is part of a blockquote: serialized with a `> ` prefix on every line. */
@@ -55,8 +65,7 @@ export type NotebookListItem = {
     checked?: boolean
 }
 
-export type NotebookListBlockNode = {
-    id: string
+export type NotebookListBlockNode = NotebookBlockNodeBase & {
     type: 'list'
     ordered: boolean
     start?: number
@@ -71,8 +80,7 @@ export type NotebookTableCell = {
     children: NotebookInlineNode[]
 }
 
-export type NotebookTableBlockNode = {
-    id: string
+export type NotebookTableBlockNode = NotebookBlockNodeBase & {
     type: 'table'
     headers: NotebookTableCell[]
     rows: NotebookTableCell[][]
@@ -88,16 +96,14 @@ export type NotebookCodeRefMark = {
     end: number
 }
 
-export type NotebookCodeBlockNode = {
-    id: string
+export type NotebookCodeBlockNode = NotebookBlockNodeBase & {
     type: 'code'
     language?: string
     text: string
     refs?: NotebookCodeRefMark[]
 }
 
-export type NotebookComponentBlockNode = {
-    id: string
+export type NotebookComponentBlockNode = NotebookBlockNodeBase & {
     type: 'component'
     tagName: string
     props: NotebookComponentProps
@@ -138,6 +144,12 @@ export type NotebookComponentRenderProps = {
     deleteNode: () => void
 }
 
+export type NotebookComponentToolbarProps = {
+    node: NotebookComponentBlockNode
+    notebookMode: NotebookMode
+    updateProps: (props: Partial<NotebookComponentProps>) => void
+}
+
 export type NotebookComponentInsertCommand = {
     label?: string
     category?: string
@@ -157,10 +169,20 @@ export type NotebookComponentDefinition = {
     defaultProps?: NotebookComponentProps | (() => NotebookComponentProps)
     validateProps?: (props: NotebookComponentProps) => string[]
     getTitle?: (node: NotebookComponentBlockNode) => string | null | undefined
+    editableTitle?: boolean
+    /** Canonical PostHog URL the block points at (e.g. the insight, recording, or person it renders), opened in a new tab from the toolbar. */
+    getHref?: (node: NotebookComponentBlockNode) => string | null | undefined
     ViewComponent: (props: NotebookComponentRenderProps) => JSX.Element
     EditComponent?: (props: NotebookComponentRenderProps) => JSX.Element
+    /** Rendered in the block's toolbar, in view mode as well as edit mode. The shell mounts it
+     * outside the panels, so it stays live while the block is collapsed and while the editing
+     * panel is closed — for a control a reader needs with no editor on screen, like Run. */
+    ToolbarComponent?: (props: NotebookComponentToolbarProps) => JSX.Element | null
     exclusiveEditPanel?: boolean
     hideModeActions?: boolean
+    /** Show the filters toggle in view mode too, when the host opts in via `allowViewModeFilters`
+     * (read-only canvases like customer profiles, where filters are the only way to configure a node). */
+    viewModeFilters?: boolean
     insertCommand?: NotebookComponentInsertCommand
 }
 

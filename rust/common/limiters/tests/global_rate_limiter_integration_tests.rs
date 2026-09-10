@@ -55,6 +55,14 @@ fn test_config(test_name: &str) -> GlobalRateLimiterConfig {
         global_read_timeout: Duration::from_millis(500),
         global_write_timeout: Duration::from_millis(500),
         metrics_scope: "integration_test".to_string(),
+        // These tests assert exact Redis counter values against a threshold of
+        // 1000, so every key must sync and every tick must drain fully.
+        min_sync_floor: 0,
+        max_sync_keys_per_tick: 10_000,
+        max_keys_per_command: 2_000,
+        max_concurrent_commands: 4,
+        max_write_batch_entries: 200_000,
+        max_pending_sync_entries: 200_000,
     }
 }
 
@@ -97,13 +105,19 @@ async fn test_epoch_key_ttl_expiry() {
     };
 
     let mut config = test_config("ttl_expiry");
-    config.global_cache_ttl = Duration::from_secs(2);
+    // `new()` clamps global_cache_ttl to 2x the window, so observing expiry
+    // needs a short window. 2s (not 1s) keeps the tick's stale-epoch purge
+    // 2-4s away from the write, safe on a loaded runner.
+    config.window_interval = Duration::from_secs(2);
+    config.global_cache_ttl = Duration::from_secs(4);
     let redis_arc: Arc<dyn Client + Send + Sync> = Arc::new(redis.clone());
     let limiter = GlobalRateLimiterImpl::new(config.clone(), vec![redis_arc]).unwrap();
 
-    let _ = limiter.check_limit("ttl_key", 10, None).await;
-
+    // Pin the write and the epoch lookup to one timestamp, or a short window
+    // rolls the epoch between them.
     let now = Utc::now();
+    let _ = limiter.check_limit("ttl_key", 10, Some(now)).await;
+
     let epoch = epoch_from_timestamp(now, config.window_interval);
     let redis_key = epoch_key(&config.redis_key_prefix, "ttl_key", epoch);
 
@@ -112,7 +126,7 @@ async fn test_epoch_key_ttl_expiry() {
         results[0].is_some()
     });
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     let results = redis.mget(vec![redis_key]).await.unwrap();
     assert!(results[0].is_none(), "Key should have expired after TTL");

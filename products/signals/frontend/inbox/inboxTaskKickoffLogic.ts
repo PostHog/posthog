@@ -1,0 +1,389 @@
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { urls } from 'scenes/urls'
+
+import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
+import {
+    ClaudeRuntimeAdapterEnumApi,
+    ClaudeTaskRunCreateSchemaApi,
+    ReasoningEffortEnumApi,
+    RunSourceEnumApi,
+    TaskExecutionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
+
+import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
+import {
+    SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
+    SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
+    SignalReport,
+    SignalReportStatus,
+    SignalReportTaskRelationship,
+} from './types'
+import { aiConsentDisabledReason } from './utils/aiConsent'
+
+// Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
+// task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
+// NOT a live chat surface. The created task carries the SignalReport linkage so the
+// backend's agent pipeline can pick it up.
+
+// The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
+type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
+
+// Discuss is a focused exchange about a report (a question to answer, or a suggested next step to
+// carry out) rather than a scheduled implementation run, so it pins the stronger model instead of
+// taking the server-side default of Sonnet: the answer quality is what the user is here for, and
+// the extra cost is bounded by the length of the conversation.
+const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+    model: 'claude-opus-5',
+    reasoning_effort: ReasoningEffortEnumApi.High,
+}
+
+// Pressing "Create PR" is a strong engagement signal — the user is committing to a real
+// implementation run — so it pins the stronger model rather than taking the server-side default of
+// Sonnet, giving the change the best shot at landing.
+const CREATE_PR_RUNTIME: ClaudeRuntimeSelection = {
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+    model: 'claude-opus-5',
+    reasoning_effort: ReasoningEffortEnumApi.High,
+}
+
+// The report's state is part of what a run owes the reader, and only the two ends of the happy
+// path are automatic: creating an implementation task claims the report server-side
+// (`record_implementation_task`), and a merged PR resolves it (`_apply_pr_report_state`). Every
+// other ending needs the agent, so spell the endings out. Resolving through the state API also
+// closes the report's open PR (`close_pr_when_report_dismissed`), which is why opening a PR must
+// not be reported as a resolution. Without this the report stays claimed and unresolved after a
+// run that found nothing to do, and the next reader cannot tell it from work still in flight.
+// The claim needs the same care from both ends: it is taken once, when the task is created, so a
+// rerun of a task that released it starts unclaimed, and suppressing a report leaves the claim
+// standing (only `claim_report` clears an actor), which would show a finished run as still working
+// if the report is ever restored.
+const REPORT_STATE_INSTRUCTIONS = `Keep the report's own state honest while you work, with the inbox MCP tools (\`inbox-reports-set-state\`, \`inbox-reports-claim\`):
+- Read the report before you start. This run took the report when its task was created, but a rerun of a run that released it starts unclaimed: claim it again first, so the work you are about to do is visible to everyone else.
+- Opening the PR is enough by itself. The PR is linked to the report for you, and merging it resolves the report. Do NOT set the state to resolved because you opened a PR: that closes the PR you just opened.
+- If the work is finished without a PR, set the state to resolved with the reason that fits (\`fixed_outside_posthog\`, \`pr_merged\`, or \`already_fixed\`) and a short note that says what you did.
+- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note, then release your claim: suppressing does not release it for you.
+- If you stop for any other reason, release your claim on the report, so it does not look like work is still in flight.`
+
+export function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
+    const base = `Act on PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the root cause using the report's contributing findings, implement the fix, and open a PR.${
+        report.summary ? `\n\nReport summary:\n${report.summary}` : ''
+    }\n\n${REPORT_STATE_INSTRUCTIONS}`
+    const trimmed = feedback?.trim()
+    if (!trimmed) {
+        return base
+    }
+    return `${base}\n\nAdditional feedback from the user (take this into account):\n${trimmed}`
+}
+
+// The only statuses whose lifecycle still has work to do, and the only ones scout and pipeline
+// reports reach after passing the safety judge. Everything else answers only: pre-judgment statuses
+// (potential/candidate/in_progress) carry unjudged pipeline content, suppressed/failed reports carry
+// the content the judge rejected, and a resolved report's persisted action suggestions would just
+// redo already-completed work. Custom-agent reports are born ready without a judge pass - a
+// deliberately trusted engineering surface, and the same trust autostart already extends by opening
+// implementation PRs from them.
+const ACTION_CAPABLE_STATUSES: readonly SignalReportStatus[] = [
+    SignalReportStatus.READY,
+    SignalReportStatus.PENDING_INPUT,
+]
+
+/** Whether Ask AI hands this report the action-capable framing rather than answer-only.
+ * The Ask AI copy and suggestion rows key off this too, so the UI never invites an action the
+ * wrapper would refuse. Beyond the status allowlist, an already-addressed report answers only:
+ * a fix is already in flight, so acting on its recommendations would duplicate that work (the
+ * same reason autostart and Create PR eligibility exclude it). A report the actionability judge
+ * classified `not_actionable` answers only too — the product's own judgment says it holds no work
+ * to act on (`canCreateImplementationPr` hides Create PR for the same reason), and resolving it
+ * has its own button. A missing judgment stays action-capable: most such reports predate the
+ * judge, and their stored prompts were still safety-judged. A report that already exposes an
+ * implementation PR answers only, matching `canCreateImplementationPr`: acting on its stored
+ * suggestions would open a second PR for the same work. */
+export function isActionCapableReport(report: SignalReport): boolean {
+    return (
+        ACTION_CAPABLE_STATUSES.includes(report.status) &&
+        report.already_addressed !== true &&
+        report.actionability !== 'not_actionable' &&
+        !report.implementation_pr_url
+    )
+}
+
+export function buildDiscussReportPrompt(report: SignalReport | null, reportUrl: string, question: string): string {
+    // The task is already linked to the report, but including the URL lets the agent open and read
+    // the full report itself. The user's message follows after a blank line for clear separation.
+    // `null` means the caller could not confirm the report's current state (the kickoff refetch
+    // failed), which fails closed to answering.
+    if (report === null || !isActionCapableReport(report)) {
+        return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
+    }
+    // Framed as question-or-action because a report's suggested prompts include next-step requests
+    // ("create the alert the report recommends"); "answer this question" would pin the agent to
+    // replying instead of acting.
+    // State hygiene rides along with the action framing only: a run that just answers a question
+    // has changed nothing about the report, so the only endings worth recording are an action that
+    // finishes the report or an exchange that shows it holds no work. A discussion run may open a
+    // PR of its own, so it needs the same do-not-resolve-on-an-open-PR rule the Create PR prompt
+    // carries. It also never claims the report (`record_report_task` claims for `implementation`
+    // only) and the state API has no ownership precondition, so it is told to keep its hands off a
+    // report somebody else is working — the check a discussion run can actually make.
+    return `A user sent this about the PostHog Inbox report at ${reportUrl}. If it is a question, answer it; if it asks for action, carry the action out and summarize what you did:\n\n${question.trim()}\n\nIf you carry an action out that finishes what the report asked for, record it on the report with the inbox MCP tools (\`inbox-reports-set-state\`): set the state to resolved with the reason \`fixed_outside_posthog\` and a short note that says what you did. Opening a pull request does not finish it — the PR is linked to the report and merging it resolves the report, so setting the state to resolved would close the PR you just opened. If the exchange shows the report holds no work to do, set the state to suppressed with the reason that says why and a short note. Before either, read the report again and leave its state alone when somebody else holds it or an implementation PR is already open on it: that work is not yours to end. Answering a question changes nothing about the report, so leave its state alone.`
+}
+
+// The per-report cap 429 carries code `signal_report_task_cap` with its message under `error`
+// (TaskRunErrorResponseSerializer); the per-user creation throttle is DRF's `throttled` 429 with
+// `detail`. Both are user-facing copy the server owns. Matching on code, not status: other 429s
+// (e.g. the compute-quota gate) are not task limits and belong on the generic failure path.
+function taskLimitMessage(error: any): string | null {
+    if (error?.code === 'signal_report_task_cap' || error?.code === 'throttled') {
+        return error?.data?.error || error?.detail || 'Task limit reached for this report. Try again later.'
+    }
+    return null
+}
+
+// Shared error tail of both kickoff listeners: a recognized task-limit 429 gets the server's copy
+// and a `limited` outcome; anything else is a plain failure.
+function handleKickoffError(
+    error: any,
+    report: SignalReport,
+    actionType: InboxReportActionType,
+    fallbackMessage: string
+): void {
+    const limitMessage = taskLimitMessage(error)
+    if (limitMessage) {
+        lemonToast.error(limitMessage)
+        captureInboxReportActionCompleted({
+            report,
+            actionType,
+            outcome: 'limited',
+            limitCode: error?.code ?? null,
+        })
+        return
+    }
+    lemonToast.error(error?.detail || error?.message || fallbackMessage)
+    captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
+}
+
+async function createReportTask(
+    report: SignalReport,
+    relationship: SignalReportTaskRelationship,
+    prompt: string,
+    fallbackTitle: string,
+    runtimeSelection?: ClaudeRuntimeSelection,
+    discussionQuestion?: string
+): Promise<void> {
+    // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
+    const task = await api.tasks.create({
+        title: report.title?.trim() || fallbackTitle,
+        description: prompt,
+        origin_product: OriginProduct.SIGNAL_REPORT,
+        // Linkage fields accepted by the tasks backend for the signal_report origin.
+        signal_report: report.id,
+        signal_report_task_relationship: relationship,
+        signal_report_discussion_question:
+            relationship === SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP ? discussionQuestion?.trim() : undefined,
+    } as Parameters<typeof api.tasks.create>[0])
+
+    // Kick off a cloud run so the task actually executes — creating it alone lands the user on a
+    // "This task hasn't been run yet" screen. `run_source` ties the run to the report and makes any
+    // PR bot-authored server-side, mirroring the auto-start pipeline's `create_and_run_task`.
+    const runOptions = {
+        run_source: RunSourceEnumApi.SignalReport,
+        signal_report_id: report.id,
+        // Interactive, not the default background: the user lands on the run page right away, and the
+        // agent-server only relays AskUserQuestion (and other approval prompts) to the client on
+        // non-background runs — a background run's questions are parked and never rendered as a form.
+        mode: TaskExecutionModeEnumApi.Interactive,
+        // The agent-server self-delivers `pending_user_message` from run state on boot, and interactive
+        // runs skip the workflow's forwarding path. Nothing falls back to the task description on the
+        // ACP runtime, so without this the sandbox boots with no first turn and the run just idles.
+        pending_user_message: prompt,
+    }
+    await api.tasks.run(task.id, runtimeSelection ? { ...runOptions, ...runtimeSelection } : runOptions)
+
+    router.actions.push(urls.taskDetail(task.id))
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxTaskKickoffLogicValues {
+    dataProcessingAccepted: boolean // aiConsentLogic
+    dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    aiConsentDisabledReason: string | null
+    isCreatingPr: boolean
+    isDiscussing: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxTaskKickoffLogicActions {
+    createPrFailure: () => {
+        value: true
+    }
+    createPrFromReport: (
+        report: SignalReport,
+        feedback?: string
+    ) => {
+        feedback: string | undefined
+        report: SignalReport
+    }
+    createPrSuccess: () => {
+        value: true
+    }
+    discussReport: (
+        report: SignalReport,
+        reportUrl: string,
+        question: string
+    ) => {
+        question: string
+        report: SignalReport
+        reportUrl: string
+    }
+    discussReportFailure: () => {
+        value: true
+    }
+    discussReportSuccess: () => {
+        value: true
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxTaskKickoffLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        aiConsentDisabledReason: (
+            dataProcessingAccepted: boolean,
+            dataProcessingApprovalDisabledReason: string | null
+        ) => string | null
+    }
+}
+
+export type inboxTaskKickoffLogicType = MakeLogicType<
+    inboxTaskKickoffLogicValues,
+    inboxTaskKickoffLogicActions,
+    Record<string, any>,
+    inboxTaskKickoffLogicMeta
+>
+
+export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
+    path(['scenes', 'inbox', 'inboxTaskKickoffLogic']),
+
+    connect({
+        values: [aiConsentLogic, ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason']],
+    }),
+
+    actions({
+        discussReport: (report: SignalReport, reportUrl: string, question: string) => ({ report, reportUrl, question }),
+        createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
+        discussReportSuccess: true,
+        discussReportFailure: true,
+        createPrSuccess: true,
+        createPrFailure: true,
+    }),
+
+    reducers({
+        isDiscussing: [
+            false,
+            {
+                discussReport: () => true,
+                discussReportSuccess: () => false,
+                discussReportFailure: () => false,
+            },
+        ],
+        isCreatingPr: [
+            false,
+            {
+                createPrFromReport: () => true,
+                createPrSuccess: () => false,
+                createPrFailure: () => false,
+            },
+        ],
+    }),
+
+    selectors({
+        aiConsentDisabledReason: [
+            (s) => [s.dataProcessingAccepted, s.dataProcessingApprovalDisabledReason],
+            (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
+                aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
+        discussReport: async ({ report, reportUrl, question }) => {
+            // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
+            // run endpoint enforces no consent of its own.
+            if (values.aiConsentDisabledReason) {
+                lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'discuss',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
+                actions.discussReportFailure()
+                return
+            }
+            // The popover renders from a snapshot that can go stale between load and submit (the
+            // report resolves, fails, or gets suppressed meanwhile), so the action-vs-answer framing
+            // is derived from the report's current server-side state. A failed refetch fails closed:
+            // `null` pins the run to answering.
+            let currentReport: SignalReport | null = null
+            try {
+                currentReport = await api.signalReports.get(report.id)
+            } catch {
+                currentReport = null
+            }
+            // The pane can offer an action suggestion the fresh state no longer supports. The run
+            // still goes out (the reader may still want the answer), but downgrading silently would
+            // misrepresent what the click bought - so say so. Only when the state is confirmed
+            // changed: a failed refetch also answers only, but "report changed" would be a guess.
+            if (currentReport !== null && isActionCapableReport(report) && !isActionCapableReport(currentReport)) {
+                lemonToast.info('This report can no longer take actions, so AI will answer instead.')
+            }
+            try {
+                await createReportTask(
+                    report,
+                    SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
+                    buildDiscussReportPrompt(currentReport, reportUrl, question),
+                    'Ask AI about report',
+                    DISCUSS_RUNTIME,
+                    question
+                )
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
+                actions.discussReportSuccess()
+            } catch (error: any) {
+                handleKickoffError(error, report, 'discuss', "Couldn't ask AI about this report. Try again.")
+                actions.discussReportFailure()
+            }
+        },
+        createPrFromReport: async ({ report, feedback }) => {
+            if (values.aiConsentDisabledReason) {
+                lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'create_pr',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
+                actions.createPrFailure()
+                return
+            }
+            try {
+                await createReportTask(
+                    report,
+                    SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
+                    buildCreatePrReportPrompt(report, feedback),
+                    'Implement report fix',
+                    CREATE_PR_RUNTIME
+                )
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
+                actions.createPrSuccess()
+            } catch (error: any) {
+                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                actions.createPrFailure()
+            }
+        },
+    })),
+])

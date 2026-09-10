@@ -56,41 +56,65 @@ export function createXAxisTickCallback({
 export const parseDateForAxis = parseDateInTimezone
 
 /** Full date label for a tooltip header. Unlike the sparse, abbreviated axis ticks, every point
- *  gets a complete, unambiguous label, with the weekday when the bucket names a single day
- *  ("Sat, Jun 6, 2026", "Sat, Jun 6, 14:00" — but week/month buckets span days, so no weekday).
+ *  gets a complete label. Single-day buckets include the weekday, while longer buckets do not.
+ *  Repeated local times include their UTC offsets when `allDays` identifies a DST fallback.
  *  Non-date labels pass through unchanged. */
 export function createTooltipDateFormatter({
     interval,
     timezone,
+    allDays,
 }: {
     interval: TimeInterval
     timezone: string
+    allDays?: string[]
 }): (label: string) => string {
+    const formattedOffsets = new Map<string, Set<string>>()
+    if (interval === 'second' || interval === 'minute' || interval === 'hour') {
+        for (const label of allDays ?? []) {
+            const date = parseDateInTimezone(label, timezone)
+            if (date.isValid()) {
+                const formatted = formatTooltipDate(date, interval)
+                const offsets = formattedOffsets.get(formatted) ?? new Set<string>()
+                offsets.add(date.format('Z'))
+                formattedOffsets.set(formatted, offsets)
+            }
+        }
+    }
+
     return (label: string): string => {
         const date = parseDateInTimezone(label, timezone)
         if (!date.isValid()) {
             return label
         }
-        switch (interval) {
-            case 'second':
-                return date.format('ddd, MMM D, HH:mm:ss')
-            case 'minute':
-            case 'hour':
-                return date.format('ddd, MMM D, HH:mm')
-            case 'month':
-                return date.format('MMM YYYY')
-            case 'week':
-                return date.format('MMM D, YYYY')
-            case 'day':
-            default:
-                return date.format('ddd, MMM D, YYYY')
-        }
+        const formatted = formatTooltipDate(date, interval)
+        return (formattedOffsets.get(formatted)?.size ?? 0) > 1 ? `${formatted} (${date.format('Z')})` : formatted
+    }
+}
+
+function formatTooltipDate(date: Dayjs, interval: TimeInterval): string {
+    switch (interval) {
+        case 'second':
+            return date.format('ddd, MMM D, HH:mm:ss')
+        case 'minute':
+        case 'hour':
+            return date.format('ddd, MMM D, HH:mm')
+        case 'month':
+            return date.format('MMM YYYY')
+        case 'quarter':
+            return `Q${Math.floor(date.month() / 3) + 1} ${date.year()}`
+        case 'year':
+            return date.format('YYYY')
+        case 'week':
+            return date.format('MMM D, YYYY')
+        case 'day':
+        default:
+            return date.format('ddd, MMM D, YYYY')
     }
 }
 
 function pickMode(interval: TimeInterval, parsedDates: Dayjs[], first: Dayjs, last: Dayjs): TickMode {
-    const spanMonths = (last.year() - first.year()) * 12 + last.month() - first.month()
-    const spanDays = last.diff(first, 'day')
+    const spanMonths = Math.abs((last.year() - first.year()) * 12 + last.month() - first.month())
+    const spanDays = Math.abs(last.diff(first, 'day'))
 
     if (interval === 'quarter') {
         return { type: 'quarter' }
@@ -167,14 +191,14 @@ function inferInterval(parsedDates: Dayjs[]): TimeInterval {
     if (parsedDates.length < 2) {
         return 'day'
     }
-    const diffHours = parsedDates[1].diff(parsedDates[0], 'hour')
+    const diffHours = Math.abs(parsedDates[1].diff(parsedDates[0], 'hour'))
     if (diffHours < 1) {
         return 'minute'
     }
     if (diffHours < 24) {
         return 'hour'
     }
-    const diffDays = parsedDates[1].diff(parsedDates[0], 'day')
+    const diffDays = Math.abs(parsedDates[1].diff(parsedDates[0], 'day'))
     if (diffDays >= 300) {
         return 'year'
     }

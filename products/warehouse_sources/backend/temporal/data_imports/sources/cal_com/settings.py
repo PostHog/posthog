@@ -5,6 +5,14 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 PaginationStyle = Literal["cursor", "offset", "none"]
 
+# Cal.com serves its EU data region from a separate host, and an API key is only valid against the
+# region its account lives in. The host is chosen by the `region` form field rather than by a
+# user-supplied URL (no SSRF surface — the set is fixed).
+CAL_COM_HOSTS: dict[str, str] = {
+    "us": "https://api.cal.com/v2",
+    "eu": "https://api.cal.eu/v2",
+}
+
 _BOOKING_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
         "label": "updatedAt",

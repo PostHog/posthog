@@ -65,7 +65,7 @@ jest.mock('@tiptap/html', () => ({
 jest.mock('@tiptap/starter-kit', () => ({ __esModule: true, default: { configure: () => ({}) } }))
 jest.mock('@tiptap/extension-code-block-lowlight', () => ({ __esModule: true, default: { configure: () => ({}) } }))
 jest.mock('@tiptap/extension-image', () => ({ Image: { configure: () => ({}) } }))
-jest.mock('@tiptap/extension-link', () => ({ Link: { configure: () => ({}) } }))
+jest.mock('lib/components/RichContentEditor/LinkExtension', () => ({ LinkExtension: { configure: () => ({}) } }))
 jest.mock('@tiptap/extension-underline', () => ({ Underline: {} }))
 jest.mock('./EmbedExtension', () => ({ EmbedExtension: {} }))
 

@@ -3,15 +3,18 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.db.models import Case, CharField, Count, FloatField, Func, Q, QuerySet, Value, When
-from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import Count, Q, QuerySet
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ReplayObservation,
+    annotate_output_number,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 
 DEFAULT_IMPACT_WINDOW_DAYS = 30
@@ -75,21 +78,12 @@ def affected_observations(
             raise ValueError("Scorers don't produce tags; use `min_score`/`max_score` instead.")
         if not has_scores:
             raise ValueError("Scorer impact requires `min_score` and/or `max_score`.")
-        score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
-        score_text = KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result"))
-        # CASE-guard the cast so a non-numeric score (schema drift) doesn't 500 the query.
-        qs = base.annotate(
-            _score_type=Func(score_jsonb, function="jsonb_typeof", output_field=CharField()),
-            _score=Case(
-                When(_score_type="number", then=Cast(score_text, FloatField())),
-                default=Value(None),
-                output_field=FloatField(),
-            ),
-        )
+        qs = annotate_output_number(base, "score", "_score")
+        # Literal dict keys: django-stubs can't see the helper's annotation, so plain kwargs fail mypy.
         if min_score is not None:
-            qs = qs.filter(_score__gte=min_score)
+            qs = qs.filter(**{"_score__gte": min_score})
         if max_score is not None:
-            qs = qs.filter(_score__lte=max_score)
+            qs = qs.filter(**{"_score__lte": max_score})
         return qs
 
     raise ValueError(f"Impact is not available for {scanner_type} scanners.")

@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
+import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -31,6 +31,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
+import { hiddenEventMatchingSearch } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -744,6 +745,17 @@ function InfiniteListEmptyState(): JSX.Element {
                       (infiniteListResultCounts[groupType] ?? 0) > 0
               )
             : []
+
+    // Reads the Events group rather than this list's own group: in the pill variant the active tab is
+    // the aggregated one, which carries no exclusions of its own. `taxonomicGroups` holds every group
+    // whether or not this filter offers it, hence the gate.
+    const hiddenEventSearched = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Events)
+        ? hiddenEventMatchingSearch(
+              searchQuery,
+              taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)?.excludedProperties
+          )
+        : null
+
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
             {suggestedFiltersBeforeSearching ? (
@@ -763,6 +775,21 @@ function InfiniteListEmptyState(): JSX.Element {
                         Type at least {minSearchQueryLength} characters to search
                     </span>
                 </>
+            ) : hiddenEventSearched ? (
+                // Replaces the generic "no results" line and its recovery buttons: including stale
+                // events cannot bring back an excluded name, and the category jumps lead away from
+                // the answer.
+                <div className="flex flex-col gap-y-1 items-center" data-attr="taxonomic-hidden-event">
+                    <IconArchive className="text-5xl text-tertiary" />
+                    <span className="text-center">
+                        <strong>{hiddenEventSearched}</strong> isn't available here
+                    </span>
+                    <span className="max-w-80 text-center text-secondary">
+                        PostHog still collects this event, but you can't build a saved query on it. Its data is moving,
+                        so a saved query would stop returning results. To see how a flag is used, open the flag and
+                        check its Usage tab.
+                    </span>
+                </div>
             ) : (
                 <>
                     <IconArchive className="text-5xl text-tertiary" />
@@ -824,6 +851,26 @@ function InfiniteListEmptyState(): JSX.Element {
     )
 }
 
+function InfiniteListErrorState(): JSX.Element {
+    const { retryRemoteItems } = useActions(infiniteListLogic)
+
+    return (
+        <div className="no-infinite-results flex flex-col gap-y-1 items-center">
+            <IconWarning className="text-5xl text-tertiary" />
+            <span className="text-center">Couldn't load results</span>
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                data-attr="taxonomic-retry-remote-items"
+                onClick={retryRemoteItems}
+            >
+                Try again
+            </LemonButton>
+            <span className="text-center text-secondary italic">If it keeps happening, contact support.</span>
+        </div>
+    )
+}
+
 export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
@@ -852,6 +899,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showPopover,
         showNonCapturedEventOption,
         showEmptyState,
+        showErrorState,
         showLoadingState,
         isSuggestedFilters,
         isActiveTab,
@@ -878,12 +926,14 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         <div
             className={cn(
                 'taxonomic-infinite-list',
-                showEmptyState && 'empty-infinite-list',
+                (showEmptyState || showErrorState) && 'empty-infinite-list',
                 'h-full',
                 isSuggestedFilters && 'empty-infinite-list--start'
             )}
         >
-            {showEmptyState ? (
+            {showErrorState ? (
+                <InfiniteListErrorState />
+            ) : showEmptyState ? (
                 <InfiniteListEmptyState />
             ) : showLoadingState ? (
                 <div className="flex items-center justify-center h-full">

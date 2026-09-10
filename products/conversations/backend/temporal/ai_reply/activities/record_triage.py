@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from django.db import transaction
 
 from temporalio import activity
@@ -17,16 +15,14 @@ from products.conversations.backend.temporal.ai_reply.schemas import RecordTriag
 @close_db_connections
 async def support_record_triage_activity(input: RecordTriageInput) -> None:
     """Merge triage/outcome metadata into the ticket's ai_triage JSON field."""
-    await database_sync_to_async(_record_triage_sync, thread_sensitive=False)(
-        input.team_id, input.ticket_id, input.patch
-    )
+    await database_sync_to_async(_record_triage_sync, thread_sensitive=False)(input)
 
 
-def _record_triage_sync(team_id: int, ticket_id: str, patch: dict[str, Any]) -> None:
+def _record_triage_sync(input: RecordTriageInput) -> None:
     with transaction.atomic():
-        ticket = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
+        ticket = Ticket.objects.select_for_update().filter(team_id=input.team_id, id=input.ticket_id).first()
         if ticket is None:
             return
-        merged = {**(ticket.ai_triage or {}), **patch}
+        merged = {**(ticket.ai_triage or {}), **input.patch}
         ticket.ai_triage = merged
         ticket.save(update_fields=["ai_triage", "updated_at"])

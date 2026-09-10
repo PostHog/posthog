@@ -10,8 +10,7 @@ import {
     BooleanField,
     DateField,
     DirectFieldProps,
-    ListDefaultField,
-    ListValuesField,
+    ListVariableFields,
     NumberField,
     StringField,
     VARIABLE_TYPE_OPTIONS,
@@ -33,11 +32,17 @@ function renderField<T extends Variable>(
     )
 }
 
-const renderVariableSpecificFields = (
-    variable: Variable,
-    updateVariable: (variable: Variable) => void,
+export const VariableSpecificFields = ({
+    variable,
+    updateVariable,
+    onSave,
+    defaultValuesQueryConnectionId,
+}: {
+    variable: Variable
+    updateVariable: (variable: Variable) => void
     onSave: () => void
-): JSX.Element => {
+    defaultValuesQueryConnectionId?: string | null
+}): JSX.Element => {
     switch (variable.type) {
         case 'String':
             return renderField(StringField, variable, updateVariable, onSave, 'Default value')
@@ -47,10 +52,12 @@ const renderVariableSpecificFields = (
             return renderField(BooleanField, variable, updateVariable, onSave, 'Default value')
         case 'List':
             return (
-                <>
-                    {renderField(ListValuesField, variable, updateVariable, onSave, 'Values')}
-                    {renderField(ListDefaultField, variable, updateVariable, onSave, 'Default value')}
-                </>
+                <ListVariableFields
+                    variable={variable}
+                    updateVariable={updateVariable}
+                    onSave={onSave}
+                    defaultValuesQueryConnectionId={defaultValuesQueryConnectionId}
+                />
             )
         case 'Date':
             return renderField(DateField, variable, updateVariable, onSave, 'Default value')
@@ -63,9 +70,16 @@ export interface VariableFormProps {
     onSave: () => void
     modalType: 'new' | 'existing'
     onTypeChange: (variableType: VariableType) => void
+    defaultValuesQueryConnectionId?: string | null
 }
 
-export const VariableForm = ({ variable, updateVariable, onSave, onTypeChange }: VariableFormProps): JSX.Element => {
+export const VariableForm = ({
+    variable,
+    updateVariable,
+    onSave,
+    onTypeChange,
+    defaultValuesQueryConnectionId,
+}: VariableFormProps): JSX.Element => {
     const codeNameFallback = getCodeName(variable.name)
     const referenceCodeName = variable.code_name || codeNameFallback
     const nameLabel = (
@@ -112,7 +126,12 @@ export const VariableForm = ({ variable, updateVariable, onSave, onTypeChange }:
                     options={VARIABLE_TYPE_OPTIONS}
                 />
             </LemonField.Pure>
-            {renderVariableSpecificFields(variable, updateVariable, onSave)}
+            <VariableSpecificFields
+                variable={variable}
+                updateVariable={updateVariable}
+                onSave={onSave}
+                defaultValuesQueryConnectionId={defaultValuesQueryConnectionId}
+            />
         </div>
     )
 }

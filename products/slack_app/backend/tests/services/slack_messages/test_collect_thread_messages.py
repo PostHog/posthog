@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.models.integration import Integration, SlackIntegration
@@ -9,6 +10,8 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.slack_app.backend.services.slack_messages import (
+    SlackFileRef,
+    SlackThreadMessage,
     collect_thread_messages,
     decode_slack_event_text,
     extract_message_text,
@@ -152,6 +155,65 @@ class TestExtractMessageText:
                     ],
                 },
                 "duplicated\ndifferent",
+            ),
+            (
+                # Human messages carry a rich_text mirror of `text` whose flattening drops
+                # mentions and emoji — a near-duplicate that must not reach the agent prompt.
+                "rich_text_mirror_of_text_is_skipped",
+                {
+                    "text": "never seen it work anywhere :joy: cc <@UCLEO>",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {"type": "text", "text": "never seen it work anywhere "},
+                                        {"type": "emoji", "name": "joy"},
+                                        {"type": "text", "text": " cc "},
+                                        {"type": "user", "user_id": "UCLEO"},
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "never seen it work anywhere :joy: cc <@UCLEO>",
+            ),
+            (
+                "rich_text_still_flattened_when_text_empty",
+                {
+                    "text": "",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [{"type": "text", "text": "bot content only in blocks"}],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "bot content only in blocks",
+            ),
+            (
+                "non_rich_text_blocks_kept_alongside_text",
+                {
+                    "text": "🔴 Alert firing",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {"type": "rich_text_section", "elements": [{"type": "text", "text": "🔴 Alert firing"}]}
+                            ],
+                        },
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "value 42 exceeded threshold 10"}},
+                    ],
+                },
+                "🔴 Alert firing\nvalue 42 exceeded threshold 10",
             ),
             (
                 "no_content_returns_empty",
@@ -359,11 +421,54 @@ class TestCollectThreadMessages:
         result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
 
         assert len(result) == 2
-        assert result[0]["user"] == "PostHog"
-        assert "🔴 Log alert 'High Error Rate' is firing" in result[0]["text"]
-        assert "Result count *42* exceeded threshold *10*" in result[0]["text"]
-        assert result[1]["user"] == "andy"
-        assert "was that really an anomaly?" in result[1]["text"]
+        assert result[0].user == "PostHog"
+        assert "🔴 Log alert 'High Error Rate' is firing" in result[0].text
+        assert "Result count *42* exceeded threshold *10*" in result[0].text
+        assert result[1].user == "andy"
+        assert "was that really an anomaly?" in result[1].text
+
+    def test_carries_attachment_metadata_needed_to_fetch_the_file(self):
+        # The screenshot a thread opens with is usually the one the request is about, so
+        # what it takes to fetch it has to survive the snapshot the agent is built from.
+        self._set_thread(
+            [
+                {
+                    "user": "U_ANDY",
+                    "text": "",
+                    "ts": "1.000",
+                    "files": [
+                        {
+                            "id": "F_CHART",
+                            "name": "costs.png",
+                            "mimetype": "image/png",
+                            "filetype": "png",
+                            "size": 165100,
+                            "url_private": "https://files.slack.com/files-pri/T1-F_CHART/costs.png",
+                            "url_private_download": "https://files.slack.com/files-pri/T1-F_CHART/download/costs.png",
+                            "thumb_360": "https://files.slack.com/files-tmb/T1-F_CHART/costs_360.png",
+                            "shares": {"public": {"C001": []}},
+                        }
+                    ],
+                },
+                {"user": "U_ANDY", "text": "<@UBOT> what is this telling us?", "ts": "2.000"},
+            ]
+        )
+        self.mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
+
+        result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
+
+        assert result[0].files == [
+            SlackFileRef(
+                id="F_CHART",
+                name="costs.png",
+                mimetype="image/png",
+                filetype="png",
+                size=165100,
+                url_private="https://files.slack.com/files-pri/T1-F_CHART/costs.png",
+                url_private_download="https://files.slack.com/files-pri/T1-F_CHART/download/costs.png",
+            )
+        ]
+        assert result[1].files == []
 
     def test_skips_our_own_bot_reply_messages(self):
         # Our own bot replies (e.g. "Working on it...") must be filtered so the agent
@@ -379,8 +484,8 @@ class TestCollectThreadMessages:
 
         result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
 
-        assert [m["ts"] for m in result] == ["1.000", "3.000"]
-        assert all(m["user"] == "andy" for m in result)
+        assert [m.ts for m in result] == ["1.000", "3.000"]
+        assert all(m.user == "andy" for m in result)
 
     def test_keeps_thread_root_even_when_bot_id_matches_our_own(self):
         # Regression: in workspaces where the alerting Slack app and the `@PostHog` code
@@ -416,9 +521,9 @@ class TestCollectThreadMessages:
         result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
 
         assert len(result) == 2
-        assert result[0]["user"] == "PostHog"
-        assert "Alert 'Headline anomaly: Trial activated'" in result[0]["text"]
-        assert result[1]["user"] == "andy"
+        assert result[0].user == "PostHog"
+        assert "Alert 'Headline anomaly: Trial activated'" in result[0].text
+        assert result[1].user == "andy"
 
     def test_other_bot_uses_bot_profile_name(self):
         self._set_thread(
@@ -436,7 +541,7 @@ class TestCollectThreadMessages:
 
         # Bot posts carry no raw user id, so `user_id` is empty — downstream prompt
         # builders fall back to the plain name instead of building a labeled mention.
-        assert result == [{"user": "Grafana", "user_id": "", "text": "alert: latency p95 above 2s", "ts": "1.000"}]
+        assert result == [SlackThreadMessage(user="Grafana", text="alert: latency p95 above 2s", ts="1.000")]
         self.mock_get_user_info.assert_not_called()
 
     def test_bot_without_profile_falls_back_to_username_field(self):
@@ -444,7 +549,7 @@ class TestCollectThreadMessages:
 
         result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
 
-        assert result == [{"user": "PostHog Webhook", "user_id": "", "text": "ping", "ts": "2.000"}]
+        assert result == [SlackThreadMessage(user="PostHog Webhook", text="ping", ts="2.000")]
 
     def test_includes_raw_user_id_for_real_users(self):
         # Downstream prompt builders render each message author as a labeled
@@ -456,7 +561,7 @@ class TestCollectThreadMessages:
 
         result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
 
-        assert result == [{"user": "andy", "user_id": "U_ANDY", "text": "hi", "ts": "1.000"}]
+        assert result == [SlackThreadMessage(user="andy", user_id="U_ANDY", text="hi", ts="1.000")]
 
     def test_includes_ts_for_initiator_disambiguation(self):
         self._set_thread(
@@ -469,7 +574,7 @@ class TestCollectThreadMessages:
 
         result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR")
 
-        assert [m["ts"] for m in result] == ["1.000", "2.000"]
+        assert [m.ts for m in result] == ["1.000", "2.000"]
 
     def test_preserves_user_mention_replacement(self):
         self._set_thread([{"user": "U_ANDY", "text": "hey <@UBOT> can you help"}])
@@ -477,7 +582,7 @@ class TestCollectThreadMessages:
 
         result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
 
-        assert result[0]["text"] == "hey <@UBOT|posthog-code> can you help"
+        assert result[0].text == "hey <@UBOT|posthog-code> can you help"
 
     def test_includes_thread_root_when_our_bot_id_is_none(self):
         # Defensive: if auth_test() somehow returned no bot_id we still process the thread.
@@ -491,7 +596,7 @@ class TestCollectThreadMessages:
 
         result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
 
-        assert [m["user"] for m in result] == ["PostHog", "andy"]
+        assert [m.user for m in result] == ["PostHog", "andy"]
 
     def test_registers_rate_limit_retry_handler(self):
         self.slack.client.retry_handlers = []
@@ -526,5 +631,47 @@ class TestCollectThreadMessages:
             result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR")
 
         assert len(result) == 2
-        assert result[0]["user"] == "PostHog"
-        assert result[1]["text"] == "still here"
+        assert result[0].user == "PostHog"
+        assert result[1].text == "still here"
+
+    @parameterized.expand(["thread_not_found", "message_not_found"])
+    def test_deleted_root_reads_as_an_empty_thread(self, error):
+        # Raising instead would exhaust the activity's retries and land in the workflow's
+        # error handler, which announces the failure in Slack — for a retracted prompt.
+        self.slack.client.conversations_replies.side_effect = SlackApiError(error, {"error": error})
+
+        assert collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None) == []
+
+    def test_other_slack_errors_still_propagate(self):
+        self.slack.client.conversations_replies.side_effect = SlackApiError("ratelimited", {"error": "ratelimited"})
+
+        with pytest.raises(SlackApiError):
+            collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
+
+
+class TestCollectThreadMessagesUntilTs:
+    """A fork reads the thread as it stood when the reader forked it. Without the clip
+    it would answer using messages posted after they stopped looking."""
+
+    def _collect(self, until_ts=None):
+        slack = MagicMock()
+        slack.client.conversations_replies.return_value = {
+            "messages": [
+                {"ts": "1.000", "user": "U1", "text": "first"},
+                {"ts": "2.000", "user": "U1", "text": "forked here"},
+                {"ts": "3.000", "user": "U1", "text": "said afterwards"},
+            ]
+        }
+        integration = MagicMock()
+        with patch(
+            "products.slack_app.backend.services.slack_messages.get_slack_user_info",
+            return_value={"user": {"profile": {"display_name": "mira"}}},
+        ):
+            return collect_thread_messages(slack, integration, "C1", "1.000", None, until_ts=until_ts)
+
+    def test_the_clip_is_inclusive_of_the_forked_message(self):
+        assert [m.text for m in self._collect(until_ts="2.000")] == ["first", "forked here"]
+
+    def test_no_bound_reads_the_whole_thread(self):
+        # The mention path passes none — it answers the thread as it stands.
+        assert [m.text for m in self._collect()] == ["first", "forked here", "said afterwards"]

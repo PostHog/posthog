@@ -39,10 +39,7 @@ def reverse_content_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("error_tracking", "0017_migrate_cohorts_models"),
-        ("experiments", "0018_migrate_cohorts_models"),
         ("posthog", "1215_migrate_replay_models"),
-        ("cohorts", "0001_migrate_cohorts_models"),
     ]
 
     operations = [

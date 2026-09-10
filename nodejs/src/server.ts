@@ -14,7 +14,6 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
-import { isDevEnv } from '~/common/utils/env-utils'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -35,18 +34,15 @@ import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogfl
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
-import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
 import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
-import { EmailReputationWorkerService } from './cdp/services/email-reputation/temporal/email-reputation-worker.service'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
-import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
@@ -55,7 +51,7 @@ import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
-import { HealthCheckResultOk, PluginServerService, PluginsServerConfig, RedisPool } from './types'
+import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -102,10 +98,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
-            capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpCyclotronWorkerEmail ||
-            capabilities.cdpCyclotronWorkerEmailLegacyPg ||
-            capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
@@ -199,7 +192,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpInternalEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!, kafkaQueue)
+                const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })
@@ -322,44 +318,15 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        // Legacy postgres v1 drain for hogflow jobs — delete once cdp-cyclotron-worker-hogflows-pg-legacy is shut down
-        if (capabilities.cdpCyclotronWorkerHogFlowLegacyPg) {
-            serviceLoaders.push(async () => {
-                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerHogFlow(
-                    this.config,
-                    this.withEmailValidationValkey(cdpDeps!),
-                    legacyQueue
-                )
-                await worker.start()
-                return worker.service
-            })
-        }
-
         // Boot-time guard: an email-sending deployment must carry a signing key, otherwise every send
         // would either mint an unsigned tracking link or (now that generate() fails closed) fail. Refuse
-        // to start instead of degrading silently. Both email workers below sign tracking codes.
-        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail || capabilities.cdpCyclotronWorkerEmailLegacyPg
+        // to start instead of degrading silently. The email worker below signs tracking codes.
+        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail
         if (isEmailWorker && !hasEmailSigningKey(this.config.ENCRYPTION_SALT_KEYS)) {
             throw new Error(
                 'Email worker requires ENCRYPTION_SALT_KEYS to sign tracking codes — refusing to start. ' +
                     'Configure ENCRYPTION_SALT_KEYS so outbound emails never mint unsigned tracking links.'
             )
-        }
-
-        // Transitional drain for email jobs stranded on the legacy V1 queue — the email worker
-        // run against V1, sending inline. Delete once V1 'email' throughput is ~0.
-        if (capabilities.cdpCyclotronWorkerEmailLegacyPg) {
-            serviceLoaders.push(async () => {
-                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(
-                    this.config,
-                    this.withEmailValidationValkey(cdpDeps!),
-                    legacyQueue
-                )
-                await worker.start()
-                return worker.service
-            })
         }
 
         if (capabilities.cdpCyclotronWorkerEmail) {
@@ -397,48 +364,12 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        if (capabilities.emailReputationEvaluator) {
-            serviceLoaders.push(async () => {
-                const worker = new EmailReputationWorkerService(this.config, { postgres: this.postgres! })
-                try {
-                    await worker.start()
-                } catch (error) {
-                    // In dev this capability rides along with the full CDP set — don't take the whole
-                    // plugin server down (or fail its /_health) when the local Temporal isn't running.
-                    // Dedicated deployments should crash and restart.
-                    if (isDevEnv()) {
-                        logger.warn('[EmailReputationWorker] failed to start, continuing without it (dev only)', {
-                            error,
-                        })
-                        // start() may have failed partway (worker already polling): tear down
-                        // whatever came up so the stub doesn't hide an unsupervised worker.
-                        await worker.stop().catch(() => {})
-                        return {
-                            id: 'email-reputation-evaluator',
-                            onShutdown: () => Promise.resolve(),
-                            healthcheck: () => new HealthCheckResultOk(),
-                        }
-                    }
-                    throw error
-                }
-                return worker.service
-            })
-        }
-
         // ServerCommands is always created
         serviceLoaders.push(() => {
             const serverCommands = new ServerCommands(this.pubsub!)
             this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
-
-        if (capabilities.cdpPrecalculatedFilters) {
-            serviceLoaders.push(async () => {
-                const worker = new CdpPrecalculatedFiltersConsumer(this.config, cdpDeps!)
-                await worker.start()
-                return worker.service
-            })
-        }
 
         if (capabilities.cdpCohortMembership) {
             serviceLoaders.push(async () => {

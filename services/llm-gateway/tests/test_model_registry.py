@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import (
     ModelInfo,
@@ -21,6 +22,12 @@ PROVIDER_ENV_VARS = [
 ]
 
 MOCK_COST_DATA: dict[str, ModelCost] = {
+    "gpt-6-astra": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 922000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
     "gpt-4o": {
         "litellm_provider": "openai",
         "max_input_tokens": 128000,
@@ -135,6 +142,7 @@ def create_mock_settings(
     fireworks: bool = False,
     cloudflare: bool = False,
     modal: bool = False,
+    baseten: bool = False,
 ) -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test" if openai else None
@@ -150,6 +158,8 @@ def create_mock_settings(
     settings.modal_kimi_api_base = "https://kimi.modal.test/v1" if modal else None
     settings.modal_key = "wk-test" if modal else None
     settings.modal_secret = "ws-test" if modal else None
+    settings.baseten_api_base = "https://baseten.test/v1" if baseten else None
+    settings.baseten_api_key = "baseten-test" if baseten else None
     return settings
 
 
@@ -248,6 +258,16 @@ class TestGetAvailableModels:
     def test_returns_model_info_objects(self):
         models = get_available_models("llm_gateway")
         assert all(isinstance(m, ModelInfo) for m in models)
+
+    @pytest.mark.parametrize("alias", COST_ALIASES)
+    def test_excludes_internal_cost_aliases(self, alias: str) -> None:
+        with patch.dict(
+            MOCK_COST_DATA,
+            {alias: {"litellm_provider": "openai", "max_input_tokens": 128000, "mode": "chat"}},
+        ):
+            model_ids = {model.id for model in get_available_models("llm_gateway")}
+
+        assert alias not in model_ids
 
 
 class TestProviderFiltering:
@@ -366,6 +386,33 @@ class TestCloudflareModelAdvertising:
             assert self._cf_ids("llm_gateway") == {"@cf/zai-org/glm-5.2"}
 
 
+class TestBasetenModelAdvertising:
+    @pytest.mark.parametrize(
+        ("model_id", "context_window", "allowed_products"),
+        [
+            ("deepseek-ai/deepseek-v4-flash-0731", 1_048_000, ("review_hog", "posthog_code")),
+            ("zai-org/glm-5.3", 1_048_576, ("review_hog", "posthog_code")),
+            ("zai-org/glm-5.3-flash", 1_000_000, ("review_hog", "posthog_code")),
+        ],
+    )
+    def test_baseten_exclusive_models_advertised_per_product(
+        self, model_id: str, context_window: int, allowed_products: tuple[str, ...]
+    ):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(baseten=True),
+        ):
+            for product in ("review_hog", "posthog_code", "llm_gateway", "slack_app"):
+                assert is_model_available(model_id, product) is (product in allowed_products)
+            for product in allowed_products:
+                model = next(
+                    model
+                    for model in ModelRegistryService.get_instance().get_available_models(product)
+                    if model.id == model_id
+                )
+                assert model.context_window == context_window
+
+
 class TestModelMatchesAllowlist:
     @pytest.mark.parametrize(
         "model_id,expected",
@@ -385,6 +432,22 @@ class TestModelMatchesAllowlist:
 
 
 class TestIsModelAvailable:
+    @pytest.mark.parametrize(
+        "product,expected",
+        [
+            ("posthog_code", True),
+            ("background_agents", True),
+            ("slack_app", True),
+            ("posthog_ai", True),
+            ("onboarding", False),
+            ("product_analytics", False),
+            ("review_hog", True),
+            ("stamphog", False),
+        ],
+    )
+    def test_gpt_6_astra_respects_product_allowlists(self, product: str, expected: bool) -> None:
+        assert is_model_available("gpt-6-astra", product) is expected
+
     @pytest.mark.parametrize(
         "model_id,product,expected",
         [

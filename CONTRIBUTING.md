@@ -41,7 +41,7 @@ We prefer not to accept external contributions for paid features. If you don't s
 
 # Feature requests
 
-Raise an issue for these and tag it as an Enhancement. We love every idea. Please give us as much context on the why as possible.
+Request features on [our public roadmap](https://posthog.com/roadmap). We love every idea. Please give us as much context on the why as possible.
 
 # Features
 
@@ -49,4 +49,4 @@ We strive to keep our [roadmap](https://posthog.com/roadmap) up-to-date, while o
 
 As a rule of thumb - if you wanna work on a specific feature that fits with helping developers understand product usage and/or extending PostHog to ingest more of their customer's data, we'll generally like it.
 
-If you are at all unsure, just raise it as an enhancement issue first, and we'll attempt to respond very quickly.
+If you are at all unsure, just raise an issue to discuss it first, and we'll attempt to respond very quickly.

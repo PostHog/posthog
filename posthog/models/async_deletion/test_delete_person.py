@@ -15,6 +15,10 @@ def _visible_person_count(team_id: int) -> int:
     return sync_execute("SELECT count() FROM person WHERE team_id = %(team_id)s", {"team_id": team_id})[0][0]
 
 
+def _current_person_count(team_id: int) -> int:
+    return sync_execute("SELECT count() FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": team_id})[0][0]
+
+
 def _dictionaries_exist() -> bool:
     # per-run dictionaries share a name prefix; none should remain after a run
     [[count]] = sync_execute(
@@ -53,14 +57,13 @@ class TestDeletePerson(BaseTest, ClickhouseTestMixin):
 
     def test_preserves_revived_persons(self):
         # Soft-deleted at v0 then revived at v1 (newer version, not deleted): the person is
-        # currently live -- argMax(is_deleted, version) = 0 -- so neither version may be removed.
+        # currently live, so the cleanup must preserve it.
         uuid = create_person(team_id=self.team.pk, version=0, is_deleted=True)
         create_person(uuid=uuid, team_id=self.team.pk, version=1, is_deleted=False)
 
         remove_deleted_person_data()
 
-        # both versions of the revived person survive (the delete keys on the whole person)
-        assert _visible_person_count(self.team.pk) == 2
+        assert _current_person_count(self.team.pk) == 1
 
     def test_no_op_when_nothing_is_soft_deleted(self):
         # Dictionary source query returns no rows -> dictHas is always false ->

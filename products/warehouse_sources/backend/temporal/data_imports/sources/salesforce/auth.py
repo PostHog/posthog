@@ -2,11 +2,14 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
-from django.conf import settings
-
 from requests import Response
-from requests.exceptions import JSONDecodeError
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    JSONDecodeError,
+    Timeout as RequestsTimeout,
+)
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 
@@ -85,22 +88,44 @@ _TRANSIENT_TOKEN_REQUEST_ERROR = "token request is already being processed"
 _MAX_TOKEN_REFRESH_ATTEMPTS = 4
 
 
+def _salesforce_app_credentials() -> dict[str, str]:
+    """PostHog's own Salesforce connected-app key and secret, named as the token endpoint wants."""
+    resolved = integration_secrets.get_secrets(["SALESFORCE_CONSUMER_KEY", "SALESFORCE_CONSUMER_SECRET"])
+    return {
+        "client_id": resolved["SALESFORCE_CONSUMER_KEY"],
+        "client_secret": resolved["SALESFORCE_CONSUMER_SECRET"],
+    }
+
+
 def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, capture: bool = True) -> str:
     # capture=False lets a caller keep this exchange out of HTTP sample capture: the request body
     # carries the refresh token and the shared client secret, and the response carries a freshly
     # minted access token, none of which the name-based scrubbers reliably redact.
     session = make_tracked_session(redact_values=(refresh_token,), capture=capture)
+    # Resolved once, outside the loop: a retry is for a transient token-endpoint failure, and
+    # re-reading the same credential on each attempt would add a hop per attempt for nothing.
+    app_credentials = _salesforce_app_credentials()
     attempt = 0
     while True:
-        res = session.post(
-            f"{instance_url}/services/oauth2/token",
-            data={
-                "grant_type": "refresh_token",
-                "client_id": settings.SALESFORCE_CONSUMER_KEY,
-                "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
-                "refresh_token": refresh_token,
-            },
-        )
+        try:
+            res = session.post(
+                f"{instance_url}/services/oauth2/token",
+                data={
+                    "grant_type": "refresh_token",
+                    **app_credentials,
+                    "refresh_token": refresh_token,
+                },
+            )
+        except (RequestsConnectionError, RequestsTimeout):
+            # A failed connection or timeout reaching the token endpoint — most often PostHog's
+            # egress proxy returning a transient 502 on CONNECT — never minted a token, so it's safe
+            # to reissue. Without this in-process retry a single proxy blip fails the whole import
+            # activity before it reads a row, and the sync restarts from scratch.
+            attempt += 1
+            if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS:
+                raise
+            time.sleep(min(0.5 * attempt, 5))
+            continue
 
         try:
             SalesforceAuthRequestError.raise_from_response(res)
@@ -119,8 +144,7 @@ def get_salesforce_access_token_from_code(code: str, redirect_uri: str, instance
         f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": settings.SALESFORCE_CONSUMER_KEY,
-            "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
+            **_salesforce_app_credentials(),
             "redirect_uri": redirect_uri,
             "code": code,
         },

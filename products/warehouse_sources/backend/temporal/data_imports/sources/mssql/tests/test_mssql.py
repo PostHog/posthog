@@ -402,6 +402,21 @@ class TestFetchTableStats:
         cursor.execute.side_effect = RuntimeError("boom")
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
 
+    def test_transient_connection_death_skips_retry_and_capture(self, impl, cursor, logger, mocker):
+        # A dead connection (DB-Lib 20047) must not retry sp_spaceused on the same dead cursor
+        # (which raises a confusing secondary InterfaceError) or get captured as tracked noise —
+        # it's the same self-recovering error `retry_on_transient_connection_error` already
+        # handles at the schema-discovery layer.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.execute.side_effect = pymssql.OperationalError(
+            20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
+        assert cursor.execute.call_count == 1
+        capture.assert_not_called()
+
 
 class TestFetchAverageRowSize:
     """MSSQL's `fetch_average_row_size` samples a separate `TOP 100` query
@@ -713,6 +728,37 @@ class TestMSSQLSourceNonRetryableErrors:
 
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
+
+
+class TestMSSQLSourceCatalogKeywords:
+    @pytest.mark.parametrize("term", ["azure", "azure sql", "azure sql database"])
+    def test_azure_sql_names_are_searchable(self, term):
+        # Azure SQL Database connects through this source, and the catalog search only matches a
+        # source's label, name, and keywords — none of which mention Azure without the keywords.
+        config = MSSQLSource().get_source_config
+        searchable = [config.label or "", str(config.name), *(config.keywords or [])]
+
+        assert any(term in text.lower() for text in searchable), term
+
+
+class TestMSSQLSourceRetryableErrors:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Real pymssql shape: DB-Lib error 20017 carried as (code, bytes) args.
+            pymssql.OperationalError(
+                20017, b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server\n"
+            ),
+            # The SQL-Server-message rendering of the same EOF.
+            pymssql.OperationalError(
+                "SQL Server message 20017, severity 9, state 0, procedure b'\\x00', line 0:\n"
+                "b'DB-Lib error message 20017, severity 9:\\nUnexpected EOF from the server\\n'"
+            ),
+        ],
+    )
+    def test_unexpected_eof_is_retryable(self, error):
+        retryable = MSSQLSource().get_retryable_errors()
+        assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
 
 
 class TestMSSQLSourceValidateCredentials:

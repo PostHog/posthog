@@ -1,8 +1,7 @@
-import { UniversalFiltersGroup } from '~/types'
-
 import {
-    buildLogsSessionFilters,
+    buildLogsSessionScope,
     formatFilterGroupValues,
+    getDistinctIdWithKey,
     getFiltersSummaryLines,
     getSessionIdFromLogAttributes,
     isDistinctIdKey,
@@ -52,6 +51,31 @@ describe('logs utils', () => {
         it('keeps matching the built-in conventions alongside configured keys', () => {
             expect(isDistinctIdKey('posthogDistinctId', ['user.id'])).toBe(true)
             expect(isDistinctIdKey('unrelated', ['user.id'])).toBe(false)
+        })
+    })
+
+    describe('getDistinctIdWithKey', () => {
+        it('prefers a configured key over a convention, and attributes over resource_attributes', () => {
+            expect(
+                getDistinctIdWithKey({ distinct_id: 'convention', 'user.id': 'configured' }, undefined, ['user.id'])
+            ).toEqual({ key: 'user.id', value: 'configured', source: 'attribute' })
+            expect(getDistinctIdWithKey({}, { 'user.id': 'configured' }, ['user.id'])).toEqual({
+                key: 'user.id',
+                value: 'configured',
+                source: 'resource_attribute',
+            })
+        })
+
+        it('falls back to the built-in conventions when no configured key carries a value', () => {
+            expect(getDistinctIdWithKey({ posthogDistinctId: 'abc' }, undefined, ['user.id'])).toEqual({
+                key: 'posthogDistinctId',
+                value: 'abc',
+                source: 'attribute',
+            })
+        })
+
+        it('returns null when the log carries no distinct id', () => {
+            expect(getDistinctIdWithKey({ unrelated: 'x' }, { 'service.name': 'api' }, ['user.id'])).toBeNull()
         })
     })
 
@@ -145,6 +169,22 @@ describe('logs utils', () => {
                 undefined,
                 null,
             ],
+            [
+                // Without an own-property check these resolve to the Object.prototype member,
+                // which is truthy and would be returned as though the attribute held it.
+                'a configured key naming an Object.prototype member resolves nothing',
+                ['constructor'],
+                { $session_id: 'builtin' },
+                undefined,
+                'builtin',
+            ],
+            [
+                'an Object.prototype member name resolves nothing when no convention key is present',
+                ['valueOf'],
+                { 'http.method': 'GET' },
+                undefined,
+                null,
+            ],
         ])('%s', (_, configuredKeys, attributes, resourceAttributes, expected) => {
             expect(
                 getSessionIdFromLogAttributes(
@@ -163,33 +203,23 @@ describe('logs utils', () => {
         })
     })
 
-    describe('buildLogsSessionFilters', () => {
-        it.each([
-            ['defaults to the SDK convention key', undefined, ['posthogSessionId']],
-            ['uses configured keys in order', ['session.id', 'custom.key'], ['session.id', 'custom.key']],
-            ['empty configured list falls back to default', [], ['posthogSessionId']],
-        ])('%s', (_, configuredKeys, expectedKeys) => {
-            const filters = buildLogsSessionFilters('sess-1', configuredKeys)
-
-            const innerGroup = filters.filterGroup!.values[0] as UniversalFiltersGroup
-            expect(innerGroup.type).toBe('OR')
-            expect(innerGroup.values).toEqual(
-                expectedKeys.map((key) => ({
-                    key,
-                    value: ['sess-1'],
-                    operator: 'exact',
-                    type: 'log_attribute',
-                }))
-            )
-            expect(filters.dateRange).toBeUndefined()
+    describe('buildLogsSessionScope', () => {
+        it('scopes the date range around the timestamp', () => {
+            // Without a window the viewer's default range (last hour) hides any session older
+            // than that, which is most sessions reached from an error.
+            expect(buildLogsSessionScope('sess-1', '2026-03-24T12:00:00.000Z')).toEqual({
+                sessionId: 'sess-1',
+                initialFilters: {
+                    dateRange: {
+                        date_from: '2026-03-24T11:30:00.000Z',
+                        date_to: '2026-03-24T12:30:00.000Z',
+                    },
+                },
+            })
         })
 
-        it('scopes the date range around the timestamp', () => {
-            const filters = buildLogsSessionFilters('sess-1', undefined, '2026-03-24T12:00:00.000Z')
-            expect(filters.dateRange).toEqual({
-                date_from: '2026-03-24T11:30:00.000Z',
-                date_to: '2026-03-24T12:30:00.000Z',
-            })
+        it('leaves the range alone without a timestamp', () => {
+            expect(buildLogsSessionScope('sess-1')).toEqual({ sessionId: 'sess-1', initialFilters: undefined })
         })
     })
 
@@ -233,6 +263,33 @@ describe('logs utils', () => {
             [{ label: 'Severity', value: 'Error, Fatal' }],
         ],
         ['singular service', { serviceNames: ['api'] }, [{ label: 'Service', value: 'api' }]],
+        // A viewer-written selection lives in the group, so an entry holding it has to summarize the
+        // same way one holding a dedicated field does.
+        [
+            'group-stored level and service selections',
+            {
+                filterGroup: filterGroup(
+                    { key: 'severity_level', value: ['error'], type: 'log' },
+                    { key: 'service_name', value: ['api'], type: 'log' }
+                ),
+            },
+            [
+                { label: 'Severity', value: 'Error' },
+                { label: 'Service', value: 'api' },
+            ],
+        ],
+        [
+            'a group-stored exclusion still shows as a filter',
+            {
+                filterGroup: filterGroup({
+                    key: 'service_name',
+                    value: ['api'],
+                    type: 'log',
+                    operator: 'is_not',
+                }),
+            },
+            [{ label: 'Filter', value: 'service_name=api' }],
+        ],
         [
             'plural services with truncation',
             { serviceNames: ['api', 'worker', 'scheduler', 'cron'] },

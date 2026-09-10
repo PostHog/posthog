@@ -3,8 +3,10 @@ from typing import Any
 from unittest import mock
 from unittest.mock import Mock, patch
 
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.db import IntegrityError
-from django.test import TestCase
+from django.http import HttpResponse
+from django.test import RequestFactory, TestCase
 
 from parameterized import parameterized
 from rest_framework import exceptions
@@ -21,6 +23,9 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
 from ee.vercel.integration import VercelIntegration, _safe_vercel_sync
+
+# Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
+EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
 
 
 class TestVercelIntegration(TestCase):
@@ -332,6 +337,76 @@ class TestVercelIntegration(TestCase):
         mock_report.assert_not_called()
 
     @patch("ee.vercel.integration.report_user_signed_up")
+    def test_upsert_installation_does_not_trust_prior_mapping_from_another_installation(self, mock_report):
+        from ee.vercel.integration import RequiresExistingUserLogin
+
+        trusted_user = User.objects.create_user(
+            email=self.payload["account"]["contact"]["email"], password="existing", first_name="Trusted"
+        )
+        self.installation.config["user_mappings"] = {"prior_vercel_id": trusted_user.pk}
+        self.installation.save(update_fields=["config"])
+
+        new_installation_id = self.NEW_INSTALLATION_ID
+        claims = self._create_user_claims("new_vercel_id")
+        claims.installation_id = new_installation_id
+
+        VercelIntegration.upsert_installation(new_installation_id, self.payload, claims)
+
+        new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
+        assert "new_vercel_id" not in new_installation.config.get("user_mappings", {})
+        mock_report.assert_not_called()
+
+        with self.assertRaises(RequiresExistingUserLogin):
+            VercelIntegration._find_sso_user(claims)
+
+    def test_upsert_installation_logs_contact_email_mismatch_with_token(self):
+        new_installation_id = self.NEW_INSTALLATION_ID
+        claims = self._create_user_claims("mismatch_vercel_id")
+        claims.installation_id = new_installation_id
+        claims.user_email = "token-holder@example.com"
+        claims.user_email_verified = True
+
+        with patch("ee.vercel.integration.logger") as mock_logger:
+            VercelIntegration.upsert_installation(new_installation_id, self.payload, claims)
+
+        mock_logger.warning.assert_called_once_with(
+            "Vercel installation contact email differs from token email",
+            installation_id=new_installation_id,
+            vercel_user_id="mismatch_vercel_id",
+            integration="vercel",
+        )
+        args, kwargs = mock_logger.warning.call_args
+        for value in (*args, *kwargs.values()):
+            assert "token-holder@example.com" not in str(value)
+            assert self.payload["account"]["contact"]["email"] not in str(value)
+
+        mock_logger.info.assert_any_call(
+            "Starting Vercel installation upsert process",
+            installation_id=new_installation_id,
+            integration="vercel",
+            token_email_verified=True,
+            contact_email_matches_token=False,
+        )
+
+    def test_upsert_installation_logs_contact_email_match_with_token(self):
+        new_installation_id = self.NEW_INSTALLATION_ID
+        claims = self._create_user_claims("match_vercel_id")
+        claims.installation_id = new_installation_id
+        claims.user_email_verified = False
+
+        with patch("ee.vercel.integration.logger") as mock_logger:
+            VercelIntegration.upsert_installation(new_installation_id, self.payload, claims)
+
+        mock_logger.warning.assert_not_called()
+        mock_logger.info.assert_any_call(
+            "Starting Vercel installation upsert process",
+            installation_id=new_installation_id,
+            integration="vercel",
+            token_email_verified=False,
+            contact_email_matches_token=True,
+        )
+
+    @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_requires_login_for_external_user(self, mock_report):
         """Security test: External users (no Vercel mapping) must prove ownership via login."""
         from ee.vercel.integration import RequiresExistingUserLogin
@@ -375,10 +450,70 @@ class TestVercelIntegration(TestCase):
         with self.assertRaises(RequiresExistingUserLogin):
             VercelIntegration._find_sso_user(sso_claims)
 
+    def test_sso_requires_login_and_does_not_reactivate_inactive_user(self):
+        from ee.vercel.integration import RequiresExistingUserLogin
+
+        inactive_user = User.objects.create_user(
+            email="inactive-sso@example.com", password="inactive", first_name="Inactive", is_active=False
+        )
+
+        installation_id = self.NEW_INSTALLATION_ID
+        installation = OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id=installation_id,
+            config={"scopes": ["read"]},
+            created_by=self.user,
+        )
+
+        claims = self._create_user_claims("vercel_inactive_user")
+        claims.installation_id = installation_id
+        claims.user_email = "inactive-sso@example.com"
+
+        with self.assertRaises(RequiresExistingUserLogin):
+            VercelIntegration._find_sso_user(claims)
+
+        inactive_user.refresh_from_db()
+        assert inactive_user.is_active is False
+
+        installation.refresh_from_db()
+        assert "vercel_inactive_user" not in installation.config.get("user_mappings", {})
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_sso_login_marks_a_matching_email_verified(self, mock_report):
+        installation_id = self.NEW_INSTALLATION_ID
+        claims = self._create_user_claims("vercel_user_verify")
+        claims.installation_id = installation_id
+        VercelIntegration.upsert_installation(installation_id, self.payload, claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+        assert user.is_email_verified is False
+
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
+        VercelIntegration._authenticate_and_login_user(request, claims, None)
+
+        user.refresh_from_db()
+        assert user.is_email_verified is True
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_sso_login_leaves_verification_alone_when_the_claim_email_differs(self, mock_report):
+        installation_id = self.NEW_INSTALLATION_ID
+        claims = self._create_user_claims("vercel_user_other_email")
+        claims.installation_id = installation_id
+        VercelIntegration.upsert_installation(installation_id, self.payload, claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+        claims.user_email = "someone-else@example.com"
+
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
+        VercelIntegration._authenticate_and_login_user(request, claims, None)
+
+        user.refresh_from_db()
+        assert user.is_email_verified is False
+
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):
-        """E2E: Trusted Vercel user's second installation should auto-link and SSO should work."""
-        from ee.vercel.integration import RequiresExistingUserLogin
+        from ee.vercel.integration import RequiresExistingUserLogin, SSOParams
 
         # First installation - creates user with mapping
         first_installation_id = self.NEW_INSTALLATION_ID
@@ -396,21 +531,32 @@ class TestVercelIntegration(TestCase):
 
         VercelIntegration.upsert_installation(second_installation_id, second_payload, second_user_claims)
 
-        # Verify installation created mapping and membership
+        # No mapping is created on the second installation until the user proves ownership
         second_installation = OrganizationIntegration.objects.get(integration_id=second_installation_id)
-        assert second_installation.config["user_mappings"].get("vercel_user_xyz") == user.pk
+        assert "vercel_user_xyz" not in second_installation.config.get("user_mappings", {})
         membership = OrganizationMembership.objects.get(user=user, organization=second_installation.organization)
         assert membership.level == OrganizationMembership.Level.OWNER
 
-        # SSO should work without requiring login
         sso_claims = self._create_user_claims("vercel_user_xyz")
         sso_claims.installation_id = second_installation_id
 
-        try:
-            sso_user = VercelIntegration._find_sso_user(sso_claims)
-            assert sso_user.pk == user.pk
-        except RequiresExistingUserLogin:
-            self.fail("SSO should NOT require login for trusted Vercel user")
+        with self.assertRaises(RequiresExistingUserLogin):
+            VercelIntegration._find_sso_user(sso_claims)
+
+        # After logging in and completing SSO, the mapping is created
+        code = "test_sso_code_second_install"
+        VercelIntegration.set_cached_claims(code, sso_claims, timeout=300)
+
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
+        request.user = user
+
+        VercelIntegration.complete_sso_for_logged_in_user(
+            request, SSOParams(mode="login", code=code, state="test_state")
+        )
+
+        second_installation.refresh_from_db()
+        assert second_installation.config["user_mappings"]["vercel_user_xyz"] == user.pk
 
     @patch("ee.vercel.integration.report_user_signed_up")
     @patch("ee.billing.billing_manager.BillingManager")
@@ -491,7 +637,8 @@ class TestVercelIntegration(TestCase):
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == payload_without_name["account"]["contact"]["email"].split("@")[0]
 
-    def test_upsert_installation_reactivates_inactive_user(self):
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_upsert_installation_does_not_reactivate_inactive_user(self, mock_report):
         new_installation_id = self.NEW_INSTALLATION_ID
         inactive_email = "inactive@example.com"
 
@@ -509,10 +656,13 @@ class TestVercelIntegration(TestCase):
         VercelIntegration.upsert_installation(new_installation_id, payload, user_claims)
 
         inactive_user.refresh_from_db()
-        assert inactive_user.is_active is True
+        assert inactive_user.is_active is False
 
         org_integration = OrganizationIntegration.objects.get(integration_id=new_installation_id)
         assert org_integration.created_by == inactive_user
+        assert "inactive_user_123" not in org_integration.config.get("user_mappings", {})
+
+        mock_report.assert_not_called()
 
     def test_get_resource_not_found(self):
         with self.assertRaises(NotFound):
@@ -599,15 +749,29 @@ class TestVercelIntegration(TestCase):
 
         assert "name" in str(context.exception.detail)
 
-    def test_build_secrets(self):
+    def test_build_secrets_leads_with_the_next_public_names(self):
         team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
         secrets = VercelIntegration._build_secrets(team)
 
-        assert len(secrets) == 2
         assert secrets[0]["name"] == "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN"
         assert secrets[0]["value"] == "test_api_token"
         assert secrets[1]["name"] == "NEXT_PUBLIC_POSTHOG_HOST"
         assert secrets[1]["value"].startswith(("https://", "http://"))
+
+    @parameterized.expand([(prefix,) for prefix in EXPECTED_PREFIXES])
+    def test_build_secrets_injects_framework_prefixed_aliases(self, prefix: str):
+        team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
+        secrets = {secret["name"]: secret["value"] for secret in VercelIntegration._build_secrets(team)}
+
+        assert secrets[f"{prefix}POSTHOG_PROJECT_TOKEN"] == "test_api_token"
+        assert secrets[f"{prefix}POSTHOG_HOST"].startswith(("https://", "http://"))
+
+    def test_build_secrets_covers_every_prefix_exactly_once(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
+        secrets = VercelIntegration._build_secrets(team)
+
+        names = [secret["name"] for secret in secrets]
+        assert len(names) == len(set(names)) == 2 * len(EXPECTED_PREFIXES)
 
     @parameterized.expand(
         [
@@ -1118,7 +1282,7 @@ class TestInstallationUserHandlingLogic(TestCase):
     @parameterized.expand(
         [
             ("new_user", False, True, True),  # New user: added to org, mapping created
-            ("trusted_user", True, True, True),  # Trusted user: added to org, mapping created
+            ("trusted_user", True, True, False),  # Trusted user: added to org, NO mapping until SSO login
             ("external_user", False, True, False),  # External user: added to org, NO mapping
         ]
     )
@@ -1130,7 +1294,7 @@ class TestInstallationUserHandlingLogic(TestCase):
         | User Type     | Has Prior Mapping | Added to Org | Mapping Created |
         |---------------|-------------------|--------------|-----------------|
         | New user      | N/A               | Yes          | Yes             |
-        | Trusted user  | Yes               | Yes          | Yes             |
+        | Trusted user  | Yes               | Yes          | No              |
         | External user | No                | Yes          | No              |
         """
         installation_id = f"icfg_matrix_{name}_123456789"
@@ -1173,55 +1337,6 @@ class TestInstallationUserHandlingLogic(TestCase):
         user_mappings = installation.config.get("user_mappings", {})
         has_mapping = "test_vercel_id" in user_mappings
         assert has_mapping == expect_mapping, f"{name}: mapping mismatch"
-
-
-class TestVercelUserMappingLogic(TestCase):
-    """
-    Tests for the user mapping logic that determines trust relationships.
-    """
-
-    def setUp(self):
-        self.user = User.objects.create_user(email="mapping@example.com", password="test", first_name="Mapping")
-        self.organization = Organization.objects.create(name="Mapping Test Org")
-        self.user.join(organization=self.organization, level=OrganizationMembership.Level.OWNER)
-
-    def test_user_has_no_vercel_mapping_initially(self):
-        """User with no Vercel integrations has no mappings."""
-        assert not VercelIntegration._user_has_any_vercel_mapping(self.user)
-
-    def test_user_has_mapping_after_installation(self):
-        """User gains mapping after being part of a Vercel installation."""
-        OrganizationIntegration.objects.create(
-            organization=self.organization,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id="icfg_mapping_test_123456789",
-            config={"user_mappings": {"vercel_user_123": self.user.pk}},
-            created_by=self.user,
-        )
-
-        assert VercelIntegration._user_has_any_vercel_mapping(self.user)
-
-    def test_user_mapping_checks_all_installations(self):
-        """User mapping check searches across all Vercel installations."""
-        # Create two installations
-        org1 = Organization.objects.create(name="Org 1")
-        org2 = Organization.objects.create(name="Org 2")
-
-        OrganizationIntegration.objects.create(
-            organization=org1,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id="icfg_org1_123456789",
-            config={"user_mappings": {"other_user": 999}},  # Different user
-        )
-
-        OrganizationIntegration.objects.create(
-            organization=org2,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id="icfg_org2_123456789",
-            config={"user_mappings": {"vercel_user_456": self.user.pk}},  # Our user
-        )
-
-        assert VercelIntegration._user_has_any_vercel_mapping(self.user)
 
 
 class TestPushSecretsToVercel(TestCase):
@@ -1268,9 +1383,10 @@ class TestPushSecretsToVercel(TestCase):
         assert call_args[1]["resource_id"] == str(self.resource.pk)
 
         secrets = call_args[1]["secrets"]
-        assert len(secrets) == 2
-        assert any(s["name"] == "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN" for s in secrets)
-        assert any(s["name"] == "NEXT_PUBLIC_POSTHOG_HOST" for s in secrets)
+        assert len(secrets) == 2 * len(EXPECTED_PREFIXES)
+        for prefix in EXPECTED_PREFIXES:
+            assert any(s["name"] == f"{prefix}POSTHOG_PROJECT_TOKEN" for s in secrets)
+            assert any(s["name"] == f"{prefix}POSTHOG_HOST" for s in secrets)
 
     @patch("ee.vercel.integration.VercelAPIClient")
     def test_push_secrets_sends_current_api_token(self, mock_client_class):

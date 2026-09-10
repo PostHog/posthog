@@ -12,10 +12,11 @@ import {
 } from './cellRuns'
 import { collectRunRefs, directDependents, findCellTag, parseCellTags, replaceCellTag, upsertProp } from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
+import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 
-export const NotebooksUpdateCellSchema = z
+const UpdateCellInputSchema = z
     .object({
-        notebook_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
+        notebook_id: z.string().describe(NOTEBOOK_SHORT_ID_DESCRIPTION),
         node_id: z.string().describe('The cell to update, as returned by notebooks-add-cell.'),
         code: z
             .string()
@@ -23,6 +24,8 @@ export const NotebooksUpdateCellSchema = z
             .describe('New SQL or Python source. Omit to re-run the cell as-is (e.g. a stale cell).'),
     })
     .strict()
+
+export const NotebooksUpdateCellSchema = z.preprocess(notebookIdAliases('notebook_id'), UpdateCellInputSchema)
 
 export interface UpdateCellResult {
     node_id: string
@@ -50,6 +53,7 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
     }
 
     let markdown = initial.markdown
+    let notebook = initial.notebook
     if (params.code !== undefined && params.code !== existing.code) {
         const applied = await applyMarkdownEdit(context, params.notebook_id, (current) => {
             const block = findCellTag(current, params.node_id)
@@ -59,6 +63,9 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
             return replaceCellTag(current, block, upsertProp(block.source, 'code', params.code))
         })
         markdown = applied.markdown
+        // The save response carries the notebook as it stood when the save committed, so it holds a
+        // variable edit that landed after the read above.
+        notebook = applied.notebook
     }
 
     const code = params.code ?? existing.code
@@ -75,6 +82,7 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
         code,
         output_name: existing.returnVariable,
         refs: collectRunRefs(cells, params.node_id),
+        variables: notebook.variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
     await applyMarkdownEdit(context, params.notebook_id, (current) => {

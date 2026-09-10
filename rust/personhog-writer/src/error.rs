@@ -9,6 +9,11 @@
 pub enum WriteErrorKind {
     /// Retrying the same operation may succeed.
     Transient,
+    /// Local connection acquisition timed out: the writer's own in-flight
+    /// statements exceeded pool capacity. Retryable, but self-inflicted —
+    /// it says nothing about the database's health, so it must never count
+    /// toward the writer's failure escalation.
+    Saturation,
     /// Properties exceed the DB size constraint. Trimming may help.
     PropertiesSizeViolation,
     /// Unrecoverable data error. Skip this record.

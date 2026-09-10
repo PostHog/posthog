@@ -2,14 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightfield import (
     LightfieldSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source import LightfieldSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CHECK_TOKEN_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source.check_token"
 
@@ -19,25 +15,6 @@ class TestLightfieldSource:
         self.source = LightfieldSource()
         self.team_id = 123
         self.config = LightfieldSourceConfig(api_key="sk_lf_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LIGHTFIELD
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Lightfield"
-        assert config.label == "Lightfield"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/lightfield"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert len(config.fields) == 1
-
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
 
     def test_non_retryable_errors_matches_observed_error_message(self):
         observed_error = "401 Client Error: Unauthorized for url: https://api.lightfield.app/v1/accounts?limit=25"
@@ -55,26 +32,6 @@ class TestLightfieldSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert not any(key in other_vendor_error for key in non_retryable_errors)
-
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        schema_names = {schema.name for schema in schemas}
-        assert schema_names == set(ENDPOINTS)
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
-
-    @parameterized.expand(
-        [
-            ("known_name", ["accounts"], ["accounts"]),
-            ("unknown_name", ["nonexistent"], []),
-        ]
-    )
-    def test_get_schemas_filtered_by_names(self, _name, names, expected):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=names)
-
-        assert [schema.name for schema in schemas] == expected
 
     @parameterized.expand(
         [

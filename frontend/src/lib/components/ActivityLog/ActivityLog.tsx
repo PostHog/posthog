@@ -9,7 +9,11 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import {
+    ACTIVITY_SEARCH_PARAM,
+    ActivityLogLogicProps,
+    activityLogLogic,
+} from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,7 +27,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { AccessDenied } from '../AccessDenied'
@@ -45,8 +48,6 @@ const Empty = ({ scope }: { scope: string | string[] }): JSX.Element => {
 
     return (
         <ProductIntroduction
-            productName={noun.toUpperCase()}
-            productKey={ProductKey.HISTORY}
             thingName="history record"
             description={`History shows any ${noun} changes that have been made. After making changes you'll see them logged here.`}
             isEmpty={true}
@@ -160,8 +161,8 @@ export const ActivityLogRow = ({
         const url = new URL(pathname, window.location.origin)
         url.search = search || ''
         url.hash = hash || ''
-        url.searchParams.delete('activity')
-        url.searchParams.set('activity', logItem.id)
+        url.searchParams.delete(ACTIVITY_SEARCH_PARAM)
+        url.searchParams.set(ACTIVITY_SEARCH_PARAM, logItem.id)
         void copyToClipboard(url.toString(), 'activity link')
     }
 
@@ -279,6 +280,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
             {caption && <div className="page-caption">{caption}</div>}
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
+                featureDetail="activity-log"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
                 <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />

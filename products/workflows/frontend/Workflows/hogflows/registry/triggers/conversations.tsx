@@ -85,6 +85,10 @@ const SUPPORT_TRIGGER_META: Record<string, { name: string; description: string }
         name: 'Ticket message sent',
         description: 'This trigger runs when a teammate sends a reply on a ticket.',
     },
+    $conversation_private_message_sent: {
+        name: 'Ticket private note sent',
+        description: 'This trigger runs when a teammate sends a private note on a ticket.',
+    },
     $conversation_ticket_assigned: {
         name: 'Ticket assigned',
         description: 'This trigger runs when a ticket is assigned to a teammate or team.',
@@ -181,6 +185,22 @@ registerTriggerType({
         type: 'event',
         filters: {
             events: [{ id: '$conversation_message_sent', type: 'events', name: 'Ticket message sent' }],
+        },
+    }),
+    ConfigComponent: StepTriggerConfigurationSupportFilters,
+})
+
+registerTriggerType({
+    value: 'support_private_message_sent',
+    label: 'Ticket private note sent',
+    icon: <IconBolt />,
+    description: 'Trigger when a teammate sends a private note on a ticket',
+    group: 'Support',
+    matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_private_message_sent',
+    buildConfig: () => ({
+        type: 'event',
+        filters: {
+            events: [{ id: '$conversation_private_message_sent', type: 'events', name: 'Ticket private note sent' }],
         },
     }),
     ConfigComponent: StepTriggerConfigurationSupportFilters,

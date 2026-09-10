@@ -67,12 +67,31 @@ pub struct ResolverConfig {
     #[envconfig(default = "300")]
     pub frame_unresolved_ttl_seconds: u64,
 
+    // When enabled, a re-resolution that produced an unchanged frame snapshot refreshes
+    // created_at with a timestamp-only UPDATE instead of rewriting every row's full
+    // contents, and skips the write entirely when no row needs a freshness refresh yet.
+    #[envconfig(default = "false")]
+    pub skip_unchanged_frame_rewrites: bool,
+
     // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
     // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become
     // resolvable the moment a user uploads the missing symbols, so a cached negative result
     // must not outlive that upload by long.
     #[envconfig(default = "300")]
     pub symbol_set_negative_cache_ttl_seconds: u64,
+
+    // TTL for the (team, symbol-set refs) -> latest-release-id cache in the resolution
+    // service. Kept short because a release (re)bound to already-cached refs only becomes
+    // visible after expiry; new releases usually ship new refs, which miss naturally.
+    #[envconfig(default = "60")]
+    pub release_id_cache_ttl_seconds: u64,
+
+    // Byte budget for that cache, weighed by the ref bytes each entry holds. Refs are
+    // event-controlled (frame source URLs, chunk ids), so an entry-count bound would let a
+    // flood of unique long refs grow the cache without limit. 32 MiB comfortably holds the
+    // working set of a 60s TTL at typical ref-set sizes.
+    #[envconfig(default = "33554432")]
+    pub release_id_cache_max_bytes: u64,
 
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]

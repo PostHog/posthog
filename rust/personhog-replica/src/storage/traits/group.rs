@@ -126,6 +126,7 @@ pub trait GroupStorage: Send + Sync {
         name_plural: Option<&str>,
         detail_dashboard_id: Option<i64>,
         default_columns: Option<&[String]>,
+        created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> StorageResult<Option<GroupTypeMapping>>;
 
     async fn delete_group_type_mapping(

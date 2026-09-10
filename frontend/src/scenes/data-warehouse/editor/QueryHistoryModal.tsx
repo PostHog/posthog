@@ -1,25 +1,36 @@
-import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
-import { IconCode } from '@posthog/icons'
+import { IconCode, IconRevert } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
+import { QueryDiffViewer } from './components/QueryDiffViewer'
 import { editorSceneLogic } from './editorSceneLogic'
 import { InsightHistory } from './InsightHistory'
 import { queryHistoryLogic } from './queryHistoryLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
+
+// The query as of this edit — what "Restore" loads back into the editor.
+function restorableQueryFromLog(logItem: HumanizedActivityLogItem): string | null {
+    const change = logItem.unprocessed?.detail.changes?.find((c) => c.field === 'query' && extractQuery(c.after) !== '')
+    return change ? extractQuery(change.after) : null
+}
 
 function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
+    const { editingView } = useValues(editorSceneLogic)
+    const { closeHistoryModal } = useActions(editorSceneLogic)
+    const { setSuggestedQueryInput } = useActions(sqlEditorLogic)
+
+    const restorableQuery = restorableQueryFromLog(logItem)
 
     return (
         <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
@@ -45,6 +56,22 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
                     </div>
                 </div>
                 <div className="flex flex-row gap-2">
+                    {restorableQuery && restorableQuery !== (editingView?.query?.query ?? '') && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconRevert />}
+                            tooltip="Load this version into the editor to review and restore"
+                            data-attr="sql-editor-view-history-restore"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setSuggestedQueryInput(restorableQuery, 'query_history')
+                                // Close the modal so the restore diff in the editor is visible
+                                closeHistoryModal()
+                            }}
+                        >
+                            Restore
+                        </LemonButton>
+                    )}
                     <LemonButton icon={<IconCode />} onClick={() => setIsExpanded(!isExpanded)} active={isExpanded} />
                 </div>
             </div>
@@ -57,6 +84,14 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
     )
 }
 
+function extractQuery(value: unknown): string {
+    if (value && typeof value === 'object' && 'query' in value) {
+        const query = (value as { query?: unknown }).query
+        return typeof query === 'string' ? query : ''
+    }
+    return ''
+}
+
 function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const changes = logItem.unprocessed?.detail.changes
 
@@ -65,41 +100,18 @@ function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem })
             <div className="flex flex-col deprecated-space-y-2">
                 {changes?.length ? (
                     changes.map((change, i) => {
-                        return <QueryDiffViewer key={i} before={change.before} after={change.after} />
+                        return (
+                            <QueryDiffViewer
+                                key={i}
+                                original={extractQuery(change.before)}
+                                modified={extractQuery(change.after)}
+                            />
+                        )
                     })
                 ) : (
                     <div className="text-secondary">This item has no changes to compare</div>
                 )}
             </div>
-        </div>
-    )
-}
-
-interface QueryDiffViewerProps {
-    before: any
-    after: any
-}
-
-function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [width] = useSize(containerRef)
-    return (
-        <div ref={containerRef} className="flex flex-col space-y-2 w-full">
-            <MonacoDiffEditor
-                key="diff-viewer"
-                original={before?.query ?? ''}
-                modified={after?.query ?? ''}
-                language="hogQL"
-                width={width}
-                options={{
-                    renderOverviewRuler: false,
-                    scrollBeyondLastLine: false,
-                    renderGutterMenu: false,
-                    scrollbar: {
-                        alwaysConsumeMouseWheel: false,
-                    },
-                }}
-            />
         </div>
     )
 }

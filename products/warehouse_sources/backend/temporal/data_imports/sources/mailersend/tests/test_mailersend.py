@@ -104,38 +104,38 @@ class TestToDatetime:
 class TestActivityDateWindow:
     @freeze_time("2026-06-23T00:00:00Z")
     def test_first_sync_uses_lookback_window(self) -> None:
-        date_from, date_to = _activity_date_window(
+        window = _activity_date_window(
             should_use_incremental_field=True, db_incremental_field_last_value=None, lookback_days=30
         )
-        assert date_to - date_from == 30 * 24 * 60 * 60
-        assert date_to == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
+        assert window.end - window.start == 30 * 24 * 60 * 60
+        assert window.end == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
 
     @freeze_time("2026-06-23T00:00:00Z")
     def test_full_refresh_uses_lookback_window(self) -> None:
         # Activity requires a date window even without an incremental cursor, so a full refresh still
         # falls back to the lookback window rather than omitting the bounds.
-        date_from, date_to = _activity_date_window(
+        window = _activity_date_window(
             should_use_incremental_field=False, db_incremental_field_last_value=None, lookback_days=30
         )
-        assert date_to - date_from == 30 * 24 * 60 * 60
+        assert window.end - window.start == 30 * 24 * 60 * 60
 
     @freeze_time("2026-06-23T00:00:00Z")
     def test_incremental_starts_from_last_value(self) -> None:
         last = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
-        date_from, date_to = _activity_date_window(
+        window = _activity_date_window(
             should_use_incremental_field=True, db_incremental_field_last_value=last, lookback_days=30
         )
-        assert date_from == int(last.timestamp())
-        assert date_to == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
+        assert window.start == int(last.timestamp())
+        assert window.end == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
 
     @freeze_time("2026-06-23T00:00:00Z")
     def test_future_cursor_is_clamped_below_date_to(self) -> None:
         # A future-dated cursor would make date_from >= date_to and 422 the request; it must be clamped.
         future = datetime(2027, 1, 1, tzinfo=UTC)
-        date_from, date_to = _activity_date_window(
+        window = _activity_date_window(
             should_use_incremental_field=True, db_incremental_field_last_value=future, lookback_days=30
         )
-        assert date_from < date_to
+        assert window.start < window.end
 
 
 class TestCheckCredentials:

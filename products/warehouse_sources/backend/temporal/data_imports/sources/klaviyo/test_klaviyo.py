@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -8,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaviyo import (
     KlaviyoSourceConfig,
 )
@@ -27,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     KLAVIYO_ENDPOINTS,
+    SERIES_REPORT_TIMEFRAME_KEY,
     KlaviyoEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
@@ -236,6 +239,36 @@ class TestNonRetryableErrors:
         non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
+    @parameterized.expand(
+        [
+            # A plan-gated 403 (e.g. webhooks without Advanced KDP) carries Klaviyo's body detail on
+            # the message and must map to the plan message, not the scope one the user can't act on.
+            (
+                "plan_gated",
+                "HTTPError: 403 Client Error: Forbidden for url: https://a.klaviyo.com/api/webhooks (You must have Advanced KDP enabled to use this endpoint.)",
+                "Advanced KDP add-on",
+            ),
+            # A scope-denied 403 keeps pointing at the key's read scopes.
+            (
+                "scope_missing",
+                "HTTPError: 403 Client Error: Forbidden for url: https://a.klaviyo.com/api/metrics",
+                "missing the read permissions",
+            ),
+        ]
+    )
+    def test_first_matching_entry_supplies_the_user_facing_message(
+        self, _name: str, observed_error: str, expected_snippet: str
+    ) -> None:
+        # Mirrors update_external_data_job_model: the first matching entry becomes the user-facing
+        # error, so reordering the dict (or broadening a pattern) regresses the shown message.
+        matches = [
+            friendly
+            for pattern, friendly in KlaviyoSource().get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert expected_snippet in matches[0]
+
 
 class TestFetchPageRetries:
     @parameterized.expand(
@@ -273,10 +306,67 @@ class TestFetchPageRetries:
         assert session.get.call_count == 5
 
 
-def _response_with_status(status_code: int) -> requests.Response:
+def _response_with_status(status_code: int, body: bytes | None = None, url: str | None = None) -> requests.Response:
     response = requests.Response()
     response.status_code = status_code
+    if body is not None:
+        response._content = body
+    if url is not None:
+        response.url = url
     return response
+
+
+class TestFetchPageErrorDetail:
+    _url = "https://a.klaviyo.com/api/webhooks"
+
+    def _session_returning(self, response: requests.Response) -> MagicMock:
+        session = MagicMock()
+        session.get.return_value = response
+        return session
+
+    def test_klaviyo_detail_rides_on_the_http_error(self) -> None:
+        # A 403's status and URL alone can't distinguish a key missing a read scope from an endpoint
+        # the account's Klaviyo plan doesn't include; without the body detail on the message, the
+        # non-retryable mapping blames scopes the user may have already granted.
+        body = json.dumps(
+            {
+                "errors": [
+                    {
+                        "code": "permission_denied",
+                        "title": "You do not have permission to perform this action.",
+                        "detail": "You must have Advanced KDP enabled to use this endpoint.",
+                    }
+                ]
+            }
+        ).encode()
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            klaviyo._fetch_page(
+                self._session_returning(_response_with_status(403, body=body, url=self._url)),
+                self._url,
+                {},
+                MagicMock(),
+            )
+
+        assert "You must have Advanced KDP enabled to use this endpoint." in str(exc_info.value)
+        assert "403 Client Error" in str(exc_info.value)
+        assert self._url in str(exc_info.value)
+        # Fan-out handlers branch on `exc.response.status_code`, so the response must stay attached.
+        assert exc_info.value.response is not None
+        assert exc_info.value.response.status_code == 403
+
+    def test_non_json_error_body_still_raises_the_plain_error(self) -> None:
+        # A gateway HTML error page must not crash detail extraction and mask the real HTTPError.
+        with pytest.raises(requests.HTTPError) as exc_info:
+            klaviyo._fetch_page(
+                self._session_returning(_response_with_status(403, body=b"<html>denied</html>", url=self._url)),
+                self._url,
+                {},
+                MagicMock(),
+            )
+
+        assert "403 Client Error" in str(exc_info.value)
+        assert self._url in str(exc_info.value)
 
 
 class _FakeResumableManager:
@@ -574,6 +664,68 @@ class TestGeneralizedFanOut:
             }
         ]
 
+    def test_coupon_codes_fan_out_over_coupons_instead_of_the_unfiltered_collection(self, monkeypatch: Any) -> None:
+        # Klaviyo's flat /coupon-codes list requires a coupon.id or profile.id filter and 400s
+        # without one; fanning out per coupon avoids ever calling that unfiltered endpoint.
+        pages = {
+            "https://a.klaviyo.com/api/coupons?page[size]=100": {
+                "data": [{"id": "C1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/coupons/C1/coupon-codes?page[size]=100": {
+                "data": [
+                    {
+                        "type": "coupon-code",
+                        "id": "C1-CODE1",
+                        "attributes": {"unique_code": "CODE1", "status": "UNASSIGNED"},
+                    }
+                ],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("coupon_codes", monkeypatch, pages)
+        assert rows == [
+            {
+                "type": "coupon-code",
+                "id": "C1-CODE1",
+                "unique_code": "CODE1",
+                "status": "UNASSIGNED",
+                "coupon_id": "C1",
+            }
+        ]
+
+    def test_custom_object_records_fan_out_over_object_types_without_a_parent_page_size(self, monkeypatch: Any) -> None:
+        # /object-types rejects page[size], so the parent must be enumerated by cursor links alone
+        # (no ?page[size] on its URL); each record carries its object_type_id and flattens
+        # record_properties onto the row. Fixtures key by exact URL, so a stray page[size] KeyErrors.
+        pages = {
+            "https://a.klaviyo.com/api/object-types": {
+                "data": [{"id": "OT1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/object-types/OT1/object-records?page[size]=100": {
+                "data": [
+                    {
+                        "type": "object-record",
+                        "id": "OT1:::rec-1",
+                        "attributes": {"record_properties": {"name": "Fluffy"}},
+                    }
+                ],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("custom_object_records", monkeypatch, pages)
+        # The batcher serializes the nested record_properties object to a JSON string in the arrow
+        # table, which is how it lands in the warehouse column.
+        assert rows == [
+            {
+                "type": "object-record",
+                "id": "OT1:::rec-1",
+                "record_properties": '{"name":"Fluffy"}',
+                "object_type_id": "OT1",
+            }
+        ]
+
     def test_flow_messages_walk_flows_then_actions_and_carry_both_ancestors(self, monkeypatch: Any) -> None:
         # Two-level fan-out: the intermediate path must be formatted with the grandparent id, and
         # each row must carry both ancestors or the flow -> action -> message chain can't be rebuilt.
@@ -637,6 +789,59 @@ class TestGeneralizedFanOut:
         # A membership key that isn't unique table-wide seeds duplicates that every later merge
         # multi-matches, which is how these fan-outs OOM.
         assert KLAVIYO_ENDPOINTS[endpoint].primary_keys == expected_keys
+
+
+class TestProfilesSubscriptionsRoundTrip:
+    def test_suppression_and_consent_land_in_the_synced_row(self, monkeypatch: Any) -> None:
+        # Suppression and consent status only exist inside the nested subscriptions object; if
+        # flattening or batching drops or reshapes it, a team exporting unsubscribes before a
+        # sending-platform migration silently loses exactly the profiles that must not be messaged.
+        suppressed_subscriptions = {
+            "email": {
+                "marketing": {
+                    "can_receive_email_marketing": False,
+                    "consent": "UNSUBSCRIBED",
+                    "suppression": [{"reason": "USER_SUPPRESSED", "timestamp": "2026-01-02T00:00:00+00:00"}],
+                    "list_suppressions": [
+                        {"list_id": "L1", "reason": "UNSUBSCRIBE", "timestamp": "2026-01-03T00:00:00+00:00"}
+                    ],
+                }
+            }
+        }
+        consented_subscriptions = {
+            "email": {"marketing": {"can_receive_email_marketing": True, "consent": "SUBSCRIBED"}},
+            "sms": {
+                "marketing": {
+                    "can_receive_sms_marketing": True,
+                    "consent": "SUBSCRIBED",
+                    "consent_timestamp": "2026-02-01T00:00:00+00:00",
+                }
+            },
+            "mobile_push": {"marketing": {"can_receive_push_marketing": False, "consent": "UNSUBSCRIBED"}},
+        }
+        pages = {
+            "https://a.klaviyo.com/api/profiles?additional-fields[profile]=subscriptions": {
+                "data": [
+                    {
+                        "type": "profile",
+                        "id": "P_SUPPRESSED",
+                        "attributes": {"email": "suppressed@example.com", "subscriptions": suppressed_subscriptions},
+                    },
+                    {
+                        "type": "profile",
+                        "id": "P_CONSENTED",
+                        "attributes": {"email": "consented@example.com", "subscriptions": consented_subscriptions},
+                    },
+                ],
+                "links": {"next": None},
+            },
+        }
+
+        rows = {row["id"]: row for row in _collect_rows("profiles", monkeypatch, pages)}
+
+        assert rows["P_SUPPRESSED"]["email"] == "suppressed@example.com"
+        assert json.loads(rows["P_SUPPRESSED"]["subscriptions"]) == suppressed_subscriptions
+        assert json.loads(rows["P_CONSENTED"]["subscriptions"]) == consented_subscriptions
 
 
 class TestValuesReports:
@@ -763,6 +968,61 @@ class TestValuesReports:
 
         assert rows[0]["conversion_metric_id"] == "M_FIRST"
 
+    def test_ineligible_conversion_metric_skips_the_report_instead_of_failing_the_sync(self, monkeypatch: Any) -> None:
+        # Klaviyo rejects some metrics (e.g. system metrics) as conversion metrics for values
+        # reports; the same metric would be re-resolved on every retry, so this can never self-heal
+        # and must not fail the whole sync.
+        response = _response_with_status(400)
+        response._content = (
+            b'{"errors":[{"status":400,"code":"invalid","title":"Invalid input.",'
+            b'"detail":"Passed in conversion metric does not support querying for values data",'
+            b'"source":{"pointer":"/data/attributes/conversion_metric_id"}}]}'
+        )
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                raise requests.HTTPError(response=response)
+            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        assert (
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="campaign_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+            == []
+        )
+
+    def test_unrelated_http_error_still_propagates(self, monkeypatch: Any) -> None:
+        # Only the specific ineligible-conversion-metric 400 should be swallowed; any other HTTP
+        # failure (e.g. a transient 500) must still fail the sync loudly rather than go silent.
+        response = _response_with_status(500)
+        response._content = b'{"errors":[{"status":500,"title":"Internal Server Error"}]}'
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                raise requests.HTTPError(response=response)
+            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        with pytest.raises(requests.HTTPError):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="campaign_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
     def test_account_with_no_metrics_yields_nothing_instead_of_posting_an_invalid_report(
         self, monkeypatch: Any
     ) -> None:
@@ -784,6 +1044,136 @@ class TestValuesReports:
             )
             == []
         )
+
+
+class TestReportVariants:
+    def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self, monkeypatch: Any) -> None:
+        # Series reports return each statistic as an array aligned to a top-level date_times list;
+        # keeping the arrays nested would leave the table unqueryable and collapse the weekly rows.
+        # Klaviyo also 400s a series report missing the interval, so the body must carry it.
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                captured["body"] = json_body
+                return {
+                    "data": {
+                        "attributes": {
+                            "results": [
+                                {
+                                    "groupings": {
+                                        "flow_id": "F1",
+                                        "flow_message_id": "FM1",
+                                        "send_channel": "email",
+                                    },
+                                    "statistics": {"opens": [1, 2]},
+                                }
+                            ],
+                            "date_times": ["2026-01-05T00:00:00+00:00", "2026-01-12T00:00:00+00:00"],
+                        }
+                    },
+                    "links": {},
+                }
+            return {"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        rows = [
+            row
+            for table in get_rows(
+                api_key="pk_test",
+                endpoint="flow_series_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+            for row in table.to_pylist()
+        ]
+
+        assert captured["body"]["data"]["attributes"]["interval"] == "weekly"
+        assert rows == [
+            {
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
+                "send_channel": "email",
+                "date_time": "2026-01-05T00:00:00+00:00",
+                "opens": 1,
+                "timeframe_key": SERIES_REPORT_TIMEFRAME_KEY,
+                "conversion_metric_id": "M_ORDER",
+            },
+            {
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
+                "send_channel": "email",
+                "date_time": "2026-01-12T00:00:00+00:00",
+                "opens": 2,
+                "timeframe_key": SERIES_REPORT_TIMEFRAME_KEY,
+                "conversion_metric_id": "M_ORDER",
+            },
+        ]
+
+    @parameterized.expand(
+        [
+            ("form_values_reports", "form-values-report", "/form-values-reports", ["form_id"]),
+            ("segment_values_reports", "segment-values-report", "/segment-values-reports", None),
+        ]
+    )
+    def test_form_and_segment_reports_omit_the_conversion_metric_and_its_lookup(
+        self, endpoint: str, report_type: str, path: str, expected_group_by: list[str] | None
+    ) -> None:
+        # Form and segment reports don't accept a conversion_metric_id; sending one (or the group_by
+        # segment reports also reject) 400s the request, and resolving one would cost a needless
+        # /metrics walk on every sync.
+        captured: dict[str, Any] = {}
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            if json_body is not None:
+                captured["body"] = json_body
+            return {"data": {"attributes": {"results": []}}, "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        attributes = captured["body"]["data"]["attributes"]
+        assert captured["body"]["data"]["type"] == report_type
+        assert "conversion_metric_id" not in attributes
+        assert fetched_urls == [f"https://a.klaviyo.com/api{path}"]
+        if expected_group_by is None:
+            assert "group_by" not in attributes
+        else:
+            assert attributes["group_by"] == expected_group_by
+
+    @parameterized.expand(
+        [
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_series_reports_key_on_the_time_bucket(self, endpoint: str) -> None:
+        # Without date_time in the primary key, the ~52 weekly rows per grouping collapse to one on
+        # merge, silently discarding the whole time series. Without date_time as a cursor the table
+        # syncs full refresh, so every sync rebuilds it from Klaviyo's rolling window and drops the
+        # weeks that have since left it, which no later sync can fetch again.
+        config = KLAVIYO_ENDPOINTS[endpoint]
+        assert "date_time" in config.primary_keys
+        assert [f["field"] for f in config.incremental_fields] == ["date_time"]
+        assert config.default_incremental_field == "date_time"
+        # Klaviyo caps weekly-interval series reports at 52 weeks; last_365_days (365 days) exceeds
+        # that by one day and causes a 400. All series endpoints must use the shorter key.
+        assert config.values_report is not None
+        assert config.values_report.timeframe_key == SERIES_REPORT_TIMEFRAME_KEY
 
 
 class TestEndpointRequestParams:
@@ -840,6 +1230,31 @@ class TestEndpointRequestParams:
         )
         assert params["filter"] == "greater-or-equal(created,2026-03-04T02:58:14.000Z)"
 
+    def test_profiles_request_the_omitted_subscriptions_object(self) -> None:
+        # Klaviyo excludes subscriptions (consent detail) unless additional-fields asks for it;
+        # dropping this param silently loses the column for every synced profile.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS["profiles"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="updated",
+        )
+        assert params["additional-fields[profile]"] == "subscriptions"
+        assert params["filter"] == "greater-than(updated,2026-03-04T02:58:14.000Z)"
+
+    @parameterized.expand([("list_profiles",), ("segment_profiles",)])
+    def test_membership_fan_outs_keep_their_restrictive_fieldset(self, endpoint: str) -> None:
+        # The fan-outs only need joined_group_at; expanding them with additional-fields would
+        # balloon every per-parent request.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params["fields[profile]"] == "joined_group_at"
+        assert "additional-fields[profile]" not in params
+
 
 class TestNewSchemas:
     @parameterized.expand(
@@ -857,15 +1272,32 @@ class TestNewSchemas:
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    @parameterized.expand([("segment_profiles",), ("flow_actions",), ("flow_messages",)])
-    def test_lookback_endpoints_are_merge_only(self, endpoint: str) -> None:
-        # Append mode would materialize the intentional lookback re-pulls as duplicate rows.
+    @parameterized.expand(
+        [
+            ("segment_profiles",),
+            ("flow_actions",),
+            ("flow_messages",),
+            ("campaign_values_reports",),
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_endpoints_that_re_pull_a_window_are_merge_only(self, endpoint: str) -> None:
+        # Append mode would materialize the intentional re-pulls as duplicate rows. A lookback
+        # endpoint re-pulls a window of rows each run, and a report re-posts its whole window.
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_append is False
 
     def test_every_endpoint_is_exposed_as_a_schema(self) -> None:
         schemas = {s.name for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas == set(KLAVIYO_ENDPOINTS)
+
+    def test_plan_gated_webhooks_is_opt_in(self) -> None:
+        # Klaviyo only offers the webhooks API with its paid Advanced KDP add-on, so a default-on
+        # table would fail the first sync for every other account.
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas["webhooks"].should_sync_default is False
 
 
 class TestSourceResponseSortMode:

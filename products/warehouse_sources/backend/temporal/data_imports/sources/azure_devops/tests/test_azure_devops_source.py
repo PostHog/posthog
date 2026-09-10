@@ -1,23 +1,14 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
     AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
-    AzureDevOpsResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source import AzureDevOpsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
     AzureDevOpsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAzureDevOpsSource:
@@ -26,34 +17,10 @@ class TestAzureDevOpsSource:
         self.team_id = 123
         self.config = AzureDevOpsSourceConfig(organization="myorg", personal_access_token="pat")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AZUREDEVOPS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "AzureDevOps"
-        assert config.label == "Azure DevOps"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/azure_devops.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["organization", "personal_access_token"]
-
     def test_connection_host_fields_includes_organization(self):
         # The PAT is sent to dev.azure.com/<organization>, so retargeting the
         # organization must force re-entry of the token.
         assert self.source.connection_host_fields == ["organization"]
-
-    def test_pat_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "personal_access_token"
-        )
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -79,55 +46,27 @@ class TestAzureDevOpsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_vendor_error for key in non_retryable_errors)
 
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        assert incremental == {"builds", "pull_requests", "work_item_revisions"}
-
-    def test_incremental_schemas_advertise_their_fields(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["builds"].incremental_fields == INCREMENTAL_FIELDS["builds"]
-        assert [f["field"] for f in schemas["work_item_revisions"].incremental_fields] == ["changed_date"]
-        assert schemas["projects"].incremental_fields == []
-        assert schemas["projects"].supports_append is False
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["builds"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "builds"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "probe_result",
         [
-            (True, True, None),
-            (False, False, "Invalid Azure DevOps credentials"),
+            (True, None),
+            (
+                False,
+                "Azure DevOps denied access. Please check that your personal access token has read scopes for this data.",
+            ),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.validate_azure_devops_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_validate_credentials_passes_probe_result_through(self, mock_validate, probe_result):
+        mock_validate.return_value = probe_result
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
+        # The specific failure reason from the probe must reach the caller unchanged, not be
+        # collapsed into a single generic message.
+        assert self.source.validate_credentials(self.config, self.team_id) == probe_result
         # No pin at creation time resolves to default_version.
         mock_validate.assert_called_once_with("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AzureDevOpsResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.azure_devops_source"

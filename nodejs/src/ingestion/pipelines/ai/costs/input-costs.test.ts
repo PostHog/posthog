@@ -1,3 +1,4 @@
+import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { calculateInputCost, resolveCacheReportingExclusive } from './input-costs'
@@ -160,6 +161,37 @@ describe('resolveCacheReportingExclusive()', () => {
             expected: false,
         },
         {
+            name: 'falls back to exclusive for a non-Anthropic provider when cache reads exceed input tokens',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'xiaomi/mimo-v2.5',
+                $ai_input_tokens: 149,
+                $ai_cache_read_input_tokens: 23104,
+            },
+            expected: true,
+        },
+        {
+            name: 'stays inclusive for a non-Anthropic provider when cache reads fit within input tokens',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 500,
+            },
+            expected: false,
+        },
+        {
+            name: 'explicit false wins over the provably-not-inclusive fallback',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o',
+                $ai_cache_reporting_exclusive: false,
+                $ai_input_tokens: 100,
+                $ai_cache_read_input_tokens: 200,
+            },
+            expected: false,
+        },
+        {
             name: 'returns false when event has no properties',
             properties: undefined,
             expected: false,
@@ -177,6 +209,71 @@ describe('resolveCacheReportingExclusive()', () => {
             timestamp: '',
         } as PluginEvent
         expect(resolveCacheReportingExclusive(event)).toBe(expected)
+    })
+
+    describe('fallback counter', () => {
+        async function fallbackCount(prior: 'inclusive' | 'anthropic_inclusive'): Promise<number> {
+            const data = await aiCacheExclusiveFallbackCounter.get()
+            return data.values.find((v) => v.labels.prior === prior)?.value ?? 0
+        }
+
+        beforeEach(() => {
+            aiCacheExclusiveFallbackCounter.reset()
+        })
+
+        it.each<{
+            name: string
+            properties: Record<string, any>
+            expected: { inclusive: number; anthropic_inclusive: number }
+        }>([
+            {
+                name: 'counts a non-Anthropic fallback flip under prior=inclusive',
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'xiaomi/mimo-v2.5',
+                    $ai_input_tokens: 149,
+                    $ai_cache_read_input_tokens: 23104,
+                },
+                expected: { inclusive: 1, anthropic_inclusive: 0 },
+            },
+            {
+                name: 'counts an Anthropic-via-Vercel fallback flip under prior=anthropic_inclusive',
+                properties: {
+                    $ai_provider: 'gateway',
+                    $ai_framework: 'vercel',
+                    $ai_model: 'anthropic/claude-opus-4.6',
+                    $ai_input_tokens: 247,
+                    $ai_cache_read_input_tokens: 6287,
+                },
+                expected: { inclusive: 0, anthropic_inclusive: 1 },
+            },
+            {
+                name: 'does not count an inclusive event whose cache tokens fit within input tokens',
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-4o',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 500,
+                },
+                expected: { inclusive: 0, anthropic_inclusive: 0 },
+            },
+            {
+                name: 'does not count an explicitly declared event even when tokens are provably not inclusive',
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-4o',
+                    $ai_cache_reporting_exclusive: true,
+                    $ai_input_tokens: 100,
+                    $ai_cache_read_input_tokens: 200,
+                },
+                expected: { inclusive: 0, anthropic_inclusive: 0 },
+            },
+        ])('$name', async ({ properties, expected }) => {
+            resolveCacheReportingExclusive(createAIEvent(properties))
+
+            expect(await fallbackCount('inclusive')).toBe(expected.inclusive)
+            expect(await fallbackCount('anthropic_inclusive')).toBe(expected.anthropic_inclusive)
+        })
     })
 })
 
@@ -460,6 +557,63 @@ describe('calculateInputCost()', () => {
             expectCostToBeCloseTo(result, 0.002)
         })
 
+        it.each([
+            {
+                name: 'prices inclusive cache reads and writes at distinct rates',
+                inputTokens: 1000,
+                exclusive: false,
+                cacheWriteRate: 0.00000125,
+                expected: 0.000895,
+            },
+            {
+                name: 'prices cache writes below the prompt rate',
+                inputTokens: 1000,
+                exclusive: false,
+                cacheWriteRate: 0.00000025,
+                expected: 0.000595,
+            },
+            {
+                name: 'adds cache buckets to explicitly exclusive input',
+                inputTokens: 500,
+                exclusive: true,
+                cacheWriteRate: 0.00000125,
+                expected: 0.000895,
+            },
+            {
+                name: 'falls back to the prompt rate for cache writes',
+                inputTokens: 1000,
+                exclusive: false,
+                cacheWriteRate: undefined,
+                expected: 0.00082,
+            },
+            {
+                name: 'preserves an explicit zero cache-write rate',
+                inputTokens: 1000,
+                exclusive: false,
+                cacheWriteRate: 0,
+                expected: 0.00052,
+            },
+        ])('$name', ({ inputTokens, exclusive, cacheWriteRate, expected }) => {
+            const model = createTestModel({
+                model: 'gpt-4o',
+                provider: 'openai',
+                cost: {
+                    prompt_token: 0.000001,
+                    completion_token: 0.000002,
+                    cache_read_token: 0.0000001,
+                    ...(cacheWriteRate !== undefined && { cache_write_token: cacheWriteRate }),
+                },
+            })
+            const event = createOpenAITestEvent(inputTokens, 200, {
+                $ai_cache_creation_input_tokens: 300,
+                $ai_cache_reporting_exclusive: exclusive,
+            })
+
+            const result = calculateInputCost(event, model)
+
+            expectCostToBeCloseTo(result, expected)
+        })
+
         it('uses 0.5x multiplier fallback when cache_read_token not defined', () => {
             const modelWithoutCacheRead = createTestModel({
                 model: 'gpt-4',
@@ -514,6 +668,31 @@ describe('calculateInputCost()', () => {
     })
 
     describe('gemini provider - cache handling', () => {
+        it.each([
+            { inputTokens: 100000, exclusive: false },
+            { inputTokens: 50000, exclusive: true },
+        ])('prices cache writes as input with exclusive=$exclusive', ({ inputTokens, exclusive }) => {
+            const model = createTestModel({
+                model: 'google/gemini-2.5-flash',
+                provider: 'google-vertex',
+                cost: {
+                    prompt_token: 3e-7,
+                    completion_token: 0.0000025,
+                    cache_read_token: 3e-8,
+                    cache_write_token: 8.333333333e-8,
+                },
+            })
+            const event = createGeminiTestEvent(inputTokens, 20000, {
+                $ai_model: 'gemini-2.5-flash',
+                $ai_provider: 'vertex',
+                $ai_cache_creation_input_tokens: 30000,
+                $ai_cache_reporting_exclusive: exclusive,
+            })
+
+            expectCostToBeCloseTo(calculateInputCost(event, model), 0.0246)
+            expect(event.properties!.$ai_cache_reporting_exclusive).toBe(exclusive)
+        })
+
         it('calculates cost with cache read tokens using explicit costs', () => {
             const event = createGeminiTestEvent(10000, 4000)
             const result = calculateInputCost(event, GEMINI_MODEL)
@@ -595,15 +774,15 @@ describe('calculateInputCost()', () => {
             expect(result).toBe('0')
         })
 
-        it('handles cache read tokens exceeding input tokens', () => {
+        it('resolves to exclusive accounting when cache read tokens exceed input tokens', () => {
             const event = createOpenAITestEvent(100, 200, { $ai_model: 'gpt-4' })
             const result = calculateInputCost(event, testModel)
 
-            // Regular: (100 - 200) = -100, negative regular tokens
             // Read: 200 * 0.000001 * 0.5 = 0.0001
-            // Regular: -100 * 0.000001 = -0.0001
-            // Total: 0.0001 + (-0.0001) = 0
-            expectCostToBeCloseTo(result, 0)
+            // Regular: 100 * 0.000001 = 0.0001
+            // Total: 0.0001 + 0.0001 = 0.0002
+            expectCostToBeCloseTo(result, 0.0002)
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(true)
         })
 
         it('handles very large token counts', () => {
@@ -953,7 +1132,7 @@ describe('calculateInputCost()', () => {
             expectCostToBeCloseTo(result, 0.0001)
         })
 
-        it('handles audio + image input together for multimodal calls', () => {
+        it.each([0, 600])('handles audio + image input with %i cache-write tokens', (cacheWriteTokens) => {
             const multiModalCost: ResolvedModelCost = {
                 model: 'gemini-2.5-flash',
                 provider: 'google',
@@ -962,6 +1141,7 @@ describe('calculateInputCost()', () => {
                     completion_token: 0.0000025,
                     image: 3e-7,
                     audio: 0.000001,
+                    cache_write_token: 8.333333333e-8,
                 },
             }
             const event = createAIEvent({
@@ -970,6 +1150,7 @@ describe('calculateInputCost()', () => {
                 $ai_input_tokens: 1000, // 400 text + 200 audio + 400 image
                 $ai_audio_input_tokens: 200,
                 $ai_image_input_tokens: 400,
+                $ai_cache_creation_input_tokens: cacheWriteTokens,
             })
 
             const result = calculateInputCost(event, multiModalCost)

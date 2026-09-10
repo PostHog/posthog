@@ -5,10 +5,11 @@ import { LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { PushIdentityVerificationField } from '../PushIdentityVerificationField'
 import { FCMSetupModalLogicProps, fcmSetupModalLogic } from './fcmSetupModalLogic'
 
 export const FCMSetupModal = (props: FCMSetupModalLogicProps): JSX.Element => {
-    const { isFcmIntegrationSubmitting } = useValues(fcmSetupModalLogic(props))
+    const { isFcmIntegrationSubmitting, fcmIntegration } = useValues(fcmSetupModalLogic(props))
     const { submitFcmIntegration } = useActions(fcmSetupModalLogic(props))
 
     return (
@@ -35,6 +36,7 @@ export const FCMSetupModal = (props: FCMSetupModalLogicProps): JSX.Element => {
                     <LemonField name="serviceAccountKey" label="Service account key JSON">
                         <LemonTextArea placeholder='{"type": "service_account", ...}' minRows={6} />
                     </LemonField>
+                    <PushIdentityVerificationField mode={fcmIntegration.identityVerification} />
                     <div className="flex justify-end">
                         <LemonButton
                             type="primary"

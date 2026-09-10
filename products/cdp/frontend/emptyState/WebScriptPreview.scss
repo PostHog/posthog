@@ -1,0 +1,315 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.WebScriptPreview {
+    --web-script-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden enabled state. A direct child of .WebScriptPreview so `:checked ~` reaches both cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__site {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // On/off pairs are stacked on one grid cell and crossfaded, so enabling the
+    // script never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-on {
+        @include preview-swap-hidden;
+    }
+
+    &__when-off {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: 9.5rem 1fr auto auto;
+        gap: 0.625rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__row--hero {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 150ms ease;
+    }
+
+    &__row--hero:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__name {
+        overflow: hidden;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    // Per-script 7-day invocations sparkline.
+    &__row-spark {
+        display: block;
+        width: 100%;
+        height: 16px;
+        overflow: visible;
+    }
+
+    &__row-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--web-script-preview-accent) 45%, transparent);
+        stroke-width: 1.5;
+    }
+
+    &__row-line--flat {
+        stroke: var(--color-fill-secondary);
+    }
+
+    // The hero's series reads as "no data yet" until its script is enabled.
+    &__row-line--hero {
+        stroke: var(--color-fill-secondary);
+        transition: stroke 400ms ease;
+    }
+
+    // Ambient motion: a short bright segment cycling along the enabled script's line.
+    &__row-trace {
+        fill: none;
+        stroke: var(--web-script-preview-accent);
+        stroke-dasharray: 14 86;
+        stroke-linecap: round;
+        stroke-width: 1.5;
+        animation: WebScriptPreview__trace 3.2s linear infinite;
+    }
+
+    &__invocations {
+        min-width: 2.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__invocations--live {
+        font-weight: 600;
+
+        @include preview-accent-text(var(--web-script-preview-accent));
+    }
+
+    // Mini toggle, mimicking the list's enabled switch. The off track gets a darker
+    // fill plus an inset ring so it stays legible on the card surface.
+    &__switch {
+        position: relative;
+        flex-shrink: 0;
+        width: 26px;
+        height: 15px;
+        background: color-mix(in oklab, var(--color-text-secondary) 25%, var(--color-fill-secondary));
+        border-radius: 999px;
+        box-shadow: inset 0 0 0 1px var(--color-border-primary);
+        transition: background-color 200ms ease;
+
+        &::after {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 11px;
+            height: 11px;
+            content: '';
+            background: var(--color-bg-surface-primary);
+            border-radius: 50%;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+            transition: transform 200ms ease;
+        }
+    }
+
+    &__switch--on {
+        background: var(--web-script-preview-accent);
+
+        &::after {
+            transform: translateX(11px);
+        }
+    }
+
+    &__hint {
+        padding: 0 0.75rem 0.625rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    // Browser chrome for the mini website.
+    &__chrome {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__screen {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        padding: 0.875rem;
+    }
+
+    // The banner the script injects. Always occupies its space (no layout shift);
+    // only its opacity follows the switch.
+    &__banner {
+        padding: 0.375rem 0.625rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-align: center;
+        background: color-mix(in oklab, var(--web-script-preview-accent) 10%, transparent);
+        border: 1px solid color-mix(in oklab, var(--web-script-preview-accent) 35%, transparent);
+        border-radius: var(--radius);
+
+        @include preview-accent-text(var(--web-script-preview-accent));
+    }
+
+    &__skel {
+        display: block;
+        width: var(--w, 100%);
+        height: 8px;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+    }
+
+    // What the snippet reports about the script.
+    &__console {
+        display: flex;
+        gap: 0.375rem;
+        padding: 0.375rem 0.625rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        background: var(--color-bg-surface-secondary);
+        border-radius: var(--radius);
+    }
+
+    &__console-key {
+        color: var(--color-text-secondary);
+    }
+
+    &__console-val--on {
+        font-weight: 600;
+
+        @include preview-accent-text(var(--web-script-preview-accent));
+    }
+
+    @include preview-chrome-dot;
+}
+
+// Enabled state (user flipped the banner script's switch)
+
+.WebScriptPreview__checkbox:checked ~ * .WebScriptPreview__when-on {
+    @include preview-swap-visible;
+}
+
+.WebScriptPreview__checkbox:checked ~ * .WebScriptPreview__when-off {
+    @include preview-swap-hidden;
+}
+
+.WebScriptPreview__checkbox:checked ~ .WebScriptPreview__panel .WebScriptPreview__row--hero .WebScriptPreview__switch {
+    background: var(--web-script-preview-accent);
+
+    &::after {
+        transform: translateX(11px);
+    }
+}
+
+// The hero sparkline lights up once its script runs.
+.WebScriptPreview__checkbox:checked ~ .WebScriptPreview__panel .WebScriptPreview__row-line--hero {
+    stroke: color-mix(in oklab, var(--web-script-preview-accent) 45%, transparent);
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the row it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.WebScriptPreview__checkbox:focus-visible ~ .WebScriptPreview__panel .WebScriptPreview__row--hero {
+    outline: 2px solid var(--web-script-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the hero switch until it's flipped.
+.WebScriptPreview:not(.WebScriptPreview--static)
+    .WebScriptPreview__checkbox:not(:checked)
+    ~ .WebScriptPreview__panel
+    .WebScriptPreview__row--hero
+    .WebScriptPreview__switch {
+    animation: WebScriptPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes WebScriptPreview__nudge {
+    0%,
+    100% {
+        box-shadow:
+            inset 0 0 0 1px var(--color-border-primary),
+            0 0 0 0 color-mix(in oklab, var(--web-script-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow:
+            inset 0 0 0 1px var(--color-border-primary),
+            0 0 0 4px color-mix(in oklab, var(--web-script-preview-accent) 20%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes WebScriptPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; flipping the
+// switch still works (transitions only).
+@include preview-motion-guards('WebScriptPreview');

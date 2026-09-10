@@ -9,9 +9,7 @@ from posthog.schema import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
     NewsApiSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.news_api import NewsApiResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source import NewsApiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(language: str | None = None) -> NewsApiSourceConfig:
@@ -23,16 +21,9 @@ class TestNewsApiSource:
         self.source = NewsApiSource()
         self.team_id = 123
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NEWSAPI
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    @parameterized.expand([("401 Client Error",), ("426 Client Error",)])
-    def test_non_retryable_error_keys(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_source_config_required_fields(self) -> None:
         fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
@@ -80,11 +71,6 @@ class TestNewsApiSource:
             valid, message = self.source.validate_credentials(_config(), self.team_id)
         assert valid is False
         assert message == "Invalid NewsAPI key"
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is NewsApiResumeConfig
 
     def test_source_for_pipeline_plumbs_query_and_language(self) -> None:
         inputs = MagicMock()

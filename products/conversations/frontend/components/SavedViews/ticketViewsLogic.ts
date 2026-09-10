@@ -12,7 +12,7 @@ import {
     conversationsViewsList,
     conversationsViewsPartialUpdate,
 } from '../../generated/api'
-import type { PatchedTicketViewApi, TicketViewApiFilters } from '../../generated/api.schemas'
+import type { PatchedTicketViewApi, TicketViewFiltersApi } from '../../generated/api.schemas'
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import type { SavedTicketView, TicketViewFilters } from '../../types'
 
@@ -38,6 +38,7 @@ export interface ticketViewsLogicValues {
     filteredViews: SavedTicketView[]
     isModalOpen: boolean
     isSaveModalOpen: boolean
+    isSavingView: boolean
     searchTerm: string
     sortedViews: SavedTicketView[]
     viewName: string
@@ -176,7 +177,7 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         views: [
             [] as SavedTicketView[],
             {
@@ -187,9 +188,10 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
                 createView: async ({ name, filters }: { name: string; filters: TicketViewFilters }) => {
                     const created = (await conversationsViewsCreate(String(values.currentTeamId), {
                         name,
-                        filters: filters as TicketViewApiFilters,
+                        filters: filters as TicketViewFiltersApi,
                     })) as unknown as SavedTicketView
                     lemonToast.success('View saved')
+                    actions.loadView(created)
                     return [created, ...values.views]
                 },
             },
@@ -244,6 +246,14 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
                 openModal: () => '',
                 closeModal: () => '',
+            },
+        ],
+        isSavingView: [
+            false,
+            {
+                createView: () => true,
+                createViewSuccess: () => false,
+                createViewFailure: () => false,
             },
         ],
     }),

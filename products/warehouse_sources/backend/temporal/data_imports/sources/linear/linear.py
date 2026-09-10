@@ -67,6 +67,12 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
 _FLOAT_FIELDS: dict[str, tuple[str, ...]] = {
     "cycles": ("progress",),
     "projects": ("progress",),
+    # `progress`, `sortOrder` and `position` are all GraphQL Floats that routinely hold whole
+    # values, so they hit the same int64-inference trap as `progress` above.
+    "workflow_states": ("position",),
+    "project_milestones": ("progress", "sortOrder"),
+    "initiatives": ("sortOrder",),
+    "team_memberships": ("sortOrder",),
 }
 
 

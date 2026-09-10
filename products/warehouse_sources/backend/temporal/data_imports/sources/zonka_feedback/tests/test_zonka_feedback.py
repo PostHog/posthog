@@ -240,7 +240,7 @@ class TestCheckAccess:
 
 
 class TestZonkaFeedbackSourceResponse:
-    @parameterized.expand([("responses",), ("surveys",), ("contacts",)])
+    @parameterized.expand([("responses",), ("surveys",), ("contacts",), ("survey_links",)])
     def test_source_response_shape(self, endpoint: str) -> None:
         response = _source(_make_manager(), endpoint=endpoint)
         assert response.name == endpoint

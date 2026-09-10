@@ -20,6 +20,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
@@ -31,7 +32,6 @@ import {
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
-    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessSeries,
     buildStickinessTooltipTitle,
@@ -85,13 +85,9 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
-    const bucketCount = currentPeriodResult?.labels?.length ?? 0
-    const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
+    const labels = currentPeriodResult?.labels ?? []
 
-    const hasData =
-        indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
+    const hasData = hasTrendsChartData(indexedResults)
 
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>

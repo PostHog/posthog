@@ -11,7 +11,6 @@ import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
@@ -22,6 +21,7 @@ import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlowBatchJob } from './hogflows/types'
 import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { WorkflowMetricCard } from './WorkflowMetricCard'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
 import { type EmailMetric, METRIC_COLORS, buildEmailMetricInvocationSearchParams } from './workflowMetricsSummaryLogic'
 
@@ -191,7 +191,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
                         {['succeeded', 'failed'].map((key) => (
-                            <AppMetricSummary
+                            <WorkflowMetricCard
                                 key={key}
                                 name={WORKFLOW_METRICS_INFO[key].name}
                                 description={WORKFLOW_METRICS_INFO[key].description}
@@ -343,7 +343,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
                         {['succeeded', 'failed'].map((key) => (
-                            <AppMetricSummary
+                            <WorkflowMetricCard
                                 key={key}
                                 name={WORKFLOW_METRICS_INFO[key].name}
                                 description={WORKFLOW_METRICS_INFO[key].description}

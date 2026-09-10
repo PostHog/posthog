@@ -1,0 +1,375 @@
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { TaskRunDefaults } from "@posthog/api-client/posthog-client";
+import { flattenConfigValues } from "@posthog/core/task-detail/configOptions";
+import type { Adapter } from "@posthog/shared";
+import { EFFORT_LEVELS } from "@posthog/shared/domain-types";
+
+export const CONTEXT_WINDOW_OPTION_CATEGORY = "_context_window";
+export const FAST_MODE_OPTION_CATEGORY = "_fast_mode";
+
+export interface PreviewSettingsSnapshot {
+  defaultInitialTaskMode: string;
+  lastUsedInitialTaskMode: string | null | undefined;
+  defaultReasoningEffort: string;
+  lastUsedReasoningEffort: string | null | undefined;
+  lastUsedContextWindow?: "200k" | "1m" | null;
+  lastUsedFastMode?: boolean | null;
+}
+
+interface EffortOption {
+  value: string;
+}
+
+const EFFORT_RANK: Record<string, number> = Object.fromEntries(
+  EFFORT_LEVELS.map((level, rank) => [level, rank]),
+);
+
+export function clampEffortToAvailable(
+  desired: string,
+  available: string[],
+): string | null {
+  if (available.length === 0) return null;
+  if (available.includes(desired)) return desired;
+
+  const desiredRank = EFFORT_RANK[desired];
+  if (desiredRank === undefined) {
+    return available[available.length - 1];
+  }
+
+  const ranked = available
+    .map((value) => ({ value, rank: EFFORT_RANK[value] }))
+    .filter((entry): entry is { value: string; rank: number } =>
+      Number.isFinite(entry.rank),
+    );
+  if (ranked.length === 0) return available[0];
+
+  return ranked.reduce((closest, entry) =>
+    Math.abs(entry.rank - desiredRank) < Math.abs(closest.rank - desiredRank)
+      ? entry
+      : closest,
+  ).value;
+}
+
+export function deriveInitialConfig(
+  options: SessionConfigOption[],
+  settings: PreviewSettingsSnapshot,
+  adapter: Adapter,
+): SessionConfigOption[] {
+  const {
+    defaultInitialTaskMode,
+    lastUsedInitialTaskMode,
+    defaultReasoningEffort,
+    lastUsedReasoningEffort,
+  } = settings;
+
+  const modeOpt = options.find((o) => o.id === "mode");
+  const serverDefault = modeOpt?.currentValue;
+  const availableValues: string[] = modeOpt ? flattenConfigValues(modeOpt) : [];
+
+  let initialMode: string;
+  if (
+    defaultInitialTaskMode === "last_used" &&
+    lastUsedInitialTaskMode &&
+    availableValues.includes(lastUsedInitialTaskMode)
+  ) {
+    initialMode = lastUsedInitialTaskMode;
+  } else {
+    const fallbackDefault = adapter === "codex" ? "auto" : "plan";
+    initialMode =
+      typeof serverDefault === "string" &&
+      availableValues.includes(serverDefault)
+        ? serverDefault
+        : fallbackDefault;
+  }
+
+  const withMode = options.map((opt) =>
+    opt.id === "mode"
+      ? ({ ...opt, currentValue: initialMode } as SessionConfigOption)
+      : opt,
+  );
+
+  return withMode.map((opt) => {
+    if (opt.type === "select" && opt.id === "context_window") {
+      const desired = settings.lastUsedContextWindow;
+      if (desired && flattenConfigValues(opt).includes(desired)) {
+        return { ...opt, currentValue: desired } as SessionConfigOption;
+      }
+      return opt;
+    }
+    if (opt.type === "select" && opt.id === "fast") {
+      const desired =
+        settings.lastUsedFastMode == null
+          ? undefined
+          : settings.lastUsedFastMode
+            ? "on"
+            : "off";
+      if (desired && flattenConfigValues(opt).includes(desired)) {
+        return { ...opt, currentValue: desired } as SessionConfigOption;
+      }
+      return opt;
+    }
+    if (opt.category !== "thought_level" || opt.type !== "select") {
+      return opt;
+    }
+    const validValues = flattenConfigValues(opt);
+    if (defaultReasoningEffort === "last_used") {
+      if (
+        lastUsedReasoningEffort &&
+        validValues.includes(lastUsedReasoningEffort)
+      ) {
+        return {
+          ...opt,
+          currentValue: lastUsedReasoningEffort,
+        } as SessionConfigOption;
+      }
+      return opt;
+    }
+    const clamped = clampEffortToAvailable(defaultReasoningEffort, validValues);
+    if (clamped) {
+      return { ...opt, currentValue: clamped } as SessionConfigOption;
+    }
+    return opt;
+  });
+}
+
+/** The subset of the tasks backend's resolved AI run defaults the composer acts on. */
+export type PreferredRunDefaults = Pick<
+  TaskRunDefaults,
+  "runtime_adapter" | "model" | "reasoning_effort"
+>;
+
+export interface PreferredRunSelection {
+  model: string;
+  reasoningEffort: string | null;
+}
+
+/**
+ * The model and effort the composer should open on, taken from the project or
+ * user preference stored server-side. Returns null when the preference doesn't
+ * apply, leaving the caller on its built-in fallback:
+ *
+ * - `lastUsedModel` or `lastUsedReasoningEffort` is set — an explicit pick on
+ *   this device outranks a preference, which must never silently move a model
+ *   or effort someone chose.
+ * - no default is stored.
+ * - the preference names a different harness, so its model is meaningless here.
+ * - this adapter no longer offers the model (a de-listed id would fail the run
+ *   at the gateway rather than launching on something usable).
+ */
+export function pickPreferredRunSelection(
+  defaults: PreferredRunDefaults | null | undefined,
+  adapter: Adapter,
+  modelOption: SessionConfigOption | undefined,
+  lastUsedModel: string | null | undefined,
+  lastUsedReasoningEffort: string | null | undefined,
+): PreferredRunSelection | null {
+  if (lastUsedModel || lastUsedReasoningEffort) return null;
+  const model = defaults?.model;
+  if (!model) return null;
+  if (defaults?.runtime_adapter && defaults.runtime_adapter !== adapter) {
+    return null;
+  }
+  if (
+    modelOption?.type !== "select" ||
+    !flattenConfigValues(modelOption).includes(model)
+  ) {
+    return null;
+  }
+  return { model, reasoningEffort: defaults?.reasoning_effort || null };
+}
+
+/**
+ * The harness the configured default (user's, else the team's) runs on, when
+ * both a model and a known adapter are stored. The composer's harness is a
+ * separate local setting, so a caller adopting the default must move it too —
+ * a Claude default is unreachable from a composer left on Codex.
+ */
+export function preferredRunAdapter(
+  defaults: PreferredRunDefaults | null | undefined,
+): Adapter | null {
+  if (!defaults?.model) return null;
+  return defaults.runtime_adapter === "claude" ||
+    defaults.runtime_adapter === "codex"
+    ? defaults.runtime_adapter
+    : null;
+}
+
+/**
+ * Whether the composer's current selection sits exactly on the configured
+ * project/user default (as resolved by pickPreferredRunSelection) — the marker
+ * condition for "Default ·" and for greying out the reset. False whenever no
+ * preference applies to this surface: a fallback selection is not the default,
+ * it just is what's left. An explicit effort pick against an effort-less
+ * preference is a deviation, since a reset would put the effort back on the
+ * model's own default.
+ */
+export function matchesPreferredRunSelection(
+  preferred: PreferredRunSelection | null,
+  current: { model: string | undefined; reasoningEffort: string | undefined },
+  hasExplicitEffortPick: boolean,
+): boolean {
+  if (!preferred) return false;
+  if (current.model !== preferred.model) return false;
+  if (preferred.reasoningEffort) {
+    return current.reasoningEffort === preferred.reasoningEffort;
+  }
+  return !hasExplicitEffortPick;
+}
+
+export interface ApplyConfigChangeArgs {
+  adapter: Adapter;
+  configId: string;
+  value: string;
+  effortOptions: EffortOption[] | undefined;
+  contextWindowOptions?: EffortOption[];
+  fastModeOptions?: EffortOption[];
+  settings: PreviewSettingsSnapshot;
+}
+
+interface ToggleOptionSpec {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  options: EffortOption[] | undefined;
+  defaultValue: string;
+}
+
+function syncToggleOption(
+  options: SessionConfigOption[],
+  spec: ToggleOptionSpec,
+): SessionConfigOption[] {
+  const idx = options.findIndex((o) => o.id === spec.id);
+  if (!spec.options) {
+    return idx >= 0 ? options.filter((o) => o.id !== spec.id) : options;
+  }
+  if (idx >= 0) {
+    const current = options[idx];
+    const currentValue =
+      current.type === "select" &&
+      spec.options.some((o) => o.value === current.currentValue)
+        ? current.currentValue
+        : spec.defaultValue;
+    return options.map((o, i) =>
+      i === idx
+        ? ({ ...o, currentValue, options: spec.options } as SessionConfigOption)
+        : o,
+    );
+  }
+  return [
+    ...options,
+    {
+      id: spec.id,
+      name: spec.name,
+      type: "select",
+      currentValue: spec.defaultValue,
+      options: spec.options,
+      category: spec.category,
+      description: spec.description,
+    } as SessionConfigOption,
+  ];
+}
+
+export function applyConfigChange(
+  options: SessionConfigOption[],
+  args: ApplyConfigChangeArgs,
+): SessionConfigOption[] {
+  const {
+    adapter,
+    configId,
+    value,
+    effortOptions,
+    contextWindowOptions,
+    fastModeOptions,
+    settings,
+  } = args;
+
+  let updated = options.map((opt) =>
+    opt.id === configId
+      ? ({ ...opt, currentValue: value } as SessionConfigOption)
+      : opt,
+  );
+
+  if (configId !== "model") {
+    return updated;
+  }
+
+  const existingIdx = updated.findIndex((o) => o.category === "thought_level");
+  const effortOptionId =
+    existingIdx >= 0
+      ? updated[existingIdx].id
+      : adapter === "codex"
+        ? "reasoning_effort"
+        : "effort";
+
+  const { lastUsedReasoningEffort, defaultReasoningEffort } = settings;
+  const isValidEffort = (effort: unknown): effort is string =>
+    typeof effort === "string" &&
+    !!effortOptions?.some((e) => e.value === effort);
+  const resolveEffortFallback = (): string => {
+    if (
+      defaultReasoningEffort !== "last_used" &&
+      isValidEffort(defaultReasoningEffort)
+    ) {
+      return defaultReasoningEffort;
+    }
+    return isValidEffort(lastUsedReasoningEffort)
+      ? lastUsedReasoningEffort
+      : "high";
+  };
+
+  if (effortOptions && existingIdx >= 0) {
+    const currentEffort = updated[existingIdx].currentValue;
+    const nextEffort = isValidEffort(currentEffort)
+      ? currentEffort
+      : resolveEffortFallback();
+    updated[existingIdx] = {
+      ...updated[existingIdx],
+      currentValue: nextEffort,
+      options: effortOptions,
+    } as SessionConfigOption;
+  } else if (effortOptions && existingIdx === -1) {
+    const nextEffort = resolveEffortFallback();
+    updated = [
+      ...updated,
+      {
+        id: effortOptionId,
+        name: adapter === "codex" ? "Reasoning Level" : "Effort",
+        type: "select",
+        currentValue: nextEffort,
+        options: effortOptions,
+        category: "thought_level",
+        description:
+          adapter === "codex"
+            ? "Controls how much reasoning effort the model uses"
+            : "Controls how much effort Claude puts into its response",
+      } as SessionConfigOption,
+    ];
+  } else if (!effortOptions && existingIdx >= 0) {
+    updated = updated.filter((o) => o.category !== "thought_level");
+  }
+
+  updated = syncToggleOption(updated, {
+    id: "context_window",
+    name: "Context Window",
+    category: CONTEXT_WINDOW_OPTION_CATEGORY,
+    description: "Choose the context window size for this session",
+    options: contextWindowOptions,
+    defaultValue: settings.lastUsedContextWindow ?? "1m",
+  });
+  updated = syncToggleOption(updated, {
+    id: "fast",
+    name: "Fast Mode",
+    category: FAST_MODE_OPTION_CATEGORY,
+    description: "Faster responses on supported models",
+    options: fastModeOptions,
+    defaultValue:
+      settings.lastUsedFastMode == null
+        ? "off"
+        : settings.lastUsedFastMode
+          ? "on"
+          : "off",
+  });
+
+  return updated;
+}

@@ -210,12 +210,16 @@ impl PersonHogIdentityService {
         }
 
         let request = UpdatePersonPropertiesRequest {
+            // Creation properties persist regardless of the filtered list.
+            force_update: true,
             team_id: person.team_id,
             person_id: person.id,
             event_name: entry.event_name.clone(),
             set_properties: entry.set_properties.clone(),
             set_once_properties: entry.set_once_properties.clone(),
             unset_properties: Vec::new(),
+            is_identified: None,
+            last_seen_at: None,
         };
 
         match self
@@ -241,6 +245,8 @@ impl PersonHogIdentityService {
                     return Err(status);
                 }
                 let retry = UpdatePersonPropertiesRequest {
+                    // Creation properties persist regardless of the filtered list.
+                    force_update: true,
                     team_id: current.team_id,
                     person_id: current.id,
                     ..request

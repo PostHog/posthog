@@ -8,8 +8,8 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 export type StatTone = 'default' | 'danger' | 'warning' | 'success'
 
 /** A compact right-now count: number over a small label, colored only when it's a pressure. Optionally
- *  doubles as a filter toggle (onClick + active) — the compact sibling of StatCard, shared by the hub
- *  hero and the PR list strip so both read the same. */
+ *  doubles as a filter toggle (onClick + active) — the compact sibling of StatCard, used by the PR
+ *  list's stat strip. */
 export function HeroStat({
     label,
     value,
@@ -23,7 +23,7 @@ export function HeroStat({
     label: string
     value: number | null | undefined
     tone?: StatTone
-    /** 'end' in the hub hero's right cluster; 'start' in the PR list's left strip. */
+    /** Horizontal alignment of the number/label stack; the PR list's left strip uses 'start'. */
     align?: 'start' | 'end'
     loading?: boolean
     onClick?: () => void
@@ -91,11 +91,34 @@ export function StatCard({
     /** Visible definition — only when the label alone doesn't explain the count. */
     caption?: string
     loading: boolean
-    onClick: () => void
+    /** Like HeroStat: without it the card is a plain stat, not a filter toggle. */
+    onClick?: () => void
     active?: boolean
     /** What clicking filters the list to — surfaces in the tooltip and hover icon. */
-    filterHint: string
+    filterHint?: string
 }): JSX.Element {
+    const body = loading ? (
+        <>
+            <div className={cn('text-sm font-medium', active ? 'text-accent' : 'text-secondary')}>{label}</div>
+            <LemonSkeleton className="h-9 w-20" />
+        </>
+    ) : (
+        <MetricCard
+            title={<span className={active ? 'text-accent' : undefined}>{label}</span>}
+            // Pre-formatted display string ('—' when no data yet) rides through the formatter.
+            value={0}
+            formatValue={() => value}
+            change={null}
+            subtitle={caption}
+        />
+    )
+    if (!onClick) {
+        return (
+            <div className="relative flex flex-col gap-1 rounded-lg border border-primary bg-surface-primary p-4 text-left">
+                {body}
+            </div>
+        )
+    }
     return (
         <Tooltip title={active ? 'Showing this view' : filterHint} placement="bottom">
             <button
@@ -115,23 +138,7 @@ export function StatCard({
                         active ? 'text-accent opacity-100' : 'text-tertiary opacity-0 group-hover:opacity-100'
                     )}
                 />
-                {loading ? (
-                    <>
-                        <div className={cn('text-sm font-medium', active ? 'text-accent' : 'text-secondary')}>
-                            {label}
-                        </div>
-                        <LemonSkeleton className="h-9 w-20" />
-                    </>
-                ) : (
-                    <MetricCard
-                        title={<span className={active ? 'text-accent' : undefined}>{label}</span>}
-                        // Pre-formatted display string ('—' when no data yet) rides through the formatter.
-                        value={0}
-                        formatValue={() => value}
-                        change={null}
-                        subtitle={caption}
-                    />
-                )}
+                {body}
             </button>
         </Tooltip>
     )

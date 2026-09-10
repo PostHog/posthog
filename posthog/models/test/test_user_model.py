@@ -10,7 +10,7 @@ from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import default_ui_configuration_for_new_users
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestUser(BaseTest):

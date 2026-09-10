@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::Type;
 use uuid::Uuid;
 
-pub use cohort_core::seed::{ClaimEpoch, ConditionHash, ConditionHashError, RunId, SChunkMs};
+pub use cohort_core::seed::{
+    ClaimEpoch, ConditionHash, ConditionHashError, RunId, SChunkMs, ScannedAtMs,
+};
 pub use cohort_core::DayIdx;
 
 #[derive(

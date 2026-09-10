@@ -11,13 +11,14 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 
 export function ShowPieTotalFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { pieChartVizOptions } = useValues(trendsDataLogic(insightProps))
+    const { display, pieChartVizOptions } = useValues(trendsDataLogic(insightProps))
     const { updateVizSpecificOptions } = useActions(insightVizDataLogic(insightProps))
 
     const showTotal = !pieChartVizOptions?.hideAggregation
 
     const toggleShowTotal = (): void => {
         updateVizSpecificOptions({
+            // Donut stores its options under the pie key too, so the setting survives switching between them.
             [ChartDisplayType.ActionsPie]: {
                 ...pieChartVizOptions,
                 hideAggregation: showTotal,
@@ -30,7 +31,11 @@ export function ShowPieTotalFilter(): JSX.Element | null {
             className="p-1 px-2"
             onChange={toggleShowTotal}
             checked={showTotal}
-            label={<span className="font-normal">Show total below chart</span>}
+            label={
+                <span className="font-normal">
+                    {display === ChartDisplayType.ActionsDonut ? 'Show total in center' : 'Show total below chart'}
+                </span>
+            }
             size="small"
         />
     )

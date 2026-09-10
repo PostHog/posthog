@@ -6,6 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.utils import timezone
 
 import pydantic
@@ -80,6 +81,10 @@ RESEARCH_RATE_LIMIT_MESSAGE = (
     "conversation for continued access."
 )
 
+# Roughly 10k tokens. Every path that accepts a user message shares this, so the limit can't drift
+# between them. The frontend mirrors it in `MAX_MESSAGE_LENGTH` (frontend/src/scenes/max/max-constants.tsx).
+MAX_MESSAGE_CONTENT_LENGTH = 40000
+
 STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_iteration_latency_seconds",
     "Time between iterations in the async stream loop",
@@ -104,7 +109,7 @@ class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
         allow_null=True,  # Null content means we're resuming streaming or continuing previous generation
-        max_length=40000,  # Roughly 10k tokens
+        max_length=MAX_MESSAGE_CONTENT_LENGTH,
     )
     conversation = serializers.UUIDField(
         required=True
@@ -156,7 +161,7 @@ class MessageSerializer(MessageMinimalSerializer):
 
 
 class QueueMessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=MAX_MESSAGE_CONTENT_LENGTH)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     ui_context = serializers.JSONField(required=False)
     billing_context = serializers.JSONField(required=False)
@@ -193,7 +198,7 @@ class QueueMessageSerializer(serializers.Serializer):
 
 
 class QueueMessageUpdateSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=MAX_MESSAGE_CONTENT_LENGTH)
 
 
 class SandboxAttachedContextItemSerializer(serializers.Serializer):
@@ -234,7 +239,7 @@ class SandboxOpenSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        max_length=40000,
+        max_length=MAX_MESSAGE_CONTENT_LENGTH,
         help_text="The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.",
     )
     trace_id = serializers.UUIDField(
@@ -288,7 +293,7 @@ class SandboxMessageResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["max"])
+@extend_schema(tags=["max"], extensions={"x-product": "posthog_ai"})
 class ConversationViewSet(
     TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
 ):
@@ -324,6 +329,14 @@ class ConversationViewSet(
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
+        else:
+            queryset = queryset.filter(
+                Q(task_id__isnull=True)
+                | (
+                    Q(task__team_id=self.team_id, task__deleted=False)
+                    & tasks_facade.visible_tasks_q(self.request.user.id, relation="task")
+                )
+            )
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
             queryset = queryset.filter(
@@ -430,7 +443,9 @@ class ConversationViewSet(
         task_ids = list({conversation.task_id for conversation in conversations if conversation.task_id is not None})
         return {
             str(task_id): task
-            for task_id, task in tasks_facade.get_conversation_task_dtos(task_ids, self.team_id).items()
+            for task_id, task in tasks_facade.get_conversation_task_dtos(
+                task_ids, self.team_id, cast(User, self.request.user).id
+            ).items()
         }
 
     def get_serializer_context(self):

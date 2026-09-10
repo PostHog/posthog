@@ -16,6 +16,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../../queries/schema/schema-general'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import type { QuerySourceUpdate } from '../insightVizDataLogic'
 
@@ -27,6 +28,7 @@ export interface poeFilterLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery

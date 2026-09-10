@@ -1,0 +1,17 @@
+{{- if gt (int .Values.shards) 1 }}
+# StatefulSets require a governing service; the agent serves no traffic, so
+# it is headless and only provides stable pod identities (the shard index).
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ include "posthog-metrics-agent.fullname" . }}-headless
+    labels:
+        {{- include "posthog-metrics-agent.labels" . | nindent 8 }}
+spec:
+    clusterIP: None
+    selector:
+        {{- include "posthog-metrics-agent.selectorLabels" . | nindent 8 }}
+    ports:
+        - name: health
+          port: 13133
+{{- end }}

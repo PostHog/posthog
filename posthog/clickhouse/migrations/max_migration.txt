@@ -1,1 +1,1 @@
-0291_add_ai_channel_type
+0316_metrics2_drop_uuid_and_minute_projection

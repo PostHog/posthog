@@ -1,6 +1,8 @@
 """Shared OpenAPI parameter vocabulary, query-param helpers, and the viewset base."""
 
 from datetime import datetime
+from enum import Enum
+from typing import TypeVar
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -19,6 +21,8 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
 
 _DATE_FROM = OpenApiParameter(
     name="date_from",
@@ -61,9 +65,10 @@ _RUN_SCOPE = OpenApiParameter(
     location=OpenApiParameter.QUERY,
     required=False,
     enum=[scope.value for scope in WorkflowHealthRunScope],
-    description="Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs "
-    "attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution "
-    "(a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.",
+    description="Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on "
+    "master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; "
+    "'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR "
+    "attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.",
 )
 
 _SOURCE_ID = OpenApiParameter(
@@ -120,6 +125,18 @@ def _optional_datetime_param(request: Request, name: str) -> datetime | None:
         return serializers.DateTimeField().to_internal_value(raw)
     except serializers.ValidationError:
         raise ValueError(f"{name} must be an ISO8601 datetime") from None
+
+
+def _optional_enum_param(request: Request, name: str, choices: type[_EnumT]) -> _EnumT | None:
+    """Optional enum query param; None when absent/blank, ValueError when present but not a member."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return None
+    try:
+        return choices(raw)
+    except ValueError:
+        allowed = ", ".join(member.value for member in choices)
+        raise ValueError(f"{name} must be one of: {allowed}") from None
 
 
 def _bool_param(request: Request, name: str, *, default: bool) -> bool:

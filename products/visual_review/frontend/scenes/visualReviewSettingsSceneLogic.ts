@@ -57,10 +57,17 @@ export interface visualReviewSettingsSceneLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -75,12 +82,14 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -99,6 +108,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -108,10 +118,17 @@ export interface visualReviewSettingsSceneLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -126,12 +143,14 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -150,6 +169,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic
@@ -196,7 +216,7 @@ export interface visualReviewSettingsSceneLogicMeta {
         hasChanges: (formValues: RepoFormValues, editingRepo: RepoApi | null) => boolean
         availableRepos: (
             integrations: IntegrationType[] | null,
-            getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[]
+            getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[] // integrationsLogic
         ) => GitHubRepoApi[]
         existingRepoNames: (repos: RepoApi[]) => Set<string>
         githubManageAccessUrl: (integrations: IntegrationType[] | null) => string | null

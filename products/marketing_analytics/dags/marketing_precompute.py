@@ -55,6 +55,7 @@ from posthog.settings import TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
@@ -65,7 +66,7 @@ from products.marketing_analytics.backend.hogql_queries.conversion_goal_processo
     build_touchpoints_precompute_query,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner import (
-    COSTS_PRECOMPUTE_TTL_SECONDS,
+    costs_precompute_ttl_schedule,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
@@ -145,7 +146,7 @@ def _ensure_chunks(
     team: Team,
     table: LazyComputationTable,
     build_insert_query: Callable[[], ast.SelectQuery | None],
-    ttl_seconds: dict[str, int],
+    ttl_seconds: dict[str, int] | TtlSchedule,
     start: datetime,
     end: datetime,
     chunk_days: int,
@@ -193,14 +194,19 @@ def _ensure_chunks(
 def _ensure_touchpoints_for_team(
     context: dagster.OpExecutionContext, team: Team, start: datetime, end: datetime, chunk_days: int
 ) -> int:
-    """Warm the config-agnostic touchpoints table over [start, end] (start already reaches back past the
+    """Warm the goal-agnostic touchpoints table over [start, end] (start already reaches back past the
     attribution window). One warmed window serves every conversion goal / attribution mode.
+
+    Test-account filtering is the one thing that splits it: the filter is baked into the insert query,
+    which the framework hashes for the job key, so warming the wrong variant leaves every read to
+    materialize inline. The team's own setting is what the dashboard sends, so warm that one.
     """
+    filter_test_accounts = team.marketing_analytics_config.filter_test_accounts
     return _ensure_chunks(
         context,
         team,
         LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
-        build_touchpoints_precompute_query,
+        partial(build_touchpoints_precompute_query, team, filter_test_accounts),
         PRECOMPUTE_TTL_SECONDS,
         start,
         end,
@@ -224,7 +230,14 @@ def _ensure_conversions_for_team(
     goals_warmed = 0
     failures = 0
     for index, goal in enumerate(goals):
-        processor = ConversionGoalProcessor(goal=goal, index=index, team=team, config=config, user=None)
+        processor = ConversionGoalProcessor(
+            goal=goal,
+            index=index,
+            team=team,
+            config=config,
+            user=None,
+            filter_test_accounts=team.marketing_analytics_config.filter_test_accounts,
+        )
         if not processor.is_goal_precomputable():
             continue
         goals_warmed += 1
@@ -293,7 +306,7 @@ def _ensure_costs_for_team(
                 team,
                 LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
                 partial(adapter.build_materialization_query, source_id),
-                COSTS_PRECOMPUTE_TTL_SECONDS,
+                costs_precompute_ttl_schedule(team),
                 start,
                 end,
                 chunk_days,

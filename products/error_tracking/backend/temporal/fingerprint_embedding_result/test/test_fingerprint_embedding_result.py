@@ -116,13 +116,11 @@ class TestFingerprintEmbeddingResultActivity:
             SimilarFingerprintDistance(fingerprint="fingerprint-3", distance=0.03),
         ]
         capture = MagicMock()
-        capture_context = MagicMock()
-        capture_context.__enter__.return_value = capture
 
         with (
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
-                return_value=capture_context,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=capture,
             ),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.groups",
@@ -229,7 +227,7 @@ class TestFingerprintEmbeddingResultActivity:
         target_issue_id = uuid.uuid4()
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         target_issue = MagicMock()
-        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.MERGED
+        target_issue.merge.return_value = (ErrorTrackingIssueMergeResult.MERGED, [])
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
         team = MagicMock(id=2, uuid=uuid.uuid4())
         fingerprint_query = MagicMock()
@@ -238,8 +236,6 @@ class TestFingerprintEmbeddingResultActivity:
             source_fingerprint,
         ]
         capture = MagicMock()
-        capture_context = MagicMock()
-        capture_context.__enter__.return_value = capture
 
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
@@ -248,8 +244,8 @@ class TestFingerprintEmbeddingResultActivity:
                 return_value=fingerprint_query,
             ) as filter_fingerprints,
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
-                return_value=capture_context,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=capture,
             ),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.groups",
@@ -285,7 +281,7 @@ class TestFingerprintEmbeddingResultActivity:
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         same_issue_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="same-issue")
         target_issue = MagicMock()
-        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.MERGED
+        target_issue.merge.return_value = (ErrorTrackingIssueMergeResult.MERGED, [])
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="valid-target")
         fingerprint_query = MagicMock()
         fingerprint_query.select_related.return_value.order_by.return_value = [
@@ -293,9 +289,6 @@ class TestFingerprintEmbeddingResultActivity:
             same_issue_fingerprint,
             target_fingerprint,
         ]
-        capture_context = MagicMock()
-        capture_context.__enter__.return_value = MagicMock()
-
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
@@ -303,8 +296,8 @@ class TestFingerprintEmbeddingResultActivity:
                 return_value=fingerprint_query,
             ),
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
-                return_value=capture_context,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=MagicMock(),
             ),
         ):
             result = _merge_fingerprint_into_closest_issue(
@@ -397,7 +390,7 @@ class TestFingerprintEmbeddingResultActivity:
         target_issue_id = uuid.uuid4()
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         target_issue = MagicMock()
-        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
+        target_issue.merge.return_value = (ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS, [])
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
         team = MagicMock(id=2, uuid=uuid.uuid4())
         fingerprint_query = MagicMock()
@@ -434,14 +427,11 @@ class TestMergeFingerprintCrossTeamIsolation(BaseTest):
         other_source_issue = self._create_issue(other_team, "fp-source")
         other_target_issue = self._create_issue(other_team, "fp-target")
 
-        capture_context = MagicMock()
-        capture_context.__enter__.return_value = MagicMock()
-
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
-                return_value=capture_context,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=MagicMock(),
             ),
         ):
             merged_count = _merge_fingerprint_into_closest_issue(

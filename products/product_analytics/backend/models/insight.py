@@ -1,4 +1,3 @@
-from functools import cached_property
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -29,11 +28,20 @@ _ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
         "FunnelsQuery",
         "RetentionQuery",
         "PathsQuery",
+        "PathsV2Query",
         "StickinessQuery",
         "LifecycleQuery",
         "CalendarHeatmapQuery",
     }
 )
+
+
+def _count_behavioral_filters(value: object) -> int:
+    if isinstance(value, list):
+        return sum(_count_behavioral_filters(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+    return int(value.get("type") == "behavioral") + sum(_count_behavioral_filters(item) for item in value.values())
 
 
 if TYPE_CHECKING:
@@ -119,7 +127,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
-    MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
+    MATERIAL_INSIGHT_FIELDS = {"name", "description", "query"}
 
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
@@ -218,6 +226,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 1 for s in series if isinstance(s, dict) and s.get("kind") == "DataWarehouseNode"
             )
         metadata["has_properties"] = bool(source.get("properties"))
+        metadata["behavioral_filter_count"] = _count_behavioral_filters(source)
         if "filterTestAccounts" in source:
             metadata["filter_test_accounts"] = source.get("filterTestAccounts")
         breakdown_filter = source.get("breakdownFilter")
@@ -267,19 +276,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         # uses .all and not .first so that prefetching can be used
         sharing_configurations = self.sharingconfiguration_set.all()
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
-
-    @cached_property
-    def query_from_filters(self):
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-
-        try:
-            return {
-                "kind": "InsightVizNode",
-                "source": filter_to_query(self.filters).model_dump(exclude_none=True),
-                "full": True,
-            }
-        except Exception as e:
-            capture_exception(e)
 
     def dashboard_filters(
         self, dashboard: Optional["Dashboard"] = None, dashboard_filters_override: Optional[dict] = None
@@ -409,9 +405,9 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def _unwrapped_query_kind(self) -> str | None:
         """Innermost query ``kind`` after unwrapping DataTable/DataVisualization/InsightVizNode
         wrappers, or None if the insight has no query."""
-        from posthog.schema_migrations.upgrade_manager import upgrade_query
+        from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
-        with upgrade_query(self):
+        with upgrade_insight(self):
             query = self.query
             if query is None:
                 return None

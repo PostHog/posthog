@@ -23,6 +23,10 @@ class ReplayObservationUsage(UUIDModel):
         null=True,
         help_text="The observation's team; the per-team billing usage report groups on this (plain id, no FK).",
     )
+    scanner_id = models.UUIDField(
+        null=True,
+        help_text="The scanner that produced this observation. Per-scanner credit limits aggregate on this (plain id, no FK).",
+    )
     observation_created_at = models.DateTimeField(
         help_text="The observation's created_at; the monthly quota window filters on this.",
     )
@@ -42,6 +46,15 @@ class ReplayObservationUsage(UUIDModel):
             models.Index(fields=["organization", "observation_created_at"]),
             # Drives the daily per-team billing usage query, which buckets receipts by write time.
             models.Index(fields=["created_at", "team_id"], name="rlou_created_team_idx"),
+            # Drives the per-scanner credit limit aggregate over the current billing period. Partial
+            # because the aggregate only ever looks up concrete scanner ids; rows left null (their
+            # observation was deleted before the 0070 backfill, or they are pre-stack evaluation
+            # receipts with synthetic observation ids) are never queried.
+            models.Index(
+                fields=["scanner_id", "observation_created_at"],
+                name="rlou_scanner_created_idx",
+                condition=models.Q(scanner_id__isnull=False),
+            ),
         ]
 
     def __str__(self) -> str:

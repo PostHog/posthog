@@ -141,6 +141,12 @@ export interface TaxonomicFilterProps {
     autoSelectItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
+    /**
+     * Keep offering events whose data is moving out of the `events` table. Set it where the surface
+     * still needs such an event: it reads live capture, or it measures experiment exposure. Leave it
+     * unset everywhere else, so a picker stops saving queries that return nothing once the data moves.
+     */
+    includeHiddenEvents?: boolean
     /** use to indicate if a result in a group is selected */
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
@@ -296,6 +302,9 @@ export enum TaxonomicFilterGroupType {
     // Like DataWarehouse but restricted to external-source tables (no views/saved queries or self-managed
     // tables) — used by CDP destination/workflow warehouse-row triggers.
     DataWarehouseSourceTables = 'data_warehouse_source_tables',
+    // Materialized views (saved queries with a backing table) — used by CDP destination/workflow
+    // materialized-view triggers, which fire on the rows a view's run writes.
+    DataWarehouseMaterializedViews = 'data_warehouse_materialized_views',
     DataWarehouseProperties = 'data_warehouse_properties',
     DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
@@ -341,6 +350,8 @@ export enum TaxonomicFilterGroupType {
     Replay = 'replay',
     ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
+    AccountFields = 'account_fields',
+    AccountRelationships = 'account_relationships',
     AccountCustomProperties = 'account_custom_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
@@ -374,6 +385,7 @@ export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
     TaxonomicFilterGroupType.DataWarehouseProperties,
 ])
 

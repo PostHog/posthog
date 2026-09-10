@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_coordination::store::PersonhogStore;
+use std::time::{Duration, Instant};
 
 pub async fn connect(endpoints: &str, prefix: &str) -> Result<PersonhogStore> {
     let config = StoreConfig {
@@ -78,9 +79,9 @@ pub async fn revoke_coordinator_lease_if_held_by(
 pub async fn wait_for_leader(
     store: &PersonhogStore,
     holder: &str,
-    deadline: std::time::Duration,
+    deadline: Duration,
 ) -> Result<()> {
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     loop {
         if let Some(leader) = store.get_leader().await.unwrap_or(None) {
             if leader.holder == holder {
@@ -90,7 +91,7 @@ pub async fn wait_for_leader(
         if start.elapsed() > deadline {
             bail!("{holder} did not acquire coordinator leadership within {deadline:?}");
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 

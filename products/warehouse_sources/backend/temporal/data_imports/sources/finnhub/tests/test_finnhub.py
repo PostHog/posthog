@@ -131,9 +131,9 @@ class TestRequestParams:
 class TestWindow:
     @freeze_time("2024-06-15")
     def test_forward_days_extends_into_future(self) -> None:
-        start, end = _window(FINNHUB_ENDPOINTS["earnings_calendar"], None)
-        assert start == "2023-06-16"
-        assert end == "2024-12-12"
+        window = _window(FINNHUB_ENDPOINTS["earnings_calendar"], None)
+        assert window.start == "2023-06-16"
+        assert window.end == "2024-12-12"
 
 
 class TestGetRows:

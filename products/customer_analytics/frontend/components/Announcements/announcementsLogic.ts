@@ -54,6 +54,7 @@ export interface announcementsLogicValues {
     memberChannelsLoading: boolean
     messageDraft: string
     selectedChannelIds: string[]
+    selectedChannelLabels: string[]
     slackConnected: boolean
     submitDisabledReason: string | undefined
     submitting: boolean
@@ -185,6 +186,7 @@ export interface announcementsLogicMeta {
             key: string
             label: string
         }[]
+        selectedChannelLabels: (memberChannels: AnnouncementChannelApi[], selectedChannelIds: string[]) => string[]
         submitDisabledReason: (
             messageDraft: string,
             selectedChannelIds: string[],
@@ -356,6 +358,15 @@ export const announcementsLogic = kea<announcementsLogicType>([
                     channels = memberChannels.filter((channel) => allowed.has(channel.id) || selected.has(channel.id))
                 }
                 return channels.map((channel) => ({ key: channel.id, label: channelLabel(channel) }))
+            },
+        ],
+        // Labels for the confirmation dialog. Falls back to the raw id so a channel the
+        // picker no longer knows about still shows up in the list the user confirms.
+        selectedChannelLabels: [
+            (s) => [s.memberChannels, s.selectedChannelIds],
+            (memberChannels: AnnouncementChannelApi[], selectedChannelIds: string[]): string[] => {
+                const labelsById = new Map(memberChannels.map((channel) => [channel.id, channelLabel(channel)]))
+                return selectedChannelIds.map((id) => labelsById.get(id) ?? id)
             },
         ],
         submitDisabledReason: [

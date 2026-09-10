@@ -2,7 +2,11 @@ from typing import Any
 
 import pytest
 
-from llm_gateway.anthropic_request import drop_orphaned_clear_thinking, enable_required_opus_5_thinking
+from llm_gateway.anthropic_request import (
+    convert_enabled_thinking_to_adaptive,
+    drop_orphaned_clear_thinking,
+    enable_required_opus_5_thinking,
+)
 from llm_gateway.metrics.prometheus import CLEAR_THINKING_EDIT_DROPPED
 
 PRODUCT = "posthog_code"
@@ -37,6 +41,53 @@ def test_other_thinking_configurations_are_untouched(model: str, effort: str, th
     request = {"model": model, "output_config": {"effort": effort}, "thinking": thinking}
 
     assert enable_required_opus_5_thinking(request) is request
+
+
+@pytest.mark.parametrize(
+    ("thinking", "output_config", "expected_output_config"),
+    [
+        pytest.param({"type": "enabled", "budget_tokens": 31999}, None, {"effort": "high"}, id="large_budget_high"),
+        pytest.param({"type": "enabled", "budget_tokens": 2048}, None, {"effort": "medium"}, id="medium_budget"),
+        pytest.param({"type": "enabled", "budget_tokens": 1024}, None, {"effort": "low"}, id="small_budget_low"),
+        pytest.param({"type": "enabled"}, None, {"effort": "minimal"}, id="missing_budget_minimal"),
+        pytest.param(
+            {"type": "enabled", "budget_tokens": 1024}, {"effort": "max"}, {"effort": "max"}, id="explicit_effort_wins"
+        ),
+    ],
+)
+def test_enabled_thinking_becomes_adaptive_with_budget_derived_effort(
+    thinking: dict[str, Any],
+    output_config: dict[str, Any] | None,
+    expected_output_config: dict[str, Any],
+) -> None:
+    request = {
+        "model": "deepseek-ai/deepseek-v4-flash-0731",
+        "messages": [{"role": "user", "content": "hi"}],
+        "thinking": thinking,
+        **({"output_config": output_config} if output_config else {}),
+    }
+
+    normalized = convert_enabled_thinking_to_adaptive(request)
+
+    assert normalized["thinking"] == {"type": "adaptive"}
+    assert normalized["output_config"] == expected_output_config
+    assert request["thinking"] == thinking
+
+
+@pytest.mark.parametrize(
+    "thinking",
+    [
+        pytest.param(None, id="absent"),
+        pytest.param({"type": "disabled"}, id="disabled"),
+        pytest.param({"type": "adaptive"}, id="already_adaptive"),
+    ],
+)
+def test_non_enabled_thinking_is_untouched(thinking: dict[str, Any] | None) -> None:
+    request: dict[str, Any] = {"model": "moonshotai/kimi-k3", "messages": []}
+    if thinking is not None:
+        request["thinking"] = thinking
+
+    assert convert_enabled_thinking_to_adaptive(request) is request
 
 
 def _dropped_count(product: str) -> float:

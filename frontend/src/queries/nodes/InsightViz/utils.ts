@@ -87,8 +87,16 @@ type ReturnInsightModel<T> = T extends InsightModel
       ? Partial<QueryBasedInsightModel>
       : never
 
-/** Get an insight with `query` only. Eventual `filters` will be converted.  */
-export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
+/** Get an insight with `query` only. Eventual `filters` will be converted.
+ *
+ * `source` names the surface for the conversion telemetry. Pass one: without it the call is
+ * indistinguishable from every other caller, and the event cannot say which surfaces still rely on
+ * converting legacy filters in the browser.
+ */
+export function getQueryBasedInsightModel<T extends InputInsightModel>(
+    insight: T,
+    source?: string
+): ReturnInsightModel<T> {
     const { filters, ...baseInsight } = insight
     // The API is phasing out the deprecated `dashboards` field (already omitted for token
     // callers, eventually for all); derive it from `dashboard_tiles` so remaining readers
@@ -98,22 +106,27 @@ export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: 
     return {
         ...baseInsight,
         ...(dashboards ? { dashboards } : {}),
-        query: getQueryFromInsightLike(insight),
+        query: getQueryFromInsightLike(insight, source),
     } as unknown as ReturnInsightModel<T>
 }
 
 /** Get a `query` from an object that potentially has `filters` instead of a `query`.  */
-export function getQueryFromInsightLike(insight: {
-    query?: Node<Record<string, any>> | null
-    filters?: Partial<FilterType>
-}): Node<Record<string, any>> | null {
+export function getQueryFromInsightLike(
+    insight: {
+        query?: Node<Record<string, any>> | null
+        filters?: Partial<FilterType>
+    },
+    source?: string
+): Node<Record<string, any>> | null {
     let query
     if (insight.query) {
         query = insight.query
     } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
         query = {
             kind: NodeKind.InsightVizNode,
-            source: filtersToQueryNode(insight.filters, { source: 'insight_viz_get_query_from_insight_like' }),
+            source: filtersToQueryNode(insight.filters, {
+                source: source ?? 'insight_viz_get_query_from_insight_like',
+            }),
         } as InsightVizNode
     } else {
         query = null
@@ -162,6 +175,8 @@ export const getDefaultQuery = (
         return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
     } else if (insightType === InsightType.PATHS) {
         return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+    } else if (insightType === InsightType.JOURNEYS) {
+        return queryFromKind(NodeKind.PathsV2Query, filterTestAccountsDefault)
     } else if (insightType === InsightType.STICKINESS) {
         return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
     } else if (insightType === InsightType.LIFECYCLE) {
@@ -173,7 +188,8 @@ export const getDefaultQuery = (
 
 /** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
 export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
+    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null,
+    source?: string
 ): DashboardType<QueryBasedInsightModel> | null => {
     if (dashboard == null) {
         return null
@@ -185,7 +201,7 @@ export const getQueryBasedDashboard = (
             (tile) =>
                 ({
                     ...tile,
-                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
+                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight, source) } : {}),
                 }) as DashboardTile<QueryBasedInsightModel>
         ),
     }
@@ -193,7 +209,7 @@ export const getQueryBasedDashboard = (
 
 // Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query
 // estimated too expensive to run), 513 (out of memory)
-const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
+export const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
 
 const hasValidationErrorStatus = (error: Error | Record<string, any> | null | undefined): boolean =>
     VALIDATION_ERROR_STATUSES.has((error as Record<string, any> | null | undefined)?.status)

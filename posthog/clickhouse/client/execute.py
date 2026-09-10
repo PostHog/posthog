@@ -4,7 +4,7 @@ import types
 import logging
 import threading
 import traceback
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from enum import StrEnum
 from functools import lru_cache
@@ -19,6 +19,7 @@ from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     Workload,
@@ -26,6 +27,7 @@ from posthog.clickhouse.client.connection import (
     get_default_clickhouse_workload_type,
 )
 from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.client.limit import get_llm_analytics_rate_limiter
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.query_tagging import (
     Feature,
@@ -37,7 +39,9 @@ from posthog.clickhouse.query_tagging import (
     get_query_tags,
     is_api_key_access_method,
 )
+from posthog.dataclasses import frozen
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -131,10 +135,10 @@ def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
     else OFF. This is independent of the global `CLICKHOUSE_KILL_SWITCH` — callers
     that want the combined effect should take the more severe of the two levels.
     """
-    full_teams, light_teams = _get_kill_switch_team_sets(round(time.time() / 60))
-    if team_id in full_teams:
+    team_sets = _get_kill_switch_team_sets(round(time.time() / 60))
+    if team_id in team_sets.full_teams:
         return KillSwitchLevel.FULL
-    if team_id in light_teams:
+    if team_id in team_sets.light_teams:
         return KillSwitchLevel.LIGHT
     return KillSwitchLevel.OFF
 
@@ -165,8 +169,14 @@ def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
         return KillSwitchLevel.OFF
 
 
+@frozen
+class KillSwitchTeamSets:
+    full_teams: frozenset[int]
+    light_teams: frozenset[int]
+
+
 @lru_cache(maxsize=1)
-def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int]]:
+def _get_kill_switch_team_sets(_ttl: int) -> KillSwitchTeamSets:
     from posthog.models.instance_setting import get_instance_setting
 
     try:
@@ -183,7 +193,7 @@ def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int
     except Exception:
         logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
         light_teams = frozenset()
-    return full_teams, light_teams
+    return KillSwitchTeamSets(full_teams=full_teams, light_teams=light_teams)
 
 
 def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
@@ -204,6 +214,48 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
         return team_level
     return level
+
+
+def _meter_chargeable_query(team_id: str, query_info: Any) -> None:
+    # Runs after the pooled connection is released, and must never raise: a metering failure
+    # is an error counter, not a failed query.
+    try:
+        bytes_read = int(query_info.progress.bytes or 0)
+        remaining = debit(team_id, bytes_read)
+        record_request_query_cost(QueryCost(bytes_read=bytes_read, remaining_bytes=remaining))
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="meter").inc()
+        capture_exception(e)
+
+
+def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]:
+    """The query info to meter for the query that just ran on `client`, or None.
+
+    The driver only creates a new query info once the connection is established, so the identity
+    check keeps a pooled client's previous query from being re-metered when connecting fails.
+    The driver also clears `last_query` when it disconnects after a server-side error, so a query
+    the server killed is not metered.
+    """
+    query_info = getattr(client, "last_query", None)
+    if query_info is None or query_info is query_info_before or not query_info.progress:
+        return None
+    return query_info
+
+
+def kill_switch_overrides(team_id: Optional[int], ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dict[str, int]:
+    """The ClickHouse setting ceilings the kill switch imposes right now, empty when it is off.
+
+    Public because not every path to ClickHouse goes through `sync_execute` — the notebook frame
+    materializer streams over raw HTTP and has to apply these itself. Merge with `min()` against
+    your own settings, and treat an unset setting as taking the ceiling: the kill switch only
+    ever tightens.
+    """
+    if TEST:
+        return {}
+    level = resolve_kill_switch_level(team_id)
+    if level == KillSwitchLevel.OFF or ch_user in _KILL_SWITCH_EXEMPT_USERS:
+        return {}
+    return dict(_KILL_SWITCH_SETTINGS[level])
 
 
 @lru_cache(maxsize=1)
@@ -253,6 +305,23 @@ class ClickHouseExternalTable(TypedDict):
     name: str
     structure: list[tuple[str, str]]
     data: list[dict[str, Any]]
+
+
+@contextmanager
+def _llm_analytics_concurrency_slot(ch_user: ClickHouseUser, team_id: Optional[int]) -> Iterator[None]:
+    """Hold one of AI observability's ClickHouse slots, and nothing for every other user.
+
+    Acquired here rather than at the call sites because the ch_user routing above is tag-based and
+    so applies to every query this product issues, including ones that reach ClickHouse through
+    shared helpers like query_ai_events and TraceQueryRunner. A budget that call sites had to opt
+    into would cover only some of them, and would silently miss whatever gets added next.
+    """
+    if ch_user != ClickHouseUser.LLM_ANALYTICS:
+        yield
+        return
+
+    with get_llm_analytics_rate_limiter().run(team_id=team_id):
+        yield
 
 
 @patchable
@@ -337,14 +406,16 @@ def sync_execute(
     if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
         workload = Workload.OFFLINE
 
-    # Make sure we always have process_query_task on the online cluster.
+    # Make sure we always have app traffic through process_query_task on the online cluster.
+    # API-key traffic stays offline here too, so an async query lands on the same cluster its
+    # synchronous counterpart would.
     # Workload.LOGS is exempt: it pins queries to the dedicated logs cluster, which is the
     # only place the logs tables exist, so overriding it would send the query to a cluster
     # that cannot answer it.
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         if workload != Workload.LOGS:
-            workload = Workload.ONLINE
+            workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
@@ -367,8 +438,8 @@ def sync_execute(
     }
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
-    if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
-        overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
+    overrides = kill_switch_overrides(team_id, ch_user)
+    if overrides:
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
         tags.kill_switch = kill_switch_level.value
 
@@ -399,6 +470,11 @@ def sync_execute(
         ch_user = ClickHouseUser.ENDPOINTS
     elif tags.product == Product.BILLING:
         ch_user = ClickHouseUser.BILLING
+    elif tags.product == Product.LLM_ANALYTICS and tags.kind == "temporal" and ch_user == ClickHouseUser.DEFAULT:
+        # Temporal only, because the interactive AI observability API shares this product tag and
+        # belongs on APP rather than behind a batch concurrency budget. Callers that named a user
+        # keep it, so HogQL's own metadata lookups don't spend the budget meant for real queries.
+        ch_user = ClickHouseUser.LLM_ANALYTICS
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries
@@ -458,6 +534,7 @@ def sync_execute(
         else:
             settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
+    chargeable_query_info: Optional[Any] = None
 
     try:
         QUERY_STARTED_COUNTER.labels(
@@ -465,15 +542,26 @@ def sync_execute(
             access_method=tags.access_method or "other",
             chargeable=str(tags.chargeable or "0"),
         ).inc()
-        with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
-            result = client.execute(
-                prepared_sql,
-                params=prepared_args,
-                settings=settings,
-                with_column_types=with_column_types,
-                query_id=query_id,
-                external_tables=external_tables,
-            )
+        with (
+            _llm_analytics_concurrency_slot(ch_user, team_id),
+            sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
+        ):
+            query_info_before = getattr(client, "last_query", None)
+            try:
+                result = client.execute(
+                    prepared_sql,
+                    params=prepared_args,
+                    settings=settings,
+                    with_column_types=with_column_types,
+                    query_id=query_id,
+                    external_tables=external_tables,
+                )
+            finally:
+                # A query killed mid-scan (timeout, memory limit) has already cost the read, so
+                # keep the progress the server reported before it died. The Redis write happens
+                # in the outer finally, once the connection is back in the pool.
+                if tags.chargeable and tags.team_id:
+                    chargeable_query_info = _chargeable_query_info(client, query_info_before)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
@@ -489,9 +577,15 @@ def sync_execute(
             chargeable=str(tags.chargeable or "0"),
         ).inc()
         err = wrap_clickhouse_query_error(e)
+        # The wrapper returns the same object for anything that is not a ServerException. Raising
+        # that with `from e` makes the exception its own __cause__.
+        if err is e:
+            raise
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
+        if chargeable_query_info is not None:
+            _meter_chargeable_query(str(tags.team_id), chargeable_query_info)
 
         QUERY_FINISHED_COUNTER.labels(
             team_id=str(team_id or ""),
@@ -514,6 +608,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[dict[str, str]] = None,
     *,
+    column_types_to_remove: Optional[Sequence[str]] = None,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
     settings: Optional[dict[str, Any]] = None,
@@ -522,6 +617,8 @@ def query_with_columns(
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
+    if column_types_to_remove is None:
+        column_types_to_remove = []
     metrics, types = sync_execute(
         query,
         args,
@@ -530,18 +627,55 @@ def query_with_columns(
         workload=workload,
         team_id=team_id,
     )
-    type_names = [key for key, _type in types]
+    column_names = [key for key, _type in types]
+    # A `SELECT *` over a system table gains columns as ClickHouse versions land, so a caller
+    # that must exclude a whole class of column matches on the type instead of naming each one.
+    dropped = set(columns_to_remove) | {
+        name for name, type_name in types if any(unwanted in str(type_name) for unwanted in column_types_to_remove)
+    }
 
     rows = []
     for row in metrics:
         result = {}
-        for type_name, value in zip(type_names, row):
-            if type_name not in columns_to_remove:
-                result[columns_to_rename.get(type_name, type_name)] = value
+        for column_name, value in zip(column_names, row):
+            if column_name not in dropped:
+                result[columns_to_rename.get(column_name, column_name)] = value
 
         rows.append(result)
 
     return rows
+
+
+def _has_comment_marker_outside_strings(sql: str) -> bool:
+    """Whether the SQL contains a `--` or `/*` comment marker outside quoted spans.
+
+    A plain substring check false-positives on markers inside string literals (e.g. an
+    s3() glob like '.../*.csv') and sends comment-free queries through sqlparse, which
+    costs ~100ms on a multi-KB query. Quoted spans ('', "", ``) hide markers; ClickHouse
+    escapes quotes inside them with a backslash or by doubling, both handled below.
+    """
+    i, n = 0, len(sql)
+    while i < n - 1:
+        ch = sql[i]
+        if ch in ("'", '"', "`"):
+            quote = ch
+            i += 1
+            while i < n:
+                if sql[i] == "\\":
+                    i += 2
+                    continue
+                if sql[i] == quote:
+                    if i + 1 < n and sql[i + 1] == quote:
+                        i += 2
+                        continue
+                    break
+                i += 1
+        elif ch == "-" and sql[i + 1] == "-":
+            return True
+        elif ch == "/" and sql[i + 1] == "*":
+            return True
+        i += 1
+    return False
 
 
 def _prepare_query(
@@ -586,7 +720,9 @@ def _prepare_query(
         # non-templated SQL
         rendered_sql = substitute_params(query, args)
 
-    if "--" in rendered_sql or "/*" in rendered_sql:
+    # Substring check first: it rejects the common comment-free case at C speed, so the
+    # per-character scan only runs when a marker exists somewhere in the SQL.
+    if ("--" in rendered_sql or "/*" in rendered_sql) and _has_comment_marker_outside_strings(rendered_sql):
         # This can take a very long time with e.g. large funnel queries
         formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
     else:

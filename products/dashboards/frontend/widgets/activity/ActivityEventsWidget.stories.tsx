@@ -73,7 +73,7 @@ function ActivityEventsWidgetTileStory({
 }
 
 const meta: Meta<typeof ActivityEventsWidgetTileStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Activity/Recent events',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Activity/Recent events',
     component: ActivityEventsWidgetTileStory,
     parameters: {
         layout: 'padded',

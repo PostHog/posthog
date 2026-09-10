@@ -3,7 +3,13 @@ import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFunction, LogEntry, LogEntryLevel, MinimalAppMetric } from '~/cdp/types'
+import {
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationHogFunction,
+    LogEntry,
+    LogEntryLevel,
+    MinimalAppMetric,
+} from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -15,7 +21,7 @@ import { HogFunctionManagerService } from '../managers/hog-function-manager.serv
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { EmailSuppressionService } from './email-suppression.service'
-import { SesWebhookHandler } from './helpers/ses'
+import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
@@ -24,6 +30,41 @@ const LINK_REGEX =
 
 // Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
 const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
+
+// Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
+const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
+const SES_NO_TRACK_ATTR_REGEX = /\bses:no-track\b/i
+
+/**
+ * How anchors in the email body are prepared for click attribution.
+ *
+ * `redirect` rewrites each href to our own `/public/m/redirect` endpoint, which records the click
+ * before forwarding. Used on the maildev path, where no provider webhook exists.
+ *
+ * `ses` leaves hrefs pointing at their real destination and instead annotates each anchor with the
+ * attributes SES reads when it rewrites links for its own click tracking. SES is the sole click
+ * source on this path, so wrapping the href as well would only bury the destination inside a
+ * per-send URL that the Click event then reports verbatim.
+ */
+export type EmailTrackingMode = 'redirect' | 'ses'
+
+const addAttributeToOpeningTag = (openingTag: string, attribute: string): string => {
+    return openingTag.replace(/\s*\/?>$/, ` ${attribute}>`)
+}
+
+const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
+    const tag = `${SES_LINK_INDEX_TAG}:${linkIndex}`
+    const existing = openingTag.match(SES_TAGS_ATTR_REGEX)
+    if (!existing) {
+        return addAttributeToOpeningTag(openingTag, `ses:tags="${tag}"`)
+    }
+    // An HTML parser keeps only the first of two same-named attributes, so emitting a second
+    // `ses:tags` would silently discard whichever set loses. Merge into the author's existing
+    // value instead so both their tags and ours reach SES. SES separates pairs with `;` and
+    // allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one malformed tag.
+    const value = existing[1] ?? existing[2] ?? existing[3] ?? ''
+    return openingTag.replace(SES_TAGS_ATTR_REGEX, () => `ses:tags="${value ? `${value};` : ''}${tag}"`)
+}
 
 const trackingEventsCounter = new Counter({
     name: 'email_tracking_events_total',
@@ -74,6 +115,16 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
+// The workflow version that is sending this message, for the tracking code minted below. A flow's
+// email runs as a hog function invocation built by spreading the flow invocation, so `hogFlow` is
+// present at runtime even though the type is the narrower hog function shape. A hog function send
+// has none, and its engagement lands in the version-agnostic series alone.
+export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHogFunction): number | undefined => {
+    return 'hogFlow' in invocation
+        ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
+        : undefined
+}
+
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
@@ -96,17 +147,28 @@ export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
     signer: EmailTrackingCodeSigner,
-    isTest = false
+    isTest = false,
+    mode: EmailTrackingMode = 'redirect'
 ): string => {
     // Only carry distinct_id in the in-email pixel/redirect URLs in dev/test, where those handlers
     // record metrics. In production they don't (SES webhooks own open/click attribution via the
     // signed header), so embedding distinct_id in the public `ph_id` would be unused — and worse,
     // a tracked-link click could leak the recipient identifier to the destination via the Referer.
     const distinctId = isDevEnv() || isTestEnv() ? resolveEmailEngagementDistinctId(invocation) : undefined
-    const trackingInvocation = { ...invocation, distinctId }
+    // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
+    // read the version off the signed header instead, but a provider we track ourselves has these
+    // URLs as its only carrier, and without the version its engagement cannot split by version.
+    const trackingInvocation = { ...invocation, distinctId, workflowVersion: resolveEmailSendingVersion(invocation) }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
+    // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
+    // out or unsafe, so the index stays tied to document position instead of shifting with how
+    // many anchors happened to be trackable. The same template therefore yields the same indices
+    // on every send, which is what makes counts comparable across recipients.
+    let anchorIndex = 0
+
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
+        const linkIndex = anchorIndex++
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
         // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
@@ -119,7 +181,22 @@ export const addTrackingToEmail = (
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        if (LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)) {
+        const optedOut = LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
+
+        if (mode === 'ses') {
+            // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
+            // own `ses:no-track`. Translating the opt-out into that attribute is what actually
+            // keeps a universal link or app deeplink off awstrack.me; leaving the href alone (the
+            // `redirect` mode's opt-out) does nothing here.
+            if (optedOut) {
+                return SES_NO_TRACK_ATTR_REGEX.test(openingTag)
+                    ? m
+                    : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
+            }
+            return withSesLinkIndexTag(openingTag, linkIndex) + m.slice(openingTag.length)
+        }
+
+        if (optedOut) {
             return m
         }
         const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
@@ -159,6 +236,10 @@ export class EmailTrackingService {
         source,
         properties,
         timestamp,
+        instanceIdOverride,
+        deferFlush = false,
+        workflowVersion,
+        verifiedTeamId,
     }: {
         functionId?: string
         invocationId?: string
@@ -169,6 +250,15 @@ export class EmailTrackingService {
         source: 'direct' | 'ses'
         properties?: Record<string, unknown>
         timestamp?: string
+        instanceIdOverride?: string
+        // Skips the per-call Kafka flush so a caller handling several metrics can queue them all
+        // and pay a single broker round-trip. The caller owns flushing when it sets this.
+        deferFlush?: boolean
+        workflowVersion?: number
+        // Team id from a signature-verified tracking code. Lets the metric survive the deletion
+        // of its workflow: sends are recorded at send time, so dropping the delayed complaint and
+        // bounce feedback here would make the team's rates read cleaner than they are.
+        verifiedTeamId?: string
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -186,17 +276,34 @@ export class EmailTrackingService {
             this.hogFlowManager.getHogFlow(functionId).catch(() => null),
         ])
 
-        const teamId = hogFunction?.team_id ?? hogFlow?.team_id
-        const appSourceId = hogFunction?.id ?? hogFlow?.id
+        let teamId = hogFunction?.team_id ?? hogFlow?.team_id
+        let appSourceId = hogFunction?.id ?? hogFlow?.id
 
         if (!teamId || !appSourceId) {
-            logger.error('[EmailTrackingService] trackMetric: Hog function or flow not found', {
-                functionId,
-                invocationId,
-                source,
-            })
-            emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_not_found', source })
-            return
+            const fallbackTeamId = Number(verifiedTeamId)
+            if (Number.isInteger(fallbackTeamId) && fallbackTeamId > 0) {
+                // The workflow row is gone (deleting a finished campaign is routine housekeeping),
+                // but its sends were recorded at send time, so dropping the delayed complaint and
+                // bounce feedback would make the team read cleaner than it is to everything that
+                // sums team totals, including the sending tiers. The tracking code is signed, so
+                // its team and function ids are trustworthy without the row.
+                logger.warn('[EmailTrackingService] trackMetric: recording for a deleted function or flow', {
+                    functionId,
+                    invocationId,
+                    source,
+                })
+                emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_deleted', source })
+                teamId = fallbackTeamId
+                appSourceId = functionId
+            } else {
+                logger.error('[EmailTrackingService] trackMetric: Hog function or flow not found', {
+                    functionId,
+                    invocationId,
+                    source,
+                })
+                emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_not_found', source })
+                return
+            }
         }
 
         this.hogFunctionMonitoringService.queueAppMetric(
@@ -205,10 +312,15 @@ export class EmailTrackingService {
                 // Mirror email.service.ts's `parentRunId ?? functionId` so batch-triggered
                 // runs get their webhook metrics attributed to the batch run, not the workflow.
                 app_source_id: parentRunId ?? appSourceId,
-                instance_id: actionId || invocationId,
+                instance_id: instanceIdOverride || actionId || invocationId,
                 metric_name: metricName,
                 metric_kind: 'email',
                 count: 1,
+                // The version comes off the tracking code minted at send time, never from `hogFlow`
+                // above — that's the currently published version, which for an engagement event
+                // arriving after a republish would blame the new version for the old one's sends.
+                app_source_version:
+                    hogFlow && workflowVersion !== undefined ? { id: hogFlow.id, version: workflowVersion } : undefined,
             },
             hogFlow ? 'hog_flow' : 'hog_function'
         )
@@ -223,13 +335,16 @@ export class EmailTrackingService {
                 properties: {
                     $workflow_id: appSourceId,
                     $workflow_action_id: actionId,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },
             })
             await this.capturedEventsService.flush()
         }
 
-        await this.hogFunctionMonitoringService.flush()
+        if (!deferFlush) {
+            await this.hogFunctionMonitoringService.flush()
+        }
 
         trackingEventsCounter.inc({ event_type: metricName, source })
         logger.debug('[EmailTrackingService] trackMetric: Email tracking event', {
@@ -316,6 +431,7 @@ export class EmailTrackingService {
                 logEntries,
                 transientBounceRecipients,
                 hardBounceRecipients,
+                complainedRecipients,
                 deliveredRecipients,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
@@ -323,6 +439,9 @@ export class EmailTrackingService {
                 verifySignature: true,
             })
 
+            // A single SNS notification can yield several metrics (a Click emits its rollup plus a
+            // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would
+            // make those serial Kafka round-trips, so defer and flush once for the batch.
             for (const metric of metrics || []) {
                 await this.trackMetric({
                     functionId: metric.functionId,
@@ -334,7 +453,14 @@ export class EmailTrackingService {
                     source: 'ses',
                     properties: metric.properties,
                     timestamp: metric.timestamp,
+                    instanceIdOverride: metric.instanceIdOverride,
+                    deferFlush: true,
+                    workflowVersion: metric.workflowVersion,
+                    verifiedTeamId: metric.teamId,
                 })
+            }
+            if (metrics?.length) {
+                await this.hogFunctionMonitoringService.flush()
             }
 
             // Wrapped so a failure here doesn't skip the suppression writes below.
@@ -353,10 +479,10 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
-            // Feed bounces and successful deliveries into the suppression list. Wrapped so a
-            // failure here never affects the webhook's 200 response to SNS. Deliveries are processed
-            // first so a delivery + bounce in the same batch nets out conservatively (count resets,
-            // then the fresh bounce re-counts from a clean slate).
+            // Feed bounces, complaints and successful deliveries into the suppression list. Wrapped
+            // so a failure here never affects the webhook's 200 response to SNS. Deliveries are
+            // processed first so a delivery + bounce in the same batch nets out conservatively
+            // (count resets, then the fresh bounce re-counts from a clean slate).
             try {
                 for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
@@ -380,6 +506,12 @@ export class EmailTrackingService {
                         await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
                     }
                 }
+                for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordComplaints(parsedTeamId, emailAddresses, feedbackType)
+                    }
+                }
             } catch (error) {
                 logger.error('[EmailTrackingService] Failed to update suppression list', { error })
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
@@ -399,6 +531,7 @@ export class EmailTrackingService {
         actionId?: string
         parentRunId?: string
         distinctId?: string
+        workflowVersion?: number
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -412,6 +545,7 @@ export class EmailTrackingService {
                 actionId: parsed?.actionId,
                 parentRunId: parsed?.parentRunId,
                 distinctId: parsed?.distinctId,
+                workflowVersion: parsed?.workflowVersion,
             }
         }
         return {

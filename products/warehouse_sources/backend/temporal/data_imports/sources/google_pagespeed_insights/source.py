@@ -111,7 +111,15 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
         # tenacity-wrapped `_fetch`); if those retries still exhaust, the failure is transient and
         # self-recovering, so let Temporal retry the activity without surfacing it as tracked
         # exception noise.
-        return {"PageSpeed Insights API error (retryable)"}
+        return {
+            "PageSpeed Insights API error (retryable)",
+            # Transport-level failures (read timeouts, connection resets/SSL) are retried the same way
+            # by `_fetch`; once exhausted they re-raise as a urllib3 `HTTPSConnectionPool(...)` message.
+            # Same self-recovering class as the 429/5xx path — keep them retryable and out of tracked
+            # noise. Scoped to the fixed API host so it can only match a transient connection failure to
+            # PageSpeed, never the `... Client Error ... for url` shape the auth 400/403s carry.
+            "HTTPSConnectionPool(host='pagespeedonline.googleapis.com'",
+        }
 
     def get_schemas(
         self,

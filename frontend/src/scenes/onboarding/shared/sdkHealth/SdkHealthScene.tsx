@@ -94,12 +94,6 @@ export function SdkHealthScene(): JSX.Element {
                 </div>
             )}
 
-            {/* Beta feedback banner */}
-            <LemonBanner type="info">
-                <strong>SDK Health is in Beta!</strong> Help us improve by sharing your feedback?{' '}
-                <Link to="#panel=support%3Asupport%3Asdk%3Alow%3Atrue">Send feedback</Link>
-            </LemonBanner>
-
             <div className="p-3">
                 {loading ? null : hasErrors ? (
                     <div className="text-center text-muted p-4">
@@ -114,8 +108,8 @@ export function SdkHealthScene(): JSX.Element {
                     <section className="mb-2">
                         <h3>SDK health is good</h3>
                         <LemonBanner type="success" hideIcon={false}>
-                            <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
-                            <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
+                            <p className="font-semibold">No SDK updates needed right now.</p>
+                            <p className="text-sm mt-1">Your SDKs are on the latest version or close behind it.</p>
                         </LemonBanner>
                     </section>
                 ) : (

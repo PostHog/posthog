@@ -1,0 +1,31 @@
+{
+    "name": "@posthog/canvas-builder",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@posthog/quill": "0.3.0-beta.18",
+        "@tailwindcss/oxide": "4.3.1",
+        "@tanstack/react-table": "8.21.3",
+        "@tanstack/react-virtual": "3.14.9",
+        "d3": "7.9.0",
+        "dayjs": "1.11.13",
+        "esbuild": "0.25.0",
+        "framer-motion": "12.23.12",
+        "lodash-es": "4.18.1",
+        "lucide-react": "1.21.0",
+        "papaparse": "5.6.0",
+        "react": "19.0.0",
+        "react-dom": "19.0.0",
+        "react-hook-form": "7.85.0",
+        "react-markdown": "10.1.0",
+        "recharts": "2.15.0",
+        "tailwindcss": "4.3.1",
+        "three": "0.179.1",
+        "zod": "3.25.76"
+    },
+    "overrides": {
+        "motion-dom": "12.23.12",
+        "motion-utils": "12.23.6"
+    },
+    "$comment": "framer-motion depends on motion-dom and motion-utils by caret range, and motion removes exports within that range: motion-dom 12.43.0 dropped `activeAnimations`, which framer-motion 12.23.12 imports. Pin both to what framer-motion was released against, and move them whenever framer-motion moves."
+}

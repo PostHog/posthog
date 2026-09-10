@@ -19,6 +19,7 @@ import {
 } from '../generated/api'
 import type { LLMPromptApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
 import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
+import type { ResolvedLLMPrompt } from './llmPromptLogic'
 import { validatePromptLabelName } from './utils'
 
 jest.mock('../generated/api', () => ({
@@ -63,7 +64,7 @@ const mockPrompt = {
         },
     ],
     has_more: false,
-}
+} as unknown as ResolvedLLMPrompt
 
 const productionLabelV1 = {
     id: 'label-1',
@@ -300,6 +301,49 @@ describe('llmPromptLogic', () => {
         logic.unmount()
     })
 
+    it('reloads the URL-selected version in place, keeping the loaded prompt visible', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        mockResolve.mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponseApi)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        router.actions.push('/prompt-management/prompts/my-test-prompt', { version: 1 })
+
+        // Old prompt data stays while the selected version loads: no skeleton flash
+        expect(logic.values.promptLoading).toBe(true)
+        expect(logic.values.prompt).not.toBeNull()
+
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+        expect(mockResolve).toHaveBeenLastCalledWith(expect.any(String), 'my-test-prompt', {
+            version: 1,
+            limit: 50,
+        })
+
+        logic.unmount()
+    })
+
+    it('drops prompt-scene params from the breadcrumb link back to the list', async () => {
+        router.actions.push('/prompt-management/prompts/existing-prompt', {
+            edit: true,
+            version: 2,
+            tab: 'code',
+            search: 'checkout',
+        })
+
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+
+        expect(logic.values.breadcrumbs[0].path).toBe('/prompt-management/prompts?search=checkout')
+
+        logic.unmount()
+    })
+
     it('preserves form edits and advances the base version on a publish conflict', async () => {
         const { versions, has_more, ...promptFields } = mockPrompt
         const conflictingLatest = {
@@ -340,6 +384,98 @@ describe('llmPromptLogic', () => {
         expect(logic.values.publishConflict).toEqual({ latestVersion: 3 })
         expect(logic.values.prompt).toMatchObject({ latest_version: 3 })
         expect(logic.values.mode).toBe(PromptMode.Edit)
+
+        logic.unmount()
+    })
+
+    it('sends the parsed config on publish and null when the editor is cleared', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        const promptWithConfig = { ...promptFields, config: { model: 'gpt-4o' } }
+        mockResolve.mockResolvedValue({
+            prompt: promptWithConfig,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponseApi)
+        mockPartialUpdate.mockResolvedValue({
+            ...promptWithConfig,
+            id: 'prompt-version-3',
+            version: 3,
+            latest_version: 3,
+        } as unknown as LLMPromptApi)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        // The form is seeded with the stored config so an untouched publish round-trips it.
+        expect(JSON.parse(logic.values.promptForm.config)).toEqual({ model: 'gpt-4o' })
+
+        logic.actions.setPromptFormValues({ config: '{"temperature": 0.9}' })
+        logic.actions.submitPromptForm()
+        await expectLogic(logic).toDispatchActions(['submitPromptFormSuccess'])
+        expect(mockPartialUpdate).toHaveBeenLastCalledWith(
+            expect.anything(),
+            'my-test-prompt',
+            expect.objectContaining({ config: { temperature: 0.9 } })
+        )
+
+        // Clearing the editor publishes an explicit null; omitting the key would carry the old config forward.
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.setPromptFormValues({ config: '' })
+        logic.actions.submitPromptForm()
+        await expectLogic(logic).toDispatchActions(['submitPromptFormSuccess'])
+        expect(mockPartialUpdate).toHaveBeenLastCalledWith(
+            expect.anything(),
+            'my-test-prompt',
+            expect.objectContaining({ config: null })
+        )
+
+        logic.unmount()
+    })
+
+    it('does not count a key reorder as a config change, matching jsonb storage', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        mockResolve.mockResolvedValue({
+            prompt: { ...promptFields, config: { model: 'gpt-4o', temperature: 0.2 } },
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponseApi)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        logic.actions.setPromptFormValues({ config: '{"temperature": 0.2, "model": "gpt-4o"}' })
+        expect(logic.values.isConfigChanged).toBe(false)
+
+        logic.actions.setPromptFormValues({ config: '{"temperature": 0.9, "model": "gpt-4o"}' })
+        expect(logic.values.isConfigChanged).toBe(true)
+
+        logic.unmount()
+    })
+
+    it('routes publish with invalid config through form errors instead of the review modal', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        mockResolve.mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponseApi)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.setPromptFormValues({ config: '["not", "an", "object"]' })
+        logic.actions.requestPublish()
+
+        await expectLogic(logic).toDispatchActions(['submitPromptForm', 'submitPromptFormFailure'])
+        expect(logic.values.isPublishReviewOpen).toBe(false)
+        expect(logic.values.promptFormErrors.config).toBe(
+            'Configuration must be a JSON object, e.g. {"model": "your-model-name"}'
+        )
+        expect(mockPartialUpdate).not.toHaveBeenCalled()
 
         logic.unmount()
     })
@@ -436,6 +572,7 @@ describe('llmPromptLogic', () => {
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(updateSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'my-test-prompt', {
             prompt: 'My edited prompt.',
+            config: null,
             base_version: 2,
             version_description: 'Tightened the refusal criteria',
         })

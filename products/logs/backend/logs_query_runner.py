@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 from posthog.schema import (
     CachedLogsQueryResponse,
     FilterLogicalOperator,
-    HogQLFilters,
     IntervalType,
     LogPropertyFilter,
     LogPropertyFilterType,
@@ -25,7 +24,7 @@ from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -34,7 +33,7 @@ from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.logs.backend.column_expressions import canonical_key, column_to_expr
-from products.logs.backend.models import DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS, TeamLogsConfig
+from products.logs.backend.models import resolved_distinct_id_attribute_keys, resolved_session_id_attribute_keys
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -84,6 +83,21 @@ def _normalise_trace_id_filter(log_filter: LogPropertyFilter) -> None:
         log_filter.value = [_trace_id_normalise_to_base64(str(v)) for v in log_filter.value]
     elif log_filter.value is not None:
         log_filter.value = _trace_id_normalise_to_base64(str(log_filter.value))
+
+
+# The `log` filter keys that name a top-level column rather than an attribute, mapped to the facet
+# field that owns each one. Ownership lives here alone: the WHERE loop, the own-facet strip, and
+# column_filter_exprs() all read this mapping, so a key cannot be registered in one and missed in
+# another. A key added here without a translation branch falls through to property_to_expr, which is
+# the right default for a filter that names its own column.
+COLUMN_FILTER_FACET_FIELDS: dict[str, str] = {"severity_level": "severity_text", "service_name": "service_name"}
+
+
+def _has_filter_value(log_filter: LogPropertyFilter) -> bool:
+    value = log_filter.value
+    if isinstance(value, list):
+        return len(value) > 0
+    return value is not None and value != ""
 
 
 def _severity_level_to_expr(log_filter: LogPropertyFilter) -> ast.Expr:
@@ -139,6 +153,8 @@ def _generate_resource_attribute_filters(
             filter.operator = {
                 PropertyOperator.IS_NOT: PropertyOperator.EXACT,
                 PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+                PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+                PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
                 PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
                 PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
                 PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
@@ -326,6 +342,36 @@ class LogsFilterBuilder:
                 f for f in self.resource_attribute_negative_filters if f.key != self.exclude_resource_attribute
             ]
 
+    def _column_filter_expr(self, log_filter: LogPropertyFilter) -> ast.Expr | None:
+        """Translate a severity_level or service_name filter, or None when it does not apply here.
+
+        A facet must not apply its own filter to its own counts, or selecting a value would zero out
+        every sibling — the same strip `exclude_facet_field` performs for the dedicated fields. A
+        filter with no value yet does not apply either, per the comment below.
+        """
+        facet_field = COLUMN_FILTER_FACET_FIELDS.get(log_filter.key)
+        if facet_field is None or self.exclude_facet_field == facet_field:
+            return None
+        if not _has_filter_value(log_filter):
+            # A severity filter with no value translates to `severity_text IN ()`, which matches
+            # nothing. The search bar writes a filter the moment its key is picked, so a filter the
+            # user has not filled in yet would blank the counts and suggestions they are picking from.
+            return None
+        if log_filter.key == "severity_level":
+            return _severity_level_to_expr(log_filter)
+        return property_to_expr(log_filter, team=self.team)
+
+    def column_filter_exprs(self) -> list[ast.Expr]:
+        """The severity and service filters from `filterGroup`, as exprs on the columns they name.
+
+        Facet counts and the taxonomic key/value suggestions read pre-aggregated tables that carry
+        `service_name` and `severity_text` and nothing else from a log row, so these two filters are
+        the only ones from the group they can apply. Everything else in the group (message, trace ids,
+        log attributes) has no column to match against there.
+        """
+        exprs = [self._column_filter_expr(log_filter) for log_filter in self.log_filters]
+        return [expr for expr in exprs if expr is not None]
+
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
@@ -378,9 +424,12 @@ class LogsFilterBuilder:
 
             if self.log_filters:
                 for log_filter in self.log_filters:
-                    if log_filter.key == "severity_level":
-                        if self.exclude_facet_field != "severity_text":
-                            exprs.append(_severity_level_to_expr(log_filter))
+                    if log_filter.key in COLUMN_FILTER_FACET_FIELDS:
+                        # Translated in filter order rather than through column_filter_exprs(), which
+                        # would move these predicates ahead of the others and churn query snapshots.
+                        column_expr = self._column_filter_expr(log_filter)
+                        if column_expr is not None:
+                            exprs.append(column_expr)
                         continue
                     if log_filter.key in ("trace_id", "span_id"):
                         log_filter = log_filter.copy(deep=True)
@@ -389,8 +438,14 @@ class LogsFilterBuilder:
                         exprs.append(get_lowercase_index_hint(log_filter, team=self.team))
                     exprs.append(property_to_expr(log_filter, team=self.team))
 
-        if self.query.personId:
+        # Scope on the field being present at all, not on it being truthy: a caller that asks for a
+        # person or a session but holds a blank id must match nothing rather than widen to the
+        # whole project.
+        if self.query.personId is not None:
             exprs.append(self._person_scope_expr())
+
+        if self.query.sessionId is not None:
+            exprs.append(self._session_scope_expr())
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
@@ -472,41 +527,77 @@ class LogsFilterBuilder:
 
         return ast.And(exprs=exprs)
 
+    def _attribute_scope_expr(self, attribute_keys: list[str], values: list[str]) -> ast.Expr:
+        # Matches when any of the keys, in either the log attributes or the resource attributes,
+        # holds one of the values. Both maps are scoped because the logs UI resolves a person or a
+        # session from either one (LogAttributes.tsx renders the link regardless of which map the
+        # value came from), so a log the UI labels must also appear when you scope to that label.
+        # The two maps need different key spellings: attributes_map_str holds every attribute value
+        # stringified while attributes_map_float only exists for numeric values, so the `__str`
+        # suffix keeps an all-numeric id off the float map. resource_attributes is a plain string
+        # map on the row with no such split, so its key is matched directly.
+        key_exprs: list[ast.Expr] = []
+        for attribute_key in attribute_keys:
+            key_exprs.append(
+                property_to_expr(
+                    LogPropertyFilter(
+                        key=f"{attribute_key}__str",
+                        operator=PropertyOperator.EXACT,
+                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                        value=values,
+                    ),
+                    team=self.team,
+                )
+            )
+            key_exprs.append(
+                property_to_expr(
+                    LogPropertyFilter(
+                        key=attribute_key,
+                        operator=PropertyOperator.EXACT,
+                        type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                        value=values,
+                    ),
+                    team=self.team,
+                )
+            )
+        return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
+
     def _person_scope_expr(self) -> ast.Expr:
         # Expand personId server-side: person pages cap how many distinct ids they load
         # (groupArray(101) / list serializer), so a client-built distinct-ids filter would
         # silently drop ids on persons with many of them.
+        person_id = (self.query.personId or "").strip()
+        if not person_id:
+            return ast.Constant(value=False)
         with personhog_caller_tag("persons/logs-query"):
-            person = get_person_by_pk_or_uuid(
-                self.team.pk, str(self.query.personId), distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
-            )
+            person = get_person_by_pk_or_uuid(self.team.pk, person_id, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS)
         distinct_ids = get_distinct_ids_for_subquery(person, self.team)
         if not distinct_ids:
             # Unknown person (or another team's person): match nothing. property_to_expr
             # treats an empty value list as always-true, which would return every log.
             return ast.Constant(value=False)
-        config = TeamLogsConfig.objects.filter(team=self.team).first()
-        attribute_keys = (
-            config.logs_distinct_id_attribute_keys if config else None
-        ) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
-        # Force the __str map: attributes_map_str holds every attribute value (stringified),
-        # while attributes_map_float only exists for numeric values — all-numeric distinct ids
-        # must not route there via the usual value-type detection.
-        key_exprs = [
-            property_to_expr(
-                LogPropertyFilter(
-                    key=f"{attribute_key}__str",
-                    operator=PropertyOperator.EXACT,
-                    type=LogPropertyFilterType.LOG_ATTRIBUTE,
-                    value=list(distinct_ids),
-                ),
-                team=self.team,
-            )
-            for attribute_key in attribute_keys
-        ]
-        # A log links to the person when any configured attribute key holds one of their
-        # distinct ids — mirrors the OR the person tab previously pinned client-side.
-        return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
+        # Scope on the configured keys plus the built-in convention keys the logs UI renders
+        # as clickable person links (isDistinctIdKey in products/logs/frontend/utils.tsx), so
+        # a log the UI shows as belonging to a person appears on their Logs tab even when the
+        # team hasn't configured that key.
+        attribute_keys = resolved_distinct_id_attribute_keys(self.team)
+        return self._attribute_scope_expr(attribute_keys, list(distinct_ids))
+
+    def _session_scope_expr(self) -> ast.Expr:
+        # Resolve the key list server-side rather than letting the caller build a filter group.
+        # The keys must be OR'd, and a filterGroup can't express that here: its inner group is
+        # read as an AND of its leaves, and a nested group accepts log_attribute leaves only,
+        # so the resource-attribute half of each key could never join the OR.
+        session_id = (self.query.sessionId or "").strip()
+        if not session_id:
+            # property_to_expr treats an empty value as always-true, which would return every log.
+            return ast.Constant(value=False)
+
+        # Configured keys plus the built-in convention keys the logs UI reads a session from
+        # (isSessionIdKey in products/logs/frontend/utils.tsx), so a log the UI shows as belonging
+        # to a session appears when scoped to it even when the team hasn't configured that key.
+        attribute_keys = resolved_session_id_attribute_keys(self.team)
+        return self._attribute_scope_expr(attribute_keys, [session_id])
 
     def resource_filter(self, *, existing_filters):
         negative_resource_filter = ast.Constant(value=True)
@@ -538,6 +629,25 @@ class LogsFilterBuilder:
             return negative_resource_filter
 
         return ast.Constant(value=1)
+
+
+def fail_fast_aggregate_settings(
+    max_bytes_to_read: int = 10_000_000_000, *, use_uncompressed_cache: bool = False
+) -> HogQLGlobalSettings:
+    """Caps for headline aggregates: fail fast rather than scan unbounded data.
+
+    Matches the caps AlertCheckQuery uses against the same table. Runners that repeatedly
+    decompress the attribute maps over near-identical windows opt into the uncompressed
+    block cache, guarded to the runner's own read cap (see LogsGroupByQueryRunner).
+    """
+    return HogQLGlobalSettings(
+        max_execution_time=30,
+        max_bytes_to_read=max_bytes_to_read,
+        read_overflow_mode="throw",
+        use_uncompressed_cache=use_uncompressed_cache or None,
+        merge_tree_max_rows_to_use_cache=50_000_000 if use_uncompressed_cache else None,
+        merge_tree_max_bytes_to_use_cache=max_bytes_to_read if use_uncompressed_cache else None,
+    )
 
 
 class LogsQueryRunnerMixin(QueryRunner):
@@ -613,8 +723,29 @@ class LogsQueryRunnerMixin(QueryRunner):
     def where(self) -> ast.Expr:
         return self._filter_builder.where()
 
+    def where_with_timestamp_bounds(self) -> ast.Expr:
+        # LogsFilterBuilder.where() filters by toStartOfDay(time_bucket), which is
+        # day-precision; the explicit per-row bounds (half-open to avoid double-counting
+        # on boundaries) make aggregate counts match the requested window. Same pattern
+        # as AlertCheckQuery.
+        return ast.And(
+            exprs=[
+                self.where(),
+                parse_expr(
+                    "timestamp >= {date_from} AND timestamp < {date_to}",
+                    placeholders={
+                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
+                    },
+                ),
+            ]
+        )
+
     def resource_filter(self, *, existing_filters):
         return self._filter_builder.resource_filter(existing_filters=existing_filters)
+
+    def column_filter_exprs(self):
+        return self._filter_builder.column_filter_exprs()
 
 
 # Number of fixed SELECT columns in to_query; custom columns are appended after these,
@@ -636,7 +767,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         if self.limit_context == LimitContext.EXPORT:
             return True
 
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("logs", "viewer")
 
@@ -666,7 +797,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
         results = []

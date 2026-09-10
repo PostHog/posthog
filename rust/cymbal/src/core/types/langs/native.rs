@@ -354,7 +354,6 @@ impl RawNativeFrame {
             resolve_failure: None,
 
             junk_drawer: None,
-            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -404,7 +403,6 @@ impl RawNativeFrame {
             resolved: false,
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
-            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -567,7 +565,6 @@ impl From<&RawNativeFrame> for Frame {
             resolve_failure: None,
 
             junk_drawer: None,
-            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,

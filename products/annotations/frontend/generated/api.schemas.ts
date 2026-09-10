@@ -11,9 +11,10 @@
  * * `USR` - user
  * * `GIT` - GitHub
  */
-export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
+export type AnnotationCreationTypeEnumApi =
+    (typeof AnnotationCreationTypeEnumApi)[keyof typeof AnnotationCreationTypeEnumApi]
 
-export const CreationTypeEnumApi = {
+export const AnnotationCreationTypeEnumApi = {
     Usr: 'USR',
     Git: 'GIT',
 } as const
@@ -26,6 +27,7 @@ export const CreationTypeEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -38,6 +40,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -107,10 +110,16 @@ export interface AnnotationApi {
      *
      * * `USR` - user
      * * `GIT` - GitHub */
-    creation_type?: CreationTypeEnumApi
-    /** @nullable */
+    creation_type?: AnnotationCreationTypeEnumApi
+    /**
+     * Optional insight ID to attach this annotation to. Must belong to the current project.
+     * @nullable
+     */
     dashboard_item?: number | null
-    /** @nullable */
+    /**
+     * Optional dashboard ID to attach this annotation to. Must belong to the current project.
+     * @nullable
+     */
     dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name: string | null
@@ -173,10 +182,16 @@ export interface PatchedAnnotationApi {
      *
      * * `USR` - user
      * * `GIT` - GitHub */
-    creation_type?: CreationTypeEnumApi
-    /** @nullable */
+    creation_type?: AnnotationCreationTypeEnumApi
+    /**
+     * Optional insight ID to attach this annotation to. Must belong to the current project.
+     * @nullable
+     */
     dashboard_item?: number | null
-    /** @nullable */
+    /**
+     * Optional dashboard ID to attach this annotation to. Must belong to the current project.
+     * @nullable
+     */
     dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name?: string | null

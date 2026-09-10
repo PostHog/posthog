@@ -4,21 +4,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 
-import { accountsOverviewTilesLogic, AccountsOverviewTile, isTileClickable } from './accountsOverviewTilesLogic'
-
-function tileCaption(tile: AccountsOverviewTile): string | undefined {
-    const { metric } = tile
-    switch (metric.type) {
-        case 'count':
-            return undefined
-        case 'sum':
-            return `sum of ${metric.columnLabel}`
-        case 'avg':
-            return `avg of ${metric.columnLabel}`
-        case 'count_threshold':
-            return `${metric.columnLabel} ${metric.operator} ${metric.value}`
-    }
-}
+import {
+    accountsOverviewTilesLogic,
+    AccountsOverviewTile,
+    isTileClickable,
+    tileCaption,
+} from './accountsOverviewTilesLogic'
 
 function tileLabelByKey(tiles: AccountsOverviewTile[]): (key: string) => string {
     const labelsById = new Map(tiles.map((tile) => [tile.id, tile.label]))
@@ -32,7 +23,7 @@ export function AccountsOverviewTiles(): JSX.Element {
     const overviewItems: OverviewItem[] = reconciledTiles.map((tile) => ({
         key: tile.id,
         value: tileValues[tile.id] ?? undefined,
-        kind: 'unit',
+        kind: tile.format ?? 'unit',
         caption: tileCaption(tile),
         selected: selectedTileId === tile.id,
         onClick: isTileClickable(tile) ? () => toggleTileSelection(tile) : undefined,

@@ -165,6 +165,14 @@ class TestCalculateSampleSize:
         assert calculate_sample_size("ratio", 10, 10, 2) is None
         assert calculate_sample_size("ratio", 10, 10, 2, variance=32) == 1024
 
+    def test_returns_none_for_funnel_baseline_above_one(self):
+        # A conversion rate above 1 flips the (1 - p) term negative, so the sample size is negative.
+        assert calculate_sample_size("funnel", 1.5, 50, 2) is None
+
+    def test_returns_none_for_negative_variance(self):
+        # The delta method can return a negative variance, which yields a negative sample size.
+        assert calculate_sample_size("ratio", 10, 10, 2, variance=-32) is None
+
 
 class TestCalculateRecommendedSampleSize:
     @parameterized.expand(

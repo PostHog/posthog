@@ -38,6 +38,12 @@ export function fullName(props?: { first_name?: string; last_name?: string }): s
     return `${props.first_name || ''} ${props.last_name || ''}`.trim()
 }
 
+/** Inverse of `fullName`: derive first/last name from a single full-name input. */
+export function splitFullName(name: string): { first_name: string; last_name: string | undefined } {
+    const parts = name.trim().split(/\s+/).filter(Boolean)
+    return { first_name: parts[0] ?? '', last_name: parts.length > 1 ? parts.slice(1).join(' ') : undefined }
+}
+
 // trimBothEnds=false is useful when the input is slugified as the user is typing to allow them hitting space and continue typing
 export function slugify(
     text: string,

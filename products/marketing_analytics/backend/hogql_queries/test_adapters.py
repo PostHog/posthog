@@ -79,7 +79,7 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclass
-class TableInfo:
+class WarehouseTableFixture:
     """Information about a test table created from CSV data."""
 
     table: DataWarehouseTable
@@ -831,7 +831,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.context = self._create_test_context()
-        self.test_tables: dict[str, TableInfo] = {}
+        self.test_tables: dict[str, WarehouseTableFixture] = {}
         self._cleanup_functions: list[Callable[[], None]] = []
 
     def tearDown(self):
@@ -858,7 +858,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             base_currency=DEFAULT_CURRENCY,
         )
 
-    def _setup_csv_table(self, table_key: str) -> TableInfo:
+    def _setup_csv_table(self, table_key: str) -> WarehouseTableFixture:
         if table_key not in self.test_data_configs:
             raise ValueError(f"Invalid table key: {table_key}")
 
@@ -882,7 +882,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             self.team,
         )
 
-        table_info = TableInfo(
+        table_info = WarehouseTableFixture(
             table=table,
             source=source,
             credential=credential,
@@ -2713,3 +2713,22 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         hogql_query = query.to_hogql()
         assert "convertCurrency" in hogql_query
         assert expected_in_query in hogql_query
+
+    def test_currency_conversion_date_cannot_be_null(self):
+        # `convertCurrency` resolves its rate through `dictGetOrDefault`, which rejects a
+        # Nullable(Date) key outright rather than returning its default — and warehouse date
+        # columns read back nullable. A bare toDate() here fails the entire cost query.
+        stats_table = self._create_mock_table("google_stats", "GoogleAds")
+        stats_table.columns = {"customer_currency_code": True}
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("google_campaign", "GoogleAds"),
+            stats_table=stats_table,
+            source_type="GoogleAds",
+            source_id="google_ads",
+        )
+        query = GoogleAdsAdapter(config=config, context=self.context).build_query()
+        assert query is not None
+        hogql_query = query.to_hogql()
+
+        assert "convertCurrency" in hogql_query
+        assert "coalesce(toDate(google_stats.segments_date), today())" in hogql_query

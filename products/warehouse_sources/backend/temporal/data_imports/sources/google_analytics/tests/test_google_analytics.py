@@ -8,6 +8,7 @@ from unittest import mock
 from django.db import OperationalError
 
 import requests
+from google.auth.exceptions import RefreshError
 
 from posthog.models.integration import Integration
 
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     _initial_start_date,
     _is_quota_error,
     _is_retryable_server_error,
+    _is_transient_refresh_error,
     _iter_chunks,
     _parse_ga4_date,
     _resolve_window,
@@ -414,6 +416,75 @@ def test_run_report_raises_http_error_for_non_quota_failures(status_code):
     assert session.post.call_count == 1
 
 
+# A Bad Gateway from Google's OAuth token endpoint arrives as an HTML page, not JSON.
+_HTML_502_BODY = (
+    "<!DOCTYPE html>\n<html lang=en>\n  <title>Error 502 (Server Error)!!1</title>\n"
+    "  <p><b>502.</b> That's an error.\n  <p>The server encountered a temporary error "
+    "and could not complete your request."
+)
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        # 502 gateway page: google-auth omits 502 from its retryable status codes, but it's transient.
+        (RefreshError(_HTML_502_BODY), True),
+        # google-auth flags 500/503/504/408/429 (and JSON server errors) retryable itself.
+        (RefreshError("temporarily_unavailable: try again later", retryable=True), True),
+        # Revoked/expired refresh token — permanent, must not be retried inline.
+        (RefreshError("invalid_grant: Token has been expired or revoked."), False),
+        (RefreshError("invalid_scope: Bad Request"), False),
+    ],
+)
+def test_is_transient_refresh_error(error, expected):
+    assert _is_transient_refresh_error(error) is expected
+
+
+def test_run_report_retries_transient_token_refresh_error_then_succeeds(monkeypatch):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    payload = {"rows": [], "rowCount": 0}
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        # AuthorizedSession raises RefreshError from post() when the token endpoint 502s mid-refresh.
+        RefreshError(_HTML_502_BODY),
+        _fake_response(200, payload),
+    ]
+
+    result = _run_report(
+        session=session,
+        property_id="123",
+        start_date="2026-04-01",
+        end_date="2026-04-30",
+        dimensions=["date"],
+        metrics=["totalUsers"],
+        offset=0,
+    )
+
+    assert result == payload
+    assert session.post.call_count == 2
+
+
+def test_run_report_permanent_token_refresh_error_bubbles_without_retry(monkeypatch):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    session = mock.MagicMock()
+    session.post.side_effect = RefreshError("invalid_grant: Token has been expired or revoked.")
+
+    # A revoked/expired refresh token never recovers, so it must bubble on the first attempt
+    # (matching get_non_retryable_errors' "invalid_grant") rather than burning the inline budget.
+    with pytest.raises(RefreshError, match="invalid_grant"):
+        _run_report(
+            session=session,
+            property_id="123",
+            start_date="2026-04-01",
+            end_date="2026-04-30",
+            dimensions=["date"],
+            metrics=["totalUsers"],
+            offset=0,
+        )
+
+    assert session.post.call_count == 1
+
+
 def test_run_report_retries_server_errors_then_succeeds(monkeypatch):
     monkeypatch.setattr(ga.time, "sleep", lambda _: None)
     payload = {"rows": [], "rowCount": 0}
@@ -476,8 +547,10 @@ def _patch_session(monkeypatch):
     )
 
 
-def _config() -> GoogleAnalyticsSourceConfig:
-    return GoogleAnalyticsSourceConfig(property_id="123456789", google_analytics_integration_id=1)
+def _config(custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
+    return GoogleAnalyticsSourceConfig(
+        property_id="123456789", google_analytics_integration_id=1, custom_reports=custom_reports
+    )
 
 
 def test_source_yields_rows_and_advances_chunks(monkeypatch):
@@ -643,6 +716,35 @@ def test_source_response_has_partition_metadata(resource_name, expected_pk):
     assert response.partition_format == "month"
     assert response.partition_count == 1
     assert response.partition_size == 1
+
+
+def test_source_requests_user_defined_custom_report(monkeypatch):
+    # A custom report drives the exact dimensions/metrics sent to runReport (date prepended),
+    # proving user config reaches the generic fetch layer, and its primary key is date + dims.
+    fake_today = dt.date(2026, 4, 30)
+    monkeypatch.setattr(ga, "_today", lambda: fake_today)
+    _patch_session(monkeypatch)
+
+    seen: list[tuple[list[str], list[str]]] = []
+
+    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+        seen.append((dimensions, metrics))
+        return _report_payload([], [])
+
+    monkeypatch.setattr(ga, "_run_report", fake_run_report)
+
+    custom = '[{"name": "paid_campaigns", "dimensions": ["sessionCampaignName", "sessionSource"], "metrics": ["sessions", "purchaseRevenue"]}]'
+    response = google_analytics_source(
+        config=_config(custom_reports=custom),
+        resource_name="paid_campaigns",
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(can_resume=mock.Mock(return_value=False)),
+    )
+
+    list(cast(Iterable[Any], response.items()))
+
+    assert response.primary_keys == ["date", "sessionCampaignName", "sessionSource"]
+    assert seen[0] == (["date", "sessionCampaignName", "sessionSource"], ["sessions", "purchaseRevenue"])
 
 
 def test_unknown_resource_name_raises():

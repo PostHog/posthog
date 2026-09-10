@@ -10,6 +10,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter3,
     DateRange,
+    IntegrationFilter,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
@@ -232,10 +233,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         all_goals = runner._get_team_conversion_goals()
         assert len(all_goals) == 3  # 1 valid + 2 invalid
 
-        valid_goals, warnings = runner._filter_invalid_conversion_goals(all_goals)
+        valid_goals, skipped = runner._filter_invalid_conversion_goals(all_goals)
         assert len(valid_goals) == 1  # Only the valid goal remains
         assert valid_goals[0].conversion_goal_name == "Valid Purchase Goal"
-        assert len(warnings) == 2
+        assert len(skipped) == 2
 
         with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
             mock_get_adapters.return_value = []
@@ -285,12 +286,12 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([dw_goal])
 
         assert len(valid_goals) == 0
-        assert len(warnings) == 1
-        assert "nonexistent_table" in warnings[0]
-        assert "not found" in warnings[0]
+        assert len(skipped) == 1
+        assert "nonexistent_table" in skipped[0].message
+        assert "not found" in skipped[0].message
 
     def test_dw_goal_with_missing_columns_filtered_out(self):
         """DataWarehouseNode goals referencing missing columns are filtered out with a warning"""
@@ -319,12 +320,12 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([dw_goal])
 
         assert len(valid_goals) == 0
-        assert len(warnings) == 1
-        assert "utm_campaign" in warnings[0]
-        assert "utm_source" in warnings[0]
+        assert len(skipped) == 1
+        assert "utm_campaign" in skipped[0].message
+        assert "utm_source" in skipped[0].message
 
     def test_dw_goal_with_valid_columns_passes(self):
         """DataWarehouseNode goals with valid column mappings pass validation"""
@@ -355,10 +356,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([dw_goal])
 
         assert len(valid_goals) == 1
-        assert len(warnings) == 0
+        assert len(skipped) == 0
         assert valid_goals[0].conversion_goal_name == "Valid DW Goal"
 
     def test_mixed_valid_and_invalid_goals(self):
@@ -386,12 +387,12 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([event_goal, dw_goal])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([event_goal, dw_goal])
 
         assert len(valid_goals) == 1
         assert valid_goals[0].conversion_goal_name == "Test Goal"
-        assert len(warnings) == 1
-        assert "Bad DW Goal" in warnings[0]
+        assert len(skipped) == 1
+        assert "Bad DW Goal" in skipped[0].message
 
     def test_duplicate_named_goals_deduped(self):
         """Goals sharing a name collapse to the first with a warning, to avoid alias collisions"""
@@ -413,13 +414,13 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([first, second])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([first, second])
 
         assert len(valid_goals) == 1
         assert valid_goals[0].conversion_goal_id == "goal_a"
-        assert len(warnings) == 1
-        assert "duplicate name" in warnings[0]
-        assert "Signups" in warnings[0]
+        assert len(skipped) == 1
+        assert "duplicate name" in skipped[0].message
+        assert "Signups" in skipped[0].message
 
     def test_get_filtered_select_columns_dedupes_repeated_request(self):
         """A column requested twice is emitted once, avoiding 'Cannot redefine an alias'"""
@@ -704,6 +705,94 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(rows) == len(set(rows))
         assert ("Paid Search", "google") in rows
 
+    def test_campaign_drill_down_surfaces_campaigns_with_no_ad_spend(self):
+        """A campaign that exists only in UTM tags — a newsletter, an organic post, any channel
+        nobody buys ads for — has no row on the cost side. Under a LEFT JOIN from campaign_costs it
+        vanished from the table entirely, so the campaign level only ever showed paid campaigns.
+        Channel and source levels already outer-join and never had this hole."""
+        session_id = str(uuid7("2023-01-15"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=session_id,
+            timestamp="2023-01-15",
+            properties={
+                "$session_id": session_id,
+                "utm_source": "newsletter",
+                "utm_campaign": "fall_sale_newsletter",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=session_id,
+            timestamp="2023-01-16",
+            properties={
+                "$session_id": session_id,
+                "utm_source": "newsletter",
+                "utm_campaign": "fall_sale_newsletter",
+            },
+        )
+        flush_persons_and_events()
+
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
+            draftConversionGoal=self._create_test_conversion_goal(goal_id="no_spend_campaign_goal"),
+        )
+        result = self._create_query_runner(query).calculate()
+
+        assert result.columns is not None
+        campaign_idx = result.columns.index(MarketingAnalyticsBaseColumns.CAMPAIGN)
+        source_idx = result.columns.index(MarketingAnalyticsBaseColumns.SOURCE)
+        rows = {(row[campaign_idx].value, row[source_idx].value) for row in result.results}
+
+        assert ("fall_sale_newsletter", "newsletter") in rows
+
+        cost_idx = result.columns.index(MarketingAnalyticsBaseColumns.COST)
+        clicks_idx = result.columns.index(MarketingAnalyticsBaseColumns.CLICKS)
+        no_spend_row = next(row for row in result.results if row[campaign_idx].value == "fall_sale_newsletter")
+        assert no_spend_row[cost_idx].value is None
+        assert no_spend_row[clicks_idx].value is None
+
+    def test_integration_filter_can_exclude_campaigns_with_no_ad_spend(self) -> None:
+        session_id = str(uuid7("2023-01-15"))
+        for event in ("$pageview", "purchase"):
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=session_id,
+                timestamp="2023-01-15",
+                properties={
+                    "$session_id": session_id,
+                    "utm_source": "newsletter",
+                    "utm_campaign": "fall_sale_newsletter",
+                },
+            )
+        flush_persons_and_events()
+
+        def campaigns_for(integration_filter: IntegrationFilter | None) -> set[str]:
+            query = MarketingAnalyticsTableQuery(
+                dateRange=self.default_date_range,
+                limit=DEFAULT_LIMIT,
+                offset=0,
+                properties=[],
+                drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
+                draftConversionGoal=self._create_test_conversion_goal(goal_id="filter_goal"),
+                integrationFilter=integration_filter,
+            )
+            result = self._create_query_runner(query).calculate()
+            assert result.columns is not None
+            campaign_idx = result.columns.index(MarketingAnalyticsBaseColumns.CAMPAIGN)
+            return {str(row[campaign_idx].value) for row in result.results}
+
+        assert "fall_sale_newsletter" in campaigns_for(None)
+        assert "fall_sale_newsletter" in campaigns_for(IntegrationFilter(includeNonIntegrated=True))
+        assert "fall_sale_newsletter" not in campaigns_for(IntegrationFilter(includeNonIntegrated=False))
+
     def test_channel_source_drill_down_emits_both_channel_and_source_columns(self):
         """The whole point of the composite level: Source survives as a column (it's excluded at
         CHANNEL). Losing it would silently turn the table back into a flat channel breakdown."""
@@ -819,6 +908,44 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert expected_id_column.value in pivot_keys, (
             f"Expected compare pivot at {level} to key on {expected_id_column.value}, got keys: {pivot_keys}"
         )
+
+    @parameterized.expand(
+        [
+            (MarketingAnalyticsDrillDownLevel.CAMPAIGN, ["Cost", "ID", "Campaign", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL, ["Cost", "Channel"]),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE, ["Cost", "Channel", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.SOURCE, ["Cost", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.AD_GROUP, ["Cost", "Ad group ID", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.AD, ["Cost", "Ad ID", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.MEDIUM, ["Medium"]),
+            (MarketingAnalyticsDrillDownLevel.CONTENT, ["Content"]),
+            (MarketingAnalyticsDrillDownLevel.TERM, ["Term"]),
+        ]
+    )
+    def test_order_by_fully_determines_a_row_at_every_level(self, level, expected_order_by):
+        """Pages are fetched by OFFSET, one ClickHouse execution each, and ClickHouse gives no
+        stable order to rows that tie on the whole sort key — a tied block can permute between
+        executions, so the reader sees a row twice or never. Cost and ID don't break the tie for
+        conversion-only rows: they have no campaign_costs side, so Cost is NULL and ID falls back
+        to '-' for every one of them. The sort key has to reach the level's row key."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+            draftConversionGoal=self._create_test_conversion_goal(goal_id="order_by_goal"),
+        )
+        runner = self._create_query_runner(query)
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            paginated = runner.calculate_without_compare()
+
+        assert paginated.order_by is not None
+        order_by_columns = [expr.expr.chain[0] for expr in paginated.order_by if isinstance(expr.expr, ast.Field)]
+
+        assert order_by_columns == expected_order_by
 
     @parameterized.expand(
         [

@@ -28,6 +28,11 @@ DEFAULT_CONVERSION_METRIC_NAME = "Placed Order"
 # Accounts have tens of metrics, so the fallback lookup stays bounded rather than walking forever.
 MAX_CONVERSION_METRIC_PAGES = 20
 
+# Klaviyo's exact detail string when a metric (configured or auto-resolved) can't be used as a
+# values report's conversion metric, e.g. a system metric Klaviyo doesn't allow for conversion
+# statistics. The same metric would be re-resolved on every retry, so this can never self-heal.
+CONVERSION_METRIC_INELIGIBLE_DETAIL = "does not support querying for values data"
+
 
 class KlaviyoRetryableError(Exception):
     pass
@@ -197,6 +202,38 @@ def _build_initial_params(
     return params
 
 
+def _extract_error_detail(response: requests.Response) -> str | None:
+    """Pull the human-readable reason out of a Klaviyo JSON:API error body, if there is one."""
+    try:
+        errors = response.json().get("errors", [])
+        details = [
+            str(detail)
+            for error in errors
+            if isinstance(error, dict) and (detail := error.get("detail") or error.get("title"))
+        ]
+        return "; ".join(details)[:500] if details else None
+    except Exception:
+        return None
+
+
+def _raise_for_status_with_detail(response: requests.Response) -> None:
+    """`raise_for_status`, with Klaviyo's error detail appended to the exception message.
+
+    requests builds the HTTPError message from the status and URL alone, but a Klaviyo 403 carries
+    the actual denial reason only in the body — a key missing a read scope and an endpoint the
+    account's plan doesn't include (e.g. webhooks without Advanced KDP) are indistinguishable
+    without it. Non-retryable classification matches on the exception message, so the detail must
+    ride along. The response stays attached for handlers that branch on `exc.response`.
+    """
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = _extract_error_detail(response)
+        if detail:
+            raise requests.HTTPError(f"{exc} ({detail})", response=response) from exc
+        raise
+
+
 @retry(
     # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
     # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
@@ -232,7 +269,7 @@ def _fetch_page(
         # 404 is expected and handled during a fan-out (a parent deleted mid-sync).
         log = logger.warning if response.status_code == 404 else logger.error
         log(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
-        response.raise_for_status()
+        _raise_for_status_with_detail(response)
 
     return response.json()
 
@@ -245,7 +282,10 @@ def _iter_resource_ids(
     page_size: int,
 ) -> Iterator[str]:
     """Page through a Klaviyo collection and yield each row's id, following the cursor links."""
-    url = _build_url(f"{KLAVIYO_BASE_URL}{path}", {"page[size]": page_size})
+    # Some collections (e.g. /object-types) reject page[size]; page_size <= 0 means "omit it and
+    # page by cursor links alone", mirroring _build_initial_params for top-level endpoints.
+    params = {"page[size]": page_size} if page_size > 0 else {}
+    url = _build_url(f"{KLAVIYO_BASE_URL}{path}", params)
     while True:
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
@@ -419,6 +459,25 @@ def _resolve_conversion_metric_id(
     return first_metric_id
 
 
+def _series_rows(
+    results: list[dict[str, Any]], date_times: list[Any], common: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    """Expand a series report's per-bucket arrays into one flat row per (grouping, time bucket).
+
+    A series result holds each statistic as an array aligned by index to the report's top-level
+    date_times list. Keeping the arrays nested would leave the table unqueryable and break the
+    date_time primary key, so each bucket becomes its own row tagged with its date_time.
+    """
+    for result in results:
+        groupings = result.get("groupings", {})
+        statistics = result.get("statistics", {})
+        for index, date_time in enumerate(date_times):
+            row = {**groupings, "date_time": date_time, **common}
+            for statistic, values in statistics.items():
+                row[statistic] = values[index] if isinstance(values, list) and index < len(values) else None
+            yield row
+
+
 def _get_values_report_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -427,56 +486,82 @@ def _get_values_report_rows(
     config: KlaviyoEndpointConfig,
     conversion_metric_id: str | None,
 ) -> Iterator[Any]:
-    """Post a Klaviyo values report and flatten each grouping's statistics into one row.
+    """Post a Klaviyo reporting query and flatten each grouping's statistics into rows.
 
-    The report is an aggregate over a rolling window rather than a resource collection, so there is
-    no cursor to advance — the table is replaced in full on every sync.
+    The report is an aggregate over a rolling window rather than a resource collection, so every
+    request asks for the whole window and there is no cursor to send. A values report yields one
+    scalar row per grouping; a series report yields one row per grouping per time bucket.
+
+    A series table still syncs incrementally, because date_time identifies the bucket a row belongs
+    to. The write merges on the primary key, so re-posting the window corrects the buckets Klaviyo
+    still returns and leaves the ones it has dropped in place.
     """
     report = config.values_report
     assert report is not None
 
-    metric_id = conversion_metric_id or _resolve_conversion_metric_id(session, headers, logger)
-    if not metric_id:
-        logger.warning(
-            f"Klaviyo: no conversion metric found for {config.name}; set a conversion metric ID on the source"
-        )
-        return
+    metric_id: str | None = None
+    if report.requires_conversion_metric:
+        metric_id = conversion_metric_id or _resolve_conversion_metric_id(session, headers, logger)
+        if not metric_id:
+            logger.warning(
+                f"Klaviyo: no conversion metric found for {config.name}; set a conversion metric ID on the source"
+            )
+            return
 
-    body = {
-        "data": {
-            "type": report.report_type,
-            "attributes": {
-                "statistics": report.statistics,
-                "timeframe": {"key": report.timeframe_key},
-                "conversion_metric_id": metric_id,
-                "group_by": report.group_by,
-            },
-        }
+    attributes: dict[str, Any] = {
+        "statistics": report.statistics,
+        "timeframe": {"key": report.timeframe_key},
     }
+    if report.group_by:
+        attributes["group_by"] = report.group_by
+    if metric_id:
+        attributes["conversion_metric_id"] = metric_id
+    if report.interval:
+        attributes["interval"] = report.interval
+
+    body = {"data": {"type": report.report_type, "attributes": attributes}}
     # Klaviyo rejects a reporting POST that isn't sent as JSON:API.
     post_headers = {**headers, "Content-Type": "application/vnd.api+json"}
     url = f"{KLAVIYO_BASE_URL}{config.path}"
 
-    while True:
-        data = _fetch_page(session, url, post_headers, logger, json_body=body)
-        attributes = data.get("data", {}).get("attributes", {})
+    # Tagged onto every row so each row records the window (and conversion metric)
+    # it was computed over.
+    common: dict[str, Any] = {"timeframe_key": report.timeframe_key}
+    if metric_id:
+        common["conversion_metric_id"] = metric_id
 
-        for result in attributes.get("results", []):
-            batcher.batch(
-                {
-                    **result.get("groupings", {}),
-                    **result.get("statistics", {}),
-                    "timeframe_key": report.timeframe_key,
-                    "conversion_metric_id": metric_id,
-                }
+    try:
+        while True:
+            data = _fetch_page(session, url, post_headers, logger, json_body=body)
+            attributes_resp = data.get("data", {}).get("attributes", {})
+            results = attributes_resp.get("results", [])
+
+            if report.interval:
+                rows = _series_rows(results, attributes_resp.get("date_times", []), common)
+            else:
+                rows = ({**r.get("groupings", {}), **r.get("statistics", {}), **common} for r in results)
+
+            for row in rows:
+                batcher.batch(row)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+
+            next_url = data.get("links", {}).get("next")
+            if not next_url:
+                break
+            url = next_url
+    except requests.HTTPError as exc:
+        if (
+            exc.response is not None
+            and exc.response.status_code == 400
+            and CONVERSION_METRIC_INELIGIBLE_DETAIL in exc.response.text
+        ):
+            logger.warning(
+                f"Klaviyo: conversion metric {metric_id} isn't eligible for values reporting on "
+                f"{config.name}; set a different conversion metric ID on the source, skipping"
             )
-            if batcher.should_yield():
-                yield batcher.get_table()
-
-        next_url = data.get("links", {}).get("next")
-        if not next_url:
-            break
-        url = next_url
+            return
+        raise
 
 
 def get_rows(

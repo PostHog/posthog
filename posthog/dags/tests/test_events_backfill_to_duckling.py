@@ -20,11 +20,15 @@ from posthog.dags.events_backfill_to_duckling import (
     _resolve_duckling_target,
 )
 
+from products.managed_warehouse.backend.facade.contracts import DuckgresStoredBucketConfig
+
+pytestmark = pytest.mark.django_db
+
 
 @dataclass
 class _FakeRow:
     bucket: str | None
-    bucket_region: str
+    region: str
 
 
 class TestResolveDucklingTarget:
@@ -33,11 +37,16 @@ class TestResolveDucklingTarget:
         server: "_FakeRow | None",
         cp_bucket: str | None = None,
     ):
+        stored_bucket = (
+            DuckgresStoredBucketConfig(bucket=server.bucket, region=server.region)
+            if server is not None and server.bucket
+            else None
+        )
         with (
-            patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1"),
-            patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=server),
+            patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1"),
+            patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=stored_bucket),
             patch(
-                "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
+                "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
                 return_value=cp_bucket,
             ) as mock_cp,
             # The per-environment table-name lookup hits the DB; this suite stays DB-free.

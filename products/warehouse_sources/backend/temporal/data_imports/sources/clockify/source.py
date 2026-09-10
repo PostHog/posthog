@@ -111,7 +111,10 @@ The key is user-scoped — it can read exactly what your Clockify user can. Use 
         if validate_clockify_credentials(config.api_key):
             return True, None
 
-        return False, "Invalid Clockify API key"
+        return (
+            False,
+            "Your Clockify API key is invalid or has been revoked. Generate a new key in your Clockify profile settings, then reconnect.",
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ClockifyResumeConfig]:
         return ResumableSourceManager[ClockifyResumeConfig](inputs, ClockifyResumeConfig)

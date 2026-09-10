@@ -1,8 +1,8 @@
 """
 Pipeline/metrics wiring for warehouse_sources.
 
-Re-exports the data-import pipeline internals (v3 S3 helpers, health server, duckgres
-enablement flag), the app-metric emitters, the CDC extraction input, and the pipeline-
+Re-exports the data-import pipeline internals (v3 S3 helpers and health server),
+the app-metric emitters, the CDC extraction input, and the pipeline-
 version + schema-sync helpers that sibling products (data_warehouse, error_tracking) and
 core (the ducklake copy workflow) reach into while orchestrating or observing imports.
 
@@ -24,13 +24,12 @@ _LAZY = {
     "CDCExtractionInput": "cdc.workflows",
     "is_pipeline_v3_enabled": "workflow_activities.create_job_model",
     "SyncNewSchemasActivityInputs": "workflow_activities.sync_new_schemas",
-    "DUCKGRES_BATCH_SINK_FLAG": "pipelines.pipeline_v3.duckgres.enablement",
-    "is_duckgres_sink_team_member": "pipelines.pipeline_v3.duckgres.enablement",
     "finish_row_tracking": "row_tracking",
     "HealthState": "pipelines.pipeline_v3.load.health",
     "start_health_server": "pipelines.pipeline_v3.load.health",
     "ensure_bucket": "pipelines.pipeline_v3.s3.common",
     "strip_s3_protocol": "pipelines.pipeline_v3.s3.common",
+    "CDPProducer": "pipelines.core.cdp_producer",
 }
 
 __all__ = sorted(_LAZY)

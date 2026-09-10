@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     GITHUB_MAX_RETRY_AFTER_SECONDS,
+    GithubAccessDeniedError,
     GithubEgressIdentity,
     GithubResumeConfig,
     GithubRetryableError,
@@ -44,7 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import (
+    GITHUB_WEBHOOK_EVENT_LABELS,
+    GITHUB_WEBHOOK_RESOURCE_MAP,
+    GithubSource,
+)
 
 
 def _make_response(status: int = 200, body: Any = None, link: str = "") -> mock.Mock:
@@ -1424,6 +1429,33 @@ def _pat_config() -> GithubSourceConfig:
     )
 
 
+class TestGithubWebhookCreationBlocked:
+    # An app installation only ever holds what the GitHub app itself requests, so an installation
+    # without repository_hooks write can never create a repo webhook. Offering the button anyway
+    # sent users through a 403 whose suggested fix (edit your token scopes) they couldn't apply.
+    @parameterized.expand(
+        [
+            ("write_permission_allows_creation", {"repository_hooks": "write", "contents": "read"}, False),
+            ("read_permission_blocks_creation", {"repository_hooks": "read"}, True),
+            ("absent_permission_blocks_creation", {"contents": "read"}, True),
+            # Unknown grants (token connections, rows predating persistence) fail open: the create
+            # attempt is the only way to find out, and a real denial still surfaces from GitHub.
+            ("unknown_permissions_fail_open", None, False),
+        ]
+    )
+    def test_blocked_reason_tracks_installation_permissions(
+        self, _name: str, held: dict[str, str] | None, expect_blocked: bool
+    ) -> None:
+        source = GithubSource()
+        config = _pat_config()
+        with mock.patch.object(GithubSource, "_installation_permissions", return_value=held):
+            reason = source.webhook_creation_blocked_reason(config, team_id=1)
+
+        assert (reason is not None) is expect_blocked
+        if expect_blocked:
+            assert "cannot manage repository webhooks" in (reason or "")
+
+
 class TestGithubWebhookSource:
     """The WebhookSource surface: event mapping, schema flags, and the create/
     delete/info round-trips that mint and reconcile the repo webhook."""
@@ -1438,7 +1470,20 @@ class TestGithubWebhookSource:
             "reviews": "pull_request_review",
             "deployments": "deployment",
             "deployment_statuses": "deployment_status",
+            "check_runs": "check_run",
+            "commit_statuses": "status",
+            "issue_comments": "issue_comment",
+            "pull_request_comments": "pull_request_review_comment",
+            "commit_comments": "commit_comment",
         }
+
+    def test_manual_setup_instructions_list_every_mapped_event(self) -> None:
+        # A mapped event missing from the instructions leaves a manually-created hook unsubscribed
+        # from it, so the table stays empty with no error. The list already lost check_runs once.
+        caption = self.source.get_source_config.webhookSetupCaption
+        assert caption is not None
+        for event in set(GITHUB_WEBHOOK_RESOURCE_MAP.values()):
+            assert GITHUB_WEBHOOK_EVENT_LABELS[event] in caption
 
     def test_webhook_template_identity(self) -> None:
         template = self.source.webhook_template
@@ -1455,6 +1500,11 @@ class TestGithubWebhookSource:
             "reviews",
             "deployments",
             "deployment_statuses",
+            "check_runs",
+            "commit_statuses",
+            "issue_comments",
+            "pull_request_comments",
+            "commit_comments",
         }
 
     def test_workflow_runs_and_jobs_are_webhook_only(self) -> None:
@@ -1643,9 +1693,14 @@ class TestGithubWebhookSource:
         assert repo == "owner/repo"
         assert url == "https://app.posthog.com/webhook"
         assert sorted(events) == [
+            "check_run",
+            "commit_comment",
             "deployment",
             "deployment_status",
+            "issue_comment",
             "pull_request_review",
+            "pull_request_review_comment",
+            "status",
             "workflow_job",
             "workflow_run",
         ]
@@ -1875,7 +1930,7 @@ class TestFetchPageRateLimit:
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.request.return_value = resp
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(GithubAccessDeniedError):
                 _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         assert mock_get.return_value.request.call_count == 1

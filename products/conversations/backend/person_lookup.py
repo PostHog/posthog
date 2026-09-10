@@ -22,6 +22,13 @@ WHERE lower(properties.email) IN {emails}
 ORDER BY is_identified DESC, created_at ASC, id ASC
 """
 
+GROUP_KEY_BY_DISTINCT_ID_QUERY = """
+SELECT distinct_id, argMaxIf({group_column}, timestamp, {group_column} != '') AS group_key
+FROM events
+WHERE distinct_id IN {{distinct_ids}} AND timestamp > now() - INTERVAL 90 DAY
+GROUP BY distinct_id
+"""
+
 
 def _get_persons_by_email(
     team: Team,
@@ -69,3 +76,34 @@ def _get_persons_by_email(
         if person is not None:
             result[email_lower] = person
     return result
+
+
+def get_group_keys_by_email(*, team: Team, emails: list[str], group_type_index: int) -> dict[str, str | None]:
+    if group_type_index not in range(5):
+        return {}
+    persons_by_email = _get_persons_by_email(team, emails)
+    distinct_id_to_email = {
+        distinct_id: email for email, person in persons_by_email.items() for distinct_id in person.distinct_ids or []
+    }
+    if not distinct_id_to_email:
+        return {}
+
+    group_column = f"`$group_{group_type_index}`"
+    query = GROUP_KEY_BY_DISTINCT_ID_QUERY.format(group_column=group_column)
+    with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
+        response = execute_hogql_query(
+            query,
+            placeholders={"distinct_ids": ast.Constant(value=sorted(distinct_id_to_email))},
+            team=team,
+            query_type="conversations_email_group_lookup",
+        )
+
+    group_keys_by_email: dict[str, set[str]] = {}
+    for distinct_id, group_key in response.results or []:
+        email = distinct_id_to_email.get(distinct_id)
+        if email and group_key:
+            group_keys_by_email.setdefault(email, set()).add(group_key)
+    return {
+        email: next(iter(group_keys)) if len(group_keys) == 1 else None
+        for email, group_keys in group_keys_by_email.items()
+    }

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconGitBranch, IconGithub } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { githubRepositorySearchLogic } from 'lib/integrations/githubRepositorySearchLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import type { RepositoryConfig } from '../../../types/taskTypes'
@@ -27,7 +28,10 @@ const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next:
  */
 export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
+
+    const reportConnect = (): void => reportIntegrationConnectClicked('github', 'github', 'task_composer')
 
     // Selecting a repo clears the branch so GitHubBranchCombobox auto-picks the new repo's default branch.
     const handleRepositoryChange = (repository: string | null): void => {
@@ -63,6 +67,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                     icon={<IconGithub />}
                     to={githubAuthorizeUrl}
                     disableClientSideRouting
+                    onClick={reportConnect}
                 >
                     Connect GitHub
                 </LemonButton>
@@ -91,7 +96,12 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                         },
                         {
                             items: [
-                                { to: githubAuthorizeUrl, disableClientSideRouting: true, label: 'Connect another' },
+                                {
+                                    to: githubAuthorizeUrl,
+                                    disableClientSideRouting: true,
+                                    onClick: reportConnect,
+                                    label: 'Connect another',
+                                },
                                 { to: urls.settings('project-integrations'), label: 'Manage integrations' },
                             ],
                         },

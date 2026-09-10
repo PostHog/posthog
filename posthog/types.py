@@ -3,6 +3,7 @@ from typing import Union
 from posthog.schema import (
     AccountCustomPropertyFilter,
     ActionsNode,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
     DataWarehouseNode,
     DataWarehousePersonPropertyFilter,
@@ -32,6 +33,8 @@ from posthog.schema import (
     LogPropertyFilter,
     MetricPropertyFilter,
     PathsQuery,
+    PathsV2ActorsQuery,
+    PathsV2Query,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     RecordingPropertyFilter,
@@ -53,10 +56,17 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 type FilterType = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 """Legacy insight filters."""
 
-type InsightQueryNode = Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+type InsightQueryNode = Union[
+    TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, PathsV2Query, StickinessQuery, LifecycleQuery
+]
 
 type InsightActorsQueryNode = Union[
-    InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, ExperimentActorsQuery
+    InsightActorsQuery,
+    FunnelsActorsQuery,
+    FunnelCorrelationActorsQuery,
+    StickinessActorsQuery,
+    ExperimentActorsQuery,
+    PathsV2ActorsQuery,
 ]
 
 type AnyPropertyFilter = Union[
@@ -83,6 +93,7 @@ type AnyPropertyFilter = Union[
     MetricPropertyFilter,
     SpanPropertyFilter,
     WorkflowVariablePropertyFilter,
+    BehavioralPropertyFilter,
 ]
 
 type EntityNode = Union[

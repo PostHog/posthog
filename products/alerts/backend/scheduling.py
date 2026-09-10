@@ -1,8 +1,9 @@
 """Scheduling math for alert checks.
 
-Sub-daily checks preserve their existing cadence. Daily, weekly, and monthly
-checks anchor to calendar instants in the team's local timezone. Quiet hours
-and weekend skipping layer local-time restrictions on top of those schedules.
+Sub-daily checks preserve their existing cadence and skip missed intervals.
+Daily, weekly, and monthly checks anchor to calendar instants in the team's
+local timezone. Quiet hours and weekend skipping layer local-time restrictions
+on top of those schedules.
 
 Pure Python with no Django or model imports. Timezones are passed as IANA
 names, quiet-hours windows as parsed tuples.
@@ -17,7 +18,6 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytz
-from dateutil.relativedelta import relativedelta
 from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 from pytz.tzinfo import BaseTzInfo
 
@@ -155,21 +155,26 @@ def next_calendar_check_time(
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
-    Sub-daily intervals advance from the previous next_check_at (falling back to
-    now) so per-alert spread from creation time is preserved. Daily/weekly/monthly
-    anchor to fixed local instants: 1am tomorrow, 3am next Monday, 4am on the 1st
-    of next month. Hour-only replacement keeps the minute/second spread.
+    Sub-daily intervals keep their cadence from the previous next_check_at. If
+    a check is late, the next check skips missed intervals and is after now.
+    Daily/weekly/monthly anchor to fixed local instants: 1am tomorrow, 3am next
+    Monday, 4am on the 1st of next month. Hour-only replacement keeps the
+    minute/second spread.
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
 
     match interval:
-        case CalendarInterval.REAL_TIME:
-            return (next_check_at or now) + relativedelta(minutes=REAL_TIME_CADENCE_MINUTES)
-        case CalendarInterval.EVERY_15_MINUTES:
-            return (next_check_at or now) + relativedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES)
-        case CalendarInterval.HOURLY:
-            return (next_check_at or now) + relativedelta(hours=1)
+        case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
+            interval_delta = {
+                CalendarInterval.REAL_TIME: timedelta(minutes=REAL_TIME_CADENCE_MINUTES),
+                CalendarInterval.EVERY_15_MINUTES: timedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES),
+                CalendarInterval.HOURLY: timedelta(hours=1),
+            }[interval]
+            candidate = (next_check_at or now) + interval_delta
+            if candidate <= now:
+                candidate += interval_delta * (int((now - candidate) // interval_delta) + 1)
+            return candidate
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(
                 local_now,
@@ -220,9 +225,12 @@ def normalize_schedule_restriction_value(raw: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(raw, dict):
         raise ValueError("schedule_restriction must be an object or null")
+    unknown_keys = set(raw) - {"blocked_windows"}
+    if unknown_keys:
+        raise ValueError("schedule_restriction only supports blocked_windows")
+    if "blocked_windows" not in raw:
+        raise ValueError("schedule_restriction must include blocked_windows")
     windows = raw.get("blocked_windows")
-    if windows is None:
-        return None
     if windows == []:
         return None
     if not isinstance(windows, list):
@@ -351,6 +359,9 @@ def validate_and_normalize_schedule_restriction(raw: Any) -> dict[str, Any] | No
     for idx, w in enumerate(windows_in):
         if not isinstance(w, dict):
             raise ValueError(f"blocked_windows[{idx}] must be an object")
+        unknown_keys = set(w) - {"start", "end"}
+        if unknown_keys:
+            raise ValueError(f"blocked_windows[{idx}] only supports start and end")
         start_s = w.get("start")
         end_s = w.get("end")
         if start_s is None or end_s is None:

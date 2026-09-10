@@ -8,10 +8,14 @@ dicts, nested structures, and plain text.
 import json
 from datetime import datetime
 
+from parameterized import parameterized
+
+from ..constants import MISSING_TOOL_OUTPUT_NOTE
 from ..event_formatter import (
     _dict_to_yaml_lines,
     format_embedding_text_repr,
     format_evaluation_text_repr,
+    format_event_text_repr,
     format_event_text_repr_from_ai_events_row,
     format_generation_text_repr,
 )
@@ -208,7 +212,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Factual accuracy | Result: PASS | Reasoning: The response is factually correct." in result
+        assert "EVALUATION: Factual accuracy | Result: true | Reasoning: The response is factually correct." in result
 
     def test_evaluation_fail_with_reasoning(self):
         event = {
@@ -220,7 +224,8 @@ class TestEvaluationFormatting:
         }
         result = format_evaluation_text_repr(event)
         assert (
-            "EVALUATION: Relevance check | Result: FAIL | Reasoning: The response does not address the query." in result
+            "EVALUATION: Relevance check | Result: false | Reasoning: The response does not address the query."
+            in result
         )
 
     def test_evaluation_na(self):
@@ -242,7 +247,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Check | Result: PASS" in result
+        assert "EVALUATION: Check | Result: true" in result
 
     def test_evaluation_no_reasoning(self):
         event = {
@@ -252,7 +257,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Quick check | Result: PASS" in result
+        assert "EVALUATION: Quick check | Result: true" in result
         assert "Reasoning:" not in result
 
     def test_evaluation_missing_name(self):
@@ -262,7 +267,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Unknown evaluation | Result: FAIL" in result
+        assert "EVALUATION: Unknown evaluation | Result: false" in result
 
     def test_evaluation_hog_runtime(self):
         event = {
@@ -273,7 +278,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Length check | Result: PASS (hog)" in result
+        assert "EVALUATION: Length check | Result: true (hog)" in result
 
     def test_evaluation_llm_judge_runtime_with_model(self):
         event = {
@@ -286,7 +291,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "Result: FAIL (llm_judge/gpt-4)" in result
+        assert "Result: false (llm_judge/gpt-4)" in result
         assert "Reasoning: Claim contradicts source." in result
 
     def test_evaluation_llm_judge_runtime_without_model(self):
@@ -298,7 +303,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "Result: PASS (llm_judge)" in result
+        assert "Result: true (llm_judge)" in result
 
 
 class TestFormatEventTextReprFromAiEventsRow:
@@ -407,3 +412,39 @@ class TestFormatEventTextReprFromAiEventsRow:
         )
         assert "Embedding vector generated" in result
         assert "text to embed" in result
+
+
+class TestSpanToolResultFormatting:
+    @staticmethod
+    def _span(output_state):
+        return {"event": "$ai_span", "properties": {"$ai_span_name": "search", "$ai_output_state": output_state}}
+
+    @parameterized.expand(
+        [
+            ("empty_string", ""),
+            ("none", None),
+            ("empty_list", []),
+        ]
+    )
+    def test_tool_result_without_content_says_so(self, _name, content):
+        state = {"type": "tool", "name": "search", "status": "success", "content": content}
+        result = format_event_text_repr(self._span(state))
+        assert "[TOOL RESULT] search (success)" in result
+        assert MISSING_TOOL_OUTPUT_NOTE in result
+
+    def test_tool_result_with_a_falsey_payload_is_kept(self):
+        state = {"type": "tool", "name": "count", "status": "success", "content": 0}
+        result = format_event_text_repr(self._span(state))
+        assert "0" in result
+        assert MISSING_TOOL_OUTPUT_NOTE not in result
+
+    def test_tool_result_content_blocks_render_as_text(self):
+        state = {
+            "type": "tool",
+            "name": "search",
+            "status": "success",
+            "content": [{"type": "text", "text": "3 issues found"}],
+        }
+        result = format_event_text_repr(self._span(state))
+        assert "3 issues found" in result
+        assert "'type': 'text'" not in result
