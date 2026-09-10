@@ -10,15 +10,24 @@ import requests
 from parameterized import parameterized
 
 from products.mcp_registry.backend.models import MCPRegistryServer, MCPRegistryTool
-from products.mcp_registry.backend.probe import ProbeOutcome, apply_probe_outcome, probe_stalest_servers, shallow_probe
+from products.mcp_registry.backend.probe import (
+    ProbeOutcome,
+    _RpcResponse,
+    apply_probe_outcome,
+    probe_stalest_servers,
+    shallow_probe,
+)
 
 
-def _response(status_code: int, body: dict | None = None, text: str = "", headers: dict | None = None) -> Mock:
-    response = Mock(spec=requests.Response)
-    response.status_code = status_code
-    response.text = json.dumps(body) if body is not None else text
-    response.headers = headers or {}
-    return response
+def _response(
+    status_code: int, body: dict | None = None, text: str = "", headers: dict | None = None, truncated: bool = False
+) -> _RpcResponse:
+    return _RpcResponse(
+        status_code=status_code,
+        headers=headers or {},
+        text=json.dumps(body) if body is not None else text,
+        truncated=truncated,
+    )
 
 
 _INIT_RESULT = {"jsonrpc": "2.0", "id": 1, "result": {"serverInfo": {"name": "demo"}, "capabilities": {}}}
@@ -46,9 +55,9 @@ class TestShallowProbe(SimpleTestCase):
             ),
         ]
     )
-    @patch("products.mcp_registry.backend.probe.pinned_request")
+    @patch("products.mcp_registry.backend.probe._rpc")
     def test_classification(
-        self, _name: str, response: Mock, expected_liveness: str, expected_auth: str, mock_request: Mock
+        self, _name: str, response: _RpcResponse, expected_liveness: str, expected_auth: str, mock_request: Mock
     ) -> None:
         mock_request.return_value = response
 
@@ -57,7 +66,7 @@ class TestShallowProbe(SimpleTestCase):
         assert outcome.liveness == expected_liveness
         assert outcome.auth_method == expected_auth
 
-    @patch("products.mcp_registry.backend.probe.pinned_request")
+    @patch("products.mcp_registry.backend.probe._rpc")
     def test_connection_failure_is_dead_not_raised(self, mock_request: Mock) -> None:
         mock_request.side_effect = requests.ConnectionError("refused")
 
@@ -66,7 +75,18 @@ class TestShallowProbe(SimpleTestCase):
         assert outcome.liveness == "dead"
         assert "refused" in outcome.detail
 
-    @patch("products.mcp_registry.backend.probe.pinned_request")
+    @patch("products.mcp_registry.backend.probe._rpc")
+    def test_oversized_body_is_not_mcp_not_buffered(self, mock_request: Mock) -> None:
+        # A publisher endpoint can stream an unbounded body; the probe caps the read and
+        # treats the truncated result as unusable rather than parsing a partial envelope.
+        mock_request.return_value = _response(200, text="{", truncated=True)
+
+        outcome = shallow_probe("https://demo.example.com/mcp")
+
+        assert outcome.liveness == "not_mcp"
+        assert "exceeded" in outcome.detail
+
+    @patch("products.mcp_registry.backend.probe._rpc")
     def test_open_server_captures_tools_over_sse(self, mock_request: Mock) -> None:
         tools_body = {
             "jsonrpc": "2.0",
@@ -91,7 +111,7 @@ class TestShallowProbe(SimpleTestCase):
         assert outcome.auth_method == "none"
         assert [tool["name"] for tool in outcome.tools] == ["create_issue"]
         # The session handle from initialize must be echoed on the follow-up calls.
-        assert mock_request.call_args.kwargs["headers"]["mcp-session-id"] == "session-1"
+        assert mock_request.call_args.args[2] == "session-1"
 
 
 class TestProbeStalestServers(BaseTest):
