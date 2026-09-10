@@ -1,9 +1,9 @@
-//! Collect the original URLs of remote images, for the out-of-band fetch lane.
+//! Collect remote image URLs for the out-of-band fetch lane.
 //!
 //! The sibling of [`crate::collect`]. That module handles an image the page inlined into the
 //! recording; this one handles an image the page referred to by URL. With collection enabled, a
 //! media source attribute holding an `http(s)` URL keeps the media placeholder and a namespaced
-//! sibling attribute carries the content ref. The message also carries the original URL back to
+//! sibling attribute carries the content ref. The message also carries the fetch URL back to
 //! the caller.
 //!
 //! **Two forms of one URL come out of this module. Do not confuse them.**
@@ -11,9 +11,9 @@
 //! The *dedup* URL is canonical, and its volatile parameters are removed. It is the only input to
 //! the hash, so it sets the ref and the dedup key of the fetch lane.
 //!
-//! The *fetch* URL keeps the original query bytes, and every permitted parameter stays. The
-//! fetcher requests this one. URLs that carry credentials or signatures are refused before either
-//! form is created.
+//! The *fetch* URL keeps the original query bytes except for recognised Shopify resize values.
+//! The fetcher requests this one. URLs that carry credentials or signatures are refused before
+//! either form is created.
 //!
 //! That split is what makes the ref stable across non-credential cache busters. A ref that appears
 //! once joins to nothing downstream. Removing the volatile parameters matters more for that than
@@ -60,7 +60,7 @@ pub struct UrlCollection {
 pub struct CollectedUrl {
     /// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`.
     pub hash: String,
-    /// The URL with its original query bytes intact. This is what the fetcher requests.
+    /// The fetch URL, including any provider-specific resize normalisation.
     pub url: String,
     /// The host the request goes to. robots.txt and the connection limit are scoped to this.
     pub host: String,

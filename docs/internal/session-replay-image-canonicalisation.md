@@ -1,0 +1,39 @@
+# Session replay image canonicalisation
+
+The replay mirror collects remote image URLs. The shared Rust URL policy defines the fetch URL and the global image identity.
+
+## Source selection
+
+For an `img` with a usable `srcset`, the collector selects its largest width or density candidate and ignores `src` and `rr_src`. The ignored attributes become placeholders and produce no image refs. This rule applies to every site and both replay walkers.
+
+A usable candidate is an admitted HTTPS image URL or a supported base64 image data URI. Trusted re-scrubbing also recognises an existing image ref. If `srcset` is empty, malformed, mixes widths and densities, or selects a refused URL, the collector retains the `src` and `rr_src` fallbacks. The collector does not infer relationships between separate `picture` children or between separate attribute mutations.
+
+## Shopify resizing
+
+The policy recognises raster images on `cdn.shopify.com/s/files/<numeric store path>/{files,products,collections}/` and the Shopify storefront routes `/cdn/shop/{files,products,collections}/`. It keeps the hostname, store path, asset name, file extension, version, and other retained query bytes distinct.
+
+Recognised resizes use a consistent fetch size, which also determines the global identity:
+
+- A `width` query without `height` becomes `width=1024`.
+- A `height` query without `width` becomes `height=1024`.
+- Uncropped legacy suffixes such as `_480x`, `_x480`, and `_480x480` use an integer scale with a longest requested side at most 1024. Two dimensions retain their exact requested ratio. Ratios that cannot fit at that size remain unchanged.
+- Legacy sizes `pico`, `icon`, `thumb`, `small`, `compact`, `medium`, `large`, and `grande` use a 1024-by-1024 bounding box.
+- A legacy `@2x` or `@3x` density suffix is absorbed into the consistent fetch size.
+
+The policy changes the fetch URL as well as the identity. Otherwise, the first small thumbnail stored for a shared identity could determine the image used for every larger variant. Shopify does not enlarge an image beyond its original dimensions.
+
+Crop suffixes, crop parameters, and query URLs with both `width` and `height` remain unchanged. The crop result can depend on the original image bounds as well as the requested ratio. Unknown query fields, duplicate resize fields, invalid dimensions, and combined legacy/query resizing also keep their original resize values. `_480px` is not a recognised Shopify suffix.
+
+The fetch size is independent of the image scrubber's output size. The URL-image scrubber defaults to a 50,000-pixel output ceiling and can store less to satisfy its detection constraints. Scrubbing still applies to every fetched image.
+
+See Shopify's [image_url](https://shopify.dev/docs/api/liquid/filters/image_url) and [legacy img_url](https://shopify.dev/docs/api/liquid/filters/img_url) contracts.
+
+## Global query rules
+
+Outside recognised Shopify image routes, `width`, `height`, `w`, `h`, and `size` remain part of the global identity. Their names do not establish whether they select a resize, crop, generated image, or another resource. Downsampling does not make different crops equivalent.
+
+The existing volatile-query rules still apply. Admission checks run before size normalisation, so a signed URL is refused rather than rewritten into an unsigned request. Unrelated query fields retain their original order and encoding.
+
+## Rollout
+
+The mirror and image fetcher use the same compiled Rust policy. Deploy both to obtain consistent producer deduplication and fetching. Existing queued jobs keep their original refs; the fetcher can normalise their current URLs. Existing stored refs remain readable, while newly collected size variants use their new shared identity.
