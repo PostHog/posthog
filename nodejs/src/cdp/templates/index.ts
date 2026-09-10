@@ -33,6 +33,7 @@ import { template as posthogUpdateAccountRelationshipsTemplate } from './_destin
 import { template as posthogUpdateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account.template'
 import { template as posthogRunScoutTemplate } from './_destinations/posthog_signals/posthog-run-scout.template'
 import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
+import { template as posthogNotifyOwnerTemplate } from './_destinations/posthog_tasks/posthog-notify-owner.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
@@ -101,6 +102,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogGetTicketTemplate,
     posthogUpdateTicketTemplate,
     posthogCreateTaskTemplate,
+    posthogNotifyOwnerTemplate,
     posthogRunScoutTemplate,
     posthogCreateAccountTemplate,
     posthogGetAccountTemplate,

@@ -1,6 +1,12 @@
 from posthog.api.routing import RouterRegistry
 
-from products.workflows.backend.api import hog_flow, hog_flow_template, workflow_scout_runs, workflow_tasks
+from products.workflows.backend.api import (
+    hog_flow,
+    hog_flow_template,
+    workflow_notifications,
+    workflow_scout_runs,
+    workflow_tasks,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -12,6 +18,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_scout_runs",
         workflow_scout_runs.WorkflowScoutRunViewSet,
         "project_workflow_scout_runs",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_notifications",
+        workflow_notifications.WorkflowNotificationViewSet,
+        "project_workflow_notifications",
         ["team_id"],
     )
     routers.projects.register(

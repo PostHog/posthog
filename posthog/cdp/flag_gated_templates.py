@@ -15,6 +15,7 @@ logger = structlog.get_logger(__name__)
 FLAG_GATED_TEMPLATE_IDS = {
     "template-posthog-create-task": "workflow-ai-task-action",
     "template-posthog-run-scout": "workflow-run-scout-action",
+    "template-posthog-notify-owner": "workflow-ai-task-action",
 }
 
 

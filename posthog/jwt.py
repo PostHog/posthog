@@ -26,6 +26,7 @@ class PosthogJwtAudience(Enum):
     INTEGRATION_SERVICE = "posthog:integration_service"
     TASKS_CREATE = "posthog:tasks:create"
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
+    WORKFLOW_NOTIFY = "posthog:workflows:notify"
     CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
 

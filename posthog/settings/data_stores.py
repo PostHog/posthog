@@ -593,6 +593,11 @@ WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
 )
 
+# Signs the tokens a workflow's "Notify owner" action calls back with. Own key for the same reason.
+WORKFLOW_NOTIFY_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_NOTIFY_JWT_SECRET", "local-dev-workflow-notify-jwt" if DEBUG or TEST else "")
+)
+
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
 # ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
 # Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every

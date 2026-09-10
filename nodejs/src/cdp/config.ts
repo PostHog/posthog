@@ -198,6 +198,8 @@ export type CdpConfig = ClickhouseConfig & {
     // TASKS_CREATE_JWT_SECRET — see products/workflows/backend/service_jwt.py. Same
     // comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOW_SCOUT_RUN_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's notify-owner calls to Django. Own key, same rules.
+    WORKFLOW_NOTIFY_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -385,6 +387,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_SCOUT_RUN_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-scout-run-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_NOTIFY_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-notify-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
