@@ -61,6 +61,9 @@ const COLUMN_WIDTHS = {
     relationship: '220px',
 } as const
 
+// Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
+const ignoreDataTableQueryChange = (_query: DataTableNode): void => {}
+
 function useGetCell(): (record: unknown, column: string) => unknown {
     const { accountsTableQueryPlan } = useValues(accountsLogic)
     return (record, column) =>
@@ -921,9 +924,7 @@ export function AccountsTable(): JSX.Element {
             <DataTable
                 uniqueKey="customer-analytics-accounts-table"
                 query={accountsDataTableQuery}
-                setQuery={() => {
-                    // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
-                }}
+                setQuery={ignoreDataTableQueryChange}
                 context={dataTableContext}
                 readOnly
             />
