@@ -15,12 +15,14 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 
 import pytest_asyncio
+import temporalio.activity
+import temporalio.workflow
 from asgiref.sync import sync_to_async
 from slack_sdk.errors import SlackApiError
-from temporalio.client import Client, WorkflowFailureError
+from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError, WorkflowHistory
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.hogql.errors import QueryError
 
@@ -29,6 +31,7 @@ from posthog.errors import CHQueryErrorS3Error
 from posthog.models import OrganizationMembership, Team
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
+from posthog.models.temporal_scheduler import TemporalSchedulerClaim
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
@@ -44,12 +47,16 @@ from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExcee
 from products.exports.backend.temporal.subscriptions.activities import (
     _resolve_exportable_insights,
     advance_next_delivery_date,
+    complete_subscription_scheduler_claim_activity,
+    confirm_subscription_scheduler_claim_activity,
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
     notify_subscription_delivery_failure,
+    recover_subscription_scheduler_claims_activity,
+    release_subscription_scheduler_claim_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -77,6 +84,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     GenerateAIReportInputs,
     NoExportableInsightsReason,
     ProcessSubscriptionWorkflowInputs,
+    RecoverSubscriptionSchedulerClaimsInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
@@ -87,6 +95,7 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
+    _record_subscription_dispatch_outcome,
     _summarize_export_failure_details,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -127,6 +136,69 @@ async def test_subscription_workflows_accept_legacy_previous_target_payload() ->
 
     assert process_inputs.previous_target_value == "old@example.com"
     assert update_inputs.previous_target_value == "old@example.com"
+
+
+async def test_subscription_scheduler_dispatch_metric_has_bounded_dimensions() -> None:
+    meter = MagicMock()
+    meter.with_additional_attributes.return_value = meter
+    meter.create_counter.return_value = meter
+    with patch("temporalio.workflow.metric_meter", return_value=meter):
+        _record_subscription_dispatch_outcome("eu", "accepted", 3)
+
+    meter.with_additional_attributes.assert_called_once_with(
+        {"scheduler": "subscriptions", "region": "eu", "outcome": "accepted"}
+    )
+    meter.create_counter.assert_called_once_with(
+        "posthog_temporal_scheduler_child_start",
+        "Subscription scheduler child-start outcomes.",
+    )
+    meter.add.assert_called_once_with(3)
+
+
+async def test_schedule_all_subscriptions_replays_pre_durable_dispatch_history(monkeypatch) -> None:
+    @temporalio.activity.defn(name="fetch_due_subscriptions_activity")
+    async def fetch_one(_inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
+        return [
+            DueSubscription(
+                subscription_id=1,
+                team_id=1,
+                distinct_id="replay-test",
+                next_delivery_date="2026-09-09T00:00:00+00:00",
+                resource_type=Subscription.ResourceType.INSIGHT,
+            )
+        ]
+
+    @temporalio.workflow.defn(name="process-subscription")
+    class LegacyChild:
+        @temporalio.workflow.run
+        async def run(self, _inputs: TrackedSubscriptionInputs) -> None:
+            return None
+
+    task_queue = str(uuid.uuid4())
+    pre_patch_history: WorkflowHistory
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[ScheduleAllSubscriptionsWorkflow, LegacyChild],
+            activities=[fetch_one],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            monkeypatch.setattr(temporalio.workflow, "patched", lambda _patch_id: False)
+            handle = await env.client.start_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+            await handle.result()
+            pre_patch_history = await handle.fetch_history()
+            monkeypatch.undo()
+
+    await Replayer(
+        workflows=[ScheduleAllSubscriptionsWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ).replay_workflow(pre_patch_history)
 
 
 async def test_subscription_slo_failure_summary_preserves_mixed_failure_details() -> None:
@@ -243,6 +315,10 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
         fetch_due_subscriptions_activity,
+        recover_subscription_scheduler_claims_activity,
+        confirm_subscription_scheduler_claim_activity,
+        complete_subscription_scheduler_claim_activity,
+        release_subscription_scheduler_claim_activity,
         create_delivery_record,
         validate_subscription_for_delivery,
         create_export_assets,
@@ -259,6 +335,9 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
 SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
+        confirm_subscription_scheduler_claim_activity,
+        complete_subscription_scheduler_claim_activity,
+        release_subscription_scheduler_claim_activity,
         create_delivery_record,
         validate_subscription_for_delivery,
         create_export_assets,
@@ -369,6 +448,10 @@ async def test_subscription_delivery_scheduling(
     assert mock_send_email.call_count == 4
     delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
+    claim_statuses = await sync_to_async(list)(
+        TemporalSchedulerClaim.objects.filter(scheduler="subscriptions").values_list("status", flat=True)
+    )
+    assert claim_statuses == [TemporalSchedulerClaim.Status.COMPLETED] * 2
 
 
 @patch("posthog.temporal.exports.activities.exporter")
@@ -3115,6 +3198,70 @@ async def test_fetch_due_subscriptions_fills_capacity_after_sparse_teams(team, u
 
     assert len(fetched) == 5
     assert [sum(item.team_id == subscription_team.id for item in fetched) for subscription_team in teams] == [1, 1, 3]
+
+
+async def test_fetch_due_subscriptions_claims_let_later_work_bypass_running_children(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claimed-page", name="Claimed page")
+    subscriptions = [
+        await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user) for _ in range(2)
+    ]
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in subscriptions]).update)(
+        next_delivery_date=due_at
+    )
+    activity_inputs = FetchDueSubscriptionsActivityInputs(
+        buffer_minutes=15,
+        max_subscriptions_per_run=1,
+        region="claimed-page-test",
+        use_durable_claims=True,
+    )
+
+    first_page = await ActivityEnvironment().run(fetch_due_subscriptions_activity, activity_inputs)
+    second_page = await ActivityEnvironment().run(fetch_due_subscriptions_activity, activity_inputs)
+
+    assert [item.subscription_id for item in first_page] == [subscriptions[0].id]
+    assert [item.subscription_id for item in second_page] == [subscriptions[1].id]
+    assert first_page[0].scheduler_claim_id is not None
+    assert second_page[0].scheduler_claim_id is not None
+
+
+async def test_recover_subscription_scheduler_claims_releases_closed_workflow(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-recovery", name="Claim recovery")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+    fetched = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            buffer_minutes=15,
+            max_subscriptions_per_run=1,
+            region="claim-recovery-test",
+            use_durable_claims=True,
+        ),
+    )
+    claim_id = fetched[0].scheduler_claim_id
+    assert claim_id is not None
+    await sync_to_async(TemporalSchedulerClaim.objects.filter(id=claim_id).update)(
+        lease_expires_at=timezone.now() - timedelta(minutes=1)
+    )
+    description = MagicMock(status=WorkflowExecutionStatus.COMPLETED)
+    handle = MagicMock(describe=AsyncMock(return_value=description))
+    temporal = MagicMock()
+    temporal.get_workflow_handle.return_value = handle
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.activities.async_connect",
+        AsyncMock(return_value=temporal),
+    ):
+        result = await ActivityEnvironment().run(
+            recover_subscription_scheduler_claims_activity,
+            RecoverSubscriptionSchedulerClaimsInputs(region="claim-recovery-test", limit=1),
+        )
+
+    assert result == {"released": 1, "renewed": 0, "retained": 0, "pruned": 0}
+    claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(id=claim_id)
+    assert claim.status == TemporalSchedulerClaim.Status.AVAILABLE
 
 
 async def test_fetch_due_subscriptions_rotates_tenant_page_across_runs(team, user):

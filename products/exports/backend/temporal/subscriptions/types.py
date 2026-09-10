@@ -141,6 +141,8 @@ class DueSubscription:
     # Lets the scheduler fan out AI-prompt subscriptions to ProcessAISubscriptionWorkflow
     # and everything else to ProcessSubscriptionWorkflow.
     resource_type: str = ""
+    scheduler_claim_id: str | None = None
+    scheduler_claim_token: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,6 +150,7 @@ class FetchDueSubscriptionsActivityInputs:
     buffer_minutes: int = 15
     max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
     region: str = "local"
+    use_durable_claims: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -155,7 +158,20 @@ class FetchDueSubscriptionsActivityInputs:
             "buffer_minutes": self.buffer_minutes,
             "max_subscriptions_per_run": self.max_subscriptions_per_run,
             "region": self.region,
+            "use_durable_claims": self.use_durable_claims,
         }
+
+
+@dataclasses.dataclass(frozen=True)
+class RecoverSubscriptionSchedulerClaimsInputs:
+    region: str
+    limit: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
+
+
+@dataclasses.dataclass(frozen=True)
+class SubscriptionSchedulerClaimInputs:
+    claim_id: str
+    claim_token: str
 
 
 @dataclasses.dataclass
@@ -245,6 +261,8 @@ class TrackedSubscriptionInputs:
     trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
+    scheduler_claim_id: str | None = None
+    scheduler_claim_token: str | None = None
 
 
 RecipientResultStatus = typing.Literal["success", "failed", "partial"]
