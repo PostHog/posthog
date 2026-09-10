@@ -362,8 +362,8 @@ impl ReplayAbort {
     }
 }
 
-/// Splits a request into runs of consecutive events that share a `$session_id`.
-/// An event without one stays with the run before it.
+/// Splits into runs of consecutive events sharing a `$session_id`. An event
+/// without one stays with the run before it.
 fn split_by_session(events: Vec<RawRecording>) -> Vec<Vec<RawRecording>> {
     let mut batches: Vec<Vec<RawRecording>> = Vec::new();
     for event in events {
@@ -380,10 +380,8 @@ fn split_by_session(events: Vec<RawRecording>) -> Vec<Vec<RawRecording>> {
     batches
 }
 
-/// Builds the `$snapshot_items` event for one session's snapshots. The event is
-/// `None` when an event restriction dropped it. The second value is the
-/// truncated-distinct_id sample when the ingested id was cut down to the
-/// 200-char cap, for the caller to warn about.
+/// Builds the `$snapshot_items` event for one session's snapshots, `None` when a
+/// restriction dropped it, plus any truncated-distinct_id sample to warn about.
 async fn process_replay_events_inner(
     restriction_service: Option<EventRestrictionService>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
@@ -1478,20 +1476,14 @@ mod tests {
         assert_eq!(reasons, vec![None, Some(OverflowReason::ReplayLimited)]);
     }
 
-    #[tokio::test]
-    async fn a_session_filtered_drop_removes_only_its_own_run_from_a_mixed_request() {
-        let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let outputs = Arc::new(OutputRegistry::single(MockSink {
-            events: events_captured.clone(),
-        }));
-
+    async fn drop_restriction_for_session(session_id: &str) -> EventRestrictionService {
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
             Duration::from_secs(300),
         );
         let mut manager = RestrictionManager::new();
         let mut filters = crate::event_restrictions::RestrictionFilters::default();
-        filters.session_ids.insert("b".to_string());
+        filters.session_ids.insert(session_id.to_string());
         manager.insert_restrictions(
             Pipeline::SessionRecordings,
             "test_token",
@@ -1502,6 +1494,16 @@ mod tests {
             }],
         );
         service.update(manager).await;
+        service
+    }
+
+    #[tokio::test]
+    async fn a_session_filtered_drop_removes_only_its_own_run_from_a_mixed_request() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
+            events: events_captured.clone(),
+        }));
+        let service = drop_restriction_for_session("b").await;
 
         let recordings = vec![
             recording_for_session(Some("a"), 0),
@@ -1523,6 +1525,50 @@ mod tests {
         let (sessions, items) = published_sessions(&captured);
         assert_eq!(sessions, vec![("a".to_string(), 1)]);
         assert_eq!(items, vec![0]);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_dropped_run_is_still_counted_when_a_later_session_aborts_the_request() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
+            events: events_captured.clone(),
+        }));
+        let service = drop_restriction_for_session("a").await;
+        let dropped = recording_for_session(Some("a"), 0);
+        let bad = recording_with_properties(json!({"$session_id": "b"}));
+
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![dropped, bad],
+            &create_test_context(),
+        )
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::MissingSnapshotData)));
+        assert!(events_captured.lock().unwrap().is_empty());
+        let drops: Vec<u64> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| match value {
+                DebugValue::Counter(n)
+                    if key.key().name() == crate::prometheus::CAPTURE_EVENTS_DROPPED_TOTAL =>
+                {
+                    Some(n)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(drops, vec![1]);
     }
 
     // ============ replay overflow histogram tests ============
@@ -1898,8 +1944,6 @@ mod tests {
         );
     }
 
-    // Truncation is read from the first event of each session run, so a mixed
-    // request must charge the warning for every run that truncated.
     #[tokio::test]
     async fn truncated_distinct_ids_are_counted_once_per_session_run() {
         let long_id = "a".repeat(201);
