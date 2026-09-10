@@ -7,14 +7,9 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import {
-    compareScoutsByName,
-    SCOUT_GROUP_LABEL,
-    SCOUT_GROUP_ORDER,
-    scoutCadenceLabel,
-    ScoutRosterRow,
-} from '../../../utils/scoutGroups'
+import { compareScoutsByName, SCOUT_GROUP_LABEL, SCOUT_GROUP_ORDER, ScoutRosterRow } from '../../../utils/scoutGroups'
 import { showsScoutOwnership } from '../../../utils/scoutOwners'
+import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNameCell } from './ScoutNameCell'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
@@ -116,7 +111,9 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                     width: width.cadence,
                     isHidden: compact,
                     render: (_, row: ScoutRosterRow) => (
-                        <span className="text-xs text-secondary">{scoutCadenceLabel(row.config)}</span>
+                        <span className="text-xs text-secondary">
+                            <ScoutCadenceLabel config={row.config} />
+                        </span>
                     ),
                 },
                 {
