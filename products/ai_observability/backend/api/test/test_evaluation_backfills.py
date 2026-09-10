@@ -259,15 +259,31 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         active.refresh_from_db()
         assert active.status == EvaluationBackfillStatus.RUNNING
 
+    @parameterized.expand(
+        [
+            ("temporal_answers_running", None, None),
+            # The answers Temporal cannot give are the expensive ones, and the list still returns
+            # 200 for them, so the tab keeps polling at its floor and only the cache holds the rate.
+            ("temporal_cannot_be_reached", RuntimeError("temporal down"), None),
+            ("describe_fails", None, RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        ]
+    )
     @patch(f"{API_MODULE}.sync_connect")
-    def test_a_live_answer_is_reused_instead_of_probing_temporal_again(self, connect):
-        connect.return_value = _temporal_client()
-        self._stale_backfill()
+    def test_an_alive_answer_is_reused_instead_of_probing_temporal_again(
+        self, _case, connect_error, describe_error, connect
+    ):
+        if connect_error is not None:
+            connect.side_effect = connect_error
+        else:
+            connect.return_value = _temporal_client(describe_error=describe_error)
+        stale = self._stale_backfill()
 
         for _ in range(3):
             assert self.client.get(f"{self.url}/").status_code == status.HTTP_200_OK
 
         assert connect.call_count == 1
+        stale.refresh_from_db()
+        assert stale.status == EvaluationBackfillStatus.RUNNING
 
     @patch(f"{API_MODULE}.sync_connect")
     def test_list_releases_an_old_row_whose_workflow_is_gone(self, connect):

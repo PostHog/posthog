@@ -71,7 +71,9 @@ BACKFILL_START_GRACE = timedelta(minutes=2)
 # The tab polls the list every ten seconds while a backfill runs, and a session-authenticated
 # request passes the default throttles, so probing on every request would let one open tab, or one
 # caller in a loop, set the rate of a synchronous Temporal call. A live answer stays good for a
-# tick, and the release of a dead row waits at most this long.
+# tick, and the release of a dead row waits at most this long. An answer Temporal could not give
+# is held for the same tick, because that probe is the expensive one: it opens a connection with
+# no timeout, and the list still answers 200, so nothing upstream slows the polling down.
 BACKFILL_ALIVE_CACHE_SECONDS = 60
 
 
@@ -449,22 +451,10 @@ class EvaluationBackfillViewSet(
         if cache.get(cache_key):
             return True
         workflow_id = backfill_workflow_id(str(backfill.pk))
-        try:
-            client = sync_connect()
-            description = asyncio.run(client.get_workflow_handle(workflow_id).describe())
-            if description.status == WorkflowExecutionStatus.RUNNING:
-                cache.set(cache_key, True, BACKFILL_ALIVE_CACHE_SECONDS)
-                return True
-        except RPCError as error:
-            # Treat an unreachable Temporal as "still running": refusing a second backfill is
-            # recoverable, starting one against a live walk doubles every evaluation it runs. A
-            # namespace that does not resolve answers NOT_FOUND for every workflow alike, so
-            # reading that as "this run is gone" would cancel every backfill at once.
-            if error.status != RPCStatusCode.NOT_FOUND or "namespace" in error.message.lower():
-                logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
-                return True
-        except Exception:
-            logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
+        if self._probe_reads_alive(backfill, workflow_id):
+            # One write for every alive answer, so an answer Temporal could not give costs the
+            # same one probe per tick that a live answer does.
+            cache.set(cache_key, True, BACKFILL_ALIVE_CACHE_SECONDS)
             return True
 
         # Says which read ended someone's backfill, because nothing else records it.
@@ -476,6 +466,25 @@ class EvaluationBackfillViewSet(
         )
         cancel_backfill(self.team_id, backfill.pk)
         return False
+
+    def _probe_reads_alive(self, backfill: EvaluationBackfill, workflow_id: str) -> bool:
+        """Ask Temporal whether the workflow runs, and read no answer at all as a yes."""
+        try:
+            client = sync_connect()
+            description = asyncio.run(client.get_workflow_handle(workflow_id).describe())
+            return description.status == WorkflowExecutionStatus.RUNNING
+        except RPCError as error:
+            # Treat an unreachable Temporal as "still running": refusing a second backfill is
+            # recoverable, starting one against a live walk doubles every evaluation it runs. A
+            # namespace that does not resolve answers NOT_FOUND for every workflow alike, so
+            # reading that as "this run is gone" would cancel every backfill at once.
+            if error.status != RPCStatusCode.NOT_FOUND or "namespace" in error.message.lower():
+                logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
+                return True
+            return False
+        except Exception:
+            logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
+            return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # The UI blocks Start while a row reads as running, so a dead workflow would hold the
