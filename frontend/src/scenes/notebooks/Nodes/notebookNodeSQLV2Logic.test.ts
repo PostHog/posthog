@@ -580,4 +580,34 @@ describe('notebookNodeSQLV2Logic', () => {
         await expectLogic(other).toFinishAllListeners()
         expect(runSpy).toHaveBeenCalledTimes(2)
     })
+    it('adopts a run the backend started for this cell and polls it', async () => {
+        mount()
+        logic.actions.adoptChainRun('n1', 'chain-run')
+        await expectLogic(logic).toDispatchActions(['startPolling', 'pollResult'])
+
+        // Pinning nodeId keeps the cell's identity: markdown cell ids are content
+        // fingerprints, so a later prop change would otherwise orphan this run.
+        expect(updateAttributes).toHaveBeenCalledWith({
+            nodeId: 'n1',
+            runId: 'chain-run',
+            result: null,
+            runStatus: null,
+        })
+        expect(resultSpy).toHaveBeenCalledWith('nb1', 'chain-run')
+        expect(runSpy).not.toHaveBeenCalled()
+    })
+
+    it('ignores an adopt meant for another cell, and re-adopting its own run', async () => {
+        mount()
+        logic.actions.adoptChainRun('n2', 'other-run')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(updateAttributes).not.toHaveBeenCalled()
+
+        logic.actions.adoptChainRun('n1', 'chain-run')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.adoptChainRun('n1', 'chain-run')
+        await expectLogic(logic).toFinishAllListeners()
+        // A second adopt of the same run would reset the cell and restart its poller.
+        expect(updateAttributes).toHaveBeenCalledTimes(1)
+    })
 })
