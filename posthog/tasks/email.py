@@ -194,6 +194,9 @@ def group_members_by_visible_views(
 
     Falls back to one audience holding every view when access controls are unavailable: not being
     able to check must not silently stop the whole digest.
+
+    Raises when every member's check failed, so the task retries rather than reporting a send it
+    never made. A member dropped while others are grouped is a real deny often enough to swallow.
     """
     if not memberships:
         return []
@@ -206,6 +209,7 @@ def group_members_by_visible_views(
         return [(memberships, views)]
 
     audiences: dict[tuple[str, ...], list[OrganizationMembership]] = {}
+    last_failure: Exception | None = None
     for membership in memberships:
         try:
             access = UserAccessControl(membership.user, team)
@@ -217,13 +221,17 @@ def group_members_by_visible_views(
                     for view in views
                     if access.check_access_level_for_object(queries[str(view["id"])], required_level="viewer")
                 )
-        except Exception:
+        except Exception as error:
             # Dropping only the member whose check failed. Admitting them instead would name a view,
             # its error and its link to someone the same check may be about to deny.
             logger.exception("Warehouse access check failed for one member", team_id=team.id)
+            last_failure = error
             continue
         if visible:
             audiences.setdefault(visible, []).append(membership)
+
+    if last_failure is not None and not audiences:
+        raise last_failure
 
     by_id = {str(view["id"]): view for view in views}
     return [(members, [by_id[view_id] for view_id in visible]) for visible, members in audiences.items()]
@@ -1194,6 +1202,10 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "last_run_at": run_at.strftime("%b %d, %H:%M UTC") if run_at else "Unknown",
                 "last_run_at_ts": run_at.timestamp() if run_at else 0,
                 "suspended": suspended,
+                # Reverting clears the schedule, so promising a retry here would be false. `is not
+                # False` keeps a never-written flag on the retrying side, as `exclude(deleted=True)`
+                # does above.
+                "scheduled": sq.is_materialized is not False,
                 "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
             }
         )
@@ -1202,8 +1214,8 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         logger.warning("No failed or suspended views found")
         return
 
-    # Suspended views first, then most recent run first.
-    views.sort(key=lambda v: (not v["suspended"], -cast(float, v["last_run_at_ts"])))
+    # Rows needing action outrank rows that heal themselves, so the cap keeps them.
+    views.sort(key=lambda v: (not v["suspended"], v["scheduled"], -cast(float, v["last_run_at_ts"])))
     for v in views:
         v.pop("last_run_at_ts", None)
 
@@ -1222,6 +1234,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "team": team,
                 "views": listed_views,
                 "has_suspended": any(v["suspended"] for v in listed_views),
+                "has_unscheduled": any(not v["suspended"] and not v["scheduled"] for v in listed_views),
                 "omitted_count": omitted_count,
                 "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
             },

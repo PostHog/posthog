@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -45,6 +46,7 @@ from posthog.tasks.email import (
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
+    send_team_matview_failure_digest,
     send_wizard_pr_ready_email,
     should_send_pipeline_error_notification,
 )
@@ -2336,6 +2338,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 name=name,
                 query={"query": "SELECT 1"},
                 sync_frequency_interval=dt.timedelta(hours=1),
+                is_materialized=True,
             )
             DataModelingJob.objects.create(
                 team=self.team,
@@ -2356,6 +2359,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 query={"query": "SELECT 1"},
                 sync_frequency_interval=None,
                 latest_error=error,
+                is_materialized=False,
             )
             DataModelingJob.objects.create(
                 team=self.team,
@@ -2371,7 +2375,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         html = mocked_email_messages[0].html_body
         for name, _ in failed_cases + unscheduled_cases:
             assert name in html
-        assert html.count("Will retry") == len(failed_cases + unscheduled_cases)
+        assert html.count("Will retry") == len(failed_cases)
+        assert html.count("Not scheduled") == len(unscheduled_cases)
         assert "action required" not in html
 
     @parameterized.expand(
@@ -2501,6 +2506,41 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "restricted_view" not in restricted_email.html_body
         assert "restricted_view broke" not in restricted_email.html_body
 
+    def test_send_matview_failure_digest_retries_when_no_audience_can_be_resolved(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="broken_view",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=True,
+        )
+
+        class UnreachableUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                pass
+
+            access_controls_supported = True
+            is_organization_admin = False
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                return True
+
+            def check_access_level_for_object(self, obj: DataWarehouseSavedQuery, required_level: str) -> bool:
+                raise OperationalError("access control store is down")
+
+        with patch("posthog.tasks.email.UserAccessControl", UnreachableUserAccessControl):
+            with self.assertRaises(OperationalError):
+                send_team_matview_failure_digest(self.team.id, [str(sq.id)], [])
+
+        assert len(mocked_email_messages) == 0
+
     @parameterized.expand(
         [
             (
@@ -2574,6 +2614,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             name="retrying_view",
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
             sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=True,
         )
         DataModelingJob.objects.create(
             team=self.team,
