@@ -448,16 +448,18 @@ def defer_scheduler_claim_recovery(
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
     deferred_until = transition_time + lease_duration
-    updated = TemporalSchedulerClaim.objects.filter(
-        id=claim_id,
-        claim_token=claim_token,
-        status__in=TemporalSchedulerClaim.ACTIVE_STATUSES,
-        lease_expires_at=expected_lease_expires_at,
-    ).update(
-        lease_expires_at=deferred_until,
-        last_error=error[:MAX_CLAIM_ERROR_CHARS],
-        updated_at=transition_time,
-    )
+    with transaction.atomic():
+        _set_scheduler_lock_timeout()
+        updated = TemporalSchedulerClaim.objects.filter(
+            id=claim_id,
+            claim_token=claim_token,
+            status__in=TemporalSchedulerClaim.ACTIVE_STATUSES,
+            lease_expires_at=expected_lease_expires_at,
+        ).update(
+            lease_expires_at=deferred_until,
+            last_error=error[:MAX_CLAIM_ERROR_CHARS],
+            updated_at=transition_time,
+        )
     if updated:
         record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "renewed"))
     return updated == 1
