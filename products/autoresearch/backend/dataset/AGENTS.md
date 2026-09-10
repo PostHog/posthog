@@ -20,7 +20,7 @@ Nothing here trains or scores anything. It is the shared vocabulary that `../tra
   Also here: `_compile_population_filters()` (property filters → HogQL; a cohort filter, an unknown operator, or a filter without a `type` raises rather than being skipped), `_build_population_kind_conditions()` (semantic population kinds → HogQL, see below), `build_target_condition()` (event or action target → predicate), `NUM_FOLDS = 5` with fold 0 as holdout, and `IDENTIFIED_USERS_ONLY`.
 
 - `validation.py`
-  Pre-flight viability. `validate_pipeline_definition()` answers "is there enough here to learn anything?" before a run is launched — `MIN_TRAINING_ROWS` (100), `MIN_POSITIVE_EXAMPLES` (20), `MIN_IDENTIFIED_FRACTION` (0.5).
+  Pre-flight viability. `validate_pipeline_definition()` answers "is there enough here to learn anything?" before a run is launched — `MIN_TRAINING_ROWS` (100), `MIN_POSITIVE_EXAMPLES` and `MIN_NEGATIVE_EXAMPLES` (20 each, because holdout AUC is undefined with one class), `MIN_IDENTIFIED_FRACTION` (0.5). The window validated is the configured `training_lookback_days`, unclamped, so the estimate describes the data training will see.
   Returns a `ValidationResult` carrying `ValidationWarning`s rather than raising, because the API surfaces them as advice.
 - `templates.py`
   Built-in starting points. A template resolves to the same pipeline config shape as a fully custom pipeline, so creation and validation behave identically either way — there is no separate template code path downstream.

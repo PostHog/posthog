@@ -126,8 +126,8 @@ class TestValidateAndNormalizeScheduleRestriction:
 class TestNextCalendarCheckTime:
     @parameterized.expand(
         [
-            # Sub-daily intervals advance from the prior next_check_at, preserving per-alert spread
-            ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 11, 49, tzinfo=UTC)),
+            # Sub-daily intervals preserve their schedule phase and skip missed evaluations.
+            ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 12, 1, tzinfo=UTC)),
             ("real_time_first_check", CalendarInterval.REAL_TIME, None, datetime(2026, 3, 18, 12, 2, tzinfo=UTC)),
             (
                 "15min_from_prev",
@@ -136,6 +136,12 @@ class TestNextCalendarCheckTime:
                 datetime(2026, 3, 18, 12, 2, tzinfo=UTC),
             ),
             ("hourly_from_prev", CalendarInterval.HOURLY, PREV_CHECK, datetime(2026, 3, 18, 12, 47, tzinfo=UTC)),
+            (
+                "hourly_skips_backlog",
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 5, 47, tzinfo=UTC),
+                datetime(2026, 3, 18, 12, 47, tzinfo=UTC),
+            ),
         ]
     )
     def test_sub_daily_advances_from_previous(

@@ -130,7 +130,6 @@ class CanvasSerializer(serializers.ModelSerializer):
             "description",
             "channel",
             "template_id",
-            "context",
             "generation_task_id",
             "pinned",
             "pinned_at",
@@ -206,11 +205,6 @@ class CanvasUpdateSerializer(serializers.Serializer):
         trim_whitespace=True,
         max_length=400,
         help_text="Updated display name.",
-    )
-    # The field name shadows BaseSerializer.context; the metaclass moves declared fields into
-    # _declared_fields, so self.context still resolves to the serializer context at runtime.
-    context = serializers.CharField(  # type: ignore[assignment]
-        required=False, allow_blank=True, trim_whitespace=False, help_text="Updated author context markdown."
     )
     description = serializers.CharField(
         required=False,

@@ -108,7 +108,7 @@ export function deriveThreadAgentStatus({
 }): ThreadAgentStatus | null {
   if (!hasActivity && !isInitializing) return null;
   if (isInitializing) {
-    return { phase: "active", label: "Loading" };
+    return { phase: "active", label: "Connecting to agent..." };
   }
   if (hasError || cloudStatus === "failed") {
     return { phase: "error", label: errorTitle ?? "Failed" };
