@@ -45,7 +45,7 @@ Preserve that default so the emitted Slack event binds the task to the incident 
 Keep the task prompt below the incident data explicit:
 
 ```text
-Read .agents/skills/debugging-ci-failures/references/master-red-incident.md and its parent SKILL.md in this repository, then answer this incident exactly as they prescribe. Post one reply: the verdict, the failing job, the evidence, and the next action for a human. Never re-run or dispatch CI, and never push a commit or open a PR.
+Begin with tool calls. Read .agents/skills/debugging-ci-failures/references/master-red-incident.md and its parent SKILL.md in this repository, then answer this incident exactly as they prescribe. Emit no plan, preamble, or progress update. Post one reply: the verdict, the failing job, the evidence, and the next action for a human. Never re-run or dispatch CI, and never push a commit or open a PR.
 ```
 
 ## Contract with the alerter
