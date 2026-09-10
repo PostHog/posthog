@@ -79,8 +79,9 @@ Every rule in **Architecture guidelines** and **Code Style** carries a tag. Exte
 - `[lint: <id>]` — a semgrep rule id, a `ruff <CODE>`, or an invariant test filename. A reviewer skips it, because CI is the gate.
 - `[review]` — nothing catches this. A reader is the only control, so it earns its place in the file.
 
-A tag must resolve against the repo.
-`posthog/test/repo_invariants/test_agents_md_enforcement_tags.py` fails the build when a `[lint: …]` names a rule, code, or file that no longer exists.
+Every rule in those two sections carries one of the two tags, and every tag must resolve against the repo.
+`posthog/test/repo_invariants/test_agents_md_enforcement_tags.py` fails the build on an untagged rule, and on a `[lint: …]` that names a rule, code, or file which no longer enforces anything.
+A ruff code moved to the `ignore` list stops counting, so a tag cannot survive its rule being switched off.
 That is the point: a stale tag is worse than no tag, because a reviewer trusts it and skips the check.
 When a tag names a command or a CI job rather than a single rule id, add it to `FREE_FORM` in that test — deliberately, not to silence a typo.
 

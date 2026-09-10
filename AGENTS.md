@@ -175,7 +175,7 @@ Each rule is tagged with what catches a violation.
 
 - **API views declare request/response schemas.** `[review]` Prefer `@validated_request` from `posthog.api.mixins`, or `@extend_schema` from drf-spectacular. A plain `ViewSet` method that validates manually needs `@extend_schema(request=YourSerializer)`; without it drf-spectacular cannot discover the request body and generated code gets an empty schema. Serializer fields need `help_text`. These flow into both frontend types and MCP tool schemas.
 - **Django serializers are the source of truth for frontend API types.** `[lint: build:openapi CI gate, prefer-codegen-api]` `hogli build:openapi` generates TypeScript via drf-spectacular and Orval into `frontend/src/generated/core/` and `products/{product}/frontend/generated/`. Never hand-edit `api.schemas.ts`, `api.ts` or `api.zod.ts` — change the serializer and regenerate. [Type system guide](docs/published/handbook/engineering/type-system.md) has the full pipeline.
-- MCP tools are generated from the same OpenAPI spec — [implementing MCP tools](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) covers the YAML config and codegen. MCP UI apps live in `products/*/mcp/tools.yaml` under `ui_apps` — see [services/mcp/CONTRIBUTING.md](services/mcp/CONTRIBUTING.md) or `/implementing-mcp-ui-apps`.
+- MCP tools and MCP UI apps are generated from the same OpenAPI spec. `[review]` See [implementing MCP tools](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) covers the YAML config and codegen. MCP UI apps live in `products/*/mcp/tools.yaml` under `ui_apps` — see [services/mcp/CONTRIBUTING.md](services/mcp/CONTRIBUTING.md) or `/implementing-mcp-ui-apps`.
 
 ### Async, storage and outbound calls
 
@@ -202,7 +202,7 @@ Same tags as above: `[lint: <id>]` is machine-enforced, `[review]` is not.
 - **Imports stay at module level.** `[lint: ruff PLC0415]` Defer one only to break a true unavoidable circular import, to reference types under `TYPE_CHECKING`, or to keep a heavy or optional dependency off the import path. For the last case add a justified `# noqa: PLC0415 — keeps the heavy dep off the import path` on the line. Never blanket-suppress the rule.
 - **Dataclasses use `@frozen` from `posthog.dataclasses`.** `[lint: prefer-frozen-dataclasses, test_dataclass_defaults.py]` Invoke `/writing-dataclasses` before adding or changing one, before returning or passing several values together, and before passing a dataclass through layers.
 - **Leave `__init__.py` alone unless a check asks for it.** `[lint: product:lint, test_pytest_module_collisions.py]` Whether a directory needs one depends on what sits above it. The checks say where and print the fix.
-- Prefer classes over loose functions unless a class genuinely does not fit. Use `pathlib` over `os.path`. Order functions and methods so a definition appears before its first call.
+- Prefer classes over loose functions unless a class genuinely does not fit. `[review]` Use `pathlib` over `os.path`. Order functions and methods so a definition appears before its first call.
 
 ### Frontend
 
@@ -211,24 +211,24 @@ Same tags as above: `[lint: <id>]` is machine-enforced, `[review]` is not.
 - **Guard every network-triggering button against double submission.** `[review]` Disable it and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight, and reset in both the success and error paths. Applies to `<form onSubmit>`, any `onClick` that calls `api.*`, and any kea `listener` that issues a request. Wire in the in-flight state from a loader `*Loading` selector, a reducer, or local `useState`.
 - **Every surface must hold up narrow.** `[review]` The nav sidebar plus an open side panel leave a 1280px window about 520px of scene. Break on container queries, not `md:`/`lg:`/`xl:`. Wrap or truncate rather than clip, and stack halves that no longer fit. Render at a few widths before calling it done. We do not support mobile — no phone-width layouts, no touch-sized targets. See "Rule 6" in [frontend/src/AGENTS.md](frontend/src/AGENTS.md).
 - **quill is for MCP apps and the desktop app; LemonUI is for everything else.** `[review]` quill is deliberately more compact, so it looks out of place in the main app, and there is no migration of the main app onto it. In `frontend/src/` and `products/*/frontend/` use LemonUI, including menus — `LemonMenu` with a `LemonButton` trigger. `lib/ui/DropdownMenu` (Radix) is legacy; do not add new ones. Where quill is right, do not mix the two inside one component, and remember quill uses Base UI's `render` prop, not Radix's `asChild`. Read [primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) before importing quill — it covers component choice and spacing. Charts: [/working-with-charts](.agents/skills/working-with-charts/SKILL.md) for consumers, [charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md) for library changes. DataTable and DateTimePicker: [components/AGENTS.md](packages/quill/packages/components/AGENTS.md).
-- Use tailwind utility classes over inline styles, and `lib/dayjs` over a direct dayjs import.
+- Use tailwind utility classes over inline styles, and `lib/dayjs` over a direct dayjs import. `[review]` oxlint warns on a `style` prop through `react/forbid-dom-props`, but a warning does not block.
 
 ### Comments
 
 - **Explain _why_, not _what_,** and only where a future reader with no access to this PR or chat would otherwise be confused. `[review]` Default to one line. Python tests get no doc comments.
 - **Never log change history or chat context in code.** `[review]` No "previously did X, now does Y", no "per <task/PR>", no "changed because…", no "AI:" or "agent:" notes. That belongs in the commit message and PR description.
 - **When refactoring or moving code, keep the existing comments** unless the change actually makes them obsolete. `[review]`
-- Use ASD-STE100 Simplified Technical English: active voice, simple tenses, one idea per sentence, consistent terms.
+- Use ASD-STE100 Simplified Technical English: active voice, simple tenses, one idea per sentence, consistent terms. `[review]`
 
 ### Tests
 
 - **Every new test must catch a realistic regression no existing test catches.** `[review]` If you cannot name that regression, do not add the test. Assert observable behavior through the public interface, not implementation details, and keep it cheap — deterministic, isolated, at the lowest level that catches the bug. See `/writing-tests`.
 - **Extend a relevant existing test rather than adding a standalone one** where practical, and parameterize variations of the same behavior (`parameterized` in Python, `test.each` in Jest). `[review]`
-- Jest: one top-level `describe` per file. Node.js Jest: `.test.ts` by default, `.serial.test.ts` only when shared mutable infrastructure cannot be isolated (a test that resets a shared database).
+- Jest: one top-level `describe` per file. `[review]` Node.js Jest: `.test.ts` by default, `.serial.test.ts` only when shared mutable infrastructure cannot be isolated (a test that resets a shared database).
 
 ### Markdown and prose
 
-- Semantic line breaks, no hard wrapping. American English spelling.
+- Semantic line breaks, no hard wrapping. American English spelling. `[review]`
 
 ## User-facing copy
 
