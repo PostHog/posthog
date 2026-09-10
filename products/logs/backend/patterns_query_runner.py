@@ -121,6 +121,10 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     @cached_property
     def _stored_patterns_enabled(self) -> bool:
+        # only_evaluate_locally keeps this check off the network: it gates an interactive query, so
+        # a flags-service round trip (plus its retry) would delay every patterns request. An
+        # inconclusive local evaluation therefore means "off", which is body mining as before.
+        # `group_properties` carries the organization id so an org-level rollout still resolves locally.
         team_id = str(self.team.pk)
         return bool(
             posthoganalytics.feature_enabled(
@@ -128,12 +132,13 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 team_id,
                 person_properties={"team_id": team_id, "region": get_instance_region() or "DEV"},
                 groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
         )
 
     def _calculate_body_patterns(self, total: int, reason: str) -> LogsQueryResponse:
-
         slices = _time_slices(
             self.query_date_range.date_from(),
             self.query_date_range.date_to(),
