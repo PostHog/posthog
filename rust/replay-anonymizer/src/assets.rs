@@ -11,7 +11,7 @@ use crate::collect::{collectable_data_uri_bytes, is_image_ref_strict};
 use crate::context::{Ctx, ImageSource};
 use crate::images::ImageFallback;
 use crate::json::{as_f64, as_str, string_value};
-use crate::srcset::largest_candidate;
+use crate::srcset::candidate_for_scrubbing;
 use crate::url::scrub_url;
 use crate::url_policy::canonicalize;
 
@@ -142,7 +142,7 @@ pub fn has_media_src_attr(attrs: &Object<'_>) -> bool {
 
 pub(crate) fn has_usable_srcset(value: &str, keep_image_refs: bool) -> bool {
     (keep_image_refs && is_image_ref_strict(value))
-        || largest_candidate(value).is_some_and(|url| {
+        || candidate_for_scrubbing(value).is_some_and(|url| {
             collectable_data_uri_bytes(url).is_some() || canonicalize(url).is_some()
         })
 }
@@ -207,7 +207,7 @@ pub fn apply_blur(
         }
         acted = true;
         let selected = if *key == "srcset" {
-            largest_candidate(&existing).map(str::to_string)
+            candidate_for_scrubbing(&existing).map(str::to_string)
         } else {
             Some(existing.clone())
         };

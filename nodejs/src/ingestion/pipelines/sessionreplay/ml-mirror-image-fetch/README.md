@@ -527,7 +527,7 @@ Recognised Shopify image resizes use a consistent size only in the dedup URL bef
 
 **13.11** The mirror collects remote images from `img[src]`, `img[rr_src]`, `img[srcset]`, SVG `image[href]`, SVG `image[xlink:href]`, `video[poster]`, and `source[srcset]` below a `picture` element. It does not infer a `source` parent from a tagless attribute mutation.
 
-**13.12** For `srcset` and CSS `image-set()`, the mirror selects the candidate with the largest width or pixel density. It declines a malformed or mixed `srcset`. The first candidate wins a tie. An `img` with a usable `srcset` candidate does not also collect or scrub its `src` or `rr_src`; those attributes become placeholders without refs. A refused or malformed `srcset` retains those fallbacks. This choice applies within one attribute map, not across separate elements or mutations.
+**13.12** For `srcset`, the mirror selects the largest candidate at or below 1024w or 2x, according to the descriptor type. If all candidates exceed that limit, it selects the smallest. These descriptor limits do not establish total pixels or download bytes. CSS `image-set()` retains its largest-density selection. It declines a malformed or mixed `srcset`. The first candidate wins a tie. An `img` with a usable `srcset` candidate does not also collect or scrub its `src` or `rr_src`; those attributes become placeholders without refs. A refused or malformed `srcset` retains those fallbacks. This choice applies within one attribute map, not across separate elements or mutations.
 
 **13.13** The mirror processes inline base64 images and remote URLs in image-bearing CSS properties. It keeps same-document fragment URLs unchanged and does not collect font or import URLs.
 

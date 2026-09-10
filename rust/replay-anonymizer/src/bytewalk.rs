@@ -29,7 +29,7 @@ use crate::dom::{
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
 use crate::images::ImageFallback;
 use crate::scan::{self, Span};
-use crate::srcset::largest_candidate;
+use crate::srcset::candidate_for_scrubbing;
 use crate::text::{redact_emails, scrub_text};
 use crate::url::scrub_url;
 
@@ -1066,7 +1066,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             return self.copy_value(vstart, out);
         }
         let selected = if name == "srcset" {
-            largest_candidate(existing.as_ref()).map(str::to_string)
+            candidate_for_scrubbing(existing.as_ref()).map(str::to_string)
         } else {
             Some(existing.into_owned())
         };

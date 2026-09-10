@@ -4,7 +4,11 @@ The replay mirror collects remote image URLs. The shared Rust URL policy defines
 
 ## Source selection
 
-For an `img` with a usable `srcset`, the collector selects its largest width or density candidate and ignores `src` and `rr_src`. The ignored attributes become placeholders and produce no image refs. This rule applies to every site and both replay walkers.
+For an `img` with a usable `srcset`, the collector selects a candidate within a size limit and ignores `src` and `rr_src`. The ignored attributes become placeholders and produce no image refs. This rule applies to every site and both replay walkers.
+
+For width descriptors, the collector chooses the largest candidate at or below 1024w. For density descriptors, it chooses the largest candidate at or below 2x. If all candidates exceed the relevant limit, it chooses the smallest. The first candidate wins a tie. The same rule applies to `picture` source elements. CSS `image-set()` retains its existing largest-density selection.
+
+These limits guide source selection; they do not enforce a download-size or total-pixel limit. Width descriptors omit height, and density descriptors omit absolute dimensions. The choice never rewrites a URL or changes its aspect ratio. The fetcher and scrubber still enforce their byte and decoded-pixel limits. The selection limit is separate from the scrubber's output ceiling because detection requires more detail than storage.
 
 A usable candidate is an admitted HTTPS image URL or a supported base64 image data URI. Trusted re-scrubbing also recognises an existing image ref. If `srcset` is empty, malformed, mixes widths and densities, or selects a refused URL, the collector retains the `src` and `rr_src` fallbacks. The collector does not infer relationships between separate `picture` children or between separate attribute mutations.
 
