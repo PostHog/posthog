@@ -49,7 +49,11 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
             "reads every event you have ever sent, which is slow."
         ),
         advice="If the question is about specific events, add `WHERE event IN ('…')` naming them.",
-        fix="Add an event filter naming the events this question is about. Change nothing else.",
+        fix=(
+            "If the query makes clear which events the question is about, add an event filter naming them and "
+            "change nothing else. If it does not, leave the query as it is; only the person knows which events "
+            "the question is about."
+        ),
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.IN_OR): _Copy(
         lead=(
@@ -116,7 +120,8 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
         ),
         advice="If you only need recent data, add `timestamp >= now() - interval 30 day` or the range you need.",
         fix=(
-            "Add a start date on `timestamp`, for example `timestamp >= now() - interval 30 day`. Change nothing else."
+            "Add a start date on `timestamp` relative to now, for example `timestamp >= now() - interval 30 day`. "
+            "Never write a specific calendar date. Change nothing else."
         ),
     ),
     (FindingKind.NO_START_DATE, FindingReason.COLUMN): _Copy(
@@ -125,8 +130,15 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
             "column{clause}, so older data cannot be skipped and it reads everything back to the beginning, which "
             "is slow."
         ),
-        advice="Compare `timestamp` to a fixed date, for example `timestamp >= now() - interval 30 day`.",
-        fix="Compare `timestamp` to a fixed start date instead of another column. Change nothing else.",
+        advice=(
+            "If you only need recent data, add a fixed start date as well, for example "
+            "`AND timestamp >= now() - interval 30 day`."
+        ),
+        fix=(
+            "Keep the comparison to the column and add a start date on `timestamp` beside it, relative to now, "
+            "for example `AND timestamp >= now() - interval 30 day`. Do not replace the column with a date and "
+            "never write a specific calendar date. Change nothing else."
+        ),
     ),
     (FindingKind.NO_START_DATE, FindingReason.FILTERS): _Copy(
         lead=(
