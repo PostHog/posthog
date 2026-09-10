@@ -44,7 +44,7 @@ import type {
     PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
-    PaginatedTaskDetailDTOListApi,
+    PaginatedTaskListItemListApi,
     PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
@@ -1279,15 +1279,15 @@ export const getTasksListUrl = (projectId: string, params?: TasksListParams) => 
 }
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.
  * @summary List tasks
  */
 export const tasksList = async (
     projectId: string,
     params?: TasksListParams,
     options?: RequestInit
-): Promise<PaginatedTaskDetailDTOListApi> => {
-    return apiMutator<PaginatedTaskDetailDTOListApi>(getTasksListUrl(projectId, params), {
+): Promise<PaginatedTaskListItemListApi> => {
+    return apiMutator<PaginatedTaskListItemListApi>(getTasksListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
