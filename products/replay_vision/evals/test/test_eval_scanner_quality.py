@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import random
 import asyncio
@@ -8,12 +9,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from google.genai import types as genai_types
+
+from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import apply_known_freeform_tags
 from products.replay_vision.backend.temporal.scanners import ClassifierScanner
-from products.replay_vision.backend.temporal.types import ScannerSnapshot
-from products.replay_vision.evals import collector
+from products.replay_vision.backend.temporal.scanners.base import SignalFinding
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
+from products.replay_vision.backend.temporal.types import ScannerCallOutput, ScannerLlmInputs, ScannerSnapshot
+from products.replay_vision.evals import collector, eval_scanner_quality
 from products.replay_vision.evals.collector import (
     _VideoAsset,
     asset_is_recorded_video,
@@ -169,6 +176,70 @@ def test_scan_completed_fails_on_schema_breakage() -> None:
     failed = _eval(ScanCompleted(), {"model_output": None, "error": "required step rejected"}, {})
     assert failed.score == 0.0
     assert "rejected" in failed.metadata["reason"]
+
+
+@pytest.mark.parametrize(
+    "signals",
+    [
+        [],
+        [
+            {
+                "problem_type": "design_flaw",
+                "start_time": 7,
+                "end_time": 11,
+                "url": "https://example.com/library",
+                "description": "The navigation panel overlaps the book list.",
+                "confidence": 0.8,
+            },
+            {
+                "problem_type": "crash",
+                "start_time": 23,
+                "end_time": 29,
+                "url": "https://example.com/reader",
+                "description": "The reader shows an error screen after the book opens.",
+                "confidence": 0.95,
+            },
+        ],
+    ],
+    ids=["empty", "multiple_findings"],
+)
+def test_scan_task_retains_structured_signals(signals: list[dict[str, str | int | float]], tmp_path: Path) -> None:
+    golden = _golden("monitor", True, {"verdict": "yes"})
+    golden = golden.model_copy(update={"snapshot": golden.snapshot.model_copy(update={"emits_signals": True})})
+    scan_output = ScannerCallOutput(
+        model_output=MonitorOutput(verdict="yes", reasoning="The book list is covered.", confidence=0.9),
+        signals=[SignalFinding.model_validate(signal) for signal in signals],
+    )
+    with (
+        patch.object(GoldenCase, "load_inputs", return_value=MagicMock(spec=ScannerLlmInputs)),
+        patch.object(eval_scanner_quality, "gemini_api_key", return_value="fake-eval-api-key"),
+        patch.object(eval_scanner_quality, "RawGenAIClient"),
+        patch.object(
+            eval_scanner_quality,
+            "_upload_video",
+            return_value=genai_types.File(
+                name="files/eval-video", uri="https://example.com/video.mp4", mime_type="video/mp4"
+            ),
+        ),
+        patch.object(eval_scanner_quality, "_delete_file_quiet"),
+        patch.object(eval_scanner_quality, "run_scan", new=AsyncMock(return_value=scan_output)),
+    ):
+        output = asyncio.run(
+            eval_scanner_quality._scan_task(
+                tmp_path, {golden.case_id: golden}, build_case(golden), MagicMock(spec=EvalContext)
+            )
+        )
+
+    assert json.loads(json.dumps(output)) == {
+        "exit_code": 0,
+        "model_output": scan_output.model_output.model_dump(mode="json"),
+        "error": None,
+        "scanner_type": "monitor",
+        "signals_count": len(signals),
+        "signals": signals,
+        "primary": "Verdict: yes",
+        "last_message": "Verdict: yes",
+    }
 
 
 def test_summary_alignment_prepare_gates_on_reference() -> None:
