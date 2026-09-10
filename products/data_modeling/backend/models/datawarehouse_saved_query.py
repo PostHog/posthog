@@ -1,12 +1,13 @@
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.utils import timezone
 
 import structlog
 
@@ -187,8 +188,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def save(self, *args, **kwargs):
         if self.is_test and not self.expires_at:
-            from django.utils import timezone
-
             self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
         elif not self.is_test and self.expires_at:
             self.expires_at = None
