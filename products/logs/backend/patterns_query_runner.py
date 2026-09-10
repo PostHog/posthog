@@ -110,6 +110,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 severity_text=row[1],
                 service_name=row[2],
                 timestamp=row[3].replace(tzinfo=dt.UTC),
+                pattern=row[4],
             )
             for row in response.results
         ]
@@ -219,7 +220,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             )
         query = parse_select(
             """
-            SELECT body, severity_text, service_name, timestamp
+            SELECT body, severity_text, service_name, timestamp, pattern
             FROM logs
             WHERE {where}
             LIMIT {limit}
