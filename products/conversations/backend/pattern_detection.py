@@ -13,6 +13,7 @@ import statistics
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
+from itertools import batched
 from typing import Any
 from uuid import UUID
 
@@ -42,6 +43,9 @@ DISMISS_COOLDOWN_MINUTES = 24 * 60
 ESCALATION_MULTIPLE = 2
 AUTO_RESOLVE_QUIET_WINDOWS = 2
 MAX_EVIDENCE_TICKETS = 200
+# One IN clause per chunk of subject-less tickets, matching the batch size the billing enrichment
+# uses on the same comment index.
+COMMENT_ID_CHUNK_SIZE = 1000
 MAX_TOPIC_LENGTH = 200
 MIN_TOKEN_LENGTH = 4
 # A topic seen on this many distinct days is part of the team's normal and needs a stronger spike.
@@ -188,33 +192,42 @@ def load_ticket_texts(team: Team, *, since: datetime, until: datetime) -> list[T
     )
     if not tickets:
         return []
-    needs_comment = [t for t in tickets if not (t.email_subject or "").strip()]
+    needs_comment = [str(t.id) for t in tickets if not (t.email_subject or "").strip()]
     first_customer_message: dict[str, str] = {}
     platform_requesters: dict[str, str] = {}
-    if needs_comment:
+    # Only the email channel carries a subject, so on a widget, Slack or Teams inbox this covers
+    # every ticket. Each chunk asks the database for one comment per ticket rather than reading
+    # whole conversations back to keep the first message of each.
+    for chunk in batched(needs_comment, COMMENT_ID_CHUNK_SIZE, strict=False):
         comments = (
             Comment.objects.filter(
                 team=team,
                 scope="conversations_ticket",
-                item_id__in=[str(t.id) for t in needs_comment],
+                item_id__in=chunk,
                 deleted=False,
             )
+            .exclude(content__isnull=True)
+            .exclude(content="")
             .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
-            .order_by("created_at")
+            # An absent author_type means a customer wrote it, which is why the missing key counts.
+            .filter(
+                Q(item_context__author_type="customer")
+                | Q(item_context__author_type__isnull=True)
+                | Q(item_context__isnull=True)
+            )
+            .order_by("item_id", "created_at")
+            .distinct("item_id")
             .values_list("item_id", "content", "item_context")
         )
         for item_id, content, item_context in comments:
-            if item_id in first_customer_message or not content:
-                continue
+            first_customer_message[item_id] = content
             context = item_context or {}
-            if context.get("author_type", "customer") == "customer":
-                first_customer_message[item_id] = content
-                # The chat channels carry no email on the ticket, so the sender's platform id is
-                # the only stable thing separating one person from a room full of them.
-                if context.get("slack_user_id"):
-                    platform_requesters[item_id] = f"slack:{context['slack_user_id']}"
-                elif context.get("teams_user_id"):
-                    platform_requesters[item_id] = f"teams:{context['teams_user_id']}"
+            # The chat channels carry no email on the ticket, so the sender's platform id is
+            # the only stable thing separating one person from a room full of them.
+            if context.get("slack_user_id"):
+                platform_requesters[item_id] = f"slack:{context['slack_user_id']}"
+            elif context.get("teams_user_id"):
+                platform_requesters[item_id] = f"teams:{context['teams_user_id']}"
     texts: list[TicketText] = []
     for ticket in tickets:
         text = (ticket.email_subject or "").strip() or first_customer_message.get(str(ticket.id), "")

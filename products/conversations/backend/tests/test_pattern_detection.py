@@ -29,6 +29,7 @@ from products.conversations.backend.pattern_detection import (
     MAX_TOPIC_LENGTH,
     PatternSettings,
     TopicCandidate,
+    load_ticket_texts,
     refresh_baselines,
     required_requesters,
     run_detection,
@@ -122,6 +123,20 @@ class TestRunDetection(BaseTest):
 
     def _burst(self, subject: str, *, requesters: int, tickets: int, team: Team | None = None) -> list[Ticket]:
         return [self._ticket(subject, f"user{i}@company{i % requesters}.example", team=team) for i in range(tickets)]
+
+    def _ticket_with_comments(self, *comments: tuple[str, dict | None]) -> Ticket:
+        self._number += 1
+        ticket = Ticket.objects.create(team=self.team, ticket_number=self._number, channel_source="slack")
+        Ticket.objects.filter(id=ticket.id).update(created_at=self.now - timedelta(minutes=5))
+        for content, item_context in comments:
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                item_context=item_context,
+            )
+        return ticket
 
     def _chat_ticket(self, message: str, *, slack_user_id: str) -> Ticket:
         # Slack and Teams store no email and an empty distinct id when the platform withholds one,
@@ -251,6 +266,28 @@ class TestRunDetection(BaseTest):
         outcome = run_detection(self.team, now=self.now)
 
         assert outcome.opened == ()
+
+    @parameterized.expand(
+        [
+            ("support_wrote_first", [("staff note", {"author_type": "support"})]),
+            ("first_is_private", [("internal", {"author_type": "customer", "is_private": True})]),
+            ("first_is_empty", [("", {"author_type": "customer"})]),
+        ]
+    )
+    def test_the_ticket_text_is_the_first_public_customer_message(self, _name, skipped):
+        self._ticket_with_comments(*skipped, ("cannot login", {"author_type": "customer"}))
+
+        texts = load_ticket_texts(self.team, since=self.now - timedelta(hours=1), until=self.now)
+
+        assert [t.text for t in texts] == ["cannot login"]
+
+    @parameterized.expand([("no_context", None), ("no_author_type", {}), ("empty_author_type", {"is_private": False})])
+    def test_a_message_with_no_author_counts_as_the_customer(self, _name, item_context):
+        self._ticket_with_comments(("cannot login", item_context), ("later reply", {"author_type": "customer"}))
+
+        texts = load_ticket_texts(self.team, since=self.now - timedelta(hours=1), until=self.now)
+
+        assert [t.text for t in texts] == ["cannot login"]
 
     @parameterized.expand(
         [
