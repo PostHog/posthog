@@ -5,6 +5,8 @@ from typing import Any, NoReturn, Optional
 
 from rest_framework import serializers
 
+from posthog.dataclasses import frozen
+
 # Surgical, id-addressed edits to an Unlayer email design (the content.email.design tree). The caller
 # sends a small, ordered list of operations instead of re-transmitting the whole design; these are
 # applied to the stored design and the result is validated + re-rendered to HTML by the serializer.
@@ -84,13 +86,19 @@ def _iter_rows(design: dict) -> list[dict]:
     return body.get("rows") or []
 
 
-def _find_content(design: dict, content_id: str) -> Optional[tuple[dict, dict]]:
-    """Return (content, containing_column) for the content item with `content_id`, or None."""
+@frozen
+class _ContentLocation:
+    content: dict
+    column: dict
+
+
+def _find_content(design: dict, content_id: str) -> Optional[_ContentLocation]:
+    """Return the content item with `content_id` and the column that holds it, or None."""
     for row in _iter_rows(design):
         for column in row.get("columns") or []:
             for content in column.get("contents") or []:
                 if content.get("id") == content_id:
-                    return content, column
+                    return _ContentLocation(content=content, column=column)
     return None
 
 
@@ -116,7 +124,7 @@ def _insert(items: list, item: Any, index: Optional[int]) -> None:
         items.insert(max(index, 0), item)
 
 
-def _require_content(design: dict, kind: str, content_id: str) -> tuple[dict, dict]:
+def _require_content(design: dict, kind: str, content_id: str) -> _ContentLocation:
     found = _find_content(design, content_id)
     if found is None:
         _fail(f"{kind}: content '{content_id}' not found")
@@ -140,8 +148,7 @@ def _require_column(design: dict, kind: str, column_id: str) -> dict:
 # One handler per operation kind, all with the same (design, op, counters) signature so `_OPERATIONS`
 # can dispatch on `op["op"]` alone. Each handler edits `design` in place; the caller owns the copy.
 def _update_content(design: dict, op: dict, counters: dict) -> None:
-    content, _ = _require_content(design, "update_content", op["id"])
-    _deep_merge(content, op["patch"])
+    _deep_merge(_require_content(design, "update_content", op["id"]).content, op["patch"])
 
 
 def _update_column(design: dict, op: dict, counters: dict) -> None:
@@ -162,15 +169,15 @@ def _add_content(design: dict, op: dict, counters: dict) -> None:
 
 
 def _remove_content(design: dict, op: dict, counters: dict) -> None:
-    _, column = _require_content(design, "remove_content", op["id"])
+    column = _require_content(design, "remove_content", op["id"]).column
     column["contents"] = [c for c in column["contents"] if c.get("id") != op["id"]]
 
 
 def _move_content(design: dict, op: dict, counters: dict) -> None:
-    content, source_column = _require_content(design, "move_content", op["id"])
+    source = _require_content(design, "move_content", op["id"])
     target_column = _require_column(design, "move_content", op["column_id"])
-    source_column["contents"] = [c for c in source_column["contents"] if c.get("id") != op["id"]]
-    _insert(target_column.setdefault("contents", []), content, op.get("index"))
+    source.column["contents"] = [c for c in source.column["contents"] if c.get("id") != op["id"]]
+    _insert(target_column.setdefault("contents", []), source.content, op.get("index"))
 
 
 def _add_row(design: dict, op: dict, counters: dict) -> None:
