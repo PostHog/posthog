@@ -18,6 +18,7 @@ import {
   isFatalSessionError,
   promptReferencesAbsoluteFolder,
   selectEchoedOptimisticItemIds,
+  selectUnseededPendingFollowups,
 } from "./sessionEvents";
 
 describe("isFatalSessionError", () => {
@@ -324,6 +325,118 @@ describe("selectEchoedOptimisticItemIds", () => {
         0,
       ),
     ).toEqual(["o1"]);
+  });
+});
+
+describe("selectUnseededPendingFollowups", () => {
+  const promptLog = (...texts: string[]): AcpMessage[] =>
+    convertStoredEntriesToEvents(
+      texts.map((text) => ({
+        type: "notification",
+        notification: {
+          id: 1,
+          method: "session/prompt",
+          params: { prompt: [{ type: "text", text }] },
+        },
+      })) as StoredLogEntry[],
+      undefined,
+      { taskRunId: "run-1", startEntryIndex: 0 },
+    );
+  const tailItem = (id: string, content: string): OptimisticItem => ({
+    type: "user_message",
+    id,
+    content,
+    timestamp: 1,
+    pinToTop: false,
+  });
+
+  it("seeds a message the log has no prompt for", () => {
+    expect(
+      selectUnseededPendingFollowups(
+        [{ id: "m1", content: "check the paste path" }],
+        promptLog("the original task"),
+        [],
+      ),
+    ).toEqual([{ id: "m1", content: "check the paste path" }]);
+  });
+
+  it("skips a message the sandbox has already prompted with", () => {
+    expect(
+      selectUnseededPendingFollowups(
+        [{ id: "m1", content: "check the paste path" }],
+        promptLog("the original task", "check the paste path"),
+        [],
+      ),
+    ).toEqual([]);
+  });
+
+  it("skips a message an optimistic bubble already shows", () => {
+    expect(
+      selectUnseededPendingFollowups(
+        [{ id: "m1", content: "check the paste path" }],
+        promptLog("the original task"),
+        [tailItem("o1", "check the paste path")],
+      ),
+    ).toEqual([]);
+  });
+
+  it("seeds one message per uncovered copy when several share text", () => {
+    expect(
+      selectUnseededPendingFollowups(
+        [
+          { id: "m1", content: "yes" },
+          { id: "m2", content: "yes" },
+        ],
+        promptLog("yes"),
+        [],
+      ),
+    ).toEqual([{ id: "m2", content: "yes" }]);
+  });
+
+  it("matches a prompt that omits the message's attachment summary", () => {
+    expect(
+      selectUnseededPendingFollowups(
+        [{ id: "m1", content: "look at this\n\nAttached files: notes.txt" }],
+        promptLog("look at this"),
+        [],
+      ),
+    ).toEqual([]);
+  });
+
+  const promptLogAt = (...prompts: [string, string][]): AcpMessage[] =>
+    convertStoredEntriesToEvents(
+      prompts.map(([text, timestamp]) => ({
+        type: "notification",
+        timestamp,
+        notification: {
+          id: 1,
+          method: "session/prompt",
+          params: { prompt: [{ type: "text", text }] },
+        },
+      })) as StoredLogEntry[],
+      undefined,
+      { taskRunId: "run-1", startEntryIndex: 0 },
+    );
+  const repeated = { id: "m2", content: "yes", ts: "2026-08-26T15:00:00.000Z" };
+
+  it("seeds a repeated message whose only matching prompt predates it", () => {
+    expect(
+      selectUnseededPendingFollowups(
+        [repeated],
+        promptLogAt(["yes", "2026-08-26T14:00:00.000Z"]),
+        [],
+      ),
+    ).toEqual([repeated]);
+  });
+
+  it("skips a repeated message once a prompt lands after it", () => {
+    expect(
+      selectUnseededPendingFollowups(
+        [repeated],
+        promptLogAt(["yes", "2026-08-26T15:00:30.000Z"]),
+        [],
+      ),
+    ).toEqual([]);
   });
 });
 

@@ -2,10 +2,12 @@ import datetime
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
 import pyarrow as pa
+from parameterized import parameterized
 
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.models import SignalReport
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset.dag import (
@@ -15,8 +17,13 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     spine_report_filter,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
+    IMPRESSIONS_SQL,
     LABEL_DEFAULTS,
     LABEL_STREAMS,
+    LABELED_REPORT_IDS_SQL,
+    STATUS_COLUMNS,
+    STATUS_SQL,
+    hogql_rows,
     merge_label_streams,
     utc_bound,
     valid_report_uuids,
@@ -156,10 +163,10 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
         "actions": [
-            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1),
+            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1, 1, T1),
             # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
             # position lands a wrong value in some asserted field below.
-            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2),
+            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2, 4, T1),
         ],
         "status_changes": [],
         "pr_events": [],
@@ -185,6 +192,8 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r2["first_reviewer_added_at"] == T1
     assert r2["reviewer_remove_count"] == 3
     assert r2["first_reviewer_removed_at"] == T2
+    assert r2["resolve_click_count"] == 4
+    assert r2["first_resolve_clicked_at"] == T1
 
 
 @pytest.mark.parametrize("alias_first", [True, False])
@@ -345,3 +354,97 @@ class TestSpineInclusion(BaseTest):
         assert in_spine == {promoted, born_visible}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
+
+
+class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand([("labeled_ids", LABELED_REPORT_IDS_SQL), ("impressions", IMPRESSIONS_SQL)])
+    def test_impressions_survive_a_numeric_property_definition(self, _name, sql):
+        # Another event in the same project sending `impressions` as a number types the project-wide
+        # definition as Numeric, which made HogQL cast the impressions array to Float64 and fail
+        # the query with a ClickHouse type error.
+        PropertyDefinition.objects.create(
+            team=self.team, name="impressions", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+        )
+        _create_event(
+            team=self.team,
+            event="Inbox reports impressed",
+            distinct_id="user-1",
+            timestamp=T1,
+            properties={"impressions": [{"report_id": UUID_A, "rank": 1, "source_products": ["error_tracking"]}]},
+        )
+
+        rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        assert [row[0] for row in rows] == [UUID_A]
+
+
+class TestStatusStream(ClickhouseTestMixin, BaseTest):
+    def _transition(
+        self,
+        when: datetime.datetime,
+        previous: str,
+        status: str,
+        reason: str | None = None,
+        *,
+        team_id: int | None = None,
+    ) -> None:
+        _create_event(
+            team=self.team,
+            event="signal_report_status_changed",
+            distinct_id="team-2",
+            timestamp=when,
+            properties={
+                "report_id": UUID_A,
+                "previous_status": previous,
+                "status": status,
+                "dismissal_reason": reason,
+                "team_id": str(team_id or self.team.id),
+            },
+        )
+
+    def _status_row(self) -> dict[str, Any]:
+        rows = hogql_rows(STATUS_SQL, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        assert len(rows) == 1
+        return dict(zip(STATUS_COLUMNS, rows[0][1:], strict=True))
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_wrong_dismissal_count_survives_a_restore_and_a_later_reason(self, gap):
+        # dismissed as wrong, restored, then dismissed again as already_fixed: the latest-wins reason
+        # forgets the wrong dismissal, the cumulative count must not, even when all three land in one
+        # ten-minute dedupe bucket.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong")
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "already_fixed")
+
+        row = self._status_row()
+        assert row["dismissal_reason"] == "already_fixed"
+        assert row["wrong_dismissal_count"] == 1
+        assert row["first_dismissed_server_at"] == T1
+
+    @parameterized.expand(
+        [
+            ("later_bucket", T2, "ready", "resolved", None),
+            ("same_bucket", T1 + datetime.timedelta(minutes=1), "ready", "suppressed", "already_fixed"),
+        ]
+    )
+    def test_wrong_dismissal_count_ignores_events_from_another_tenant(self, _name, when, previous, status, reason):
+        # A forged wrong dismissal naming another team, followed by a genuine transition, must not
+        # make the report a dismiss_wrong positive through the cumulative count. The same-bucket
+        # case lands both in one ten-minute dedupe bucket, where the bucket's wrong flag and the
+        # bucket's tenant would otherwise come from different events.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong", team_id=999)
+        self._transition(when, previous, status, reason)
+
+        row = self._status_row()
+        assert row["status_event_team_id"] == self.team.id
+        assert row["dismissal_reason"] == reason
+        assert row["wrong_dismissal_count"] == 0
+
+    def test_tied_tenants_count_and_report_the_same_team(self):
+        # Two tenants' buckets with the same last timestamp: whichever wins the tie, the count and
+        # the team the provenance check reads must come from the same selection, or a forged wrong
+        # dismissal could be counted while the genuine tenant passes provenance.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong", team_id=999)
+        self._transition(T1, "ready", "suppressed", "already_fixed")
+
+        row = self._status_row()
+        assert row["wrong_dismissal_count"] == (0 if row["status_event_team_id"] == self.team.id else 1)

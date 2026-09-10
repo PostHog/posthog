@@ -1,7 +1,7 @@
 import time
 import hashlib
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
@@ -55,23 +55,37 @@ class TestCanvasArtifacts(APIBaseTest):
         assert url is not None
         return url.replace("http://localhost:8010", "")
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_serves_artifact_with_etag_and_csp(self):
         response = self.client.get(self._url())
         assert response.status_code == 200
+        assert "Content-Security-Policy-Report-Only" not in response
+        assert "Reporting-Endpoints" not in response
         assert response.content == CONTENT
         assert response["ETag"] == f'"{self.content_hash}"'
-        assert response["Content-Security-Policy"].startswith("sandbox allow-scripts; default-src 'none'")
+        assert response["Content-Security-Policy"].startswith(
+            "sandbox allow-scripts allow-pointer-lock; default-src 'none'"
+        )
         assert "connect-src https://api.example.com" in response["Content-Security-Policy"]
+        assert "style-src 'self' 'unsafe-inline' https://api.example.com" in response["Content-Security-Policy"]
+        assert "img-src 'self' data: blob: https://api.example.com" in response["Content-Security-Policy"]
+        assert "font-src 'self' data: https://api.example.com" in response["Content-Security-Policy"]
+        assert "media-src 'self' data: blob: https://api.example.com" in response["Content-Security-Policy"]
+        assert "frame-src https://api.example.com" in response["Content-Security-Policy"]
+        assert "script-src 'self' https://api.example.com" not in response["Content-Security-Policy"]
         assert response["Cache-Control"] == "private, max-age=31536000, immutable"
         # The sandboxed iframe's opaque origin fetches module scripts in CORS
         # mode; without this the entry bundle is blocked and the canvas
         # white-screens.
         assert response["Access-Control-Allow-Origin"] == "*"
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_revalidation_returns_304_without_reading_storage(self):
         url = self._url()
         response = self.client.get(url, HTTP_IF_NONE_MATCH=f'"{self.content_hash}"')
         assert response.status_code == 304
+        assert "Content-Security-Policy-Report-Only" not in response
+        assert "Reporting-Endpoints" not in response
         assert response["Content-Type"] == "text/html; charset=utf-8"
         assert "script-src 'self'" in response["Content-Security-Policy"]
         self.read_bytes.assert_not_called()

@@ -262,6 +262,7 @@ class ExternalDataSourceType(models.TextChoices):
     GLADLY = "Gladly", "Gladly"
     QUALTRICS = "Qualtrics", "Qualtrics"
     AZUREDEVOPS = "AzureDevOps", "AzureDevOps"
+    ROKTADS = "RoktAds", "RoktAds"
     ROLLBAR = "Rollbar", "Rollbar"
     OPSGENIE = "Opsgenie", "Opsgenie"
     INCIDENTIO = "IncidentIo", "IncidentIo"
@@ -364,6 +365,7 @@ class ExternalDataSourceType(models.TextChoices):
     CUSTOMERLY = "Customerly", "Customerly"
     DATASCOPE = "Datascope", "Datascope"
     DBT = "Dbt", "Dbt"
+    DEMODESK = "Demodesk", "Demodesk"
     DEPUTY = "Deputy", "Deputy"
     DEVINAI = "DevinAI", "DevinAI"
     DOCUSEAL = "Docuseal", "Docuseal"
@@ -404,6 +406,7 @@ class ExternalDataSourceType(models.TextChoices):
     FRESHCHAT = "Freshchat", "Freshchat"
     FRESHSERVICE = "Freshservice", "Freshservice"
     FULCRUM = "Fulcrum", "Fulcrum"
+    GAINSIGHTCS = "GainsightCs", "GainsightCs"
     GAINSIGHTPX = "GainsightPx", "GainsightPx"
     GITBOOK = "GitBook", "GitBook"
     GLASSFROG = "Glassfrog", "Glassfrog"
@@ -1330,6 +1333,7 @@ class ExternalDataSourceType(models.TextChoices):
     SIDESHIFT = "SideShift", "SideShift"
     DUCKLAKE = "DuckLake", "DuckLake"
     STARBURST = "Starburst", "Starburst"
+    TRINO = "Trino", "Trino"
     EASYBILL = "Easybill", "Easybill"
     BEXIO = "Bexio", "Bexio"
     UMAMI = "Umami", "Umami"
@@ -1391,6 +1395,21 @@ class ExternalDataSourceType(models.TextChoices):
     LIVEBLOCKS = "Liveblocks", "Liveblocks"
     NATIONBUILDER = "NationBuilder", "NationBuilder"
     TANA = "Tana", "Tana"
+    ZENCHEF = "Zenchef", "Zenchef"
+    LOVABLE = "Lovable", "Lovable"
+    ANVIL = "Anvil", "Anvil"
+    COOLIFY = "Coolify", "Coolify"
+    SOCIALPILOT = "SocialPilot", "SocialPilot"
+    STRATO = "Strato", "Strato"
+    MEDUSA = "Medusa", "Medusa"
+    MEMBRAIN = "Membrain", "Membrain"
+    RECALLAI = "RecallAI", "RecallAI"
+    TENJIN = "Tenjin", "Tenjin"
+    FOLK = "Folk", "Folk"
+    CYBERSOURCE = "Cybersource", "Cybersource"
+    GOOGLEADSENSE = "GoogleAdSense", "GoogleAdSense"
+    SEQUENZY = "Sequenzy", "Sequenzy"
+    SKIO = "Skio", "Skio"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
@@ -1409,6 +1428,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSE: "clickhouse",
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
+    ExternalDataSourceType.TRINO: "trino",
 }
 
 

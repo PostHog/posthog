@@ -524,6 +524,10 @@ class TestClerkFeatureGatedEndpoints:
             ("oauth_applications", 404, {"errors": [{"code": "resource_not_found"}]}),
             # Domains feature off: the list endpoint answers the same 404 resource_not_found.
             ("domains", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Organizations off: the invitations list answers the same 404 resource_not_found.
+            ("organization_invitations", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Invitations unavailable: the list answers the same 404 resource_not_found.
+            ("invitations", 404, {"errors": [{"code": "resource_not_found"}]}),
         ],
     )
     def test_feature_not_enabled_syncs_no_rows_instead_of_failing(
@@ -570,13 +574,15 @@ class TestClerkRetiredEndpoints:
             )
 
 
-_VALIDATE_SESSION = "products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk.make_tracked_session"
+_CLERK_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk"
+_VALIDATE_SESSION = f"{_CLERK_MODULE}.make_tracked_session"
 
 
 class TestClerkValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_substring"),
         [
+            (400, "invalid or has been revoked"),
             (401, "invalid or has been revoked"),
             (403, "does not have permission"),
             (500, "Couldn't validate your Clerk secret key"),
@@ -595,6 +601,23 @@ class TestClerkValidateCredentials:
         assert is_valid is False
         assert expected_substring in (message or "")
         assert sentinel not in (message or "")
+
+    @pytest.mark.parametrize(
+        ("status_code", "should_capture"),
+        [
+            (400, False),  # malformed key is user input, not an error to file
+            (500, True),  # a genuine server fault still files an issue
+        ],
+    )
+    def test_only_server_faults_file_an_error(self, status_code: int, should_capture: bool) -> None:
+        response = _make_http_response({"errors": [{"code": "bad"}]}, status_code=status_code)
+        with (
+            patch(_VALIDATE_SESSION) as mock_session,
+            patch(f"{_CLERK_MODULE}.capture_exception") as mock_capture,
+        ):
+            mock_session.return_value.get.return_value = response
+            validate_credentials("sk_test_key")
+        assert mock_capture.called is should_capture
 
     def test_network_error_returns_actionable_message_without_leaking_exception(self) -> None:
         with patch(_VALIDATE_SESSION) as mock_session:

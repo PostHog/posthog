@@ -51,6 +51,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "When the product was last changed.",
         },
     },
+    "product_templates": {
+        "description": "A base product template the shop can build products from, with its category, brand and base price.",
+        "docs_url": f"{_API_REFERENCE}/product-templates/list-product-templates-paged",
+        "columns": {
+            "productId": "Unique identifier of the product template.",
+            "name": "Product template name.",
+            "category": "Category path the template belongs to.",
+            "brand": "Brand the template is made by.",
+            "thumbnail": "Thumbnail image URL. Generated on demand, so it can change or expire.",
+            "basePrice": "Base price of the template, as an amount and currency.",
+            "productionMethod": "How the product is made, for example DTG, EMBROIDERY, DTFX, KNITTING or SUBLIMATION.",
+            "supportsBackendRendering": "Whether the template supports backend mockup rendering.",
+        },
+    },
     "collections": {
         "description": "A storefront collection grouping products together.",
         "docs_url": f"{_API_REFERENCE}/collections/list-collections",

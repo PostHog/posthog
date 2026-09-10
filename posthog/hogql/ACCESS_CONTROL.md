@@ -57,6 +57,7 @@ The MCP `execute-sql` tool goes through the same path (`posthog/api/query.py` ru
 **Fail closed:** if you forget to pass the user, all access-controlled system tables are removed (`_compute_system_table_access_decision` in `posthog/hogql/database/database.py` returns every scoped table as denied for `user=None`), and all warehouse tables/views are denied (`_is_warehouse_table_denied` / `_is_warehouse_view_denied` fail closed when `user_access_control is None`).
 This is deliberate: if someone forgets to pass the user, the query fails outright and makes the mistake obvious, instead of silently falling back to a permissive "default access" that would leak data.
 In practice the user is available anywhere system tables are queried; for user-initiated background work, see [contexts without a request user](#contexts-without-a-request-user).
+`Database.create_for_posthog_tables`, the cheaper build for Python-built queries over built-in tables, has no user at all and removes every scoped and entitlement-gated system table up front without the access-control lookups, so it fails closed the same way.
 
 ## 1. System tables
 
@@ -149,12 +150,14 @@ Without a user, warehouse access control denies every warehouse table and view, 
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
-3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Used by materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`). **Be very skeptical before adding a new bypass** — only do it when the job genuinely has no acting user and the output isn't served to a specific user with narrower access.
+3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
 
 ```python
-# Background materialization job — no user exists, bypass explicitly
+# Background materialization job: no user exists, so bypass explicitly.
 execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 ```
+
+Data Modeling materialized views are project-owned. Refreshes do not run as `created_by` and do not inherit account, ticket, or object-level access. Data Modeling passes `allowed_system_tables` to declassify approved system tables into warehouse data. The allowlist accepts exact table names and denies every other system table. Warehouse-view permissions protect the materialized result. Billing entitlements still apply, and only userless database builds can use the allowlist.
 
 4. **Public dashboards / notebooks / shared insights:** the viewer is anonymous, so queries run as `SharedLinkUser` (`posthog/shared_link_user.py`, built in `SharingViewerPageViewSet`).
    `Database.create_for` doesn't restrict any warehouse tables or views for a shared-link viewer; the access gate is at publish time instead.
@@ -166,7 +169,7 @@ execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 
 ## 3. Property access control
 
-Hides sensitive event and person properties (e.g. `email`) from query results.
+Hides sensitive event, person, and group properties (e.g. `email`) from query results.
 Rules live in the `PropertyAccessControl` model (`products/access_control/backend/models/property_access_control.py`).
 
 Property access control is a paid feature, available on the Scale and Enterprise plans: it needs the `PROPERTY_ACCESS_CONTROL` entitlement, and without it resolution short-circuits to no restrictions.
@@ -179,7 +182,26 @@ They're masked when the query is printed to ClickHouse SQL, so a restricted read
 - **Explicit reads** (`properties.email`) are replaced with `NULL`, and the resolver refuses to back them with a materialized column — `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 - **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeys(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
 
+Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
+
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
+
+### Coverage is per table, not per column name
+
+Both enforcement points ask `restricted_property_keys_for_table_type()` in `posthog/hogql/restricted_properties.py` which keys to mask, and it answers by matching the table's type.
+A table whose type it does not recognize gets an empty set, which reads as "nothing is restricted here" rather than as an error.
+
+Naming a column `properties` does not opt a table in.
+The printer checks the column name against `RESTRICTABLE_JSON_BLOB_COLUMNS` before it consults the dispatch, so a new table can pass that check on the name alone and still return its blob unmasked.
+A table that exposes person, event, or group properties has to be added to the dispatch when it is added to the catalog.
+
+`posthog/hogql/test/test_restricted_properties.py` enforces this.
+It restricts one distinctly named key per property class, walks the catalog, and asserts the exact keys the dispatch masks in every blob column it reaches, with the exempt blobs mapped to no keys at all.
+The expected mapping is written out in the test rather than derived from `RESTRICTABLE_JSON_BLOB_COLUMNS`, so it holds the invariant in both directions: a table added to the catalog without a branch arrives masking nothing, and a column dropped from that set leaves its blob out of the walk entirely.
+Because each class restricts its own key, a table dispatched as the wrong class, or a group blob dispatched to the wrong group index, comes back carrying another class's key instead of passing on a non-empty result.
+
+The exemptions are not a statement of full coverage: `accounts.properties` and `pg_embeddings.properties` are name collisions masked nowhere by design, and `ai_events.properties` carries event properties but has no branch yet, so its blob is still returned unmasked.
+Covering a table means moving it out of the exemptions and into the expected mapping, so neither list can keep a stale entry.
 
 ### No user: default rules apply
 
@@ -193,7 +215,7 @@ Otherwise a denied user gets served an allowed user's cached rows.
 
 The cache key is derived from `get_cache_payload()`:
 
-- `QueryRunner.get_cache_payload()` adds `restricted_properties` (sorted `(name, type)` pairs) when the user has property restrictions.
+- `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, when the user has property restrictions.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
 
 Two things keep cache hit rates high:

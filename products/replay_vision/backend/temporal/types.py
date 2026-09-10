@@ -144,6 +144,36 @@ class SessionMetadata(BaseModel, frozen=True):
         return self.model_dump(mode="json", exclude_none=True)
 
 
+class SessionGroup(BaseModel, frozen=True):
+    """One group the recorded session belongs to, ready to render: the group type's label and the group's name."""
+
+    label: str
+    name: str
+
+
+class SessionIdentity(BaseModel, frozen=True):
+    """Who the recorded session belongs to, resolved from the customer's own person and group data.
+
+    Kept separate from `SessionMetadata` because it is personal data: it is rendered into the prompt so a
+    scanner can attribute the session, and the preamble governs whether the model may name it in output.
+    """
+
+    person_email: str | None = None
+    person_name: str | None = None
+    person_organization: str | None = None
+    groups: list[SessionGroup] = Field(default_factory=list)
+
+    def as_prompt_dict(self) -> dict[str, Any] | None:
+        """Renderable form, or None when nothing was resolved so the preamble omits the block entirely.
+
+        Unset fields stay in as `None` rather than being dropped: the template renders under `StrictUndefined`,
+        where a missing key raises instead of reading as falsy.
+        """
+        if not self.person_email and not self.person_name and not self.person_organization and not self.groups:
+            return None
+        return self.model_dump(mode="json")
+
+
 class NavigationEntry(BaseModel, frozen=True):
     """One page-URL change in the session, precomputed for the prompt's navigation timeline."""
 
@@ -177,6 +207,11 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     metadata: SessionMetadata
     # Carried for signal emission, not the prompt — kept off `SessionMetadata` so it never reaches the LLM.
     distinct_id: str | None = None
+    # Who the session belongs to. Rendered into the preamble, and persisted onto the observation row.
+    # Defaults keep Redis blobs written before this field existed loadable.
+    identity: SessionIdentity = Field(default_factory=SessionIdentity)
+    # Group keys by group type index, for the observation row's group attribution.
+    group_keys: dict[int, str] = Field(default_factory=dict)
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):

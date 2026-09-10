@@ -13,8 +13,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
+
 import { experimentLogic } from '../experimentLogic'
-import { hasEnded } from '../experimentStatus'
 
 /**
  * Hook to check if experiment data is stale and trigger refresh if needed.
@@ -102,11 +103,13 @@ export const ExperimentReloadAction = ({
     lastRefresh,
     onClick,
     progress,
+    queuedHint,
 }: {
     isRefreshing: boolean
     lastRefresh: string | null
     onClick: () => void
     progress?: { completed: number; total: number }
+    queuedHint?: string
 }): JSX.Element => {
     const { autoRefresh, experiment } = useValues(experimentLogic)
     const { setAutoRefresh, setPageVisibility, stopAutoRefreshInterval } = useActions(experimentLogic)
@@ -157,7 +160,7 @@ export const ExperimentReloadAction = ({
                     size="xsmall"
                     icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
                     data-attr="refresh-experiment"
-                    disabledReason={isRefreshing ? 'Loading...' : null}
+                    disabledReason={isRefreshing ? (queuedHint ?? 'Loading...') : null}
                     sideAction={
                         ended
                             ? undefined

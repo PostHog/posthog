@@ -16,6 +16,9 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
+import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
+import { cssLoaderScript } from './cssLoader.mjs'
+
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
 // built after the toolbar app build so it can embed the hashed entry filename). Consumers
 // depend on @posthog/esbuilder, not on esbuild directly, so pnpm's strict node_modules
@@ -35,11 +38,12 @@ export function copyPublicFolder(srcDir, destDir) {
     })
 }
 
-export function copySnappyWASMFile(absWorkingDir) {
+export function copySnappyWASMFile(absWorkingDir, destDir = path.resolve(absWorkingDir, 'dist')) {
     try {
+        fse.ensureDirSync(destDir)
         fse.copyFileSync(
             path.resolve(absWorkingDir, 'node_modules/snappy-wasm/es/snappy_bg.wasm'),
-            path.resolve(absWorkingDir, 'dist/snappy_bg.wasm')
+            path.resolve(destDir, 'snappy_bg.wasm')
         )
     } catch (error) {
         console.warn('Could not copy snappy wasm file:', error.message)
@@ -106,65 +110,37 @@ export function copyIndexHtml(
     // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
     // they tell us which other files to load. This cascading loading is slow. That's why we cache
     // the list of chunks per scene, and load them all in parallel when a scene is loaded.
+    //
+    // The full map is written to its own content-hashed file in dist and fetched by the inline
+    // loader, instead of being inlined into the HTML: the map is hundreds of KB that changed on
+    // every deploy and had to be downloaded and parsed before the app could boot, on every page.
 
     // Don't use chunks in dev mode.
     // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
     const chunksToServe = isDev ? {} : chunks
-    const chunkCode = `
-        window.ESBUILD_LOADED_CHUNKS = new Set();
-        window.ESBUILD_LOAD_CHUNKS = function(name) {
-            const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
-            for (const chunk of chunks) {
-                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
-                    window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                }
-            }
-        }
-        window.ESBUILD_LOAD_CHUNKS('index');
-    `
+    const chunkMapFile = Object.keys(chunksToServe).length > 0 ? chunkMapFileName(entry, chunksToServe) : null
+    if (chunkMapFile) {
+        fse.writeFileSync(path.resolve(absWorkingDir, 'dist', chunkMapFile), chunkMapFileContents(chunksToServe))
+    }
+    const chunkCode = Object.keys(chunks).length > 0 ? chunkLoaderScript(chunksToServe, chunkMapFile) : ''
 
-    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
-    // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
+    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed version fails or
+    // stalls (e.g. CDN returns 403, or the request hangs). Mirrors the JS fallback above.
     const cssFileFallback = `${entry}.css?t=${buildId}`
-    const needsCssFallback = cssFile !== cssFileFallback
-    const cssLoader = `
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.crossOrigin = "anonymous";
-        link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
-        ${
-            needsCssFallback
-                ? `link.onerror = function() {
-            link.onerror = null;
-            console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
-            var fallbackLink = document.createElement("link");
-            fallbackLink.rel = "stylesheet";
-            fallbackLink.crossOrigin = "anonymous";
-            fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
-            document.head.appendChild(fallbackLink);
-        };`
-                : ''
-        }
-        document.head.appendChild(link)
-    `
+    const cssLoader = cssFile ? cssLoaderScript(cssFile, cssFileFallback) : ''
 
     fse.writeFileSync(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script nonce="{{ request.csp_nonce }}" type="application/javascript">
-                    // NOTE: the link for the stylesheet will be added just
-                    // after this script block. The react code will need the
-                    // body to have been parsed before it is able to interact
-                    // with it and add anything to it.
-                    //
-                    // Fingers crossed the browser waits for the stylesheet to
-                    // load such that it's in place when react starts
-                    // adding elements to the DOM
-                    ${cssFile ? cssLoader : ''}
+                    // The stylesheet link is added just below, at runtime, so a slow CSS fetch does
+                    // not hold up these boot scripts. The loader publishes window.ESBUILD_CSS_READY,
+                    // and the app entry waits on it before its first render, so React does not paint
+                    // real markup that no stylesheet reaches. See cssLoader.mjs.
+                    ${cssLoader}
                     ${scriptCode}
-                    ${Object.keys(chunks).length > 0 ? chunkCode : ''}
+                    ${chunkCode}
                 </script>
             </head>`
         )
@@ -617,7 +593,7 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
                 ],
                 {
-                    ignored: [/.*(Type|\.test\.stories)\.[tj]sx?$/, /(^|[\/\\])node_modules([\/\\]|$)/],
+                    ignored: [/.*(Type|\.test\.stories)\.[tj]sx?$/, /(^|[/\\])node_modules([/\\]|$)/],
                     ignoreInitial: true,
                     followSymlinks: false,
                 }

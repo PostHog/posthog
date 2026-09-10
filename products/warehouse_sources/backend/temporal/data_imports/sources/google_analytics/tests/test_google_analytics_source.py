@@ -127,6 +127,20 @@ def test_parse_custom_reports_rejects_invalid(custom_reports, expected_substring
     assert expected_substring in str(exc.value)
 
 
+def test_parse_custom_reports_invalid_json_hides_parser_detail():
+    # The raw JSONDecodeError text (e.g. "Expecting value: line 1 column 1 (char 0)") is debug
+    # noise for the user pasting a report, so the message stays actionable without echoing any
+    # of it back. Asserting the exact message (rather than just the absence of "column"/"char")
+    # also catches other JSONDecodeError wording, like "Expecting value", being reintroduced.
+    with pytest.raises(CustomReportError) as exc:
+        parse_custom_reports("not json")
+    message = str(exc.value)
+    assert message == "Custom reports must be valid JSON. Provide a JSON array of report objects, then try again."
+    assert "column" not in message
+    assert "char" not in message
+    assert "Expecting value" not in message
+
+
 def test_validate_credentials_rejects_invalid_custom_reports():
     # A malformed custom-report config is surfaced at setup, before any GA4 call, so the
     # user fixes their JSON instead of hitting an opaque runReport failure mid-sync.
@@ -276,19 +290,24 @@ def test_retryable_errors_cover_exhausted_quota_retries():
     assert any(pattern in error_msg for pattern in patterns)
 
 
-def test_retryable_errors_cover_connection_reset():
-    # `session.post()` in `_run_report` can raise this transport-level `requests.ConnectionError`
-    # directly, outside its own retry loop (which only handles `RefreshError` and HTTP-level
-    # failures) — must stay classified as retryable so it doesn't page as a bug.
-    error_msg = "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
-    patterns = GoogleAnalyticsSource().get_retryable_errors()
-    assert error_message_matches(error_msg, patterns)
-
-
-def test_retryable_errors_cover_read_timeout():
-    # A read timeout talking to the Data API surfaces as a `requests.ConnectionError` from
-    # `session.post()` in `_run_report`, same as the connection-reset case above — must stay
-    # classified as retryable so it doesn't page as a bug.
-    error_msg = "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Read timed out."
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
+        "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Read timed out.",
+        "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Max retries exceeded with url: "
+        "/v1beta/properties/123456789:runReport (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection "
+        "object at 0x7f00>: Failed to establish a new connection: [Errno -2] Name or service not known'))",
+        "('Connection broken: IncompleteRead(5398 bytes read, 4842 more expected)', IncompleteRead(...))",
+        "(\"Connection broken: InvalidChunkLength(got length b'', 0 bytes read)\", InvalidChunkLength(...))",
+        "(\"Connection broken: ConnectionResetError(104, 'Connection reset by peer')\", ConnectionResetError(104))",
+    ],
+)
+def test_retryable_errors_cover_connection_drops(error_msg):
+    # `_run_report` backs off on these inline, so they reach the activity only once that budget is
+    # spent. The next Temporal retry restarts from the last saved chunk, so they must stay
+    # classified as retryable and not page as a bug. The third is the wrapper urllib3 puts around a
+    # connect that never succeeded, once the shared adapter's own retries are exhausted, and the last
+    # three are the truncated-body shapes `requests` raises as `ChunkedEncodingError`.
     patterns = GoogleAnalyticsSource().get_retryable_errors()
     assert error_message_matches(error_msg, patterns)

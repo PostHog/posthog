@@ -3,7 +3,7 @@
 Each scan is a shared preamble plus the scanner's ordered `mission_steps` (one structured turn each). The video
 is cached once so the steps don't re-process it; the model pulls analytics events on demand via `get_events_around`.
 Each step validates its own output and re-prompts once on failure; required steps abort the scan, best-effort steps
-(facets, signals) just contribute nothing.
+(signals) just contribute nothing.
 """
 
 import re
@@ -163,6 +163,7 @@ async def run_scan(
     preamble_text = scanner.preamble(
         team_name=team_name,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
+        session_identity=llm_inputs.identity.as_prompt_dict(),
         navigation=[entry.model_dump() for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
         events_truncated=llm_inputs.events_truncated,

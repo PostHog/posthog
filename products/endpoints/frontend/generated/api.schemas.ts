@@ -70,6 +70,10 @@ export interface UserBasicApi {
 export interface EndpointMaterializationApi {
     /** URL-safe endpoint name. */
     name: string
+    /** Whether materialization is enabled for this endpoint version. */
+    enabled: boolean
+    /** Whether a successful materialization is available to serve. */
+    ready: boolean
     /** Current materialization status (e.g. 'Completed', 'Running'). */
     status?: string
     /** Whether this endpoint query can be materialized. */
@@ -1009,6 +1013,8 @@ export interface ClickhouseQueryProgressApi {
 }
 
 export interface QueryStatusApi {
+    budget_remaining_bytes?: number | null
+    bytes_read?: number | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null

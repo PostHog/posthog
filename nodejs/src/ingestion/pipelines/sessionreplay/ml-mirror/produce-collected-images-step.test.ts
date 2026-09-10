@@ -1,9 +1,9 @@
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
-import { CollectedImage } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
+import { CollectedImage } from './parse-and-anonymize-step'
 import { createProduceCollectedImagesStep } from './produce-collected-images-step'
 
 describe('produceCollectedImagesStep', () => {

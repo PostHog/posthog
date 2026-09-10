@@ -14,6 +14,7 @@ import { modelCostMultiplier } from "./modelPricing";
 export type CostChecklistItemKind =
   | "model-notch"
   | "custom-image"
+  | "ste100"
   | "install-skill";
 
 export type CostChecklistItem =
@@ -25,6 +26,7 @@ export type CostChecklistItem =
     }
   | { kind: "model-notch"; done: true; modelId: string }
   | { kind: "custom-image"; done: boolean }
+  | { kind: "ste100"; done: boolean }
   | { kind: "install-skill"; done: boolean; skillId: string; name: string };
 
 /**
@@ -84,6 +86,7 @@ export interface CostChecklistInput {
    * cannot start.
    */
   hasCustomImage: boolean | null;
+  ste100Enabled?: boolean;
   /**
    * Every skill worth a row, in ranked order, each already resolved to
    * whether it is present locally.
@@ -100,6 +103,7 @@ export interface CostChecklistInput {
 export function buildCostChecklist({
   defaultModelId,
   hasCustomImage,
+  ste100Enabled,
   skills,
   completed,
 }: CostChecklistInput): CostChecklistItem[] {
@@ -132,6 +136,14 @@ export function buildCostChecklist({
     finished.push({ kind: "custom-image", done: true });
   } else if (hasCustomImage === false) {
     active.push({ kind: "custom-image", done: false });
+  }
+
+  if (ste100Enabled !== undefined) {
+    if (ste100Enabled) {
+      finished.push({ kind: "ste100", done: true });
+    } else {
+      active.push({ kind: "ste100", done: false });
+    }
   }
 
   // Installing is its own record, so these rows follow the skill list rather

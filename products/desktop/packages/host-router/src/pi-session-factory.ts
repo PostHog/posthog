@@ -71,19 +71,6 @@ class TrpcPiSession implements PiSession {
     });
   }
 
-  getProjectTrust() {
-    return this.hostClient.piSession.getProjectTrust.query({
-      taskId: this.taskId,
-    });
-  }
-
-  setProjectTrusted(trusted: boolean) {
-    return this.hostClient.piSession.setProjectTrusted.mutate({
-      taskId: this.taskId,
-      trusted,
-    });
-  }
-
   respondToExtensionUI(
     response: Parameters<NonNullable<PiSession["respondToExtensionUI"]>>[0],
   ) {

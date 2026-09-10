@@ -1,4 +1,4 @@
-import { Spinner, Warning } from "@phosphor-icons/react";
+import { Warning } from "@phosphor-icons/react";
 import { Button, Flex, Text } from "@radix-ui/themes";
 
 interface CloudStreamDisconnectedBannerProps {
@@ -49,16 +49,5 @@ export function CloudStreamDisconnectedBanner({
         )}
       </Flex>
     </Flex>
-  );
-}
-
-export function ConnectingToAgent() {
-  return (
-    <>
-      <Spinner size={28} className="animate-spin text-gray-9" />
-      <Text color="gray" className="text-base">
-        Connecting to agent...
-      </Text>
-    </>
   );
 }

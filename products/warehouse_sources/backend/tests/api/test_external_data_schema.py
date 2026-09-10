@@ -27,10 +27,8 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 
 from products.data_modeling.backend.facade.models import Edge, Node
-from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.direct_snowflake import DIRECT_SNOWFLAKE_URL_PATTERN
-from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
-from products.data_warehouse.backend.tests.api.utils import create_external_data_source_ok
+from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_SNOWFLAKE_URL_PATTERN
+from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
@@ -45,7 +43,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
 pytestmark = [
     pytest.mark.django_db,
@@ -488,9 +488,46 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["supports_webhooks"] is True
 
-    def test_incremental_fields_returns_400_when_schema_name_absent(self):
+    @parameterized.expand(
+        [
+            (
+                "empty_discovery",
+                RedshiftSource,
+                [],
+                "Could not discover schema C999. The connection may be missing SELECT or schema access privileges, "
+                "or discovery may not support this relation type. Check that the relation exists, restore read "
+                "privileges, or expose it as a supported table or view, then try again.",
+            ),
+            (
+                "nonempty_discovery",
+                RedshiftSource,
+                [SourceSchema(name="$channels", supports_incremental=False, supports_append=False)],
+                "Schema with name C999 not found",
+            ),
+            (
+                "nonempty_api_discovery",
+                StripeSource,
+                [SourceSchema(name="$channels", supports_incremental=False, supports_append=False)],
+                "Schema with name C999 not found",
+            ),
+        ]
+    )
+    def test_incremental_fields_returns_400_when_schema_name_absent(
+        self, _name, source_class, discovered_schemas, expected_message
+    ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+            team=self.team,
+            source_type=source_class().source_type,
+            job_inputs={
+                "host": "localhost",
+                "port": 5439,
+                "database": "dev",
+                "user": "test",
+                "password": "test",
+                "schema": "public",
+            }
+            if source_class is RedshiftSource
+            else {"stripe_secret_key": "test_key"},
         )
         schema = ExternalDataSchema.objects.create(
             name="C999",
@@ -501,19 +538,16 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.WEBHOOK,
         )
 
-        other_schemas = [
-            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
-        ]
-
         with (
-            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
-            mock.patch.object(StripeSource, "get_schemas", return_value=other_schemas),
+            mock.patch.object(source_class, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(source_class, "get_schemas", return_value=discovered_schemas),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": expected_message}
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
@@ -1502,7 +1536,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock.MagicMock(),
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )
@@ -1758,11 +1792,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = mock.MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=True,
         )
@@ -1806,12 +1837,9 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = mock.MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         # hog_function_created=False → existing webhook, so the reconcile path (not create) runs.
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )
@@ -1859,11 +1887,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = mock.MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )
@@ -1912,11 +1937,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = mock.MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )
@@ -3198,6 +3220,31 @@ class TestTriggerFailureDoesNotPaintRunning(APIBaseTest):
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
 
+    @parameterized.expand([("reload",), ("resync",)])
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    def test_missing_schedule_is_created_so_the_sync_starts(self, endpoint, mock_trigger, mock_create_schedule):
+        # A schema with no schedule behind it can't be triggered, and retrying never fixes it. The
+        # source-level reload already recovers by creating the schedule; one table must too.
+        from temporalio.service import RPCError
+
+        schema = self._create_schema()
+        mock_trigger.side_effect = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/",
+        )
+
+        assert response.status_code == 200
+        mock_create_schedule.assert_called_once_with(schema, create=True, should_sync=True)
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.RUNNING
+
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
     def _make_api_key(self, scopes: list[str]) -> str:
@@ -3341,6 +3388,7 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
                 "cdc_table_mode": "consolidated",
                 "cdc_last_log_position": "0/100",
                 "primary_key_columns": ["id"],
+                "schema_metadata": {"columns": [{"name": "id", "data_type": "integer", "is_nullable": False}]},
             },
         )
 
@@ -3471,12 +3519,11 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["available_columns"] == []
 
-    def test_available_columns_falls_back_to_synced_table_when_metadata_missing(self):
-        # `schema_metadata` is empty whenever it hasn't been reconciled (non-SQL sources, or SQL schemas
-        # discovered/added after the last reload). available_columns must then fall back to the synced
-        # table's columns — otherwise the Descriptions UI shows no columns (even when annotations exist)
-        # and users can't edit them. Internal plumbing columns (`_dlt_id`, …) stay hidden.
-        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+    def test_available_columns_falls_back_to_synced_table_for_pipeline_projected_source(self):
+        # Non-SQL sources match selections against dlt-normalized Arrow columns, so the synced
+        # table remains a safe fallback when observed source metadata is unavailable. Internal
+        # plumbing columns (`_dlt_id`, …) stay hidden.
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.HUBSPOT)
         table = DataWarehouseTable.objects.create(
             name="billing_customer",
             format="DeltaS3Wrapper",
@@ -3506,6 +3553,69 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             {"name": "balance", "data_type": "Int64", "is_nullable": True},
             {"name": "id", "data_type": "String", "is_nullable": False},
         ]
+
+    def test_available_columns_fallback_preserves_descriptions_for_source_projection(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="billing_customer",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"account_id": {"clickhouse": "String"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="billing_customer",
+            team=self.team,
+            source=source,
+            table=table,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["available_columns"] == [
+            {"name": "account_id", "data_type": "String", "is_nullable": False}
+        ]
+        assert response.json()["source_column_metadata_available"] is False
+
+    def test_enabled_columns_rejected_without_source_metadata_for_source_projection(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["account_id"]},
+        )
+
+        assert response.status_code == 400
+        assert "Pull new schemas" in str(response.json())
+
+    def test_unchanged_enabled_columns_do_not_block_unrelated_update_without_source_metadata(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="customers", team=self.team, source=source, enabled_columns=["account_id"], should_sync=True
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["account_id"], "should_sync": False},
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
+    def test_empty_enabled_columns_allowed_without_source_metadata(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"enabled_columns": []}
+        )
+
+        assert response.status_code == 200, response.json()
 
     @parameterized.expand(
         [

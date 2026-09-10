@@ -2,7 +2,7 @@ import { getFileName, isBinaryFile } from "@posthog/shared";
 import type { FileReadClient } from "./identifiers";
 
 /** Enough of an attachment to name a task after, without bloating the prompt. */
-export const ATTACHMENT_SNIPPET_LIMIT = 500;
+const ATTACHMENT_SNIPPET_LIMIT = 500;
 
 export interface AttachmentSnippet {
   fileName: string;

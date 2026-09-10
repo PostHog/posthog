@@ -13,6 +13,7 @@ on:
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
+            - '.github/actions/setup-uv/**'
             - 'products/tasks/backend/sandbox/images/**'
             - 'products/desktop/packages/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
@@ -43,12 +44,15 @@ jobs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
@@ -60,6 +64,7 @@ jobs:
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
+                        - '.github/actions/setup-uv/**'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'products/desktop/packages/agent-shadow/**'
                         - 'products/*/skills/**'
@@ -78,7 +83,10 @@ jobs:
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        # `Run migrations` builds the schema from scratch on ubuntu-latest with no schema cache and
+        # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
+        # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.
+        timeout-minutes: 45
         permissions:
             contents: read
 
@@ -175,11 +183,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28'
-                  enable-cache: true
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.github/actions/setup-uv
 
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -432,7 +436,7 @@ jobs:
         name: Sandbox Base Image Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         permissions: {}
         steps:
             - name: Check all sandbox image jobs

@@ -35,6 +35,7 @@ _LAZY = {
     "Config": "sources.common.config",
     "IntegrationAccountListingError": "sources.common.integration_accounts",
     "filter_integration_accounts": "sources.common.integration_accounts",
+    "HostNotAllowedError": "sources.common.mixins",
     "OAuthMixin": "sources.common.mixins",
     "SourceSchema": "sources.common.schema",
     "build_default_schemas": "sources.common.schema",
@@ -76,10 +77,13 @@ _LAZY = {
     "SSL_REQUIRED_AFTER_DATE": "sources.postgres.postgres",
     "_get_sslmode": "sources.postgres.postgres",
     "get_primary_key_columns": "sources.postgres.postgres",
+    "new_source_requires_ssl": "sources.postgres.postgres",
     "source_requires_ssl": "sources.postgres.postgres",
     "PostgresSource": "sources.postgres.source",
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
+    "connect_trino": "sources.trino.trino",
+    "trino_error_to_message": "sources.trino.trino",
 }
 
 __all__ = sorted(_LAZY)

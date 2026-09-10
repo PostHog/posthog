@@ -1,9 +1,7 @@
 import type { EnrichmentPopoverEntry } from "@posthog/core/code-editor/buildEnrichmentOccurrences";
 import { create } from "zustand";
 
-export type { EnrichmentPopoverEntry };
-
-export interface PopoverAnchorRect {
+interface PopoverAnchorRect {
   top: number;
   left: number;
   right: number;

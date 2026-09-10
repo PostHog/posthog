@@ -57,6 +57,13 @@ export interface issueFiltersLogicActions {
         replaceExisting: boolean
         value: boolean | number | string | null
     }
+    removePropertyFilter: (
+        key: string,
+        fromPreview?: boolean
+    ) => {
+        fromPreview: boolean
+        key: string
+    }
     setDateRange: (
         dateRange: DateRange,
         fromPreview?: boolean
@@ -123,6 +130,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             openConfig: boolean = true,
             replaceExisting: boolean = false
         ) => ({ key, value, operator, openConfig, replaceExisting }),
+        removePropertyFilter: (key: string, fromPreview: boolean = false) => ({ key, fromPreview }),
         setDateRange: (dateRange: DateRange, fromPreview: boolean = false) => ({ dateRange, fromPreview }),
         setSearchInput: (searchInput: string) => ({ searchInput }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
@@ -180,6 +188,25 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                         values: [{ ...firstGroup, values: nextFilters }, ...filterGroup.values.slice(1)],
                     }
                 },
+                removePropertyFilter: (filterGroup, { key }) => {
+                    const firstGroup = filterGroup.values[0]
+                    if (!isUniversalGroupFilterLike(firstGroup)) {
+                        return filterGroup
+                    }
+                    const nextFilters = firstGroup.values.filter(
+                        (existingFilter) =>
+                            isUniversalGroupFilterLike(existingFilter) ||
+                            existingFilter.type !== PropertyFilterType.Event ||
+                            existingFilter.key !== key
+                    )
+                    if (nextFilters.length === firstGroup.values.length) {
+                        return filterGroup
+                    }
+                    return {
+                        type: FilterLogicalOperator.And,
+                        values: [{ ...firstGroup, values: nextFilters }, ...filterGroup.values.slice(1)],
+                    }
+                },
                 setFilterGroup: (_, { filterGroup }) =>
                     filterGroup?.values?.length ? filterGroup : DEFAULT_FILTER_GROUP,
             },
@@ -214,6 +241,10 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
     listeners(({ actions, values }) => ({
         addPropertyFilter: ({ openConfig }) => {
             actions.setFilterGroup(values.filterGroup, openConfig ? 0 : 1)
+        },
+        // A nonzero count marks the change as preview-made, which keeps the preview undo history.
+        removePropertyFilter: ({ fromPreview }) => {
+            actions.setFilterGroup(values.filterGroup, fromPreview ? 1 : 0)
         },
         setSearchInput: async ({ searchInput }, breakpoint) => {
             await breakpoint(250)

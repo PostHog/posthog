@@ -1,11 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
 _SCHEMA_MODEL = "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
+_JOB_MODEL = "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob"
 _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
 
 
@@ -41,13 +43,21 @@ def _inputs(reset_pipeline: bool = False) -> SourceInputs:
     )
 
 
-def _dispatch(schema: MagicMock, inputs: SourceInputs, backlog: bool = False):
+def _dispatch(
+    schema: MagicMock,
+    inputs: SourceInputs,
+    backlog: bool = False,
+    job_version: str | None = ExternalDataJob.PipelineVersion.V3,
+):
+    job = None if job_version is None else MagicMock(pipeline_version=job_version)
     with (
         patch(f"{_SCHEMA_MODEL}.objects") as objects,
+        patch(f"{_JOB_MODEL}.objects") as job_objects,
         patch(f"{_MANAGER}.has_pending_legacy_backlog", return_value=backlog),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
+        job_objects.filter.return_value.first.return_value = job
         return PostgresSource().source_for_pipeline(MagicMock(), inputs)
 
 
@@ -69,6 +79,17 @@ class TestBufferedDispatch:
     def test_a_schema_the_buffer_does_not_serve_stays_with_the_extraction_workflow(self, overrides, ingest_mode):
         with pytest.raises(CDCHandledExternally):
             _dispatch(_schema(ingest_mode, **overrides), _inputs())
+
+    def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
+        # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must
+        # fail rather than consume without recording a load position.
+        with pytest.raises(ValueError, match="requires v3"):
+            _dispatch(_schema(), _inputs(), job_version="v2-non-dlt")
+
+    def test_a_missing_job_row_does_not_block_buffered_consumption(self):
+        response = _dispatch(_schema(), _inputs(), job_version=None)
+
+        assert response.name == "users"
 
     def test_a_pending_legacy_backlog_yields_an_empty_run_rather_than_pausing_the_schedule(self):
         response = _dispatch(_schema(), _inputs(), backlog=True)

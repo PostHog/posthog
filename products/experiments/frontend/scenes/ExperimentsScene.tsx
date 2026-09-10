@@ -26,24 +26,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
-import { CopyExperimentToProjectModal } from 'scenes/experiments/CopyExperimentToProjectModal'
-import { DuplicateExperimentModal } from 'scenes/experiments/DuplicateExperimentModal'
-import {
-    canArchiveExperiment,
-    confirmArchiveExperiment,
-    confirmDeleteExperiment,
-} from 'scenes/experiments/experimentActions'
-import {
-    EXPERIMENTS_PER_PAGE,
-    ExperimentsFilters,
-    experimentsLogic,
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from 'scenes/experiments/experimentsLogic'
-import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -65,12 +47,30 @@ import {
     ExperimentsTabs,
 } from '~/types'
 
+import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
+import { DuplicateExperimentModal } from 'products/experiments/frontend/components/DuplicateExperimentModal'
+import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+import {
+    canArchiveExperiment,
+    confirmArchiveExperiment,
+    confirmDeleteExperiment,
+} from 'products/experiments/frontend/experimentActions'
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 /**
  * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
  * having their own routes.
  */
 import { ExperimentsHoldoutsScene } from 'products/experiments/frontend/scenes/ExperimentsHoldoutsScene'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 

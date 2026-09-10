@@ -1,29 +1,29 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { TZLabel } from 'lib/components/TZLabel'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CheckEditorModal } from './CheckEditorModal'
 import { HEALTH_LABELS, HEALTH_TAG_TYPES } from './checksConstants'
 import { ChecksTable } from './ChecksTable'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
-import { dataQualityGateLogic } from './dataQualityGateLogic'
 import { SuiteRunsHistory } from './SuiteRunsHistory'
 
 interface DataQualityChecksPanelProps extends DataQualityChecksLogicProps {
     columns: DatabaseSchemaField[]
-    /** Materialized views only: the gate is a project-wide setting and only bites on materialization. */
-    showGateToggle?: boolean
+    dataLastSyncedAt?: string | null
+    /** Drops the "Data quality" heading where the surface already names the panel, such as a tab. */
+    hideTitle?: boolean
 }
 
 export function DataQualityChecksPanel({
     columns,
-    showGateToggle,
+    dataLastSyncedAt,
+    hideTitle,
     ...logicProps
 }: DataQualityChecksPanelProps): JSX.Element | null {
     const logic = dataQualityChecksLogic(logicProps)
@@ -60,7 +60,7 @@ export function DataQualityChecksPanel({
             <div className="flex flex-col gap-2 mt-4">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
-                        <h3 className="mb-0 text-lg font-semibold">Data quality</h3>
+                        {!hideTitle && <h3 className="mb-0 text-lg font-semibold">Data quality</h3>}
                         {health && (
                             <LemonTag type={HEALTH_TAG_TYPES[health.health] ?? 'default'}>
                                 {HEALTH_LABELS[health.health] ?? health.health}
@@ -98,6 +98,13 @@ export function DataQualityChecksPanel({
                     </div>
                 </div>
 
+                {dataLastSyncedAt && (
+                    <p className="mb-0 text-secondary text-sm">
+                        Checks test the data from the last sync (synced <TZLabel time={dataLastSyncedAt} />
+                        ). After you change this view, sync it to test the new query.
+                    </p>
+                )}
+
                 {isSuiteRunning && (
                     <LemonBanner type="info" icon={<Spinner />}>
                         Running checks...
@@ -126,8 +133,6 @@ export function DataQualityChecksPanel({
 
                 <SuiteRunsHistory {...logicProps} />
 
-                {showGateToggle && <GateToggle />}
-
                 <CheckEditorModal />
             </div>
         </BindLogic>
@@ -145,30 +150,5 @@ function NoChecksYet({ onAddCheck }: { onAddCheck: () => void }): JSX.Element {
                 Add your first check
             </LemonButton>
         </div>
-    )
-}
-
-function GateToggle(): JSX.Element | null {
-    const { gateConfig, gateReadable, gateSaving } = useValues(dataQualityGateLogic)
-    const { setGateEnabled } = useActions(dataQualityGateLogic)
-
-    if (!gateReadable || !gateConfig) {
-        return null
-    }
-
-    return (
-        <LemonSwitch
-            bordered
-            checked={gateConfig.gate_materialization_on_checks}
-            onChange={setGateEnabled}
-            loading={gateSaving}
-            disabledReason={getAccessControlDisabledReason(
-                AccessControlResourceType.WarehouseObjects,
-                AccessControlLevel.Editor
-            )}
-            label="Block materialization on failing checks"
-            tooltip="Applies to all materialized views in this project. When an error-severity check fails, the previous version keeps serving."
-            data-attr="data-quality-gate-toggle"
-        />
     )
 }

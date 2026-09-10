@@ -37,11 +37,11 @@ export function NotebookSceneMenuBar({ shortId }: { shortId: string }): JSX.Elem
 
 function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, showHistory, isLocalOnly, content } = useValues(logic)
+    const { notebook, showHistory, isLocalOnly, content, showVariables } = useValues(logic)
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
-    const { setIsMarkdownExpanded, setShowKernelInfo } = useActions(notebookSettingsLogic)
+    const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables } = useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const canDelete = !isLocalOnly && !notebook?.is_template
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
@@ -126,6 +126,15 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                         data-attr={`${RESOURCE_TYPE}-menubar-kernel-info`}
                     >
                         Kernel info
+                    </SceneMenuBarCheckboxItem>
+                )}
+                {showKernelToggle && (
+                    <SceneMenuBarCheckboxItem
+                        checked={showVariables}
+                        onCheckedChange={(checked) => setShowVariables(checked)}
+                        data-attr={`${RESOURCE_TYPE}-menubar-variables`}
+                    >
+                        Variables
                     </SceneMenuBarCheckboxItem>
                 )}
                 <SceneMenuBarSeparator />

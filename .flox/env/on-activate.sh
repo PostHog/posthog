@@ -278,7 +278,7 @@ echo -e "\n${C_CYAN}PostHog dev${C_RESET} ${C_DIM}── ${_branch}${C_RESET}\n"
 
 _activation_start=$(date +%s)
 
-# ── Steps 1, 1b, 2 (kicked off in parallel, with AMI cache-skip) ───
+# ── Steps 1, 1b, 2 (kicked off in parallel; uv and pnpm have an AMI cache-skip) ───
 # uv sync, pnpm install, and `make phrocs build` are independent -- none
 # of them reads or writes the other's outputs. Kick the two non-spinner
 # ones off in the background BEFORE foregrounding uv sync, so the wall
@@ -287,30 +287,53 @@ _activation_start=$(date +%s)
 # depend on the venv it populates, and because its run_step spinner remains
 # the user-visible progress indicator for activate.
 #
-# Each step also checks an AMI-bake stamp file (sha256 of the source-of-
-# truth input recorded at bake time): when the on-disk hash matches the
-# baked hash, the workspace is in the same state as the bake and the
-# subprocess would be a no-op, so we skip it entirely. On laptops or
-# pre-stamp workspaces the stamps are missing and the checks fall back
-# to running normally -- no regression.
+# uv sync and pnpm install also check an AMI-bake stamp file (sha256 of the
+# lockfile recorded at bake time): when the on-disk hash matches the baked
+# hash, the workspace is in the same state as the bake and the subprocess
+# would be a no-op, so we skip it entirely. On laptops or pre-stamp
+# workspaces the stamps are missing and the checks fall back to running
+# normally -- no regression.
+#
+# The phrocs build gets no stamp. Its Makefile already compares source and
+# binary timestamps, so `make` is a no-op when nothing changed. A stamp on
+# the built binary would never expire: a devbox pulls master at boot while
+# the binary stays the baked one, so the hash matches forever and the box
+# keeps running a phrocs that predates the config hogli generates.
 _PNPM_LOCK="$FLOX_ENV_PROJECT/pnpm-lock.yaml"
 _UV_LOCK="$FLOX_ENV_PROJECT/uv.lock"
-_PHROCS_BIN="$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs"
 
 _PNPM_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-pnpm-stamp)
 _UV_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-uv-stamp)
-_PHROCS_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-phrocs-stamp)
 
 _PNPM_CURRENT=$(_sha256_file "$_PNPM_LOCK")
 _UV_CURRENT=$(_sha256_file "$_UV_LOCK")
-_PHROCS_CURRENT=$(_sha256_file "$_PHROCS_BIN")
 
+# A stamp says the lockfile matches the bake, not that this checkout has the
+# outputs. A fresh worktree matches every stamp and has neither, so require the
+# local tree too or activation skips the install and leaves the worktree empty.
+# These probe for what a real install leaves behind rather than a bare directory,
+# since both tools create the parent early and populate it afterwards.
 _PNPM_SKIP=0
-[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" ]] && _PNPM_SKIP=1
+[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" && -d "$FLOX_ENV_PROJECT/node_modules/.pnpm" ]] && _PNPM_SKIP=1
 _UV_SKIP=0
-[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" ]] && _UV_SKIP=1
-_PHROCS_SKIP=0
-[[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
+[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" && -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] && _UV_SKIP=1
+
+# Seed repo-local git settings here, because package.json's postinstall runs inside
+# the sandbox below, which write-denies .git/config. The postinstall still tries
+# blame.ignoreRevsFile for clones that never activate flox (.claude/hooks/setup-cloud.sh
+# and friends); under the sandbox that attempt no-ops and this one is what lands.
+# Idempotent — the --get short-circuits once the value is set.
+git -C "$FLOX_ENV_PROJECT" config --get blame.ignoreRevsFile >/dev/null 2>&1 ||
+  git -C "$FLOX_ENV_PROJECT" config blame.ignoreRevsFile .git-blame-ignore-revs >/dev/null 2>&1 ||
+  true
+# Same for husky's core.hooksPath, which `prepare` sets during the sandboxed pnpm
+# install below. husky checks only whether git spawned, not how it exited, so the
+# denied write leaves a fresh clone with no hooks and an install that claims success.
+# --local, not --get: a global core.hooksPath would satisfy a merged --get and skip
+# the seed, leaving the repo pointed at the developer's global hooks dir instead.
+git -C "$FLOX_ENV_PROJECT" config --local --get core.hooksPath >/dev/null 2>&1 ||
+  git -C "$FLOX_ENV_PROJECT" config core.hooksPath .husky >/dev/null 2>&1 ||
+  true
 
 # Sandbox the automatic installs below by default on macOS (opt out with
 # POSTHOG_DEV_SANDBOX=0). .env.local isn't loaded at flox-activate time, so check
@@ -340,58 +363,67 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_START=$(date +%s)
 fi
 
-if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
-  _BG_PHROCS_LOG=$(mktemp)
-  _ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
-  ( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
-  _BG_PHROCS_PID=$!
-  _BG_PHROCS_START=$(date +%s)
+_BG_PHROCS_LOG=$(mktemp)
+_ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
+( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
+_BG_PHROCS_PID=$!
+_BG_PHROCS_START=$(date +%s)
+
+# CodeRabbit CLI, downloaded from the vendor's release server. The flox catalog
+# build omits x86_64-darwin, and the vendor install script edits the user's shell
+# profile, so neither is used. One store per machine and version serves every
+# checkout, and the venv symlink in Step 2b resolves each worktree's own pin.
+# A failed install must not break activation: the CLI is only needed at PR-open
+# time, and the reviewing-with-coderabbit skill opens the PR without it.
+_CODERABBIT_VERSION="0.7.6"
+_CODERABBIT_STORE="$HOME/.config/posthog/tools/coderabbit/$_CODERABBIT_VERSION"
+_CODERABBIT_BIN="$_CODERABBIT_STORE/coderabbit"
+
+# Release asset suffix for this host, empty when the host cannot install it.
+# Digests come from https://cli.coderabbit.ai/releases/<version>/SHA256SUMS.
+_CODERABBIT_PLATFORM=""
+_CODERABBIT_SHA256=""
+if command -v unzip >/dev/null 2>&1; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64)
+      _CODERABBIT_PLATFORM="darwin-arm64"
+      _CODERABBIT_SHA256="f970e608e383114e1edf214eea71a99d6604ea1dd09c01e754ee6b8d4b852cb1" ;;
+    Darwin-x86_64)
+      _CODERABBIT_PLATFORM="darwin-x64"
+      _CODERABBIT_SHA256="1c6242dec8a0983ff70842bc1d0e8c888d1a92b1ad80afb969c00c94c482a704" ;;
+    Linux-aarch64 | Linux-arm64)
+      _CODERABBIT_PLATFORM="linux-arm64"
+      _CODERABBIT_SHA256="2270641a6314bef0da32e5903ddc6de6265354962f7cf651fc581a4a91f22447" ;;
+    Linux-x86_64 | Linux-amd64)
+      _CODERABBIT_PLATFORM="linux-x64"
+      _CODERABBIT_SHA256="853a1727609ab0ff1f56863fa6de7acf3de593a6dc1bd7f91a32f11c5724ffc9" ;;
+  esac
 fi
 
-# Greptile CLI: machine-global, version-addressed store. Greptile is not in
-# the flox catalog (proprietary npm package), and `hogli review` needs it.
-# Not a root devDependency on purpose: that would pull a review-only CLI into
-# every pnpm install, including CI and sandboxes that never review. One npm
-# install per machine per pinned version serves every checkout and survives
-# .flox/cache wipes; each activation only ensures the version and symlinks
-# the venv bin (Step 2b), so worktrees on different branches resolve their
-# own pin. A failed install must not break activation; the CLI is only needed
-# at PR-open time and `hogli review` prints install guidance when absent.
-_GREPTILE_VERSION="3.4.1"
-_GREPTILE_STORE="$HOME/.config/posthog/tools/greptile/$_GREPTILE_VERSION"
-_GREPTILE_BIN="$_GREPTILE_STORE/node_modules/.bin/greptile"
-_GREPTILE_STAMP="$_GREPTILE_STORE/.complete"
-
-_install_greptile() {
-  # Explicit `|| return`/`|| exit`: callers suppress errexit, so a failed
-  # install would otherwise fall through and stamp the broken state.
-  mkdir -p "$_GREPTILE_STORE" || return 1
-  (
-    # The store is shared across checkouts, so serialize concurrent
-    # activations (fresh worktrees) installing the same version.
-    flock 9 || exit 1
-    if [[ ! -x "$_GREPTILE_BIN" || ! -f "$_GREPTILE_STAMP" ]]; then
-      if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-        # printf %q: dev-sandbox re-parses its command string, so the path
-        # must survive a $HOME with spaces or quotes.
-        "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix $(printf '%q' "$_GREPTILE_STORE") --no-fund --no-audit greptile@$_GREPTILE_VERSION" || exit 1
-      else
-        npm install --prefix "$_GREPTILE_STORE" --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1
-      fi
-      [[ -x "$_GREPTILE_BIN" ]] || exit 1
-      touch "$_GREPTILE_STAMP" || exit 1
-    fi
-  ) 9>"$_GREPTILE_STORE/.install.lock"
+_install_coderabbit() {
+  mkdir -p "$_CODERABBIT_STORE"
+  # A temp dir inside the store keeps the final mv an atomic rename, so a
+  # concurrent or interrupted install never leaves a partial binary behind.
+  tmp=$(mktemp -d "$_CODERABBIT_STORE/.tmp.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT
+  # The release path carries no leading "v", unlike the vendor script's example.
+  curl -fsSL --connect-timeout 10 --max-time 300 \
+    "https://cli.coderabbit.ai/releases/$_CODERABBIT_VERSION/coderabbit-$_CODERABBIT_PLATFORM.zip" \
+    -o "$tmp/coderabbit.zip"
+  [[ "$(_sha256_file "$tmp/coderabbit.zip")" == "$_CODERABBIT_SHA256" ]]
+  unzip -qo "$tmp/coderabbit.zip" -d "$tmp"
+  chmod +x "$tmp/coderabbit"
+  mv -f "$tmp/coderabbit" "$_CODERABBIT_BIN"
 }
 
-_GREPTILE_SKIP=0
-[[ -x "$_GREPTILE_BIN" && -f "$_GREPTILE_STAMP" ]] && _GREPTILE_SKIP=1
-if [[ "$_GREPTILE_SKIP" -eq 0 ]]; then
-  _BG_GREPTILE_LOG=$(mktemp)
-  _ACTIVATION_TMPFILES+=("$_BG_GREPTILE_LOG")
-  ( _install_greptile ) >"$_BG_GREPTILE_LOG" 2>&1 &
-  _BG_GREPTILE_PID=$!
-  _BG_GREPTILE_START=$(date +%s)
+_CODERABBIT_SKIP=0
+[[ -x "$_CODERABBIT_BIN" ]] && _CODERABBIT_SKIP=1
+if [[ "$_CODERABBIT_SKIP" -eq 0 && -n "$_CODERABBIT_PLATFORM" ]]; then
+  _BG_CODERABBIT_LOG=$(mktemp)
+  _ACTIVATION_TMPFILES+=("$_BG_CODERABBIT_LOG")
+  ( _install_coderabbit ) >"$_BG_CODERABBIT_LOG" 2>&1 &
+  _BG_CODERABBIT_PID=$!
+  _BG_CODERABBIT_START=$(date +%s)
 fi
 
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
@@ -430,11 +462,7 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
-if [[ "$_PHROCS_SKIP" -eq 1 ]]; then
-  done_step "Build phrocs (cached)"
-else
-  wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
-fi
+wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
 if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
 fi
@@ -446,15 +474,18 @@ else
   wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
 fi
 
-# ── Step 2b: Greptile CLI (reap; launched above with the other jobs) ──
-if [[ "$_GREPTILE_SKIP" -eq 1 ]]; then
-  done_step "Greptile CLI (cached)"
+# ── Step 2b: CodeRabbit CLI (reap; launched above with the other jobs) ──
+if [[ "$_CODERABBIT_SKIP" -eq 1 ]]; then
+  done_step "CodeRabbit CLI (cached)"
+elif [[ -z "$_CODERABBIT_PLATFORM" ]]; then
+  warn_step "CodeRabbit CLI skipped  ${C_DIM}(no release for this host, or unzip is missing)${C_RESET}"
 else
-  wait_bg_step "Greptile CLI" "$_BG_GREPTILE_PID" "$_BG_GREPTILE_START" "$_BG_GREPTILE_LOG" \
-    || warn_step "Greptile CLI install failed  ${C_DIM}(hogli review prints manual install steps)${C_RESET}"
+  wait_bg_step "CodeRabbit CLI" "$_BG_CODERABBIT_PID" "$_BG_CODERABBIT_START" "$_BG_CODERABBIT_LOG" \
+    || warn_step "CodeRabbit CLI install failed  ${C_DIM}(reviews skip until it installs)${C_RESET}"
 fi
-if [[ -x "$_GREPTILE_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  ln -sf "$_GREPTILE_BIN" "$UV_PROJECT_ENVIRONMENT/bin/greptile"
+if [[ -x "$_CODERABBIT_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+  ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/coderabbit"
+  ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/cr"
 fi
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────

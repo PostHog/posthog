@@ -45,7 +45,9 @@ from products.data_warehouse.backend.facade.api import (
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSchemaDestination,
     ExternalDataSource,
+    resolve_destinations,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
@@ -63,6 +65,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    DestinationLinkSerializer,
+    SchemaDestinationsSerializer,
+    set_schema_destinations,
+)
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
@@ -94,6 +101,25 @@ def source_supports_row_filters(source_type: str) -> bool:
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
     return bool(source.supports_row_filters)
+
+
+def source_requires_exact_column_metadata(source_type: str) -> bool:
+    """Whether enabled column names are interpolated into a source-side query.
+
+    These sources require exact source identifiers. Warehouse table columns have already
+    passed through dlt normalization, so they are not a safe fallback for configuration.
+
+    This is intentionally narrower than ``source_supports_column_selection``: the latter
+    also includes sources whose columns are projected generically after extraction.
+    """
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        # Unknown source types already fail the broader column-selection check. Keep the
+        # read path available so a registry failure does not also blank column descriptions.
+        return False
+    return bool(source.supports_column_selection)
 
 
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
@@ -158,6 +184,21 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 
     instance.status = ExternalDataSchema.Status.RUNNING
     instance.save(update_fields=["status", "updated_at"])
+
+
+def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
+    """Trigger the schema's sync, creating its Temporal schedule first if it has none.
+
+    A schema can reach the UI with no schedule behind it (never created, or dropped), and
+    triggering one that isn't there raises NOT_FOUND. Retrying can't fix that, so recover the
+    same way the source-level reload does instead of dead-ending a single table's sync.
+    """
+    try:
+        trigger_external_data_workflow(instance)
+    except temporalio.service.RPCError as e:
+        if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise
+        sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
 
 
 # Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
@@ -368,6 +409,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         "source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back "
         "to the synced table's columns. Empty only before the first successful sync/refresh.",
     )
+    source_column_metadata_available = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether exact source-side column metadata is available for safe source-query projection.",
+    )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
     source = serializers.SerializerMethodField(  # type: ignore[assignment]
@@ -402,6 +447,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "enabled_columns",
             "row_filters",
             "available_columns",
+            "source_column_metadata_available",
             "source",
             "api_version",
             "api_version_deprecation",
@@ -418,6 +464,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "status",
             "description",
             "available_columns",
+            "source_column_metadata_available",
             "source",
             "api_version_deprecation",
             "user_access_level",
@@ -460,6 +507,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         table = schema.table
         return table.get_user_facing_columns() if table is not None else []
 
+    def get_source_column_metadata_available(self, schema: ExternalDataSchema) -> bool:
+        metadata = schema.schema_metadata or {}
+        return isinstance(metadata.get("columns"), list) if isinstance(metadata, dict) else False
+
     @extend_schema_field(
         {
             "type": "object",
@@ -470,6 +521,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "access_method": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
+                "requires_exact_column_metadata": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
                 "api_version": {"type": "string", "nullable": True},
                 "supported_api_versions": {"type": "array", "items": {"type": "string"}},
@@ -502,6 +554,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "access_method": source.access_method,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
+            "requires_exact_column_metadata": source_requires_exact_column_metadata(source.source_type),
             "user_access_level": user_access_level,
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
@@ -681,6 +734,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
 
+        enabled_columns_changed = "enabled_columns" in validated_data and (
+            validated_data["enabled_columns"] != instance.enabled_columns
+        )
+
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
             if enabled_columns is not None:
@@ -704,6 +761,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
+                elif (
+                    enabled_columns_changed
+                    and enabled_columns
+                    and source_requires_exact_column_metadata(instance.source.source_type)
+                ):
+                    raise ValidationError(
+                        "Column metadata is unavailable. Run `Pull new schemas` before selecting source columns."
+                    )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
@@ -985,10 +1050,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             validated_data["sync_type_config"]["reset_pipeline"] = True
             trigger_refresh = True
 
-        enabled_columns_changed = "enabled_columns" in validated_data and (
-            validated_data["enabled_columns"] != instance.enabled_columns
-        )
-
         if source.is_direct_query:
             direct_engine_adapter = get_direct_query_engine(source.direct_engine)
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
@@ -1238,7 +1299,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 config=config,
             )
 
-            if hog_fn_result.error or not hog_fn_result.hog_function:
+            if hog_fn_result.error or hog_fn_result.hog_function_id is None:
                 raise ValidationError(
                     f"Failed to set up webhook: {hog_fn_result.error or 'Unknown error'}. "
                     "You can set up the webhook manually from the Webhook tab."
@@ -1435,6 +1496,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "cancel",
         "incremental_fields",
         "delete_data",
+        "destinations",
     ]
     scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = ExternalDataSchema.objects.all()
@@ -1522,6 +1584,52 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        request=DestinationLinkSerializer,
+        responses={200: SchemaDestinationsSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=True, filter_backends=[])
+    def destinations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read or replace this table's destination override.
+
+        Send `destination_ids: null` to clear the override so the table follows its source again.
+        """
+        schema = self.get_object()
+
+        if request.method == "GET":
+            links = list(
+                ExternalDataSchemaDestination.objects.for_team(self.team_id)
+                .filter(schema_id=schema.id, enabled=True)
+                .exclude(destination__deleted=True)
+            )
+            overridden = (
+                ExternalDataSchemaDestination.objects.for_team(self.team_id).filter(schema_id=schema.id).exists()
+            )
+            return Response(
+                status=status.HTTP_200_OK,
+                data=SchemaDestinationsSerializer(
+                    {
+                        "destination_ids": [str(link.destination_id) for link in links] if overridden else None,
+                        "inherits_from_source": not overridden,
+                        "effective_destination_ids": [str(d.id) for d in resolve_destinations(schema)],
+                    }
+                ).data,
+            )
+
+        serializer = DestinationLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        attached = set_schema_destinations(
+            team_id=self.team_id,
+            schema_id=schema.id,
+            destination_ids=serializer.validated_data["destination_ids"],
+        )
+        return Response(
+            status=status.HTTP_200_OK,
+            data=SchemaDestinationsSerializer(
+                {"destination_ids": attached, "inherits_from_source": attached is None}
+            ).data,
+        )
+
     @extend_schema(parameters=[LogEntryRequestSerializer])
     @action(methods=["GET"], detail=True, filter_backends=[])
     def logs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1548,6 +1656,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
+        description=(
+            "Trigger a sync for the schema using its configured sync method. Most methods keep the "
+            "existing warehouse table and add or merge new rows, but a full-refresh schema rebuilds "
+            "the whole table on every run. To force a rebuild from the source, use resync."
+        ),
         responses={
             200: OpenApiResponse(description="The sync was triggered."),
             400: OpenApiResponse(
@@ -1570,13 +1683,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            trigger_external_data_workflow(instance)
+            _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:
             # Only mark the schema Running once the trigger succeeded: a Running status with no
             # workflow behind it sticks forever (nothing finalizes it) and blocks cancel.
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             return Response(
-                data={"detail": "Couldn't start the sync. Please try again."},
+                data={"detail": "Couldn't start the sync. Try again in a few minutes."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
@@ -1589,6 +1702,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
+        description=(
+            "Request a full resync of the schema. For sources that can backfill, this drops the "
+            "warehouse table and re-imports every row from the source, so existing data is deleted "
+            "first. A webhook-only schema cannot backfill, so it keeps its existing table and "
+            "resumes ingestion instead. To sync without requesting a rebuild, use reload."
+        ),
         responses={
             200: OpenApiResponse(description="The full resync was triggered."),
             400: OpenApiResponse(
@@ -1642,14 +1761,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.initial_sync_complete = False
 
         try:
-            trigger_external_data_workflow(instance)
+            _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:
             # Only mark the schema Running once the trigger succeeded: a Running status with no
             # workflow behind it sticks forever (nothing finalizes it) and blocks cancel. The
             # sync_type_config reset above stays; the schema's intent is still "resync next run".
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             return Response(
-                data={"detail": "Couldn't start the sync. Please try again."},
+                data={"detail": "Couldn't start the sync. Try again in a few minutes."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1838,6 +1957,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},
+            )
+
+        if not schemas:
+            return Response(
+                data={
+                    "message": f"Could not discover schema {instance.name}. The connection may be missing SELECT or "
+                    "schema access privileges, or discovery may not support this relation type. Check that the "
+                    "relation exists, restore read privileges, or expose it as a supported table or view, then try again."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so

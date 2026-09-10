@@ -139,15 +139,18 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
         group_key = payload.get("group_key")
         if not group_type or not group_key:
             raise InvalidPersonPropertyMessage("group message missing group_type or group_key")
-        # Mirror the canonical group-identify write (ee/clickhouse/views/groups.py::trigger_group_identify):
-        # distinct_id is the team-uuid placeholder, group type is the name, process_person_profile=False.
+        # distinct_id is the team-uuid placeholder, group type is the name. Person processing must
+        # stay on: ingestion drops any $groupidentify whose $process_person_profile is false
+        # (warning invalid_event_when_process_person_profile_is_false) and gates the group upsert
+        # on it, so with false the write silently never happens. The cost is one placeholder
+        # person per team — the same trade the server SDKs' group_identify makes per group.
         return {
             "token": token,
             "event_name": "$groupidentify",
             "event_source": event_source,
             "distinct_id": str(distinct_id),
             "properties": {"$group_type": group_type, "$group_key": str(group_key), "$group_set": properties},
-            "process_person_profile": False,
+            "process_person_profile": True,
         }
     return {
         "token": token,

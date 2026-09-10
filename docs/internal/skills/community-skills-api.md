@@ -101,6 +101,11 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
   against the publisher's PostHog account, so the PR body presents it as a handle the publisher gave.
 - Bundled files are text only. `CommunitySkillFile.content` is a `TextField` and the renderer takes
   `str`, so a skill referencing an image or other binary asset cannot round-trip through the catalog.
+- Template skills publish their normalized `metadata.variables` schema (and no other store metadata).
+  Publishing checks that the template installs with only its defaults: every `{{ variable }}` in
+  `SKILL.md` or a bundled file is declared, and the defaults and rendered output fit the install
+  size caps. A failed check stops publishing with `400` before any GitHub write. A skill with no
+  variables is not a template, so its `{{ }}` text publishes verbatim, as install keeps it.
 
 ### Settings
 
@@ -185,6 +190,11 @@ out of, so it must not read as GitHub being down.
 
 The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
 is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the
-App is down. `503` is reserved for an installation GitHub says is absent or refuses the App's
-credentials for; any other failed status while minting the publish token is an outage and answers
-`502`, so a transient failure doesn't read as "this instance can't publish".
+App is down. `503` is reserved for the settings an operator has to change: an installation GitHub says
+is absent, one whose App credentials it refuses, and one that doesn't grant the `contents` and
+`pull_requests` write the mint asks for. Any other failed status while minting the publish token is an
+outage and answers `502`, so a transient failure doesn't read as "this instance can't publish".
+
+The 503 is logged as `llma_skill_publish_to_community_not_configured`, with the team, user and skill.
+Without it an instance meant to have publishing on is indistinguishable from one that never
+configured it, until somebody reports the toast.

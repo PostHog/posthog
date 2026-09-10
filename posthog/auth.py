@@ -33,7 +33,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.internal_api_secret import usable_internal_api_secrets
-from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
+from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
@@ -60,6 +60,7 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.exports.backend.facade.auth import get_export_renderer_asset_context
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -198,6 +199,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
     personal_api_key: PersonalAPIKey
     personal_api_key_source: Optional[str] = None
+    # Set once the key is validated, so rate limiting can identify the key without re-reading the
+    # request body. See `hashed_personal_api_key_for_throttling` in posthog/rate_limit.py.
+    personal_api_key_hash: Optional[str] = None
 
     # Normalized source identifiers returned by find_key_with_source
     SOURCE_HEADER = "header"
@@ -305,7 +309,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             if not personal_api_key_with_source:
                 return None
 
-            _, source = personal_api_key_with_source
+            key_value, source = personal_api_key_with_source
             span.set_attribute("auth.source", source)
 
             personal_api_key_object = self.validate_key(personal_api_key_with_source)
@@ -337,6 +341,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
+            self.personal_api_key_hash = hash_key_value(key_value)
 
             return personal_api_key_object.user, None
 
@@ -693,6 +698,24 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+EXPORT_RENDERER_SCOPES = frozenset({"heatmap:read", "session_recording:read"})
+
+
+def mint_export_renderer_token(*, user_id: int, team_id: int, exported_asset_id: int, scope: str) -> str:
+    if scope not in EXPORT_RENDERER_SCOPES:
+        raise ValueError(f"Unsupported export renderer scope: {scope}")
+    return encode_jwt(
+        {
+            "id": user_id,
+            "team_id": team_id,
+            "exported_asset_id": exported_asset_id,
+            "scopes": [scope],
+        },
+        timedelta(minutes=5),
+        PosthogJwtAudience.EXPORT_RENDERER,
+    )
+
+
 class ExportRendererAuthentication(authentication.BaseAuthentication):
     """
     Scoped JWT auth for the export renderer. Only accepted on viewsets that opt in.
@@ -711,7 +734,31 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
         try:
             token = authorization_match.group(1).strip()
             info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
-            user = User.objects.get(pk=info["id"])
+            user_id = info["id"]
+            team_id = info["team_id"]
+            exported_asset_id = info["exported_asset_id"]
+            scopes = info["scopes"]
+            if not isinstance(scopes, list) or len(scopes) != 1 or scopes[0] not in EXPORT_RENDERER_SCOPES:
+                raise AuthenticationFailed(detail="Token scope invalid.")
+
+            url_team_id = _team_id_from_request_path(request)
+            if url_team_id is not None and str(team_id) != url_team_id:
+                raise AuthenticationFailed(detail="Token project does not match the requested project.")
+
+            export_context = get_export_renderer_asset_context(
+                asset_id=exported_asset_id,
+                team_id=team_id,
+                created_by_id=user_id,
+                scope=scopes[0],
+            )
+            if export_context is None:
+                raise AuthenticationFailed(detail="Token export asset invalid.")
+
+            self.scopes = scopes
+            self.team_id = team_id
+            self.exported_asset_id = exported_asset_id
+            self.export_context = export_context
+            user = User.objects.get(pk=user_id)
             return user, None
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
@@ -1174,6 +1221,8 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     The request authenticates as a synthetic InternalAPIUser bound to the token's team.
     When the URL carries a team_id, the token's team_id claim must match it, so a token
     minted for one team can never read another's data even if both hit the same route.
+    The verified claims become request.auth, so views can enforce entity-level claims
+    (e.g. that the token's ticket_id matches the URL's).
 
     require_team=False is for fleet-scoped purposes (cron-style calls with no team in the
     URL or claims); team-scoped purposes must keep the default so a token without a team
@@ -1183,7 +1232,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     purpose: ClassVar[ScopedServiceJwtPurpose]
     require_team: ClassVar[bool] = True
 
-    def authenticate(self, request: Request) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Request) -> Optional[tuple[Any, dict[str, Any]]]:
         header = authentication.get_authorization_header(request).split()
         # No bearer header: return None (not raise) so the view's other authenticators,
         # if any, still get their turn.
@@ -1216,13 +1265,13 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
 
         return self._authenticate_claims(request, claims)
 
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, None]:
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         claim_team_id = claims.get("team_id")
 
         if claim_team_id is None:
             if self.require_team:
                 raise AuthenticationFailed("Service token is missing its team claim.")
-            return InternalAPIUser(), None
+            return InternalAPIUser(), claims
 
         url_team_id = _team_id_from_request_path(request)
         if url_team_id is not None and str(claim_team_id) != url_team_id:
@@ -1234,7 +1283,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
         except (Team.DoesNotExist, ValueError, TypeError):
             raise AuthenticationFailed("Invalid service token team.")
 
-        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), None
+        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), claims
 
     def authenticate_header(self, request: Request) -> str:
         # Without a challenge value DRF renders every AuthenticationFailed from this class as
@@ -1243,19 +1292,25 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
         return "Bearer"
 
 
-def _team_id_from_request_path(request: Request) -> Optional[str]:
+# Routes register the /api/projects/:id/ segment under either a team or a project kwarg
+# depending on the viewset (routing treats the URL project id as the team id). Missing any
+# spelling here means a token for one team authenticates on that route for another team.
+_TEAM_ID_URL_KWARGS = ("parent_lookup_team_id", "team_id", "parent_lookup_project_id", "project_id")
+
+
+def _team_id_from_request_path(request: Union[HttpRequest, Request]) -> Optional[str]:
     parser_context = getattr(request, "parser_context", None)
     if isinstance(parser_context, dict):
         kwargs = parser_context.get("kwargs")
         if isinstance(kwargs, dict):
-            for lookup in ("parent_lookup_team_id", "team_id"):
+            for lookup in _TEAM_ID_URL_KWARGS:
                 if kwargs.get(lookup) is not None:
                     return str(kwargs[lookup])
 
     django_request = getattr(request, "_request", request)
     resolver_match = getattr(django_request, "resolver_match", None)
     if resolver_match and getattr(resolver_match, "kwargs", None):
-        for lookup in ("parent_lookup_team_id", "team_id"):
+        for lookup in _TEAM_ID_URL_KWARGS:
             team_id = resolver_match.kwargs.get(lookup)
             if team_id is not None:
                 return str(team_id)
@@ -1475,3 +1530,27 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request: Request) -> str:
         return "WebhookSignature"
+
+
+# services/mcp sends this user agent on its API calls (USER_AGENT in its
+# oauth-constants.ts). The two runtimes cannot share one constant, so this value
+# mirrors that one. If they diverge, this check stops matching MCP traffic and the
+# read-only policy stops applying. A client controls its own user agent. The match applies MCP
+# policy to the normal MCP pathway only. It does not stop a hostile key holder.
+# The same credential keeps its full scopes under a different user agent. A future
+# change can reduce the credential's scopes when the token is created.
+MCP_USER_AGENT_MARKER = "posthog/mcp-server"
+
+
+def is_mcp_request(request: Union[HttpRequest, Request]) -> bool:
+    """Returns True when a token-authenticated request comes through the MCP server."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    # Every user-delegated scoped-token type the MCP server can authenticate with. ID-JAG
+    # (XAA) tokens are served from the same OAuth token endpoint and carry scopes, so a
+    # write on that pathway must be classified as MCP like a personal key or OAuth token.
+    if isinstance(
+        authenticator,
+        PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
+    ):
+        return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
+    return False

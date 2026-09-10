@@ -782,10 +782,12 @@ describe('ImageBatcher', () => {
                 b.toString() === 'poison'
                     ? Promise.reject(
                           new ScrubPoisoned('cannot process', {
-                              reason: 'transport',
+                              reason: 'rejected',
                               lastError: 'sidecar responded 500',
                               attempts: 12,
                               waitedMs: 60_000,
+                              elapsedMs: 120_000,
+                              rejectedMs: 120_000,
                           })
                       )
                     : Promise.resolve(b),
@@ -815,6 +817,8 @@ describe('ImageBatcher', () => {
                         lastError: 'sidecar responded 500',
                         attempts: 12,
                         waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
                     })
                 ),
         } as unknown as ScrubClient
@@ -844,6 +848,8 @@ describe('ImageBatcher', () => {
                         lastError: 'sidecar responded 500',
                         attempts: 12,
                         waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
                     })
                 ),
         } as unknown as ScrubClient
@@ -918,10 +924,12 @@ describe('ImageBatcher', () => {
             scrub: () =>
                 Promise.reject(
                     new ScrubPoisoned('cannot process', {
-                        reason: 'transport',
+                        reason: 'rejected',
                         lastError: 'sidecar responded 500',
                         attempts: 12,
                         waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
                     })
                 ),
         } as unknown as ScrubClient

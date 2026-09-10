@@ -1,0 +1,258 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.DatasetsPreview {
+    --datasets-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden selected-dataset state. Direct children of .DatasetsPreview so `:checked ~` reaches both cards.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__list,
+    &__items {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Per-dataset content is stacked on one grid cell and crossfaded, so switching
+    // datasets never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-support,
+    &__when-refunds,
+    &__when-onboarding {
+        @include preview-swap-hidden;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__count {
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        cursor: pointer;
+        user-select: none;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        transition:
+            background-color 150ms ease,
+            border-color 150ms ease;
+    }
+
+    &__row:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__vradio {
+        position: relative;
+        flex-shrink: 0;
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid var(--datasets-preview-accent);
+        border-radius: 50%;
+
+        &::after {
+            position: absolute;
+            inset: 2px;
+            content: '';
+            background: var(--datasets-preview-accent);
+            border-radius: 50%;
+            transition: transform 150ms ease;
+            transform: scale(0);
+        }
+    }
+
+    &__copy {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    &__name {
+        overflow: hidden;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__meta {
+        overflow: hidden;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__hint {
+        padding: 0 0.75rem 0.625rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    // The items table the selected dataset opens.
+    &__cols,
+    &__cells {
+        display: grid;
+        grid-template-columns: 1fr 1.3fr;
+        gap: 0.75rem;
+        padding: 0.375rem 0.75rem;
+    }
+
+    &__cols {
+        font-size: 0.625rem;
+        font-weight: 600;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__item {
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__input,
+    &__expected {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__input {
+        font-family: var(--font-mono);
+        font-weight: 600;
+
+        @include preview-accent-text(var(--datasets-preview-accent));
+    }
+
+    &__expected {
+        color: var(--color-text-secondary);
+    }
+
+    // The ambient bit: an item arriving from a trace, pulsing at the bottom of the table.
+    &__incoming {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        background: color-mix(in oklab, var(--datasets-preview-accent) 6%, transparent);
+    }
+
+    &__dot {
+        flex-shrink: 0;
+        width: 7px;
+        height: 7px;
+        background: var(--datasets-preview-accent);
+        border-radius: 50%;
+        animation: DatasetsPreview__pulse 1.8s ease-in-out infinite;
+    }
+}
+
+// Selected dataset, driven purely by the hidden radios.
+
+#datasets-preview-support:checked ~ * .DatasetsPreview__when-support,
+#datasets-preview-refunds:checked ~ * .DatasetsPreview__when-refunds,
+#datasets-preview-onboarding:checked ~ * .DatasetsPreview__when-onboarding {
+    @include preview-swap-visible;
+}
+
+#datasets-preview-support:checked ~ .DatasetsPreview__list .DatasetsPreview__row--support,
+#datasets-preview-refunds:checked ~ .DatasetsPreview__list .DatasetsPreview__row--refunds,
+#datasets-preview-onboarding:checked ~ .DatasetsPreview__list .DatasetsPreview__row--onboarding {
+    background: color-mix(in oklab, var(--datasets-preview-accent) 8%, transparent);
+    border-color: color-mix(in oklab, var(--datasets-preview-accent) 40%, transparent);
+}
+
+#datasets-preview-support:checked ~ .DatasetsPreview__list .DatasetsPreview__vradio--support::after,
+#datasets-preview-refunds:checked ~ .DatasetsPreview__list .DatasetsPreview__vradio--refunds::after,
+#datasets-preview-onboarding:checked ~ .DatasetsPreview__list .DatasetsPreview__vradio--onboarding::after {
+    transform: scale(1);
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the row they label
+// needs a visible focus indicator (WCAG 2.4.7).
+#datasets-preview-support:focus-visible ~ .DatasetsPreview__list .DatasetsPreview__row--support,
+#datasets-preview-refunds:focus-visible ~ .DatasetsPreview__list .DatasetsPreview__row--refunds,
+#datasets-preview-onboarding:focus-visible ~ .DatasetsPreview__list .DatasetsPreview__row--onboarding {
+    outline: 2px solid var(--datasets-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the next dataset's radio until the default selection changes.
+.DatasetsPreview:not(.DatasetsPreview--static)
+    #datasets-preview-support:checked
+    ~ .DatasetsPreview__list
+    .DatasetsPreview__vradio--refunds {
+    animation: DatasetsPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes DatasetsPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--datasets-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--datasets-preview-accent) 20%, transparent);
+    }
+}
+
+@keyframes DatasetsPreview__pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--datasets-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--datasets-preview-accent) 0%, transparent);
+    }
+}
+
+@include preview-motion-guards('DatasetsPreview');

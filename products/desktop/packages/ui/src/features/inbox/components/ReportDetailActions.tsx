@@ -1,23 +1,26 @@
 import {
   ArrowSquareOutIcon,
-  ChatCircleIcon,
-  ClockIcon,
-  CopyIcon,
+  CheckCircleIcon,
   DotsThreeIcon,
+  EyeSlashIcon,
+  LinkIcon,
   ReceiptIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
+import { canResolveReport } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
   Textarea,
   Tooltip,
   TooltipContent,
@@ -26,15 +29,19 @@ import {
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
+import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
-import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
+import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 interface ReportDetailActionsProps {
   report: SignalReport;
@@ -63,7 +70,6 @@ export function ReportDetailActions({
 
   const fireAction = useReportActionTracker(report);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
-  const chatOpen = useReportChatPanelStore((s) => s.open);
 
   // Canvases started from a report file into the report's space, or #general
   // when the report has none — a task without a channel shows in no space's
@@ -98,16 +104,8 @@ export function ReportDetailActions({
   const safePrUrl = prUrl && parsePrUrl(prUrl) ? prUrl : null;
   const refund = useRefundReport(report);
   const [refundOpen, setRefundOpen] = useState(false);
-  const reportsForBulk = useMemo(() => [report], [report]);
-  const bulkActions = useInboxBulkActions(
-    reportsForBulk,
-    report.id,
-    "detail_pane",
-  );
-  const canDefer =
-    report.status === "ready" ||
-    report.status === "failed" ||
-    report.status === "pending_input";
+  const dismiss = useInboxReportDismissAction(report);
+  const resolve = useInboxReportResolveAction(report);
 
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [canvasDirection, setCanvasDirection] = useState("");
@@ -138,22 +136,30 @@ export function ReportDetailActions({
         }
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-        {canDefer && (
-          <DropdownMenuItem
-            disabled={
-              bulkActions.snoozeDisabledReason !== null ||
-              bulkActions.isSnoozing
-            }
-            onClick={() => void bulkActions.snoozeSelected()}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <LinkIcon size={13} />
+            Copy link
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent
+            side="right"
+            sideOffset={4}
+            className="min-w-44"
           >
-            <ClockIcon size={13} />
-            Defer
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onClick={() => copyInboxReportLink(report)}>
-          <CopyIcon size={13} />
-          Copy link
-        </DropdownMenuItem>
+            <DropdownMenuItem
+              data-attr="inbox-copy-web-link"
+              onClick={() => copyInboxReportLink(report, "web")}
+            >
+              Copy web link
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-attr="inbox-copy-desktop-link"
+              onClick={() => copyInboxReportLink(report, "desktop")}
+            >
+              Copy desktop link
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         {refund.canRefund && !isResolved && (
           <DropdownMenuItem
             disabled={refund.disabledReason !== null}
@@ -196,19 +202,51 @@ export function ReportDetailActions({
     return (
       <>
         {githubButton}
-        {!chatOpen && (
+        <ReportChatToggle report={report} />
+        {canResolveReport(report) && (
           <Button
             type="button"
-            variant="primary"
+            variant="outline"
             size="xs"
             className={HEADER_ACTION_CLASS}
-            onClick={() => setChatOpen(true)}
+            loading={resolve.isPending}
+            disabled={resolve.isPending}
+            data-attr="inbox-report-resolve"
+            onClick={() => resolve.openDialog()}
           >
-            <ChatCircleIcon size={14} />
-            Chat with this report
+            <CheckCircleIcon size={14} />
+            Resolve
           </Button>
         )}
-        {canDefer && (
+        {!isResolved && report.status !== "suppressed" && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className={HEADER_ACTION_CLASS}
+            data-attr="inbox-report-dismiss"
+            onClick={() => dismiss.openDialog()}
+          >
+            <EyeSlashIcon size={14} />
+            Dismiss
+          </Button>
+        )}
+        <InboxReportCopyLinkMenu
+          report={report}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-xs"
+              className="h-7 w-7"
+              aria-label="Copy link"
+              title="Copy link"
+            >
+              <LinkIcon size={13} />
+            </Button>
+          }
+        />
+        {refund.canRefund && (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -217,68 +255,18 @@ export function ReportDetailActions({
                   variant="outline"
                   size="icon-xs"
                   className="h-7 w-7"
-                  aria-label="Defer"
-                  loading={bulkActions.isSnoozing}
-                  disabled={bulkActions.snoozeDisabledReason !== null}
-                  onClick={() => void bulkActions.snoozeSelected()}
+                  aria-label="Refund"
+                  disabled={refund.disabledReason !== null}
+                  onClick={() => setRefundOpen(true)}
                 />
               }
             >
-              <ClockIcon size={13} />
+              <ReceiptIcon />
             </TooltipTrigger>
             <TooltipContent>
-              {bulkActions.snoozeDisabledReason ?? "Defer"}
+              {refund.disabledReason ?? "Refund this PR and archive the report"}
             </TooltipContent>
           </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-xs"
-                className="h-7 w-7"
-                aria-label="Copy link"
-                onClick={() => copyInboxReportLink(report)}
-              />
-            }
-          >
-            <CopyIcon size={13} />
-          </TooltipTrigger>
-          <TooltipContent>Copy link</TooltipContent>
-        </Tooltip>
-        {refund.canRefund && (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-xs"
-                        aria-label="More report actions"
-                      >
-                        <DotsThreeIcon size={13} weight="bold" />
-                      </Button>
-                    }
-                  />
-                }
-              />
-              <TooltipContent>More report actions</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-              <DropdownMenuItem
-                disabled={refund.disabledReason !== null}
-                onClick={() => setRefundOpen(true)}
-              >
-                <ReceiptIcon size={13} />
-                Refund…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         )}
         {refund.canRefund && (
           <RefundReportDialog
@@ -293,6 +281,8 @@ export function ReportDetailActions({
             }
           />
         )}
+        {resolve.dialog}
+        {dismiss.dialog}
       </>
     );
   }

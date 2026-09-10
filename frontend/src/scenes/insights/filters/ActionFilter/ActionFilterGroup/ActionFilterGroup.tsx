@@ -28,13 +28,9 @@ import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { BaseMathType, EntityTypes, InsightType } from '~/types'
 
-import {
-    ActionFilterRow,
-    MathAvailability,
-    MathSelector,
-    taxonomicFilterGroupTypeToEntityType,
-} from '../ActionFilterRow/ActionFilterRow'
+import { ActionFilterRow, MathSelector, taxonomicFilterGroupTypeToEntityType } from '../ActionFilterRow/ActionFilterRow'
 import { getDefaultMathHogQLExpression } from '../ActionFilterRow/mathUtils'
+import { MathAvailability } from '../ActionFilterRow/types'
 import { LocalFilter, entityFilterLogic } from '../entityFilterLogic'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 import { nestedFilterLogic } from './nestedFilterLogic'
@@ -56,6 +52,7 @@ interface ActionFilterGroupProps {
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: any[]
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
+    includeHiddenEvents?: TaxonomicPopoverProps['includeHiddenEvents']
     groupTitle?: string
     trendsDisplayCategory?: any
     insightType?: InsightType
@@ -78,6 +75,7 @@ export function ActionFilterGroup({
     showNumericalPropsOnly,
     dataWarehousePopoverFields,
     excludedProperties,
+    includeHiddenEvents,
     groupTitle,
     trendsDisplayCategory,
     insightType,
@@ -373,6 +371,7 @@ export function ActionFilterGroup({
                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                                     excludedProperties={excludedProperties}
+                                    includeHiddenEvents={includeHiddenEvents}
                                     definitionPopoverRenderer={definitionPopoverRenderer}
                                 />
                                 {eventIndex < nestedFilters.length - 1 && (
@@ -427,6 +426,7 @@ export function ActionFilterGroup({
                             showNumericalPropsOnly={showNumericalPropsOnly}
                             dataWarehousePopoverFields={dataWarehousePopoverFields}
                             excludedProperties={excludedProperties}
+                            includeHiddenEvents={includeHiddenEvents}
                         />
                     </div>
                 )}

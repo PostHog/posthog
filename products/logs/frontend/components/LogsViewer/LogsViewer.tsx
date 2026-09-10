@@ -8,6 +8,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
 import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
+import { LogsMetricRuleQuickCreateModal } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRuleQuickCreateModal'
 import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters, LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
@@ -43,6 +44,7 @@ export interface LogsViewerProps {
     // distinct-id log attributes — unlike a pinned distinct-ids filter, not capped by how
     // many ids the person page happened to load.
     personId?: string
+    sessionId?: string
     // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
     // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
     defaultFacetRailCollapsed?: boolean
@@ -55,10 +57,11 @@ export function LogsViewer({
     initialFilters,
     pinnedFilters,
     personId,
+    sessionId,
     defaultFacetRailCollapsed,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
             <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
@@ -68,7 +71,7 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
-                                        scope={{ initialFilters, pinnedFilters, personId }}
+                                        scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
                             </BindLogic>
@@ -132,7 +135,7 @@ function LogsViewerContent({
         hasMoreLogsToLoad,
         totalLogsMatchingFilters,
     } = useValues(logsViewerDataLogic)
-    const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
+    const { refreshQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
@@ -248,7 +251,7 @@ function LogsViewerContent({
                 action: () => {
                     if (!logsLoading) {
                         resetCursor()
-                        runQuery()
+                        refreshQuery()
                     }
                 },
                 disabled: !isFocused,
@@ -289,7 +292,7 @@ function LogsViewerContent({
             parsedLogs,
             openLogDetails,
             closeLogDetails,
-            runQuery,
+            refreshQuery,
             logsLoading,
             resetCursor,
             moveCursorDown,
@@ -396,6 +399,7 @@ function LogsViewerContent({
                 </div>
             </div>
             <LogDetailsModal timezone={timezone} />
+            <LogsMetricRuleQuickCreateModal />
         </div>
     )
 }

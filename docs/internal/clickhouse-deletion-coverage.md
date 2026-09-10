@@ -37,18 +37,51 @@ The sweep finds nothing to mutate and reports success, while the proxy every ver
 
 Two gates keep that from passing silently.
 
-- `is_present` refuses a registered target whose storage table is on no data node here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
+- `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
 - `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
+- `deletes_job` counts the same way after its own sweep, but only logs what survived and still marks the requests verified. Its mutations have already run by then, and failing the op would strand the run without undoing anything. Proving zero survivors is a full scan, so the count is time-bounded and reports unknown rather than zero when it runs out.
+- A proxy only reads the cluster its engine names, and `sql.py` builds the `events_json` proxy against `CLICKHOUSE_CLUSTER`. So a target stored on another cluster is counted twice: once through the proxy, and once on its storage table through the handle that holds it. Without the second count, a deployment whose storage moved without the proxy following it would report a clean sweep off an empty table.
 
 Both gates probe hosts rather than compare cluster names.
 Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
-`DeletionTarget.cluster_setting` names where a storage table lives for the refusal message and for the dispatch below; it does not decide reachability.
+`DeletionTarget.cluster_setting` names where a storage table lives, and `ClickhouseCluster.sibling` turns that name into a handle; neither decides reachability.
 `sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
 
-Neither gate makes an off-cluster table sweepable.
-Reaching one needs a second handle built with `get_cluster(cluster=...)`, and every sweep loop reading its shards from the handle that holds the target rather than from the one the job was given.
-The pending-deletes dictionary the `deletes_job` predicate joins against has to be bootstrapped on that second cluster too.
-None of that exists yet.
+## Dispatching to a target's own cluster
+
+`resolve_placements` pairs each target with the handle whose shards carry it: the job's own handle where the table is local, a sibling derived from it where it is not.
+The handle in hand is probed first, so a deployment whose tables are all on one cluster never builds a second one.
+
+Sweeps that iterate placements dispatch each target over `placement.cluster.shards`:
+
+- `delete_person_events_op`
+- `execute_event_deletion`, immediate mode
+- `deletes_job` → `delete_events`, which also has to put its dictionaries on the second cluster; see below
+
+The rest are bound to a single handle and refuse rather than skip when a target has moved off it (`dispatchable_here`, `UnreachableTargetError`):
+
+- Property removal. Its staging table is host-local and its fan-out is one op per shard of one cluster.
+- The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
+
+### Getting the dictionaries onto the second cluster
+
+`delete_events` does not name the rows it removes. Its predicate joins two dictionaries, `pending_deletes_<timestamp>_dictionary` and `adhoc_events_deletion_dictionary`, so a mutation cannot run anywhere those are absent.
+
+Both reach every host of one cluster because their source table is replicated, and replication is exactly what a cluster boundary stops: a cluster with its own Keeper can never join that replica set.
+`adhoc_events_deletion` compounds it, being migration-managed and present only on the main cluster.
+
+So the rows are staged instead. One Parquet object per dictionary per run, written by the cluster itself with `INSERT INTO FUNCTION s3(...)`, and every host on the other cluster loads it through `SOURCE(CLICKHOUSE(QUERY 'SELECT ... FROM s3(...)'))`.
+ClickHouse has no S3 dictionary source, but that source runs its query locally, and the query can read anything the server can.
+
+- Nothing changes on a deployment where every target sits on the cluster the job connects to. The handle in hand is probed first, and no object is written.
+- The source tables stay where they are. `pending_deletes_<timestamp>` also carries the Postgres `AsyncDeletion` row ids that `mark_deletions_verified` reads back, and those never enter a dictionary.
+- `load_and_verify_deletes_dictionary` loads on every host of every cluster and fails the run unless all of them checksum alike. That is what catches a stale or missing object: without it the mutation there joins an empty dictionary, deletes nothing, and reports success.
+- Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
+
+The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
+`squash_person_overrides` rewrites `person_id` on `sharded_events` and `sharded_events_json` through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
+Skipping the second table there is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
 ## Covered tables
 
@@ -63,6 +96,8 @@ Each is a decision that erasure may lag by the retention window.
 
 - `sharded_events_recent` — a transient mirror of the last few days of events, 7-day TTL keyed on `inserted_at`. It partitions by day with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real worst case is about 8 days plus TTL-merge lag, not a flat 7. Short enough to accept as the erasure bound, and a sweep would race the TTL for little benefit.
 
+- `person_property_mutation_log_data` retains submitted person updates for 30 days from the Kafka message timestamp. It stores only `team_id`, `event_uuid`, `properties`, and `ingested_at`, so person-based sweeps cannot target it directly. Daily partitions drop after their newest row expires, plus TTL-merge lag.
+
 Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
 
@@ -70,12 +105,18 @@ That decision predates this document; the older `posthog/models/async_deletion/d
 
 ### Property removal does not reach `flag_evaluations`
 
+`person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.
+Because the table can no longer hold person properties, only the event-`properties` half of a request can match rows here.
+
 The events property-removal path rewrites rows in a staging table and resets each affected materialized column with `ALTER TABLE … UPDATE <col> = ''`.
 That works because `materialize()` creates columns as `DEFAULT <expr>`, which is assignable.
 
 All of that machinery (column discovery, staging rewrite, shard walk) is scoped to `events`; none of it reaches `flag_evaluations`.
-Until it does, `get_property_removal_shards` refuses to start when the table holds rows matching the request, so a request cannot complete while data it named survives.
+Until it does, `get_property_removal_shards` refuses to start when the table holds rows matching a request's event `properties`, so such a request cannot complete while data it named survives.
 The check costs nothing while the table is empty.
+
+The person-property half of a request is different, whether or not it also names event properties: `DeletionTarget.stores_person_properties` is `False` on `FLAG_EVALUATIONS`, so the gate does not build a `person_properties` predicate against the table at all, and that half of the request completes regardless of what the column holds.
+That is accurate for rows written since the producer stopped sending `person_properties` (2026-09-05, #95693), and a deliberate blind spot for whatever a row written before then still carries: those values are out of the gate's reach until the row's TTL passes.
 
 The schema stopped being a second obstacle with migration `0301_flag_evaluations_default_columns`, which recreated the nine typed columns as `DEFAULT <expr>`, the kind `materialize()` mints on events; they were true ClickHouse `MATERIALIZED` before, which is not assignable at all.
 Measured against ClickHouse 26.6.2 on the `DEFAULT` shape:
@@ -102,8 +143,9 @@ The remaining fix is pointing the events rewrite machinery at this table, with t
 #### If a request arrives before the fix lands
 
 Today the refusal costs nothing, because the table is empty.
-Once it holds rows, a property removal with `delete_all_events` refuses whenever a single flag-evaluation row carries the named property, and the operator has no way through: `delete_all_events` and `events` are mutually exclusive on the model, so the request cannot be narrowed to exclude `$feature_flag_called`, and the admin Retry button replays the same failure.
+Once it holds rows, a property removal with `delete_all_events` refuses whenever a single flag-evaluation row carries the named event property, and the operator has no way through: `delete_all_events` and `events` are mutually exclusive on the model, so the request cannot be narrowed to exclude `$feature_flag_called`, and the admin Retry button replays the same failure.
 The only exits are waiting out the TTL or shipping the fix above. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL. `posthog/models/flag_evaluations/sql.py` says the same thing next to the partition clause.
+A person-property-only request is not stuck this way: as above, the gate does not check `flag_evaluations` for one at all.
 
 Refusing beats silently under-deleting, so the gate is the right default.
 If the fix has not landed by the time real traffic hits, the cheaper stopgaps are letting a request exclude event names so an operator can scope around the table, or recording an explicit, audited acknowledgement on the request so an operator can accept the residue rather than being stuck.
@@ -131,8 +173,8 @@ Keeping the fork downstream of person resolution is the contract, tracked on #81
 
 ## Adding a table
 
-Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns.
+Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table where those diverged.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
-If its storage lives on a cluster other than the one the deletion jobs connect to, it cannot be swept at all today; see "Reach" above before registering it.
+If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
 
 `posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither list, so the decision has to be made rather than skipped.

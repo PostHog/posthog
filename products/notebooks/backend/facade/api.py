@@ -24,6 +24,11 @@ from .. import logic, markdown_migration
 # source (e.g. notebooks.NotebookCreationSource.TEMPORAL_AGENT) without importing internals.
 from ..analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
 from ..models import Notebook, ResourceNotebook
+
+# The run endpoint rejects a SQLV2 or PythonV2 cell from a user without this flag, so a caller
+# that writes notebook content must ask before it authors one. Re-exported so cross-product
+# callers read the same gate the endpoint enforces and the two cannot drift apart.
+from ..sql_v2 import is_sql_v2_enabled as is_sql_v2_enabled
 from . import contracts
 
 if TYPE_CHECKING:
@@ -32,6 +37,14 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
+
+
+def is_notebook_widget_enabled(user: "User | None") -> bool:
+    from ..widgets import (
+        is_notebook_widget_enabled as is_enabled,  # noqa: PLC0415 — avoid loading widget generation and Temporal for unrelated facade callers
+    )
+
+    return is_enabled(user)
 
 
 def _to_notebook_data(notebook: Notebook) -> contracts.NotebookData:

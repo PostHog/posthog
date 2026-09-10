@@ -1,4 +1,6 @@
-import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems } from './utils'
+import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
+
+import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems, shouldSearchTickets } from './utils'
 
 interface TestItem {
     name: string
@@ -122,9 +124,34 @@ describe('canOpenInNewTab', () => {
             false,
         ],
         ['blocks a result with nothing to open', { id: 'no-href' }, false],
+        ['blocks a result whose href is the placeholder', { id: 'starred-1', href: PLACEHOLDER_HREF }, false],
     ]
 
     it.each(cases)('%s', (_label, item, expected) => {
         expect(canOpenInNewTab(item)).toBe(expected)
+    })
+})
+
+describe('shouldSearchTickets', () => {
+    it('waits for a query worth scanning message content for', () => {
+        expect(shouldSearchTickets('')).toBe(false)
+        expect(shouldSearchTickets('b')).toBe(false)
+        expect(shouldSearchTickets('bi')).toBe(false)
+        expect(shouldSearchTickets('bil')).toBe(true)
+        expect(shouldSearchTickets('  billing  ')).toBe(true)
+    })
+
+    // A number resolves to an indexed lookup by ticket number, so it is never too short.
+    it('always searches a ticket number', () => {
+        expect(shouldSearchTickets('7')).toBe(true)
+        expect(shouldSearchTickets('#7')).toBe(true)
+        expect(shouldSearchTickets('#')).toBe(false)
+    })
+
+    // The server drops an over-long search term, so sending one would answer a pasted log line
+    // with unfiltered tickets.
+    it('does not send a query the server would drop', () => {
+        expect(shouldSearchTickets('x'.repeat(200))).toBe(true)
+        expect(shouldSearchTickets('x'.repeat(201))).toBe(false)
     })
 })

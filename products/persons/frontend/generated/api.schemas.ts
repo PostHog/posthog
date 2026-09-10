@@ -7,9 +7,10 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export type PropertyGroupOperatorApi = (typeof PropertyGroupOperatorApi)[keyof typeof PropertyGroupOperatorApi]
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
 
-export const PropertyGroupOperatorApi = {
+export const PropertyGroupOperatorEnumApi = {
     And: 'AND',
     Or: 'OR',
 } as const
@@ -190,7 +191,7 @@ export interface PropertyApi {
      *
      * * `AND` - AND
      * * `OR` - OR */
-    type?: PropertyGroupOperatorApi
+    type?: PropertyGroupOperatorEnumApi
     values: PropertyItemApi[]
 }
 
@@ -432,7 +433,7 @@ export type PersonsListParams = {
      */
     properties?: PropertyApi[]
     /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.
      */
     search?: string
 }

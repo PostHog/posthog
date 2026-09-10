@@ -67,6 +67,26 @@
                         flex-basis: 100%;
                     }
                 }
+
+                @container editor-panel (max-width: 400px) {
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row {
+                        flex-wrap: wrap;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-items {
+                        flex-basis: 100%;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator {
+                        justify-content: flex-start;
+                        width: auto;
+                        height: auto;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator--empty {
+                        display: none;
+                    }
+                }
             }
 
             &:not(.EditorFiltersWrapper--panels) {
@@ -316,6 +336,15 @@
 .ErrorTracking__insights {
     .InsightViz {
         align-items: stretch;
+        height: 100%;
+    }
+
+    // An embedded query renders `.InsightCard__viz` instead of `.InsightViz`, and that wrapper carries
+    // no sizing of its own. Give it the same full-height flex column, or the chart collapses to its
+    // content height and leaves the bottom of the card empty.
+    .InsightCard__viz {
+        display: flex;
+        flex-direction: column;
         height: 100%;
     }
 

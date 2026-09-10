@@ -8,6 +8,8 @@ import {
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
+import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER } from 'products/tasks/frontend/modelCatalog.generated'
 
 import { type PermissionMode, resolveModeForRuntimeAdapter } from './composerModes'
 
@@ -16,33 +18,15 @@ export interface ComposerEffortOption {
     label: string
 }
 
-// What a thinking model supports at minimum. Only reached for a model the catalogue hasn't described yet — while the
-// first fetch is in flight, or for a run started on a model since retired from the gateway.
+// What a thinking model supports at minimum. Only reached for a model the catalogue does not describe, which now means
+// a run started on a model since retired from the catalog.
 const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
     ReasoningEffortEnumApi.Low,
     ReasoningEffortEnumApi.Medium,
     ReasoningEffortEnumApi.High,
 ]
 
-// Used only when the tasks API can't answer: an unreachable LLM gateway makes the catalogue endpoint return an empty
-// list, and an empty model dropdown is worse than a stale one. The live catalogue is the source of truth — see
-// `modelCatalogueLogic`. Claude-only: without the catalogue we can't know a Codex model exists, and Claude is the default.
-export const FALLBACK_MODEL_CHOICES: ModelChoiceApi[] = [
-    {
-        runtime_adapter: RuntimeAdapterEnumApi.Claude,
-        model: 'claude-sonnet-5',
-        display_name: 'Claude Sonnet 5',
-        supported_efforts: FALLBACK_EFFORTS,
-    },
-    {
-        runtime_adapter: RuntimeAdapterEnumApi.Claude,
-        model: 'claude-opus-5',
-        display_name: 'Claude Opus 5',
-        supported_efforts: FALLBACK_EFFORTS,
-    },
-]
-
-export const DEFAULT_COMPOSER_MODEL = 'claude-sonnet-5'
+export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
 const EFFORT_LABELS: Record<string, string> = {
@@ -54,11 +38,21 @@ const EFFORT_LABELS: Record<string, string> = {
     [ReasoningEffortEnumApi.Ultracode]: 'Ultracode',
 }
 
+// The catalogue is keyed by bare catalog ids, so a provider-qualified id is folded onto the model it names before
+// any lookup. A run stored as `anthropic/claude-opus-5` otherwise reads as an unknown model on this surface alone.
+function catalogueEntry(catalogue: ModelChoiceApi[], model: string | null | undefined): ModelChoiceApi | undefined {
+    if (!model) {
+        return undefined
+    }
+    const normalized = normalizeModelId(model)
+    return catalogue.find((option) => option.model === normalized)
+}
+
 export function getEffortsForModel(
     catalogue: ModelChoiceApi[],
     model: string | null | undefined
 ): ComposerEffortOption[] {
-    const efforts = catalogue.find((option) => option.model === model)?.supported_efforts ?? FALLBACK_EFFORTS
+    const efforts = catalogueEntry(catalogue, model)?.supported_efforts ?? FALLBACK_EFFORTS
     return efforts.map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }))
 }
 
@@ -69,7 +63,7 @@ export function getRuntimeAdapterForModel(
     catalogue: ModelChoiceApi[],
     model: string | null | undefined
 ): RuntimeAdapterEnumApi {
-    return catalogue.find((option) => option.model === model)?.runtime_adapter ?? RuntimeAdapterEnumApi.Claude
+    return catalogueEntry(catalogue, model)?.runtime_adapter ?? RuntimeAdapterEnumApi.Claude
 }
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
@@ -107,6 +101,7 @@ const CAPABILITY_LADDERS: Record<RuntimeAdapterEnumApi, CapabilityNotch[]> = {
         { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Medium },
         { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.High },
         { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Xhigh },
+        { model: 'gpt-6-astra', effort: ReasoningEffortEnumApi.Max },
     ],
 }
 
@@ -134,11 +129,23 @@ export function getRuntimeAdapterLabel(runtimeAdapter: string): string {
 }
 
 export function getModelLabel(catalogue: ModelChoiceApi[], model: string | null | undefined): string {
-    return catalogue.find((option) => option.model === model)?.display_name ?? model ?? 'Model'
+    return catalogueEntry(catalogue, model)?.display_name ?? model ?? 'Model'
 }
 
 export function getEffortLabel(effort: string | null | undefined): string {
     return effort ? (EFFORT_LABELS[effort] ?? effort) : 'Effort'
+}
+
+// Keep an effort only if the model supports it, else nothing. The stored-preference counterpart of
+// `resolveEffortForModel`: a settings row wants "no pick" when the effort no longer applies, where a
+// composer wants a concrete value to send. Mirrors the backend's `filter_unsupported_effort`.
+export function filterEffortForModel(
+    catalogue: ModelChoiceApi[],
+    effort: string | null | undefined,
+    model: string | null | undefined
+): ReasoningEffortEnumApi | null {
+    const allowed = getEffortsForModel(catalogue, model).map((option) => option.value)
+    return effort && allowed.includes(effort as ReasoningEffortEnumApi) ? (effort as ReasoningEffortEnumApi) : null
 }
 
 // Clamp an effort to one the selected model actually supports — the new-run path can inherit an effort from a
@@ -159,6 +166,22 @@ export function resolveEffortForModel(
         return effort as ReasoningEffortEnumApi
     }
     return allowed.includes(DEFAULT_COMPOSER_EFFORT) ? DEFAULT_COMPOSER_EFFORT : allowed[allowed.length - 1]
+}
+
+/**
+ * A run-create request that pins no runtime selection at all: the backend resolves the model
+ * triple from the stored team/user default (or its own fallback), and the permission mode
+ * rides along, clamped server-side to whichever runtime the default names. Used whenever the
+ * composer's selection is untouched — pinning the displayed fallback instead would freeze a
+ * value the server could have resolved better (and would go stale the moment the default
+ * changes or a fetch fails). The generated request types are discriminated on
+ * `runtime_adapter`, so this shape deliberately steps outside them.
+ */
+export function buildServerResolvedRunCreateRequest(
+    permissionMode: PermissionMode,
+    rest: Partial<TaskRunCreateRequestSchemaApi>
+): TaskRunCreateRequestSchemaApi {
+    return { ...rest, initial_permission_mode: permissionMode } as unknown as TaskRunCreateRequestSchemaApi
 }
 
 /**

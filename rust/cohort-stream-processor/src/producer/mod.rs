@@ -40,7 +40,7 @@ pub use merge::{
 };
 pub use seed::{CaptureSeedTileSink, KafkaSeedTileSink, NoopSeedTileSink, SeedTileSink};
 
-/// One per-cohort membership change on `cohort_membership_changed_shadow`.
+/// One per-cohort membership change on the membership output topic.
 ///
 /// `origin`/`run_id` are additive and absent on the live path, so live emissions stay
 /// byte-identical to the pre-field contract.
@@ -183,6 +183,11 @@ impl CaptureSink {
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
         self.0.recorded()
     }
+
+    /// Produce calls made, failed ones included — the round trips a batched apply is amortizing.
+    pub fn produce_calls(&self) -> usize {
+        self.0.produce_calls()
+    }
 }
 
 #[async_trait]
@@ -321,7 +326,7 @@ mod tests {
             map_transition(&filters, &transition(lsk, TransitionKind::Entered), TS).collect();
         assert!(
             changes.is_empty(),
-            "a leaf owned only by a multi-leaf cohort produces no shadow output",
+            "a leaf owned only by a multi-leaf cohort produces no membership output",
         );
     }
 

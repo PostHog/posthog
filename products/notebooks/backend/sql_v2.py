@@ -405,12 +405,16 @@ def dispatch_sql_v2_run(
     node_type: str = "hogql",
     output_name: str = "",
     inputs: list[dict] | None = None,
+    variables: dict | None = None,
 ) -> None:
     """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
     Returns as soon as the server accepts (202); the result arrives via the callback. A
     kernel node (python or duckdb) carries the `node`/`inputs` shape the executor consumes;
     a hogql node keeps the flat `code` the capped-fetch path reads — the paths stay additive.
+
+    `variables` are notebook-level values a python node reads as globals; the executor passes
+    the whole `node` object through, so they need no handling of their own on the way in.
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
@@ -431,7 +435,12 @@ def dispatch_sql_v2_run(
         "cache_limit": RESULT_CACHE_ROWS,
     }
     if node_type in ("python", "duckdb"):
-        payload["node"] = {"type": node_type, "code": code, "output_name": output_name}
+        payload["node"] = {
+            "type": node_type,
+            "code": code,
+            "output_name": output_name,
+            "variables": variables or {},
+        }
         payload["inputs"] = inputs or []
     else:
         payload["code"] = code

@@ -20,6 +20,7 @@ import type {
 } from 'products/data_quality/frontend/generated/api.schemas'
 
 import {
+    NEW_CHECK_ACTION_ID,
     dataQualityOverviewLogic,
     focusCandidatesAfterDelete,
     rowActionsId,
@@ -499,7 +500,7 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
-        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1'],
+        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/tests'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
         [
             'a synced table',
@@ -531,7 +532,7 @@ describe('dataQualityOverviewLogic', () => {
 
         const candidates = focusCandidatesAfterDelete(logic.values.subjectGroups, 'view:uuid-customers', 'check-3')
 
-        expect(candidates).toEqual([subjectDisclosureId('view:uuid-orders'), 'data-quality-browse-subjects'])
+        expect(candidates).toEqual([subjectDisclosureId('view:uuid-orders'), NEW_CHECK_ACTION_ID])
     })
 
     async function drainListeners(): Promise<void> {

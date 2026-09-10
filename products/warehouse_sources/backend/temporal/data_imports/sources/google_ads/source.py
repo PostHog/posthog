@@ -163,15 +163,13 @@ class GoogleAdsSource(
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # `_call_with_transient_retry` retries a RESOURCE_EXHAUSTED quota rejection in-line, but only
-        # a few times over a short backoff — far short of a real quota window. When quota stays
-        # exhausted past that budget, the gRPC `ResourceExhausted` re-raises with Google's canonical
-        # "Resource has been exhausted (e.g. check quota)." message. The quota refills over time and
-        # the resumable source picks up from the last saved checkpoint on the next Temporal retry, so
-        # classify it as retryable and log a warning instead of tracking it as a bug. The deterministic
-        # "Received message larger than max" abort carries its own distinct message, so it is not
-        # matched here and still surfaces as a real error.
-        return {"Resource has been exhausted"}
+        # A quota/rate-limit RESOURCE_EXHAUSTED ("Resource has been exhausted (e.g. check
+        # quota).") is already ridden out in-process by `_call_with_transient_retry` (see
+        # `_is_transient_grpc_error` in google_ads.py). A search that still fails after that
+        # budget has hit a longer-lived quota window than a few seconds of backoff can clear,
+        # but Temporal's activity retry recovers once it does — self-recovering, not a bug, so
+        # keep it out of error tracking as noise.
+        return {"Resource has been exhausted (e.g. check quota)"}
 
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:
