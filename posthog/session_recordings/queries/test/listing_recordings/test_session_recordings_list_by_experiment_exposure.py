@@ -439,7 +439,13 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-after-custom"],
         )
 
-    def test_in_session_narrows_to_sessions_containing_the_exposure_event(self) -> None:
+    # The recorder's first frame commonly lands after the flag call, so the narrowing matches on
+    # session id equality and compares no timestamps. A bound added here would silently drop a large
+    # share of the sessions the scope exists to show.
+    @parameterized.expand([("first_frame_at_the_exposure", 0), ("first_frame_after_the_exposure", 30)])
+    def test_in_session_narrows_to_sessions_containing_the_exposure_event(
+        self, _name: str, first_frame_delay_seconds: int
+    ) -> None:
         experiment = self._create_experiment()
         # Marks the exposure event as session-linkable, so the narrowing reads the event itself
         # rather than the stamped-property fallback.
@@ -454,8 +460,9 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         )
         flush_persons_and_events()
 
+        first_frame = exposure_time + timedelta(seconds=first_frame_delay_seconds)
         self._produce_recording(
-            "exposed-user", "session-with-exposure", exposure_time, exposure_time + timedelta(minutes=10)
+            "exposed-user", "session-with-exposure", first_frame, first_frame + timedelta(minutes=10)
         )
         self._produce_recording(
             "exposed-user",
