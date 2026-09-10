@@ -61,7 +61,7 @@ Query skills should choose methods from the requested calculation and output, no
 Reuse matching approved metrics or saved queries when they define the requested measure.
 Use typed queries when standard PostHog calculation rules or native insight controls matter.
 Use SQL for record inspection, custom calculations, joins, existing SQL, or requests for SQL.
-For a new query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates.
+For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates.
 Keep valid existing SQL when it fits the task. A task that needs SQL does not require a failed typed-query attempt first.
 Reassess when the task changes. Neither the previous tool call nor a request for a chart determines the next method.
 
