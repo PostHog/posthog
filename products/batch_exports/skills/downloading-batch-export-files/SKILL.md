@@ -33,7 +33,7 @@ Ask a short clarifying question if the user did not specify the required inputs:
   Required for `events`, `persons`, and `sessions`, and not supported for `hogql`
 - `file.format`: `Parquet` or `JSONLines`; prefer `Parquet` for compact analytics exports and `JSONLines` for line-oriented text processing
 - `file.compression`: optional, one of `zstd`, `gzip`, `brotli`, `lz4`, or `snappy`. If `JSONLines` was chosen as format, only `gzip` and `brotli` are supported.
-- `file.max_size_mb`: maximum part size in MB, 1024 by default.
+- `file.max_size_mb`: part size in MiB, 1024 by default. A part can go a little over this size.
   Lower it when the user wants smaller parts, raise it for fewer and bigger ones, or set it to `null` to write a single file of any size.
 
 For `events`, `include` and `exclude` are optional event-name filters.
