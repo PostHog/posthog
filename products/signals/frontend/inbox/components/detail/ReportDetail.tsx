@@ -405,7 +405,7 @@ export function InboxDetailFrame({
                                             )
                                         )}
                                         {!evidenceExpanded && signals.length > 2 && (
-                                            <LemonButton type="secondary" size="small" onClick={expandEvidence}>
+                                            <LemonButton type="tertiary" size="small" onClick={expandEvidence}>
                                                 Show more
                                             </LemonButton>
                                         )}

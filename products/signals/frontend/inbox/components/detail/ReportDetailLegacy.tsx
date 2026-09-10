@@ -392,7 +392,7 @@ function InboxDetailFrameLegacy({
                                         <SignalCard key={signal.signal_id} signal={signal} />
                                     ))}
                                     {!evidenceExpanded && signals.length > 2 && (
-                                        <LemonButton type="secondary" size="small" onClick={expandEvidence}>
+                                        <LemonButton type="tertiary" size="small" onClick={expandEvidence}>
                                             Show more
                                         </LemonButton>
                                     )}
