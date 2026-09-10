@@ -25,6 +25,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
 │                             AccountsOverviewTilesButton + AccountsColumnConfigurator on the right
 ├── AccountsOverviewTiles     metric tiles across the filtered set
 └── AccountsTable             the DataTable; keyed row renderers; controlled row expansion
+    └── passes a memoized DataTable context, so unrelated state updates keep memoized table rows intact
     └── AccountNotebooksExpansion   expanded row: sidebar (Useful links + active-relationships summary) + LemonTabs(Notes/Users/Relationships/Feature requests/Usage/Spend/Opportunities/Conversations/Meetings/Event stream)
         ├── (notes)         paginated/searchable/sortable LemonTable + "New note" button  (accountNotebooksLogic, keyed by accountId)
         ├── (users)         AccountRelatedUsersExpansion             (accountRelatedUsersLogic, keyed by externalId; staff get a compact, region-aware admin link)

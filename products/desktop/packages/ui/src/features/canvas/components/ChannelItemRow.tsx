@@ -249,7 +249,10 @@ function ChannelItemDot({
   const pendingDelete = useIsCanvasPendingDelete(item.id);
   const deleting = item.kind === "canvas" && pendingDelete;
   return (
-    <TaskStatusDot dot={deleting ? DELETING_DOT : taskDot(status ?? {})} />
+    <TaskStatusDot
+      dot={deleting ? DELETING_DOT : taskDot(status ?? {})}
+      hitArea="row"
+    />
   );
 }
 

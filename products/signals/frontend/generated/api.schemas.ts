@@ -281,6 +281,11 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly dismissal_note: string | null
+    /**
+     * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+     * @nullable
+     */
+    readonly repo_slug: string | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -1884,7 +1889,7 @@ export interface SignalReportBulkStateResultApi {
 export interface SignalReportBulkStateResponseApi {
     /** One result per requested id, in request order (after de-duplication). */
     results: SignalReportBulkStateResultApi[]
-    /** Number of reports whose state was changed. */
+    /** Number of reports the call accepted. A report that already had the requested state counts here too, because a repeat dismiss or resolve still records its feedback. */
     transitioned_count: number
     /** Number of reports whose transition was not allowed. */
     skipped_count: number
@@ -2222,6 +2227,11 @@ export interface SignalScoutConfigApi {
     readonly skill_name: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description: string
+    /**
+     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * @maxLength 200
+     */
+    display_name?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
     /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
@@ -2427,9 +2437,14 @@ export interface SignalScoutConfigCreateApi {
 export type PatchedSignalScoutConfigUpdateApiStructuredOutputSchema = { [key: string]: unknown } | null
 
 /**
- * Editable schedule, enablement, and emit posture for one scout config.
+ * Editable display name, schedule, enablement, and emit posture for one scout config.
  */
 export interface PatchedSignalScoutConfigUpdateApi {
+    /**
+     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * @maxLength 200
+     */
+    display_name?: string
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -2512,7 +2527,7 @@ export interface ScoutMemberApi {
     /** The member's last name (may be empty). */
     last_name: string
     /**
-     * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+     * The member's resolved GitHub login (lowercased), already resolved server-side. Null when the member has no linked GitHub account, which does not stop you routing to them: pass their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only means no draft PR can be opened as that person.
      * @nullable
      */
     github_login: string | null
@@ -3503,10 +3518,9 @@ export interface ReportEvidenceApi {
 /**
  * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
  *
- * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
- * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
- * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
- * reviewer is never silently dropped.
+ * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+ * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+ * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
  */
 export interface SuggestedReviewerApi {
     /**
@@ -3514,7 +3528,7 @@ export interface SuggestedReviewerApi {
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
     /**
      * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
@@ -3761,6 +3775,12 @@ export interface EmitReportRequestApi {
      * @items.maxLength 200
      */
     suggested_prompts?: string[]
+    /**
+     * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+     * @maxLength 200
+     * @nullable
+     */
+    idempotency_key?: string | null
 }
 
 export interface EmitReportResponseApi {
@@ -3791,6 +3811,8 @@ export interface EmitReportResponseApi {
      * @nullable
      */
     remediation: string | null
+    /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
+    idempotent_replay: boolean
 }
 
 /**
@@ -3927,6 +3949,34 @@ export interface RecordStructuredOutputResponseApi {
     recorded_count: number
     /** Deterministic event ids of the recorded `$scout_structured_output` events, in submission order. Stable across a resubmission of the identical batch, which is what makes retrying a failed delivery safe. */
     record_ids: string[]
+}
+
+/**
+ * What one scout spent in the window, and what it produced for that spend.
+ */
+export interface ScoutCostApi {
+    /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
+    skill_name: string
+    /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
+    spend_usd: number
+    /** Runs the scout started in the window. */
+    run_count: number
+    /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
+    priced_run_count: number
+    /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
+    reports_touched: number
+}
+
+/**
+ * Model spend and output per scout over a window.
+ */
+export interface ScoutCostsApi {
+    /** Window the rows describe, in days. */
+    window_days: number
+    /** One row per scout that started at least one run on this project in the window. */
+    scouts: ScoutCostApi[]
+    /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
+    available: boolean
 }
 
 /**
@@ -4682,6 +4732,15 @@ export type SignalsScoutRunsListParams = {
      * @minLength 1
      */
     text?: string
+}
+
+export type SignalsScoutRunsCostsParams = {
+    /**
+     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
+     * @minimum 7
+     * @maximum 7
+     */
+    window_days?: number
 }
 
 export type SignalsScoutRunsRecentEmissionsParams = {

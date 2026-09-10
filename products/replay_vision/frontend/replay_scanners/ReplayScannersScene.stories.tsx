@@ -650,6 +650,7 @@ export const ScannerCalibration: StoryObj = {
 const digestScoutConfig = {
     id: '00000000-0000-0000-0000-0000000000c1',
     skill_name: 'signals-scout-daily-digest-confused-checkout',
+    display_name: 'Checkout / daily digest',
     description: 'Daily digest of what the scanner observed since the last run.',
     scout_origin: 'custom',
     owners: [alice],
@@ -660,7 +661,7 @@ const digestScoutConfig = {
     source_id: summarizerScanner.id,
     run_cron_schedule: '0 9 * * *',
     run_interval_minutes: 1440,
-    output_destinations: [],
+    output_destinations: {},
     created_at: '2026-05-02T09:00:00Z',
 }
 
@@ -668,6 +669,7 @@ const trendScoutConfig = {
     ...digestScoutConfig,
     id: '00000000-0000-0000-0000-0000000000c2',
     skill_name: 'signals-scout-checkout-trend-watch',
+    display_name: '',
     description: 'Watches for week-over-week movement in checkout friction themes.',
     owners: [bob],
     created_at: '2026-05-06T09:00:00Z',
@@ -691,6 +693,9 @@ export const ScannerScouts: StoryObj = {
             get: {
                 '/api/projects/:team_id/signals/scout/configs/': [digestScoutConfig, trendScoutConfig],
                 '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [scoutReport],
+                '/api/projects/:team_id/llm_skills/name/:skillName/': {
+                    body: 'Review new scanner observations and report changes in checkout friction.',
+                },
             },
         }),
     ],
