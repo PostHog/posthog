@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 # Cutover observability for #82564: the CDP worker's ticket actions move from
 # secret_api_token on the external route to scoped JWTs on the internal route.
@@ -14,4 +14,24 @@ TICKET_SEARCH_DURATION_SECONDS = Histogram(
     "End-to-end duration of support ticket list requests that include a search term",
     labelnames=["search_path"],  # ticket_number | text
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, float("inf")),
+)
+
+INBOUND_BACKLOG = Gauge(
+    "posthog_conversations_inbound_backlog",
+    "Non-terminal inbound callback receipts by status and source",
+    labelnames=["status", "source"],
+)
+INBOUND_OLDEST_READY_AGE_SECONDS = Gauge(
+    "posthog_conversations_inbound_oldest_ready_age_seconds",
+    "Age in seconds of the oldest due or expired-lease inbound receipt",
+)
+INBOUND_ATTEMPTS_TOTAL = Counter(
+    "posthog_conversations_inbound_attempts_total",
+    "Inbound receipt processing attempts by source and result",
+    labelnames=["source", "result"],  # processed | retry | failed | claimed
+)
+INBOUND_LEASES_TOTAL = Counter(
+    "posthog_conversations_inbound_leases_total",
+    "Inbound receipt lease outcomes",
+    labelnames=["result"],  # claimed | expired_reclaim | busy
 )

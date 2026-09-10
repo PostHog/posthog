@@ -56,7 +56,15 @@ Terminal states require `terminal_at`; non-terminal states require it to be null
 Queue transitions that use `QuerySet.update()` must set `updated_at` and the appropriate terminal timestamp explicitly.
 
 Partial indexes cover pending due work, expired processing leases, payload cleanup, and terminal-row deletion.
-The table ships empty; later PRs persist on the Slack endpoints and run the sweeper.
+Slack Events API and interactivity endpoints persist a receipt before they acknowledge Slack.
+`X-Slack-Retry-Num` is stored as metadata; it is never used to drop a callback.
+Owning-region proxy failure returns 502 so Slack retries.
+Celery `on_commit` dispatch is a wake-up hint.
+`sweep_inbound_events` (every minute) re-drives due and expired-lease rows, nulls payloads after 24 hours, and deletes tombstones after 30 days.
+
+Workers claim a row with a fencing token and a short lease, then release the row lock before Slack API calls.
+A stale worker cannot complete or retry after a later claim of the same receipt.
+Redis is not the dedupe record: losing Redis must not drop or suppress a callback.
 
 ## Outbound email (already in Postgres)
 

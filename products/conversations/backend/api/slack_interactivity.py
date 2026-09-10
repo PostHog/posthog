@@ -17,11 +17,21 @@ import structlog
 
 from posthog.models.integration import SlackIntegrationError
 
+from products.conversations.backend.models import ConversationInboundEvent, ConversationInboundEventSource
+from products.conversations.backend.services.inbound_events import (
+    accept_inbound_event,
+    slack_interactivity_source_id,
+    slack_retry_metadata,
+)
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
-from products.conversations.backend.support_slack import team_exists_for_slack_workspace, validate_support_request
+from products.conversations.backend.support_slack import team_for_slack_workspace, validate_support_request
 from products.conversations.backend.tasks.slack import process_supporthog_interactivity
 
 logger = structlog.get_logger(__name__)
+
+
+def _wake_slack_interactivity(row: ConversationInboundEvent) -> None:
+    cast(Any, process_supporthog_interactivity).delay(inbound_event_id=str(row.id))
 
 
 @csrf_exempt
@@ -30,6 +40,8 @@ def supporthog_interactivity_handler(request: HttpRequest) -> HttpResponse:
 
     Regional routing matches the events endpoint: EU is the primary region. If the
     workspace isn't found locally, the request is proxied to the secondary region (US).
+    A 2xx means the owning region's Postgres receipt committed, not that a worker has
+    processed the click.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -51,17 +63,35 @@ def supporthog_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if not slack_team_id:
         return HttpResponse(status=200)
 
-    logger.info("supporthog_interactivity_received", payload_type=payload.get("type"), slack_team_id=slack_team_id)
+    retry_num, retry_reason = slack_retry_metadata(request)
+    logger.info(
+        "supporthog_interactivity_received",
+        payload_type=payload.get("type"),
+        slack_team_id=slack_team_id,
+        retry_num=retry_num,
+    )
 
-    if team_exists_for_slack_workspace(slack_team_id) and not (settings.DEBUG and is_primary_region(request)):
-        cast(Any, process_supporthog_interactivity).delay(payload=payload, slack_team_id=slack_team_id)
-    elif is_primary_region(request):
+    team = team_for_slack_workspace(slack_team_id)
+    if team is not None and not (settings.DEBUG and is_primary_region(request)):
+        accept_inbound_event(
+            team=team,
+            source=ConversationInboundEventSource.SLACK_INTERACTIVITY,
+            source_id=slack_interactivity_source_id(payload=payload, signed_body=request.body),
+            provider_account_id=slack_team_id,
+            payload=payload,
+            provider_retry_num=retry_num,
+            provider_retry_reason=retry_reason,
+            wake=_wake_slack_interactivity,
+        )
+        return HttpResponse(status=200)
+
+    if is_primary_region(request):
         # Acking a failed proxy with 200 makes the click silently vanish — Slack shows the
         # clicker nothing and never resends. Surface the failure so Slack displays a
         # delivery error and the user knows to click again.
         if not proxy_to_secondary_region(request, log_prefix="supporthog_interactivity"):
             return HttpResponse("Failed to reach owning region", status=502)
-    else:
-        logger.warning("supporthog_interactivity_no_team_any_region", slack_team_id=slack_team_id)
+        return HttpResponse(status=200)
 
+    logger.warning("supporthog_interactivity_no_team_any_region", slack_team_id=slack_team_id)
     return HttpResponse(status=200)
