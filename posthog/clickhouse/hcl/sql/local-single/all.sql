@@ -6086,7 +6086,7 @@ CREATE TABLE posthog.billing_usage_records_hourly (
   unit LowCardinality(String),
   quantity Int64,
   rolled_up_at DateTime64(6, 'UTC')
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records_hourly', cityHash64(team_id));
+) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records_hourly', cityHash64(team_id));
 CREATE TABLE posthog.conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,

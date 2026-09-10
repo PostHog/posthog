@@ -1192,7 +1192,7 @@
       quantity Int64,
       rolled_up_at DateTime64(6, 'UTC')
   )
-  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records_hourly', cityHash64(team_id))
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_billing_usage_records_hourly', cityHash64(team_id))
   '''
 # ---
 # name: test_create_table_query[billing_usage_records_mv]

@@ -119,7 +119,13 @@ CREATE TABLE IF NOT EXISTS {BILLING_USAGE_RECORDS_HOURLY_TABLE}
 (
     {BILLING_USAGE_RECORDS_HOURLY_COLUMNS}
 )
-ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_HOURLY_TABLE, sharding_key="cityHash64(team_id)")}
+ENGINE = {
+        Distributed(
+            data_table=SHARDED_BILLING_USAGE_RECORDS_HOURLY_TABLE,
+            sharding_key="cityHash64(team_id)",
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        )
+    }
 """.strip()
 
 

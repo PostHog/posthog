@@ -389,7 +389,7 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records_hourly"
       sharding_key    = "cityHash64(team_id)"
