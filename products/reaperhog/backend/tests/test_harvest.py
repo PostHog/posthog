@@ -34,7 +34,7 @@ def _hit(root: str) -> Hit:
         files=["a.py"],
         decisive=True,
         summary="Experiment lost",
-        evidence={"conclusion": "lost", "end_date": "2026-04-13"},
+        evidence={"conclusion": "lost", "end_date": "2026-04-13", "users": 4211, "enabled_users": 0},
     )
 
 
@@ -82,10 +82,13 @@ def test_pr_body_carries_the_evidence_and_the_archive_checklist():
     body = render_pr_body(_candidate("hero-copy"))
 
     assert "- **experiments**: Experiment lost" in body
+    assert "conclusion=lost" in body
     assert "| key | `rg -F 'k'` | 0 |" in body
     assert "- whether docs mention it" in body
     assert "Archive the flag `hero-copy`" in body
     assert "never merged automatically" in body
+    assert "4211" not in body
+    assert "users=" not in body
 
 
 @pytest.mark.parametrize("url,expected", [("https://github.com/o/r/pull/42", 42), ("https://github.com/o/r", None)])
