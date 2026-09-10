@@ -256,6 +256,54 @@ function textContent(text: string, details: McpProxyDetails) {
 }
 
 /**
+ * Detect a call that passes a tool's arguments to the proxy without the
+ * `tool` name, by matching the argument keys against each tool's required
+ * parameters. Live registrations first, then the on-disk cache: a lazy
+ * server holds no schema in memory until it connects. Used to name the tool
+ * in the usage hint, so the model assembles the correct call in one retry
+ * instead of guessing at the double wrapping.
+ */
+async function findUnwrappedCallTarget(
+  manager: ServerManager,
+  bridge: ToolBridge,
+  toolCache: McpToolCache | null,
+  params: Record<string, unknown>,
+): Promise<{ piName: string; serverName: string } | undefined> {
+  const keys = new Set(
+    Object.keys(params).filter(
+      (key) => key !== "search" && key !== "tool" && key !== "args",
+    ),
+  );
+  if (keys.size === 0) return undefined;
+
+  const matches = (requiredParams: string[] | undefined): boolean =>
+    !!requiredParams &&
+    requiredParams.length > 0 &&
+    requiredParams.every((name) => keys.has(name));
+
+  for (const tool of bridge.getSearchableTools()) {
+    if (matches(tool.requiredParams)) {
+      return { piName: tool.piName, serverName: tool.serverName };
+    }
+  }
+
+  // Same reasoning as `search()`: read the cache file once, not once per
+  // non-ready server.
+  const cachedAll = toolCache ? await toolCache.all() : {};
+  for (const server of manager.getAllServers()) {
+    if (server.state === "ready") continue;
+    const cached = cachedAll[server.name];
+    if (!cached) continue;
+    for (const tool of cached.tools) {
+      if (matches(tool.requiredParams)) {
+        return { piName: tool.name, serverName: server.name };
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * Cap a single tool's description length. Some MCP servers ship very long,
  * multi-paragraph descriptions (data-warehouse setup guides, workflow
  * docs, ...) — without this, a handful of search hits or one server's
@@ -438,6 +486,18 @@ export function createMcpProxyTool(deps: ProxyToolDeps) {
           params.tool,
           params.args,
           signal,
+        );
+      }
+      const target = await findUnwrappedCallTarget(
+        manager,
+        bridge,
+        deps.getToolCache(),
+        params as Record<string, unknown>,
+      );
+      if (target) {
+        return textContent(
+          `mcp: the "tool" name is missing. These arguments match the "${target.piName}" tool. Call { "tool": "${target.piName}", "args": "<json-encoded arguments>" }.`,
+          { kind: "usage" },
         );
       }
       return textContent(
