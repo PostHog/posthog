@@ -506,36 +506,20 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-test-evidence"],
         )
 
-    def test_in_session_reads_the_stamped_flag_property_when_the_exposure_event_was_never_session_linked(self) -> None:
+    def test_in_session_with_a_server_side_default_exposure_event_refuses(self) -> None:
+        # The default event is observed but never with a session id, so the only evidence left is
+        # the stamped flag property. That says the flag was active in the session, not that the
+        # person was enrolled there, so the query is refused rather than answering over a wider set
+        # of sessions than "exposed in session" names. No evidence scan runs at all.
         experiment = self._create_experiment()
-        create_person(team=self.team, distinct_ids=["backend-exposed-user"])
-        exposure_time = BASE_TIME + timedelta(hours=2)
-        # Server-fired exposure: no $session_id on the event, and no EventProperty row marks the
-        # exposure event as ever carrying one, so the stamped flag property stands in as evidence.
-        self._create_exposure_event("backend-exposed-user", exposure_time, "test")
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="backend-exposed-user",
-            timestamp=exposure_time + timedelta(minutes=5),
-            properties={"$session_id": "session-with-stamp", "$feature/recordings-linkage-flag": "test"},
-        )
-        flush_persons_and_events()
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$browser")
 
-        self._produce_recording(
-            "backend-exposed-user", "session-with-stamp", exposure_time, exposure_time + timedelta(minutes=10)
-        )
-        self._produce_recording(
-            "backend-exposed-user",
-            "session-without-stamp",
-            exposure_time + timedelta(hours=1),
-            exposure_time + timedelta(hours=1, minutes=10),
-        )
-
-        self._assert_query_matches_session_ids(
-            {"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
-            ["session-with-stamp"],
-        )
+        with self.assertRaises(ValidationError):
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+                user=self.user,
+            )
 
     def test_in_session_with_a_never_session_linked_custom_exposure_refuses(self) -> None:
         experiment = self._create_experiment(
@@ -547,6 +531,9 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 }
             }
         )
+        # Observed, but never with a session id: without this row the event reads as one nothing is
+        # known about yet, which refuses for a different reason than the one this test names.
+        EventProperty.objects.create(team=self.team, event="backend_exposure", property="$browser")
 
         with self.assertRaises(ValidationError):
             filter_recordings_by(
@@ -569,27 +556,6 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 }
             }
         )
-
-        with self.assertRaises(ValidationError):
-            filter_recordings_by(
-                team=self.team,
-                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
-                user=self.user,
-            )
-
-    def test_in_session_stamped_fallback_is_refused_on_precomputing_teams(self) -> None:
-        # The stamped-property fallback scan has no event name to prune on, so it reads every event
-        # in the window. On teams where precomputation marks full-window live scans as a real cost,
-        # that scan times out rather than answering, so in_session over the fallback is refused the
-        # same way the population scan refuses, instead of being left to time out. The non-
-        # precomputing case is covered by test_in_session_reads_the_stamped_flag_property_*.
-        self._enable_precomputation()
-        experiment = self._create_experiment()
-        # No EventProperty row marks the default event as session-linked, so evidence falls back to
-        # the stamped flag property.
-        create_person(team=self.team, distinct_ids=["backend-exposed-user"])
-        self._create_exposure_event("backend-exposed-user", BASE_TIME + timedelta(hours=2), "test")
-        flush_persons_and_events()
 
         with self.assertRaises(ValidationError):
             filter_recordings_by(

@@ -138,7 +138,6 @@ export interface ExperimentRecordingsTabContext {
     /** Null when the availability check failed, so a transient error never reads as unavailable. */
     in_session_available: boolean | null
     in_session_unavailable_reason: string | null
-    in_session_uses_stamped_fallback: boolean | null
 }
 
 /** The facets the recordings list was narrowed by when a recording was opened from it. */

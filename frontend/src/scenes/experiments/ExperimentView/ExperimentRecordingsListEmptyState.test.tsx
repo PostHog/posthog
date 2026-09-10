@@ -219,7 +219,6 @@ describe('ExperimentRecordingsListEmptyState', () => {
         ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
             available: true,
             unavailable_reason: null,
-            uses_stamped_fallback: false,
         })
         ;(experimentsSessionBucketsCreate as jest.Mock).mockReset()
         jest.spyOn(api.propertyDefinitions, 'seenTogether').mockResolvedValue({})

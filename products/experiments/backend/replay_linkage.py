@@ -24,7 +24,10 @@ Queries can additionally narrow the population's sessions to the ones carrying i
 exposure evidence (:func:`exposed_session_ids_select`). What counts as evidence comes from the
 shared session-exposure resolution, so this narrowing and the session buckets, the two
 remaining readers of session-scoped evidence, mean the same thing by "exposed in this
-session". The watch shelf instead reads the person-scoped population through
+session". They differ in what they require of the evidence: this narrowing feeds a list whose
+player offers a jump to the exposure, which only the exposure event itself can locate, so it
+requires ``SessionExposure.is_seekable_evidence`` and refuses the stamped-property stand-in the
+buckets accept. The watch shelf instead reads the person-scoped population through
 :func:`exposed_persons_select`, the same population the recordings list joins. Whether the
 narrowing can answer for an experiment at all resolves through
 :func:`resolve_in_session_exposure_semantics`, which the scope control reads too, so the tab
@@ -37,10 +40,10 @@ long-running experiments), activation-mode exposures always resolve with a live 
 they have no preaggregated form (carrying an explicit memory budget on precomputing teams),
 and where neither the preaggregated read nor an affordable live scan is available the query
 is refused with a ValidationError rather than left to time out. The in-session evidence scan
-follows the same posture: it always runs live under an explicit memory budget, callers can
-intersect its window with their own date bounds (which never changes results), and its
-stamped-property fallback flavor (the read with no event name to prune on) is refused on
-precomputing teams rather than left to time out.
+follows the same posture: it always runs live under an explicit memory budget, and callers can
+intersect its window with their own date bounds, which never changes results. It always prunes on
+the exposure event name, because the stamped-property flavor, the one read with no event name to
+prune on, is the evidence this surface refuses.
 """
 
 from collections.abc import Sequence
@@ -111,9 +114,9 @@ IN_SESSION_EXPOSURE_ACTIVATION_REASON = (
     "This experiment uses an activation event, so its exposure can span more than one session and "
     "can't be pinned to a single session."
 )
-IN_SESSION_EXPOSURE_FALLBACK_TOO_LARGE_REASON = (
-    "This experiment's exposure event was never captured with a session ID, and this project is too "
-    "large for the fallback that matches sessions on the feature flag being active."
+IN_SESSION_EXPOSURE_NO_EVENT_IN_SESSION_REASON = (
+    "This experiment's exposures are recorded outside the browser, so no recording contains the "
+    "moment someone was enrolled. All sessions still shows every session of everyone exposed."
 )
 # Appended when a query actually carries the narrowing, so the API error names the way out. The
 # scope control shows the bare reason instead: its option is disabled, so there is nothing to remove.
@@ -188,9 +191,9 @@ class ExperimentExposureLinkage:
     # to this population can skip re-applying the same filters to their own rows.
     population_filters_test_accounts: bool = False
     # Resolved only when the query narrows to in-session exposure evidence; None otherwise.
-    # Carries which event and property the evidence reads and whether the stamped-property
-    # fallback applies, resolved through the shared session-exposure seam so this surface
-    # can't disagree with the session buckets on what "exposed in this session" means.
+    # Carries which event and property the evidence reads, resolved through the shared
+    # session-exposure seam so this surface can't disagree with the session buckets on what
+    # "exposed in this session" means.
     session_exposure: SessionExposure | None = None
 
 
@@ -199,8 +202,7 @@ class InSessionExposureSemantics:
     """How the in-session narrowing reads on one experiment.
 
     One resolution serves both the recordings query's refusal and the tab's scope control, so the
-    two can't drift: the control disables exactly what the query would refuse, and the copy can say
-    when the evidence is the stamped-property stand-in rather than the exposure event itself.
+    two can't drift: the control disables exactly what the query would refuse.
     """
 
     # None exactly when ``unavailable_reason`` is set.
@@ -213,12 +215,6 @@ class InSessionExposureSemantics:
         """True when a query carrying the narrowing would be accepted."""
         return self.unavailable_reason is None
 
-    @property
-    def uses_stamped_fallback(self) -> bool:
-        """True when the evidence is the stamped ``$feature/<key>`` property: it means the flag was
-        active in the session, not that the exposure event was captured there."""
-        return self.session_exposure is not None and self.session_exposure.used_fallback
-
 
 def _precomputation_covers_full_window(config: TeamExperimentsConfig, experiment: Experiment) -> bool:
     """The team-level marker that a full-window live events scan is a real cost here: precomputation
@@ -229,21 +225,6 @@ def _precomputation_covers_full_window(config: TeamExperimentsConfig, experiment
     return config.experiment_precomputation_enabled and experiment_has_min_runtime_for_precomputation(
         experiment.start_date, experiment.end_date
     )
-
-
-def _fallback_evidence_scan_is_unaffordable(team: Team, experiment: Experiment) -> bool:
-    """Whether the stamped-property evidence scan must be refused for this team and experiment.
-
-    Unlike the exposure-event scan, the fallback has no event name to prune on, so it reads every
-    event in the experiment window. On the teams where precomputation marks full-window live scans
-    as a real cost, that scan times out instead of answering, so refusing is the honest posture,
-    the same one the population read takes, including its young-experiment exception, whose window
-    is hours wide and cheap on any team.
-    """
-    if experiment.start_date is None:
-        return False
-    config = get_or_create_team_extension(team, TeamExperimentsConfig)
-    return _precomputation_covers_full_window(config, experiment)
 
 
 def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) -> InSessionExposureSemantics:
@@ -275,9 +256,13 @@ def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) ->
         return InSessionExposureSemantics(
             session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_UNMATCHABLE_REASON
         )
-    if session_exposure.used_fallback and _fallback_evidence_scan_is_unaffordable(team, experiment):
+    if not session_exposure.is_seekable_evidence:
+        # The stamped stand-in means the flag was active somewhere in the session, not that the
+        # person was enrolled there, so a list labelled "exposed in session" would silently widen
+        # to every later session the flag was live in. The session buckets keep the stand-in,
+        # because an aggregate over that population is a question it can honestly answer.
         return InSessionExposureSemantics(
-            session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_FALLBACK_TOO_LARGE_REASON
+            session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_NO_EVENT_IN_SESSION_REASON
         )
     return InSessionExposureSemantics(session_exposure=session_exposure, unavailable_reason=None)
 
@@ -337,9 +322,9 @@ def resolve_exposure_linkage(
     experiments, group-aggregated ones (whose exposed entities are groups rather than
     persons and so never match a recording's distinct id), unknown variants, and
     experiments whose exposures can be resolved neither from the preaggregated table nor
-    with a live scan the team can afford. An `in_session` request is refused when the
-    exposure event was never captured with a session id and nothing stands in for it
-    (custom criteria get no stand-in), because every session would then read as unexposed.
+    with a live scan the team can afford. An `in_session` request is refused whenever the
+    exposure event was never captured with a session id, because the recording then cannot
+    contain the moment of enrollment that the narrowing promises.
     """
     try:
         experiment = Experiment.objects.get(id=experiment_id, team=team, deleted=False)
@@ -603,14 +588,13 @@ def exposed_session_ids_select(
 
     Pure AST construction; the linkage must have been resolved with ``in_session=True``.
 
-    The evidence condition comes from the shared session-exposure resolution, including the
-    stamped ``$feature/<flag_key>`` fallback when the exposure event was never captured with a
-    session id. This narrowing composes with the exposure join rather than replacing it: the
-    join still decides who counts as exposed (and bounds sessions to first exposure), so
-    deliberately no test-account filtering here, where it could only re-hide sessions of
-    persons the analysis counts. The scan prunes by event name except on the fallback path,
-    which reads the stamped property off every event in the window, the same read the session
-    buckets run.
+    The evidence condition comes from the shared session-exposure resolution, which for this
+    surface is always the exposure event itself. This narrowing composes with the exposure join
+    rather than replacing it: the join still decides who counts as exposed (and bounds sessions
+    to first exposure), so deliberately no test-account filtering here, where it could only
+    re-hide sessions of persons the analysis counts. The scan always prunes by event name,
+    because :func:`resolve_in_session_exposure_semantics` refuses the stamped-property evidence
+    that has no event name to prune on.
 
     The scan window is the experiment's, matching the population scan, intersected with the
     caller's clamp when given: evidence lives inside the sessions being listed, so a caller that

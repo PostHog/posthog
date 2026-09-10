@@ -57,14 +57,12 @@ const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-s
 const ALL_EXPOSED_CAPTION =
     "Showing sessions of exposed participants from their first exposure onward. The exposure event itself doesn't have to be in the session."
 
-// The copy varies with what the in-session evidence is. 'stamped' means the flag property stands
-// in for the exposure event, so the flag was active in the session rather than the exposure event
-// being captured there, and the copy must not claim more than the query delivers (wording mirrors
-// the behavior-comparison shelf). 'unknown' covers the availability check still pending or failed,
-// where the copy claims only what both kinds share. The scopeLockedReason strings park the control
-// while a bucket or watch card supplies the session set, which carries in-session evidence by
-// construction, so the control could neither widen nor narrow it.
-type InSessionEvidenceKind = 'event' | 'stamped' | 'unknown'
+// The copy varies with whether the availability check has landed. 'unknown' covers the check still
+// pending or failed, where the copy claims only what a landed verdict would share. The
+// scopeLockedReason strings park the control while a bucket or watch card supplies the session set,
+// which carries in-session evidence by construction, so the control could neither widen nor narrow
+// it.
+type InSessionEvidenceKind = 'event' | 'unknown'
 const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption: string; scopeLockedReason: string }> =
     {
         event: {
@@ -72,13 +70,6 @@ const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption:
             caption: 'Showing sessions of exposed participants where the exposure was captured in the session.',
             scopeLockedReason:
                 'This metric filter already narrows to sessions where the exposure was captured in the session.',
-        },
-        stamped: {
-            tooltip:
-                'Sessions where the feature flag was active. No exposure event can be matched to a recording for this experiment, so the flag being active stands in.',
-            caption:
-                'Showing sessions of exposed participants where the feature flag was active, since no exposure event can be matched to a recording here.',
-            scopeLockedReason: 'This metric filter already narrows to sessions where the feature flag was active.',
         },
         unknown: {
             tooltip: 'Only sessions carrying in-session exposure evidence for this experiment.',
@@ -294,9 +285,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         scannerCrossSellClicked,
     } = useActions(logic)
     const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_EXPERIMENTS')
-    // Which in-session copy applies, from the evidence kind the availability check resolved.
-    const inSessionCopy =
-        IN_SESSION_COPY[inSessionExposure ? (inSessionExposure.uses_stamped_fallback ? 'stamped' : 'event') : 'unknown']
+    // Which in-session copy applies: the exposure event is the only evidence a landed verdict can
+    // report, so the branch is on whether the verdict has landed at all.
+    const inSessionCopy = IN_SESSION_COPY[inSessionExposure ? 'event' : 'unknown']
 
     // One object feeds both the playlist below and the findMounted lookup, because the logic's
     // kea key is derived from these props: hand-duplicating them at the two sites would let the

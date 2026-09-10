@@ -2,12 +2,18 @@
 
 The session buckets and the recordings list's in-session narrowing both answer questions about
 "the sessions this experiment exposed someone in", and both have to mean the same thing by it:
-which event carries the exposure, which property carries the variant, and what to do when that
-event was only ever captured where there is no session to record. Resolved once here, because two
-surfaces disagreeing on the population would show up as one of them silently answering over a
-wider set of sessions than it names. The watch shelf reads the person-scoped exposed population
-through ``replay_linkage`` instead, so it is not a reader of this seam beyond
-:func:`never_session_linked_events`.
+which event carries the exposure, and which property carries the variant. Resolved once here,
+because two surfaces disagreeing on the population would show up as one of them silently
+answering over a wider set of sessions than it names.
+
+The two surfaces agree on what exposure means and differ in what they require of the evidence,
+which follows from what each promises the viewer. The buckets aggregate over a population, where
+"the flag was active in this session" is a legitimate member, so the stamped ``$feature/<key>``
+stand-in applies to them. The recordings list offers a jump to the moment of enrollment, which
+only the exposure event itself can locate, so it requires :attr:`SessionExposure.is_seekable_evidence`.
+
+The watch shelf reads the person-scoped exposed population through ``replay_linkage`` instead, so
+it is not a reader of this seam beyond :func:`never_session_linked_events`.
 """
 
 from dataclasses import dataclass
@@ -105,6 +111,13 @@ class SessionExposure:
         "the flag was active in this session" — a wider population than the criteria name.
         """
         return self.exposure_event in self.never_linked and not self.used_fallback
+
+    @property
+    def is_seekable_evidence(self) -> bool:
+        """True when the evidence is the exposure event itself, so a recording carrying it contains
+        the moment of enrollment. The stamped property only says the flag was active somewhere in the
+        session, which a surface that offers a jump to the exposure cannot honor."""
+        return not self.used_fallback
 
     def variant_value(self) -> ast.Expr:
         return ast.Call(name="toString", args=[ast.Field(chain=["properties", self.variant_property])])

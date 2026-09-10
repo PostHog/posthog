@@ -148,14 +148,12 @@ const ALL_LINKABLE = {
 type InSessionExposureResponse = {
     available: boolean
     unavailable_reason: string | null
-    uses_stamped_fallback: boolean
 }
 
 // The common case: in-session evidence is the exposure event itself, and the scope can answer.
 const IN_SESSION_AVAILABLE: InSessionExposureResponse = {
     available: true,
     unavailable_reason: null,
-    uses_stamped_fallback: false,
 }
 
 // Exposure narrowing lives in `experiment_exposure`, not the filter tree, so an unfiltered
@@ -411,16 +409,15 @@ describe('experimentReplayTabLogic', () => {
     })
 
     it('disables in-session and stays on all sessions when the backend reports it unavailable', async () => {
-        // The backend refuses in_session for experiments whose exposure can't be pinned to a
-        // session (activation, or a custom event with no session-linked stand-in, or a fallback
-        // scan too large for the project). The tab mirrors that from the same check: the option is
-        // disabled with the reason, and a picked or persisted choice falls back to all sessions
-        // instead of drawing a backend 400.
+        // The backend refuses in_session for every experiment whose exposure event is never
+        // captured in a session: activation criteria, a custom event, a server-side default event,
+        // or an event no exposure has arrived for yet. The tab mirrors that from the same check:
+        // the option is disabled with the reason, and a picked or persisted choice falls back to
+        // all sessions instead of drawing a backend 400.
         ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
             available: false,
             unavailable_reason:
                 'This experiment uses an activation event, so its exposure can span more than one session.',
-            uses_stamped_fallback: false,
         })
         const unavailable = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 52 } as Experiment })
         unavailable.mount()
@@ -455,26 +452,6 @@ describe('experimentReplayTabLogic', () => {
         expect(failed.values.effectiveExposureScope).toBe('in_session')
         expect(failed.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 54, in_session: true })
         failed.unmount()
-    })
-
-    it('narrows but labels sessions as flag-active when the backend evidence is the stamped fallback', async () => {
-        // Server-side default exposure: the event carries no session id, so the backend matches on
-        // the stamped $feature/<key> property. The narrowing still applies (tighter than all
-        // sessions), but the copy must say the flag was active, not that the exposure was captured.
-        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
-            available: true,
-            unavailable_reason: null,
-            uses_stamped_fallback: true,
-        })
-        const fallback = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 43 } as Experiment })
-        fallback.mount()
-        await expectLogic(fallback).toFinishAllListeners()
-        fallback.actions.setExposureScope('in_session')
-
-        expect(fallback.values.inSessionExposure?.uses_stamped_fallback).toBe(true)
-        expect(fallback.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 43, in_session: true })
-        expect(fallback.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
-        fallback.unmount()
     })
 
     it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {
@@ -679,7 +656,7 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(pending).toDispatchActions(['loadSeenTogetherSuccess', 'reportTabViewed'])
         expect(tabViews()).toHaveLength(0)
 
-        resolveAvailability({ ...IN_SESSION_AVAILABLE, uses_stamped_fallback: true })
+        resolveAvailability(IN_SESSION_AVAILABLE)
         await expectLogic(pending).toFinishAllListeners()
 
         expect(tabViews()).toHaveLength(1)
@@ -691,7 +668,6 @@ describe('experimentReplayTabLogic', () => {
             exposure_scope: 'all_exposed',
             in_session_available: true,
             in_session_unavailable_reason: null,
-            in_session_uses_stamped_fallback: true,
         })
 
         // The check is shared with the metrics tab and reloads when the experiment's metrics change,
@@ -722,7 +698,7 @@ describe('experimentReplayTabLogic', () => {
         expect(tabViews()[0][1]).toMatchObject({
             experiment_id: 55,
             in_session_available: null,
-            in_session_uses_stamped_fallback: null,
+            in_session_unavailable_reason: null,
         })
     })
 

@@ -110,7 +110,6 @@ export const ExperimentRecordingsEmptyInSessionHasNone: Story = {
                 [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/in_session_exposure/`]: {
                     available: true,
                     unavailable_reason: null,
-                    uses_stamped_fallback: false,
                 },
             },
         }),
