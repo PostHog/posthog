@@ -1,5 +1,6 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
+import re
 from typing import Literal, cast
 
 from django.db.models import Q
@@ -34,23 +35,24 @@ class ImplementationPr:
     url: str
     merged: bool
     state: str = SignalReportAssignment.PrState.UNKNOWN
+    task_id: str | None = None
+    actor_kind: str | None = None
 
 
 def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
     """Return assignment PRs first, falling back to existing task-backed PRs."""
     if not report_ids:
         return {}
+    assignments = list(SignalReportAssignment.all_teams.filter(report_id__in=report_ids))
     result = {
         str(assignment.report_id): ImplementationPr(
             url=assignment.pr_url,
             merged=assignment.pr_merged,
             state=assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN,
+            actor_kind=assignment.actor_kind,
         )
-        for assignment in SignalReportAssignment.all_teams.filter(
-            report_id__in=report_ids,
-            pr_url__isnull=False,
-        ).exclude(pr_url="")
-        if assignment.pr_url is not None
+        for assignment in assignments
+        if assignment.pr_url
     }
 
     missing_report_ids = [str(report_id) for report_id in report_ids if str(report_id) not in result]
@@ -67,9 +69,14 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
         for run in sorted(runs, key=lambda run: run.type != TASK_RUN_TYPE_IMPLEMENTATION)
         if run.type not in NON_PR_BEARING_TASK_RUN_TYPES
     ]
+    pairs.extend(
+        (str(assignment.report_id), str(assignment.actor_task_id))
+        for assignment in assignments
+        if not assignment.pr_url and assignment.actor_kind == SignalActorKind.TASK and assignment.actor_task_id
+    )
     task_ids = [task_id for _, task_id in pairs]
-    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids)
-    merged_task_ids = tasks_facade.get_merged_pr_task_ids(task_ids)
+    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids, pr_bearing_task_run_filter())
+    merged_task_ids = tasks_facade.get_merged_pr_task_ids(task_ids, pr_bearing_task_run_filter())
     for report_id, task_id in pairs:
         pr_url = pr_url_by_task.get(task_id)
         if pr_url and report_id not in result:
@@ -78,6 +85,8 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
                 url=pr_url,
                 merged=merged,
                 state=SignalReportAssignment.PrState.MERGED if merged else SignalReportAssignment.PrState.UNKNOWN,
+                task_id=task_id,
+                actor_kind=SignalActorKind.TASK,
             )
     return result
 
@@ -89,8 +98,30 @@ def pr_bearing_task_run_filter() -> Q:
 
 
 def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
-    """PR URL stored on each report assignment, when available."""
     return {report_id: pr.url for report_id, pr in fetch_implementation_pr_state_for_reports(report_ids).items()}
+
+
+def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number: int) -> list[str]:
+    # Narrow by task output before resolving reports so webhooks do not scan the whole inbox.
+    owner, repo = repository.split("/", 1)
+    url_pattern = rf"^[^:]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}([/?#]|$)"
+    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
+        team_id, pr_bearing_task_run_filter(), Q(output__pr_url__iregex=url_pattern)
+    )
+    candidates = SignalReport.objects.filter(team_id=team_id).filter(
+        Q(assignment__repository__iexact=repository, assignment__pr_number=pr_number)
+        | SignalReport.reports_for_task_ids_filter(task_ids, team_id=team_id)
+    )
+    prs = fetch_implementation_pr_state_for_reports(
+        [str(report_id) for report_id in candidates.values_list("id", flat=True)]
+    )
+    return [
+        report_id
+        for report_id, pr in prs.items()
+        if (parsed := GitHubIntegrationBase.parse_pull_request_url(pr.url)) is not None
+        and parsed.repository.lower() == repository.lower()
+        and parsed.number == pr_number
+    ]
 
 
 PrCloseReason = Literal["suppressed", "snoozed", "resolved"]
@@ -127,20 +158,19 @@ def close_implementation_pr_for_report(
     must succeed regardless.
     """
     try:
-        assignment = SignalReportAssignment.all_teams.filter(
-            report_id=report_id,
-            report__team_id=team_id,
-        ).first()
-        if assignment is None or not assignment.pr_url:
+        if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
             return False
-        if assignment.actor_kind not in {SignalActorKind.TASK, SignalActorKind.SYSTEM}:
+        pr = fetch_implementation_pr_state_for_reports([str(report_id)]).get(str(report_id))
+        if pr is None:
+            return False
+        if pr.actor_kind not in {SignalActorKind.TASK, SignalActorKind.SYSTEM}:
             logger.info(
                 "close_implementation_pr_untrusted_actor",
                 report_id=str(report_id),
-                actor_kind=assignment.actor_kind,
+                actor_kind=pr.actor_kind,
             )
             return False
-        pr_url = assignment.pr_url
+        pr_url = pr.url
 
         parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
         if parsed is None:
@@ -161,13 +191,14 @@ def close_implementation_pr_for_report(
         # work the others still depend on, and the close webhook would then suppress them too, so
         # only the last report still using it closes it.
         still_used_elsewhere = (
-            SignalReportAssignment.all_teams.filter(
-                report__team_id=team_id,
-                repository=parsed.repository.lower(),
-                pr_number=parsed.number,
+            SignalReport.objects.filter(
+                team_id=team_id,
+                id__in=report_ids_for_implementation_pr(
+                    team_id=team_id, repository=parsed.repository, pr_number=parsed.number
+                ),
             )
-            .exclude(report_id=report_id)
-            .exclude(report__status__in=_FINISHED_REPORT_STATUSES)
+            .exclude(id=report_id)
+            .exclude(status__in=_FINISHED_REPORT_STATUSES)
             .exists()
         )
         if still_used_elsewhere:

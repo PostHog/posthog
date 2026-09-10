@@ -1,9 +1,9 @@
 import { Trash } from "@phosphor-icons/react";
 import type { Task } from "@posthog/shared/domain-types";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { Button, Flex, Text } from "@radix-ui/themes";
-import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
 import { WorktreeSize } from "./WorktreeSize";
 
 export interface WorktreeEntry {
@@ -14,7 +14,15 @@ export interface WorktreeEntry {
 }
 
 function getTaskTitle(task: Task): string {
-  return task.title || task.description?.slice(0, 50) || task.id;
+  // The sidebar task list is fetched with basic=true, which omits the full
+  // description, so prefer description_preview, then the full description
+  // (present on non-basic responses), and finally the id.
+  return (
+    task.title ||
+    task.description_preview?.slice(0, 50) ||
+    task.description?.slice(0, 50) ||
+    task.id
+  );
 }
 
 interface WorktreeRowProps {
@@ -96,7 +104,7 @@ export function WorktreeRow({
           )
         }
       >
-        {isDeleting ? <DotsCircleSpinner size={12} /> : <Trash size={12} />}
+        {isDeleting ? <Spinner size="sm" /> : <Trash size={12} />}
         Delete
       </Button>
     </Flex>

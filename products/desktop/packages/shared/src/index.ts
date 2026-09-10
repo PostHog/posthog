@@ -52,6 +52,7 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
+export { omitNullCallToolResultFields } from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -94,6 +95,14 @@ export {
   normalizeGatewayModelsResponse,
   pickAllowedModel,
 } from "./cloud-task-models";
+export {
+  type CustomCloud,
+  configureCustomCloud,
+  customCloudSchema,
+  getCustomCloud,
+  isCustomCloudHost,
+  normalizeCustomCloud,
+} from "./custom-cloud";
 export {
   buildLoopDeeplink,
   buildScoutDeeplink,
@@ -211,9 +220,12 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
+  isCustomModelOption,
   isDefaultSelectOption,
+  isHiddenPiModelId,
   isRestrictedModelOption,
   modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
@@ -222,6 +234,8 @@ export {
   selectOptionHarness,
 } from "./models";
 export {
+  DEV_CALLBACK_PORT,
+  DEV_REDIRECT_URI,
   getOauthClientIdFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
@@ -275,14 +289,16 @@ export {
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
+  CLOUD_REGIONS,
   type CloudRegion,
+  describeRegion,
   REGION_LABELS,
+  type RegionLabel,
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
 export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult } from "./saga";
-export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
   type AcpMessage,
   IMPORTED_USER_PROMPT_META_KEY,
@@ -346,6 +362,7 @@ export {
   getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
+export { singleLineTitle } from "./title-text";
 export {
   mcpToolKey,
   parseMcpToolName,
@@ -356,6 +373,7 @@ export {
   readMcpToolName,
   readParentToolCallId,
 } from "./tool-meta";
+export { isTranscriptNeutralNotificationMethod } from "./transcript-neutral-notifications";
 export { TypedEventEmitter } from "./typed-event-emitter";
 export { isSafeExternalUrl, isSafePostHogUrl } from "./url";
 export { getCloudUrlFromRegion } from "./urls";

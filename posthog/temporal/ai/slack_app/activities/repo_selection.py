@@ -13,6 +13,8 @@ from posthog.temporal.ai.slack_app.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+
 logger = structlog.get_logger(__name__)
 
 
@@ -22,7 +24,7 @@ def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
     user_id: int,
-    thread_messages: list[dict[str, str]] | None = None,
+    thread_messages: list[SlackThreadMessage] | None = None,
     mention_ts: str | None = None,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
@@ -76,7 +78,7 @@ def cascade_posthog_code_repository_activity(
     return outcome
 
 
-def _messages_at_or_before(messages: list[dict[str, str]], mention_ts: str | None) -> list[dict[str, str]]:
+def _messages_at_or_before(messages: list[SlackThreadMessage], mention_ts: str | None) -> list[SlackThreadMessage]:
     """Messages eligible as repo-selection evidence: posted at or before the mention.
 
     Fail-closed on a missing bound — resolution degrades to the mention text alone —
@@ -90,7 +92,7 @@ def _messages_at_or_before(messages: list[dict[str, str]], mention_ts: str | Non
 
 
 def _resolve_explicit_repo(
-    event_text: str, thread_messages: list[dict[str, str]], all_repos: list[str]
+    event_text: str, thread_messages: list[SlackThreadMessage], all_repos: list[str]
 ) -> PostHogCodeRepoCascadeOutcome:
     """Repo named by the mention, then by the thread, each reported under its own reason."""
     from products.slack_app.backend.api import _extract_explicit_repo, _extract_explicit_repo_from_thread
@@ -112,7 +114,7 @@ async def discover_posthog_code_repository_via_agent_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     event: dict[str, Any],
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[SlackThreadMessage],
     user_id: int,
 ) -> SlackRepoSelectionOutcome:
     """Run the shared discovery agent and wrap its result for the workflow.
@@ -152,7 +154,7 @@ async def discover_posthog_code_repository_via_agent_activity(
 
     # Render the Slack thread to a free-form context block for the generic
     # selector. The selector is domain-agnostic; the caller serializes.
-    context_block = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    context_block = "\n".join(f"{msg.user}: {msg.text}" for msg in thread_messages)
 
     # Captured even when select_repository later raises
     research_ids: dict[str, str] = {}

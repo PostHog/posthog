@@ -51,6 +51,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     showLoadNextButton?: boolean
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
+    dataTableExportExcludedColumns?: string[]
     /** Cohort ID to enable cohort-specific features like View Replays button */
     cohortId?: number | null
     /** Custom column features to pass down to the DataTable */
@@ -61,6 +62,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationLimit?: number
     /** Stop Data Table pagination after this many accumulated rows. */
     dataTableMaxPaginationRows?: number
+    /** Keep the Data Table toolbar fixed while its table content scrolls. */
+    dataTableAllowContentScroll?: boolean
+    /** Override the nouns used by Data Table counts and pagination. */
+    dataTableNouns?: [string, string]
     compactDataTableToolbar?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
@@ -88,6 +93,13 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
      */
     suppressSlowQuerySuggestions?: boolean
+    /**
+     * Let this table's event pickers offer events whose data is moving out of the `events` table.
+     * Set it where the pick is thrown away with the page. A surface whose query gets saved (an
+     * insight, a dashboard tile, a notebook, a table view) leaves it unset, so it stops saving a
+     * filter that returns nothing once the data moves. See `TaxonomicFilterProps.includeHiddenEvents`.
+     */
+    includeHiddenEvents?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

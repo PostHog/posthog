@@ -32,11 +32,13 @@ import {
     IconTrash,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonInput,
+    LemonInputSelect,
     LemonLabel,
     LemonSelect,
     LemonSwitch,
@@ -62,6 +64,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
 
@@ -70,10 +73,12 @@ import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import {
     FeatureFlagLogicProps,
     featureFlagLogic,
+    hasStaticCohortDependency,
     slugifyFeatureFlagKey,
     validateVariantRolloutSum,
 } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { BULK_COPY_MAX_TARGET_PROJECTS } from './flagSelectionLogic'
 import { PercentageInput } from './PercentageInput'
 
 interface SortableVariantHeaderProps {
@@ -166,6 +171,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         advancedPanelOpen,
         hasEncryptedPayloadBeenSaved,
         hasEarlyAccessFeatures,
+        alsoCreateInProjects,
+        alsoCreateInProjectOptions,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -184,9 +191,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setPayloadExpanded,
         setAdvancedExpanded,
         resetEncryptedPayload,
+        setAlsoCreateInProjects,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
+    const { allCohorts } = useValues(cohortsModel)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
@@ -517,6 +526,38 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         )
                                     }}
                                 </LemonField>
+
+                                {isNewFeatureFlag && alsoCreateInProjectOptions.length > 0 && (
+                                    <>
+                                        <LemonDivider />
+                                        <LemonField.Pure
+                                            label="Also create in these projects"
+                                            info="The flag is created in the current project, then copied to each selected project. If a project already has a flag with this key, that flag is overwritten. If a project requires approval for flag changes, a change request is created there instead."
+                                            showOptional
+                                        >
+                                            <LemonInputSelect<number>
+                                                mode="multiple"
+                                                value={alsoCreateInProjects}
+                                                onChange={setAlsoCreateInProjects}
+                                                options={alsoCreateInProjectOptions}
+                                                limit={BULK_COPY_MAX_TARGET_PROJECTS}
+                                                placeholder="Select projects"
+                                                data-attr="feature-flag-also-create-in-projects"
+                                            />
+                                        </LemonField.Pure>
+                                        {alsoCreateInProjects.length > 0 &&
+                                            hasStaticCohortDependency(featureFlag, allCohorts.results) && (
+                                                <LemonBanner
+                                                    type="warning"
+                                                    data-attr="feature-flag-also-create-in-projects-static-cohort-warning"
+                                                >
+                                                    This flag targets a static cohort. Projects that don't have a cohort
+                                                    with the same name get an empty copy of it, so that condition
+                                                    matches nobody there until you add people to it.
+                                                </LemonBanner>
+                                            )}
+                                    </>
+                                )}
                             </div>
 
                             {/* Advanced options - collapsed by default. Controlled rather than seeded,

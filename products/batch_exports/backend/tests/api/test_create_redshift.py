@@ -6,8 +6,8 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.security.url_validation import INVALID_HOST_MESSAGE, UNREACHABLE_HOST_MESSAGE
 
-from products.batch_exports.backend.api.batch_export import INVALID_HOST_MESSAGE
 from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
 from products.batch_exports.backend.tests.api.operations import create_batch_export, get_batch_export_ok
 
@@ -201,19 +201,23 @@ def test_create_redshift_batch_export_rejects_invalid_authorization_type(
 
 
 @pytest.mark.parametrize(
-    "host",
+    "host, expected_message",
     [
-        "192.168.1.1",
-        "127.0.0.1",
-        "[::1]",
-        "10.0.0.1",
-        "169.254.0.0",
-        "localhost",
-        "postgres://alice:hunter2@db.example.com/app",
+        # A blocked name and a name that does not resolve report the same thing, so the error
+        # cannot be used to find which addresses exist inside our network.
+        ("192.168.1.1", UNREACHABLE_HOST_MESSAGE),
+        ("127.0.0.1", UNREACHABLE_HOST_MESSAGE),
+        ("10.0.0.1", UNREACHABLE_HOST_MESSAGE),
+        ("169.254.0.0", UNREACHABLE_HOST_MESSAGE),
+        ("localhost", UNREACHABLE_HOST_MESSAGE),
+        # These two are settled by form before any lookup, so they say what to fix. A bare
+        # IPv6 literal is a host, but the brackets a URL wraps it in are not.
+        ("[::1]", INVALID_HOST_MESSAGE),
+        ("postgres://alice:hunter2@db.example.com/app", INVALID_HOST_MESSAGE),
     ],
 )
 def test_create_redshift_batch_export_fails_with_invalid_host(
-    client: HttpClient, temporal, organization, team, user, host, aws_redshift_integration
+    client: HttpClient, temporal, organization, team, user, host, expected_message, aws_redshift_integration
 ):
     """Test creating a BatchExport with a Redshift destination rejects an internal host.
 
@@ -248,7 +252,7 @@ def test_create_redshift_batch_export_fails_with_invalid_host(
         )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == INVALID_HOST_MESSAGE
+    assert response.json()["detail"] == expected_message
     assert host not in response.content.decode()
     assert "hunter2" not in response.content.decode()
 

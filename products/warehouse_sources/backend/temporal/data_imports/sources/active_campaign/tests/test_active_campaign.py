@@ -194,7 +194,9 @@ class TestActiveCampaignSourceResumeBehavior:
         selector = ACTIVE_CAMPAIGN_ENDPOINTS[endpoint].data_selector
         return {selector: items, "meta": {"total": total}}
 
-    @pytest.mark.parametrize("endpoint", ["contacts", "deals", "lists", "campaigns"])
+    @pytest.mark.parametrize(
+        "endpoint", ["contacts", "deals", "lists", "campaigns", "deal_activities", "contact_automations"]
+    )
     def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
