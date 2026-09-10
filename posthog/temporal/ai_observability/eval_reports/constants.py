@@ -19,7 +19,14 @@ COUNT_TRIGGER_SCHEDULE_ID = "llma-eval-reports-count-triggered-coordinator-sched
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
-COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=2)
+# The scheduled coordinator fetches one bounded page, starts ABANDON children, and acknowledges
+# cursors, so it never needs the full hour. Staying below the hourly interval means a stalled run
+# cannot make ScheduleOverlapPolicy.SKIP drop the next hourly trigger.
+SCHEDULED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=55)
+# The count-trigger coordinator runs its check windows inline, so a saturated page can take longer
+# than the 5-minute interval. This bound stays above the interval to let a full page finish, which
+# means a stalled run can still make SKIP drop later triggers.
+COUNT_TRIGGER_COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=2)
 
 # Activity timeouts
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
