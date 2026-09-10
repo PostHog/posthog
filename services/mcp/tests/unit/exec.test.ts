@@ -1807,6 +1807,44 @@ describe('exec tool', () => {
             expect(message).not.toContain('undefined')
         })
 
+        // A union reports one bare "Invalid input" for the whole field. Agents
+        // that hit it on `insight-create`'s `query` retried variations of the
+        // same payload a dozen times in a row, because the rejection named
+        // neither the field inside the branch nor the discriminator values.
+        describe('a union parameter', () => {
+            const schema = z.object({
+                query: z.union([
+                    z.object({ kind: z.literal('InsightVizNode'), source: z.record(z.string(), z.unknown()) }),
+                    z.object({ kind: z.literal('DataVisualizationNode'), source: z.record(z.string(), z.unknown()) }),
+                ]),
+            })
+            const reject = (query: unknown): string => {
+                const result = schema.safeParse({ query }, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('insight-create', result.error!)
+            }
+
+            it('names the field the closest branch rejected', () => {
+                const message = reject({ kind: 'InsightVizNode', source: 'SELECT 1' })
+
+                expect(message).toContain('parameter "query.source" must be of type record')
+                expect(message).not.toContain('Invalid input for "insight-create": parameter "query": Invalid input')
+            })
+
+            it('names every accepted discriminator when the input matched none', () => {
+                const message = reject({ kind: 'DataTableNode', source: {} })
+
+                expect(message).toContain('InsightVizNode')
+                expect(message).toContain('DataVisualizationNode')
+            })
+
+            it('names the expected type when the input is not an object at all', () => {
+                const message = reject(42)
+
+                expect(message).toBe('Invalid input for "insight-create": parameter "query" must be of type object')
+            })
+        })
+
         // A tool whose whole payload sits under one required object is the shape
         // agents flatten most often, and zod strips the misplaced keys — so
         // "sent everything, unwrapped" and "sent nothing" both arrive as a bare
