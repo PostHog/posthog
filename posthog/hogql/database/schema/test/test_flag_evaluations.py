@@ -144,6 +144,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert self._select(column) == [(None,)]
         assert self._select("uuid", where=f" AND {column} = '{stored_value}'") == []
+        # A masked read is a SQL NULL. `NULL != 'x'` and `NULL NOT IN (...)` evaluate to NULL too.
+        # ClickHouse's WHERE treats NULL as false unless the printer wraps the comparison in `ifNull(...)`.
+        # The row must still come back on a negated comparison, matching the equivalent `properties.<key>` read.
+        assert self._select("uuid", where=f" AND {column} != '{stored_value}'") == [(self.row_uuid,)]
+        assert self._select("uuid", where=f" AND {column} NOT IN ('{stored_value}')") == [(self.row_uuid,)]
 
     def test_restricted_property_is_hidden_from_both_read_paths(self):
         # The explicit read lowers to a NULL constant and the blob read is scrubbed by the printer.
