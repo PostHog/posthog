@@ -82,12 +82,15 @@ describe('TableDisplay', () => {
         cleanup()
     })
 
-    it('offers box plots and saves the selected display', async () => {
-        const query = renderTableDisplay('table-display-box-plot')
+    it.each([
+        ['Box plot', ChartDisplayType.BoxPlot],
+        ['Horizontal bar chart', ChartDisplayType.ActionsBarValue],
+    ])('offers %s and saves the selected display', async (label, display) => {
+        const query = renderTableDisplay(`table-display-${display}`)
 
-        await selectDisplay('Box plot')
+        await selectDisplay(label)
 
-        await waitFor(() => expect(query().display).toBe(ChartDisplayType.BoxPlot))
+        await waitFor(() => expect(query().display).toBe(display))
     })
 
     it('offers metrics behind the feature flag and saves one Y-series', async () => {

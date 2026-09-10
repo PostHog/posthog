@@ -504,9 +504,9 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
-    // Pie, metric, and scatter charts do not use these series controls.
     const hideChartSpecificOptions =
         isPieChart ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBarValue ||
         effectiveVisualizationType === ChartDisplayType.Metric ||
         effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
