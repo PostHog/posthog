@@ -42,29 +42,42 @@ def record_provisioned_worker(team_id: int, run_id: UUID, provisioning: WizardWo
 def record_usage(team_id: int, run_id: UUID, usage: WizardWorkerUsageMeasurement) -> None:
     worker = WizardWorker.objects.for_team(team_id).select_for_update().only("resource_usage").get(run_id=run_id)
     resource_usage = record_to_worker_resource_usage(worker.resource_usage)
-
-    if (
-        resource_usage.provider_usage_measured_at is not None
-        and usage.measured_at < resource_usage.provider_usage_measured_at
-    ):
-        return
+    measurement_is_latest = (
+        resource_usage.provider_usage_measured_at is None
+        or usage.measured_at >= resource_usage.provider_usage_measured_at
+    )
 
     updated_resource_usage = replace(
         resource_usage,
-        provider_cpu_usage_usec=(
-            usage.cpu_usage_usec if usage.cpu_usage_usec is not None else resource_usage.provider_cpu_usage_usec
+        provider_cpu_usage_usec=_merge_usage_value(
+            resource_usage.provider_cpu_usage_usec,
+            usage.cpu_usage_usec,
+            measurement_is_latest=measurement_is_latest,
         ),
-        provider_billed_cpu_usage_usec=(
-            usage.billed_cpu_usage_usec
-            if usage.billed_cpu_usage_usec is not None
-            else resource_usage.provider_billed_cpu_usage_usec
+        provider_billed_cpu_usage_usec=_merge_usage_value(
+            resource_usage.provider_billed_cpu_usage_usec,
+            usage.billed_cpu_usage_usec,
+            measurement_is_latest=measurement_is_latest,
         ),
-        provider_usage_measured_at=usage.measured_at,
+        provider_usage_measured_at=(
+            usage.measured_at if measurement_is_latest else resource_usage.provider_usage_measured_at
+        ),
     )
 
     WizardWorker.objects.for_team(team_id).filter(run_id=run_id).update(
         resource_usage=worker_resource_usage_to_record(updated_resource_usage)
     )
+
+
+def _merge_usage_value(
+    stored_value: int | None,
+    measured_value: int | None,
+    *,
+    measurement_is_latest: bool,
+) -> int | None:
+    if measured_value is None or (stored_value is not None and not measurement_is_latest):
+        return stored_value
+    return measured_value
 
 
 def mark_cleanup_pending(team_id: int, run_id: UUID) -> None:

@@ -133,8 +133,7 @@ def provision_wizard_worker(request: WizardWorkerProvisionRequest) -> WizardWork
 
     config = _build_sandbox_config(request, wizard_token)
     sandbox = get_sandbox_class().create(config)
-    if not sandbox.start_cpu_billing_sampler():
-        logger.warning("wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id})
+    _start_cpu_billing_sampler(sandbox)
     provisioned_at = timezone.now()
 
     return WizardWorkerProvisioning(
@@ -147,6 +146,19 @@ def provision_wizard_worker(request: WizardWorkerProvisionRequest) -> WizardWork
             ttl_expires_at=provisioned_at + timedelta(seconds=config.ttl_seconds),
         ),
     )
+
+
+def _start_cpu_billing_sampler(sandbox: SandboxBase) -> None:
+    try:
+        started = sandbox.start_cpu_billing_sampler()
+    except (SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError):
+        logger.warning(
+            "wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id}, exc_info=True
+        )
+        return
+
+    if not started:
+        logger.warning("wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id})
 
 
 def clone_repository(request: GitRepositoryCloneRequest) -> str:

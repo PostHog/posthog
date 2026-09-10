@@ -12,7 +12,7 @@ from django.test import override_settings
 from modal.exception import NotFoundError as ModalNotFoundError
 from parameterized import parameterized
 
-from products.tasks.backend.facade.sandbox import SandboxNotFoundError
+from products.tasks.backend.facade.sandbox import SandboxNotFoundError, SandboxNotRunningError
 from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
 from products.wizard.backend.logic.workers.commands import wizard_handoff_output_path
 from products.wizard.backend.logic.workers.config import (
@@ -83,6 +83,27 @@ def test_provision_worker_configures_wizard_environment(
     assert "POSTHOG_TASK_ID" not in config.environment_variables
     assert config.environment_variables["POSTHOG_HANDOFF_OUTPUT_PATH"] == wizard_handoff_output_path(request.run_id)
     assert config.ttl_seconds == 75 * 60
+
+
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+@patch("products.wizard.backend.logic.workers.service.create_wizard_oauth_access_token_for_user")
+@patch("products.wizard.backend.logic.workers.service.User.objects.get")
+def test_provision_worker_returns_sandbox_when_cpu_sampler_fails(
+    _get_user: MagicMock,
+    _create_wizard_token: MagicMock,
+    get_sandbox_class: MagicMock,
+) -> None:
+    request = WizardWorkerProvisionRequest(team_id=7, created_by_id=13, run_id=uuid4())
+    _create_wizard_token.return_value = "wizard-secret"
+    sandbox = get_sandbox_class.return_value.create.return_value
+    sandbox.id = "worker-id"
+    sandbox.start_cpu_billing_sampler.side_effect = SandboxNotRunningError(
+        "Sandbox is not running.", {}, RuntimeError("stopped"), capture=False
+    )
+
+    provisioning = provision_wizard_worker(request)
+
+    assert provisioning.sandbox_id == "worker-id"
 
 
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
