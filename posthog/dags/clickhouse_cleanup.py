@@ -1395,11 +1395,17 @@ SCHEDULED_RUN_CONFIG = {
                 "dry_run": False,
                 "cleanup": True,
                 "cohort_sweep": True,
-                "max_cohorts": DEFAULT_MAX_COHORTS,
+                # 100, not DEFAULT_MAX_COHORTS. At 2,000 the cohort sweep measured 131 min on
+                # prod-EU and 209 min on prod-US, 60-68% of the whole run, and still needed ~24 US
+                # runs to drain the backlog. Cost tracks the mutation count, so this is the only
+                # lever on it. Draining is a deliberate attended campaign at a higher value, not
+                # something an unattended weekly run should carry.
+                "max_cohorts": 100,
                 "team_batches": DEFAULT_TEAM_BATCHES,
                 # Never 0 here. Unbounded, one run takes every tombstone in the backlog, and a
-                # caller can grow that backlog faster than a run can drain it.
-                "max_persons": 20_000_000,
+                # caller can grow that backlog faster than a run can drain it. 30M exceeds both
+                # regions' weekly arrivals, so the backlog converges instead of growing.
+                "max_persons": 30_000_000,
                 "shards": 16,
                 "max_execution_time": 1800,
                 "max_memory_usage": 128 * 1024**3,
