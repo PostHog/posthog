@@ -148,10 +148,7 @@ impl KafkaUsageIngestion {
         &self,
         message: &'a OwnedMessage,
     ) -> Result<Option<EnqueuedMessage<'a>>, KafkaUsageIngestionError> {
-        let request = message
-            .payload()
-            .ok_or_else(|| prost::DecodeError::new("empty Kafka payload"))
-            .and_then(IngestBillingUsageRequest::decode);
+        let request = decode_request(message.payload());
 
         match request {
             Ok(request) => {
@@ -287,6 +284,21 @@ fn verify_topic(
     Ok(())
 }
 
+/// prost decodes a whole payload before any record-count limit applies, so a fetched 50 MB
+/// message of empty repeated records would expand to gigabytes of structs. Cap the bytes
+/// first; the limit matches tonic's default gRPC message cap.
+const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
+
+fn decode_request(payload: Option<&[u8]>) -> Result<IngestBillingUsageRequest, prost::DecodeError> {
+    match payload {
+        None => Err(prost::DecodeError::new("empty Kafka payload")),
+        Some(payload) if payload.len() > MAX_MESSAGE_BYTES => Err(prost::DecodeError::new(
+            "payload exceeds the 4 MiB message limit",
+        )),
+        Some(payload) => IngestBillingUsageRequest::decode(payload),
+    }
+}
+
 fn is_rebalance_commit_error(error: &KafkaError) -> bool {
     matches!(
         error.rdkafka_error_code(),
@@ -377,6 +389,14 @@ mod tests {
             offsets.find_partition("usage", 1).unwrap().offset(),
             Offset::Offset(9)
         );
+    }
+
+    #[test]
+    fn oversized_payloads_are_rejected_before_decoding() {
+        assert!(decode_request(Some(&vec![0u8; MAX_MESSAGE_BYTES + 1])).is_err());
+        assert!(decode_request(None).is_err());
+        // An empty request decodes fine; the service rejects it later as an empty batch.
+        assert!(decode_request(Some(&[])).is_ok());
     }
 
     #[test]

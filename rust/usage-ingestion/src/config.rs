@@ -271,8 +271,12 @@ impl Config {
             kafka_tls: self.input_tls(),
             kafka_client_id: "usage-ingestion-dlq".to_string(),
             kafka_message_timeout_ms: self.kafka_dead_letter_message_timeout_ms,
-            // A dead-lettered payload is whatever the consumer fetched, so it has to fit.
-            kafka_producer_message_max_bytes: Some(self.kafka_consumer_max_partition_fetch_bytes),
+            // A dead-lettered payload is whatever the consumer fetched, plus headers and
+            // framing, so leave headroom over the fetch limit.
+            kafka_producer_message_max_bytes: Some(
+                self.kafka_consumer_max_partition_fetch_bytes
+                    .saturating_add(1_048_576),
+            ),
             ..Default::default()
         }
     }
@@ -453,10 +457,11 @@ mod tests {
         assert_eq!(dlq.kafka_hosts, "ingestion:9092");
         assert!(dlq.kafka_tls);
         assert_eq!(dlq.kafka_message_timeout_ms, 5_000);
-        // Anything the consumer can fetch must be producible to the dead-letter topic.
+        // Anything the consumer can fetch must be producible to the dead-letter topic,
+        // including the headers dead-lettering adds on top of the copied payload.
         assert_eq!(
             dlq.kafka_producer_message_max_bytes,
-            Some(config.kafka_consumer_max_partition_fetch_bytes)
+            Some(config.kafka_consumer_max_partition_fetch_bytes + 1_048_576)
         );
     }
 
