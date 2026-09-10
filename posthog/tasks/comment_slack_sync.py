@@ -9,6 +9,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
 from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
+from posthog.helpers.slack_scopes import can_customize_message_appearance
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
@@ -89,6 +90,7 @@ def _post_backfill_reply(
         author_email=author_email,
         thread_ts=mirror.slack_thread_ts,
         organization_id=organization_id,
+        can_customize_appearance=can_customize_message_appearance(mirror.integration),
     )
 
 
@@ -176,6 +178,7 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
             author_email=author_email,
             thread_ts=mirror.slack_thread_ts,
             organization_id=_organization_id_for_team(comment.team_id),
+            can_customize_appearance=can_customize_message_appearance(mirror.integration),
         )
     except Exception as exc:
         raise self.retry(exc=exc)
