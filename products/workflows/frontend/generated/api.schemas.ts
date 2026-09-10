@@ -1573,13 +1573,13 @@ export interface EmailSendingAllowanceApi {
     readonly emails_per_hour: number
     /** How many emails this tier allows per day. */
     readonly emails_per_day: number
-    /** The largest audience this tier allows for a single batch send. */
+    /** The largest audience a single batch run of an email workflow can reach. A run stops here, and the rest of the audience does not receive the workflow. Applies whether or not the tier is enforced. Workflows that send SMS, push, or webhooks are not subject to the tier, so this is not their limit. */
     readonly max_batch_audience: number
     /** Emails sent by this project's workflows in the last hour. */
     readonly emails_sent_last_hour: number
     /** Emails sent by this project's workflows in the last 24 hours. */
     readonly emails_sent_last_day: number
-    /** True when these allowances are applied to sends. False while they are only being measured. */
+    /** True when the tier is applied to sends, so the hourly and daily limits hold. False while the tier is only being measured. The batch audience limit applies either way, and the value above is always the one a run stops at. */
     readonly enforced: boolean
 }
 

@@ -286,11 +286,61 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
             expect(cancel).toHaveBeenCalledTimes(1)
             expect(getBlastRadiusPersons).not.toHaveBeenCalled()
-            // The stop is visible on the batch run's log stream, keyed by parent run id.
+            // Keyed to the workflow with the batch job id as the instance, which is the pair the
+            // batch run's log panel reads.
             expect(queueLogs).toHaveBeenCalledTimes(1)
             const [logs] = queueLogs.mock.calls[0]
-            expect(logs[0].log_source_id).toEqual('batch-job-1')
+            expect(logs[0].log_source_id).toEqual(hogFlow.id)
+            expect(logs[0].instance_id).toEqual('batch-job-1')
             expect(flush).toHaveBeenCalled()
+        })
+    })
+
+    describe('run-level resolver logs', () => {
+        const state: BatchResolverState = {
+            batchJobId: 'batch-job-1',
+            teamId: team.id,
+            hogFlowId: hogFlow.id,
+            cursor: 'a-cursor',
+            filters: { properties: [] },
+            maxAudienceSize: 1000,
+            totalEnqueued: 1000,
+            pagesProcessed: 4,
+            attempts: 0,
+            variables: {},
+            startedAt: '2026-08-11T00:00:00.000Z',
+        }
+
+        const emitVia = async (method: string): Promise<Record<string, any>> => {
+            const queueLogs = jest.fn()
+            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+            Object.assign(consumer, { hogFunctionMonitoringService: { queueLogs } })
+
+            await (consumer as any)[method]({ reschedule: jest.fn() }, state, 'a reason')
+
+            const [logs] = queueLogs.mock.calls[0]
+            return logs[0]
+        }
+
+        // A run-level entry filed under the batch job id sits in a stream no viewer reads without
+        // an invocation id to filter by, so the person who ran the batch never learns why part of
+        // the audience got nothing.
+        it.each([
+            ['truncation', 'transitionToTruncatedTerminal', 'warn'],
+            ['failure', 'transitionToFailedTerminal', 'error'],
+        ])('keys the %s log to the workflow, with the batch job id as the instance', async (_, method, level) => {
+            const log = await emitVia(method)
+
+            expect(log.log_source_id).toEqual(hogFlow.id)
+            expect(log.instance_id).toEqual('batch-job-1')
+            expect(log.level).toEqual(level)
+        })
+
+        it('says how much of the audience was left out', async () => {
+            const log = await emitVia('transitionToTruncatedTerminal')
+
+            expect(log.message).toContain('1000')
+            expect(log.message).toContain('did not receive this workflow')
         })
     })
 })

@@ -2153,7 +2153,10 @@ def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
         max_tier=max_email_sending_tier(),
         emails_per_hour=resolved.limits.per_hour,
         emails_per_day=resolved.limits.per_day,
-        max_batch_audience=resolved.limits.max_batch_audience,
+        # The effective ceiling, not the tier's: while the rollout mode is not "enforce" a batch
+        # still stops at the flat pre-tier limit, so reading the same helper the dispatch reads
+        # keeps this number the one a run is actually truncated at.
+        max_batch_audience=get_hogflow_batch_trigger_limit(team_id),
         emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
         emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
         enforced=resolved.enforced,
@@ -2543,7 +2546,13 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     emails_per_hour = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per hour.")
     emails_per_day = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per day.")
     max_batch_audience = serializers.IntegerField(
-        read_only=True, help_text="The largest audience this tier allows for a single batch send."
+        read_only=True,
+        help_text=(
+            "The largest audience a single batch run of an email workflow can reach. A run stops here, and "
+            "the rest of the audience does not receive the workflow. Applies whether or not the tier is "
+            "enforced. Workflows that send SMS, push, or webhooks are not subject to the tier, so this is "
+            "not their limit."
+        ),
     )
     emails_sent_last_hour = serializers.IntegerField(
         read_only=True, help_text="Emails sent by this project's workflows in the last hour."
@@ -2553,7 +2562,11 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     )
     enforced = serializers.BooleanField(
         read_only=True,
-        help_text="True when these allowances are applied to sends. False while they are only being measured.",
+        help_text=(
+            "True when the tier is applied to sends, so the hourly and daily limits hold. False while the "
+            "tier is only being measured. The batch audience limit applies either way, and the value above "
+            "is always the one a run stops at."
+        ),
     )
 
 
