@@ -7,6 +7,7 @@ import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import {
     FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON,
     areClientFeatureFlagsHonored,
@@ -20,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { FeaturePreviewGateConfig } from '~/types'
 
+import { featurePreviewGateLogic } from './featurePreviewGateLogic'
 import { SceneContent } from './SceneContent'
 import { SceneTitleSection } from './SceneTitleSection'
 
@@ -33,15 +35,66 @@ export function FeaturePreviewSceneGate({
     const { featureFlags } = useValues(featureFlagLogic)
     const isEnabled = featureFlags[config.flag as keyof typeof featureFlags]
     if (isEnabled) {
-        return <>{children}</>
+        return <ServerConfirmedFeature config={config}>{children}</ServerConfirmedFeature>
     }
     return <FeaturePreviewGateContent config={config} />
+}
+
+/**
+ * Holds the user on a short "turning it on" state while the browser evaluates the flag as on but the
+ * API does not yet: the window between enabling a feature preview and the enrollment person property
+ * being ingested. Without the wait, the scene mounts and every request behind it 403s, which reads as
+ * a broken product until the user reloads. Gates without a `confirmServerAccess` probe render their
+ * scene straight away.
+ */
+function ServerConfirmedFeature({
+    config,
+    children,
+}: {
+    config: FeaturePreviewGateConfig
+    children: React.ReactNode
+}): JSX.Element {
+    const { confirmed } = useValues(
+        featurePreviewGateLogic({ flag: config.flag, confirmServerAccess: config.confirmServerAccess })
+    )
+
+    if (!confirmed) {
+        return <FeaturePreviewEnablingState config={config} />
+    }
+    return <>{children}</>
+}
+
+function FeaturePreviewEnablingState({ config }: { config: FeaturePreviewGateConfig }): JSX.Element {
+    const sceneConfig = useGateSceneConfig(config)
+
+    return (
+        <SceneContent>
+            {sceneConfig?.name && (
+                <SceneTitleSection
+                    name={sceneConfig.name}
+                    description={sceneConfig.description}
+                    resourceType={{ type: sceneConfig.iconType || 'default' }}
+                />
+            )}
+            <div className="flex items-center gap-2 text-secondary" data-attr="feature-preview-enabling" role="status">
+                <Spinner className="text-lg" />
+                <span>Turning the feature preview on. This takes a few seconds.</span>
+            </div>
+        </SceneContent>
+    )
+}
+
+type GateSceneConfig = (typeof sceneConfigurations)[keyof typeof sceneConfigurations]
+
+function useGateSceneConfig(config: FeaturePreviewGateConfig): GateSceneConfig | undefined {
+    const { activeSceneId } = useValues(sceneLogic)
+    const sceneIdForHeader = config.sceneId ?? activeSceneId
+    return sceneIdForHeader ? sceneConfigurations[sceneIdForHeader] : undefined
 }
 
 function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfig }): JSX.Element {
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
-    const { activeSceneId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -50,8 +103,7 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
     }, [loadEarlyAccessFeatures])
 
     const feature = earlyAccessFeatures.find((f) => f.flagKey === config.flag)
-    const sceneIdForHeader = config.sceneId ?? activeSceneId
-    const sceneConfig = sceneIdForHeader ? sceneConfigurations[sceneIdForHeader] : undefined
+    const sceneConfig = useGateSceneConfig(config)
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
 
     // Concept ("Coming Soon") features never enable their flag, so the enrollment toggle is a

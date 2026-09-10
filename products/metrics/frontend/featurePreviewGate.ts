@@ -1,7 +1,11 @@
+import { isFeatureFlagGatedError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { FeaturePreviewGateConfig } from '~/types'
+
+import { metricsHasMetricsRetrieve } from './generated/api'
 
 export const metricsFeaturePreviewGate: FeaturePreviewGateConfig = {
     flag: FEATURE_FLAGS.METRICS,
@@ -11,4 +15,20 @@ export const metricsFeaturePreviewGate: FeaturePreviewGateConfig = {
     docsURL: 'https://posthog.com/docs/metrics',
     sceneId: 'Metrics',
     productIntent: ProductKey.METRICS,
+    confirmServerAccess: async () => {
+        const teamId = teamLogic.findMounted()?.values.currentTeamId
+        if (!teamId) {
+            // Nothing to probe with yet; let the scene mount and resolve the project itself.
+            return true
+        }
+        try {
+            await metricsHasMetricsRetrieve(String(teamId))
+            return true
+        } catch (error) {
+            if (isFeatureFlagGatedError(error)) {
+                return false
+            }
+            throw error
+        }
+    },
 }

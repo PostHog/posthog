@@ -27,6 +27,10 @@ jest.mock('scenes/sceneLogic', () => ({
     sceneLogic: { __mock: 'sceneLogic' },
 }))
 
+jest.mock('./featurePreviewGateLogic', () => ({
+    featurePreviewGateLogic: () => ({ __mock: 'featurePreviewGateLogic' }),
+}))
+
 jest.mock('scenes/scenes', () => ({
     sceneConfigurations: {
         CustomerAnalytics: { name: 'Customer analytics', description: 'Analytics for customers', iconType: 'default' },
@@ -100,6 +104,10 @@ function isSupportLogicRef(logic: unknown): boolean {
     return logic === supportLogic
 }
 
+function isFeaturePreviewGateLogicRef(logic: unknown): boolean {
+    return (logic as { __mock?: string } | null | undefined)?.__mock === 'featurePreviewGateLogic'
+}
+
 function setupMocks({
     earlyAccessFeatures = [],
     waitlistSurveysEnabled = false,
@@ -108,6 +116,7 @@ function setupMocks({
     featureFlags = {},
     cloud = true,
     isDebug = false,
+    serverAccessConfirmed = true,
 }: {
     earlyAccessFeatures?: Array<{
         flagKey: string
@@ -121,6 +130,7 @@ function setupMocks({
     featureFlags?: Record<string, boolean | string>
     cloud?: boolean
     isDebug?: boolean
+    serverAccessConfirmed?: boolean
 } = {}): void {
     mockedUseMountedLogic.mockReturnValue({})
 
@@ -136,6 +146,9 @@ function setupMocks({
         }
         if (isPreflightLogicRef(logic)) {
             return { preflight: { cloud, is_debug: isDebug } }
+        }
+        if (isFeaturePreviewGateLogicRef(logic)) {
+            return { confirmed: serverAccessConfirmed }
         }
         return {}
     })
@@ -173,6 +186,16 @@ describe('FeaturePreviewSceneGate', () => {
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
 
             expect(screen.getByTestId('scene-content-rendered')).toBeInTheDocument()
+            expect(screen.queryByTestId('product-introduction')).not.toBeInTheDocument()
+        })
+
+        test('waits on the enabling state while the API has not caught up with the flag', () => {
+            setupMocks({ featureFlags: { [BASE_CONFIG.flag]: true }, serverAccessConfirmed: false })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByTestId('feature-preview-enabling')).toBeInTheDocument()
+            expect(screen.queryByTestId('scene-content-rendered')).not.toBeInTheDocument()
             expect(screen.queryByTestId('product-introduction')).not.toBeInTheDocument()
         })
 

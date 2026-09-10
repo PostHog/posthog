@@ -7861,6 +7861,15 @@ export interface FeaturePreviewGateConfig {
      * count as product intent the same way opting in from the feature previews page does.
      */
     productIntent?: ProductKey
+    /**
+     * Probe answering "does the API agree this flag is on for me?". Enrollment reaches the server
+     * as an ingested person property, so for a few seconds after a user enables the preview the
+     * browser evaluates the flag as on while every request still 403s. With a probe the gate waits
+     * for the server rather than handing over a scene whose queries all fail until a reload.
+     * Resolve `false` for a flag-gated 403, and throw anything else so the gate opens and lets the
+     * scene report the problem itself.
+     */
+    confirmServerAccess?: () => Promise<boolean>
 }
 
 export interface ProductManifest {
