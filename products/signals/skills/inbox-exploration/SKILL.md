@@ -215,7 +215,7 @@ For each report, the response includes:
 - `is_suggested_reviewer` — whether the current user is a suggested reviewer for this
   report (see "What 'suggested reviewer' means" above — it's based on GitHub commit
   authorship of the relevant code, mapped to PostHog users via linked GitHub identity)
-- `implementation_pr_url` — if a PR has been opened against this report
+- `pull_requests` — if a PR has been opened against this report
 - `work_state` — `unclaimed`, `working`, `in_review`, or `done`
 - `assignee` — who claimed the report (a user, an internal task, or an external agent), or `null`
   when nobody has. Say so when you list a report someone else owns, so it doesn't read as free

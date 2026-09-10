@@ -9,6 +9,7 @@ import {
   parseConventionalCommitTitle,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
+import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import { dismissalReasonLabel } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
@@ -39,7 +40,7 @@ export function InboxReportRowView({
 }: InboxReportRowViewProps): React.JSX.Element {
   const conventionalTitle = parseConventionalCommitTitle(report.title);
   const headline = deriveHeadline(report.summary);
-  const prUrl = report.implementation_pr_url ?? null;
+  const prUrl = primaryReportPullRequest(report).url ?? null;
   const pr = prUrl ? parsePrUrl(prUrl) : null;
   const isTerminal =
     report.status === "resolved" || report.status === "suppressed";
@@ -48,11 +49,11 @@ export function InboxReportRowView({
   // no work left either way, and its PR close can lag or fail, so its stale draft flag says nothing.
   const isDraftPr =
     !isTerminal &&
-    report.implementation_pr_state === "draft" &&
-    report.implementation_pr_merged !== true;
+    primaryReportPullRequest(report).state === "draft" &&
+    primaryReportPullRequest(report).merged !== true;
   const isShipped =
     report.status === "resolved" &&
-    (report.implementation_pr_merged === true ||
+    (primaryReportPullRequest(report).merged === true ||
       report.dismissal_reason === "pr_merged");
   const borderClass =
     pr || report.status === "resolved"
@@ -165,25 +166,25 @@ export function InboxReportRowView({
               type="button"
               onClick={() => onOpenPr(prUrl)}
               title={
-                report.implementation_pr_merged
+                primaryReportPullRequest(report).merged
                   ? "This report's earlier PR merged, but evidence kept arriving"
                   : isDraftPr
                     ? "Open the draft pull request on GitHub"
                     : "Open the pull request on GitHub"
               }
               className={
-                report.implementation_pr_merged || isDraftPr
+                primaryReportPullRequest(report).merged || isDraftPr
                   ? "flex items-center gap-1 rounded border border-(--gray-6) px-1.5 py-0.5 font-mono text-[12px] text-gray-11 hover:bg-(--gray-3) hover:text-gray-12"
                   : "flex items-center gap-1 rounded border border-(--accent-7) bg-(--accent-2) px-1.5 py-0.5 font-mono text-(--accent-11) text-[12px] hover:bg-(--accent-3)"
               }
             >
-              {report.implementation_pr_merged ? (
+              {primaryReportPullRequest(report).merged ? (
                 <GitMergeIcon size={11} />
               ) : (
                 <GitPullRequestIcon size={11} />
               )}
               #{pr.number}
-              {report.implementation_pr_merged
+              {primaryReportPullRequest(report).merged
                 ? " merged"
                 : isDraftPr
                   ? " draft"

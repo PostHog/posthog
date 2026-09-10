@@ -2,6 +2,8 @@ import type { UserBasicType } from '~/types'
 
 import {
     type ReportChartApi,
+    type SignalReportPullRequestApi,
+    type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
@@ -67,6 +69,8 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
 ]
 
 export interface SignalReport {
+    pull_requests?: readonly SignalReportPullRequestApi[]
+    assignee?: SignalReportAssigneeApi | null
     id: string
     title: string | null
     summary: string | null

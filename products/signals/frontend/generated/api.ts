@@ -87,6 +87,7 @@ import type {
     SignalsReportPrReviewCommentDestroyParams,
     SignalsReportPrReviewCommentReactionDestroyParams,
     SignalsReportPrReviewCommentReactionsCreateParams,
+    SignalsReportPrReviewCommentUpdateParams,
     SignalsReportPrReviewCommentsCreateParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
@@ -406,8 +407,25 @@ export const signalsReportPrReviewCommentsCreate = async (
     )
 }
 
-export const getSignalsReportPrReviewCommentUpdateUrl = (projectId: string, id: string, commentId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+export const getSignalsReportPrReviewCommentUpdateUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    params?: SignalsReportPrReviewCommentUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
 }
 
 /**
@@ -418,10 +436,11 @@ export const signalsReportPrReviewCommentUpdate = async (
     id: string,
     commentId: string,
     patchedPullRequestReviewCommentUpdateApi?: PatchedPullRequestReviewCommentUpdateApi,
+    params?: SignalsReportPrReviewCommentUpdateParams,
     options?: RequestInit
 ): Promise<PullRequestReviewCommentCreateResponseApi> => {
     return apiMutator<PullRequestReviewCommentCreateResponseApi>(
-        getSignalsReportPrReviewCommentUpdateUrl(projectId, id, commentId),
+        getSignalsReportPrReviewCommentUpdateUrl(projectId, id, commentId, params),
         {
             ...options,
             method: 'PATCH',

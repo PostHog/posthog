@@ -3209,6 +3209,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
+        header: {},
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -4138,6 +4139,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/{id}/run/`, {
+        header: {},
         path: { project_id: teamId.toString(), id: taskId },
         body,
       }),

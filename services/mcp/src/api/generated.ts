@@ -58619,12 +58619,6 @@ export namespace Schemas {
       PullRequest: 'pull_request',
     } as const;
 
-    /**
-     * * `user` - User
-     * * `task` - Task
-     * * `agent` - Agent
-     * * `system` - System
-     */
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
 
 
@@ -58713,13 +58707,6 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
-    /**
-     * * `unknown` - Unknown
-     * * `draft` - Draft
-     * * `open` - Open
-     * * `closed` - Closed
-     * * `merged` - Merged
-     */
     export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
 
 
@@ -58731,7 +58718,7 @@ export namespace Schemas {
       Merged: 'merged',
     } as const;
 
-    export interface SignalPullRequestAttachedBy {
+    export interface SignalReportPullRequestAttachedBy {
       /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
        *
        * * `user` - User
@@ -58753,7 +58740,7 @@ export namespace Schemas {
       task_id: string | null;
     }
 
-    export interface SignalPullRequest {
+    export interface SignalReportPullRequest {
       /**
          * Shared PR record ID. Null for a legacy link awaiting migration.
          * @nullable
@@ -58772,7 +58759,7 @@ export namespace Schemas {
       /** Whether this PR merged. */
       merged: boolean;
       /** Who first attached this PR to the report, not necessarily its GitHub author. Null until a legacy link is migrated. */
-      readonly attached_by: SignalPullRequestAttachedBy | null;
+      readonly attached_by: SignalReportPullRequestAttachedBy | null;
       /**
          * Originating work claim. Null for legacy links without a recorded claim.
          * @nullable
@@ -58958,7 +58945,7 @@ export namespace Schemas {
          */
       readonly implementation_pr_url: string | null;
       /** All distinct PRs linked to this report across work attempts. */
-      readonly pull_requests: readonly SignalPullRequest[];
+      readonly pull_requests: readonly SignalReportPullRequest[];
       /** Latest known pull request state: unknown, draft, open, closed, or merged. */
       readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
       /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
@@ -101950,6 +101937,13 @@ export namespace Schemas {
     };
 
     export type SignalsReportPrReviewCommentsCreateParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string;
+    };
+
+    export type SignalsReportPrReviewCommentUpdateParams = {
     /**
      * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
      */

@@ -100,7 +100,6 @@ from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
-    fetch_implementation_pr_state_for_reports,
     fetch_implementation_prs_for_reports,
     pr_bearing_task_run_filter,
     primary_pull_request,
@@ -3169,30 +3168,35 @@ class SignalReportViewSet(
             return self._pr_ci_statuses_response([])
 
         try:
-            pr_by_report = fetch_implementation_pr_state_for_reports(report_ids)
+            prs_by_report = fetch_implementation_prs_for_reports(report_ids)
         except Exception:
             # Decorative metadata: a lookup failure must leave the list unpainted, not broken.
             logger.exception("signals.reports.pr_ci_statuses.implementation_pr_lookup_failed")
             return self._pr_ci_statuses_response([])
 
-        # Merged pull requests are skipped for the same reason: the pill already reads "merged", and
-        # the CI of a landed pull request is history rather than something a reader can act on.
-        references: dict[str, PullRequestRef] = {}
-        for report_id, pr in pr_by_report.items():
-            if pr.merged:
-                continue
-            parsed = GitHubIntegration.parse_pull_request_url(pr.url)
-            if parsed is not None:
-                references[report_id] = parsed
-
-        statuses = self._pr_ci_statuses_for_references(references.values())
-        return self._pr_ci_statuses_response(
-            [
-                {"report_id": report_id, "ci_status": statuses[reference]}
-                for report_id, reference in references.items()
-                if reference in statuses
+        references: dict[str, list[PullRequestRef]] = {}
+        for report_id, prs in prs_by_report.items():
+            references[report_id] = [
+                parsed
+                for pr in prs
+                if not pr.merged and pr.state != "closed"
+                if (parsed := GitHubIntegration.parse_pull_request_url(pr.url)) is not None
             ]
-        )
+
+        statuses = self._pr_ci_statuses_for_references(ref for refs in references.values() for ref in refs)
+        rollups = []
+        for report_id, refs in references.items():
+            known = {statuses[ref] for ref in refs if ref in statuses}
+            if "failing" in known:
+                rollup = "failing"
+            elif not refs or any(ref not in statuses for ref in refs):
+                continue
+            elif "pending" in known:
+                rollup = "pending"
+            else:
+                rollup = "passing" if known == {"passing"} else "none"
+            rollups.append({"report_id": report_id, "ci_status": rollup})
+        return self._pr_ci_statuses_response(rollups)
 
     @staticmethod
     # `list` names the viewset's own action inside the class body, so the annotation uses `Sequence`.
@@ -3388,7 +3392,10 @@ class SignalReportViewSet(
 
     @extend_schema(
         methods=["PATCH"],
-        parameters=[OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        parameters=[
+            _PULL_REQUEST_ID_PARAMETER,
+            OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
         request=PullRequestReviewCommentUpdateSerializer,
         responses={
             200: OpenApiResponse(

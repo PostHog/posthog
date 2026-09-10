@@ -884,14 +884,19 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
     def work_state(self) -> SignalReportWorkState:
         if self.report.status == SignalReport.Status.RESOLVED:
             return SignalReportWorkState.DONE
-        if self.pr_url and self.pr_state in {self.PrState.UNKNOWN, self.PrState.DRAFT, self.PrState.OPEN}:
+        from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
+
+        if any(
+            pr.state in {self.PrState.UNKNOWN, self.PrState.DRAFT, self.PrState.OPEN}
+            for pr in fetch_implementation_prs_for_reports([str(self.report_id)]).get(str(self.report_id), [])
+        ):
             return SignalReportWorkState.IN_REVIEW
         if self.actor_kind:
             return SignalReportWorkState.WORKING
         return SignalReportWorkState.UNCLAIMED
 
 
-class SignalPullRequest(TeamScopedRootMixin, UUIDModel):
+class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     State = SignalReportAssignment.PrState
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
@@ -1029,7 +1034,7 @@ class SignalReportArtefact(UUIDModel):
         related_name="work_artefacts",
     )
     pull_request = models.ForeignKey(
-        SignalPullRequest,
+        SignalReportPullRequest,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

@@ -120,19 +120,31 @@ describe('inboxReportDetailLogic', () => {
             status: 'ready',
             title: 'Checkout errors spiked',
             implementation_pr_url: 'https://github.com/example/repo/pull/1',
+            pull_requests: [1, 2].map((n) => ({
+                id: `pr-${n}`,
+                url: `https://github.com/example/repo/pull/${n}`,
+                state: 'open',
+                merged: false,
+                claim_id: null,
+                attached_at: null,
+                attached_by: null,
+            })),
         } as unknown as SignalReport
 
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
         let prChecksRequests: number
+        let requestedPrIds: (string | null)[]
 
         beforeEach(() => {
             prChecksRequests = 0
+            requestedPrIds = []
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
                     '/api/projects/:team_id/signals/reports/:id/signals/': [],
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
-                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': () => {
+                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': ({ request }) => {
+                        requestedPrIds.push(new URL(request.url).searchParams.get('pull_request_id'))
                         prChecksRequests += 1
                         return [502, { error: 'GitHub could not return the checks for this pull request.' }]
                     },
@@ -148,6 +160,21 @@ describe('inboxReportDetailLogic', () => {
         afterEach(() => {
             logic.unmount()
             resumeKeaLoadersErrors()
+        })
+
+        it('scopes requests to the selected stack PR and keeps that selection when another layer merges', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(requestedPrIds).toEqual(['pr-1'])
+            logic.actions.selectPullRequest('https://github.com/example/repo/pull/2')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(requestedPrIds).toEqual(['pr-1', 'pr-2'])
+            logic.actions.setReport({
+                ...PR_REPORT,
+                pull_requests: PR_REPORT.pull_requests?.map((pr) =>
+                    pr.id === 'pr-1' ? { ...pr, merged: true, state: 'merged' } : pr
+                ),
+            })
+            expect(logic.values.selectedPullRequest.id).toBe('pr-2')
         })
 
         it('does not endlessly retry a failing checks fetch', async () => {

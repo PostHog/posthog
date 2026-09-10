@@ -6,10 +6,10 @@ from unittest.mock import patch
 from django.core.management import call_command
 
 from products.signals.backend.models import (
-    SignalPullRequest,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
     SignalReportTask,
 )
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
@@ -71,7 +71,7 @@ class TestBackfillReportPullRequests(BaseTest):
         assert claim_id is not None
         assert assignment.actor_user_id == self.user.id
         assert SignalReportAssignment.all_teams.filter(report=task_report).count() == 0
-        assert SignalPullRequest.objects.for_team(self.team.id).count() == 2
+        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 2
         assert (
             SignalReportArtefact.objects.filter(report=task_report, type="pull_request", actor_kind="task").count() == 2
         )
@@ -79,7 +79,7 @@ class TestBackfillReportPullRequests(BaseTest):
         imported = SignalReportArtefact.objects.get(report=deleted_principal, type="pull_request")
         assert imported.actor_kind == "agent"
         assert imported.actor_agent == "example-agent"
-        assert not SignalPullRequest.objects.for_team(self.team.id).filter(checked_at__isnull=False).exists()
+        assert not SignalReportPullRequest.objects.for_team(self.team.id).filter(checked_at__isnull=False).exists()
         update_assignments_for_pull_request(
             team_ids=[self.team.id], repository="example/app", pr_number=1, pr_state="merged"
         )
@@ -89,7 +89,7 @@ class TestBackfillReportPullRequests(BaseTest):
         )
         call_command("backfill_report_pull_requests", team_id=self.team.id, batch_size=1, stdout=StringIO())
         assert SignalReportArtefact.objects.filter(team=self.team).count() == count
-        assert SignalPullRequest.objects.for_team(self.team.id).get(number=1).state == "merged"
+        assert SignalReportPullRequest.objects.for_team(self.team.id).get(number=1).state == "merged"
         assignment.refresh_from_db()
         assert assignment.claim_id == claim_id
         task_report.refresh_from_db()

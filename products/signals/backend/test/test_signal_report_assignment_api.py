@@ -13,10 +13,10 @@ from posthog.models.team.team import Team
 from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
 from products.signals.backend.models import (
     SignalActorKind,
-    SignalPullRequest,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
 )
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 
@@ -172,6 +172,14 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             assert len(response.json()["pull_requests"]) == 2
         assert SignalReportArtefact.objects.filter(report=report, type="pull_request").count() == 2
         assert SignalReportArtefact.objects.filter(report=report, type="work_claim").count() == 1
+        from products.signals.backend.serializers import SignalReportSerializer
+
+        SignalReportAssignment.all_teams.filter(report=report).update(pr_state="merged", pr_merged=True)
+        serialized = SignalReportSerializer(report).data
+        assert serialized["implementation_pr_merged"] is False
+        assert serialized["implementation_pr_state"] == "unknown"
+        assert serialized["work_state"] == "in_review"
+        assert len(serialized["pull_requests"]) == 2
         note_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
         note = self.client.post(
             note_url,
@@ -280,9 +288,9 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
                 self._claim_url(report), {"pull_requests": ["https://github.com/example/app/pull/1"]}, format="json"
             )
             assert response.status_code == 200
-        assert SignalPullRequest.objects.for_team(self.team.id).count() == 1
+        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 1
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        other_pr = SignalPullRequest.objects.for_team(other_team.id).create(
+        other_pr = SignalReportPullRequest.objects.for_team(other_team.id).create(
             team_id=other_team.id, repository="example/app", number=1, url="https://github.com/example/app/pull/1"
         )
         for state in ["merged", "open", "closed"]:
@@ -294,7 +302,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             assert report.status == SignalReport.Status.RESOLVED
         other_pr.refresh_from_db()
         assert other_pr.state == "unknown"
-        assert SignalPullRequest.objects.for_team(self.team.id).get().state == "merged"
+        assert SignalReportPullRequest.objects.for_team(self.team.id).get().state == "merged"
 
     def test_generic_mcp_client_name_is_used_when_registration_name_is_missing(self):
         report = self._create_report()

@@ -1251,7 +1251,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_secondary_task_pr_webhook_imports_the_whole_stack(self, _capture, get_secret):
-        from products.signals.backend.models import SignalPullRequest
+        from products.signals.backend.models import SignalReportPullRequest
 
         get_secret.return_value = self.webhook_secret
         self.assignment.delete()
@@ -1262,8 +1262,8 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         assert self._post_pr_webhook("closed", True, second).status_code == 200
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.READY
-        assert SignalPullRequest.objects.for_team(self.team.id).count() == 2
-        assert SignalPullRequest.objects.for_team(self.team.id).get(number=43).state == "merged"
+        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 2
+        assert SignalReportPullRequest.objects.for_team(self.team.id).get(number=43).state == "merged"
         assert self._post_pr_webhook("closed", False, first).status_code == 200
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.RESOLVED

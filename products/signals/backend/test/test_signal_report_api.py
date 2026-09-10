@@ -3238,11 +3238,11 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         }
 
         with patch(
-            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
             return_value={
-                str(red.id): self._pr(7),
-                str(green.id): self._pr(8),
-                str(landed.id): self._pr(9, merged=True),
+                str(red.id): [self._pr(6), self._pr(7)],
+                str(green.id): [self._pr(8)],
+                str(landed.id): [self._pr(9, merged=True)],
             },
         ):
             response = self.client.get(self._url([red.id, green.id, landed.id, without_pr.id]))
@@ -3257,12 +3257,43 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         )
         github.return_value.get_pull_request_ci_statuses.assert_called_once()
         requested = github.return_value.get_pull_request_ci_statuses.call_args.args[0]
-        assert sorted(reference.number for reference in requested) == [7, 8]
+        assert sorted(reference.number for reference in requested) == [6, 7, 8]
         github.assert_called_once_with(
             self.team.id,
             "PostHog/posthog",
             source="signals_pr_ci_status",
             priority=Priority.NORMAL,
+        )
+
+    @parameterized.expand(
+        [
+            ("failing", ["passing", "failing"], "failing"),
+            ("pending", ["passing", "pending"], "pending"),
+            ("incomplete", ["passing", None], None),
+            ("known_failure", ["failing", None], "failing"),
+            ("no_checks", ["passing", "none"], "none"),
+        ]
+    )
+    def test_stack_ci_never_hides_secondary_or_unreadable_pr(self, _name, states, expected):
+        report = self._create_report("stack")
+        github = self._patch_github()
+        github.return_value.get_pull_request_ci_statuses.side_effect = lambda refs: {
+            ref: states[ref.number - 1] for ref in refs if states[ref.number - 1] is not None
+        }
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={
+                str(report.id): [
+                    self._pr(1),
+                    self._pr(2),
+                    ImplementationPr(url="https://github.com/PostHog/posthog/pull/3", state="closed", merged=False),
+                ]
+            },
+        ):
+            response = self.client.get(self._url([report.id]))
+        assert response.status_code == 200
+        assert response.json()["statuses"] == (
+            [{"report_id": str(report.id), "ci_status": expected}] if expected else []
         )
 
     def test_a_second_scan_reads_the_cached_status_instead_of_calling_github(self):
@@ -3274,8 +3305,8 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         )
 
         with patch(
-            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
-            return_value={str(report.id): self._pr(7)},
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
         ):
             first = self.client.get(self._url([report.id]))
             second = self.client.get(self._url([report.id]))
@@ -3305,8 +3336,8 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
             github.return_value.get_pull_request_ci_statuses.side_effect = failure
 
         with patch(
-            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
-            return_value={str(report.id): self._pr(7)},
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
         ):
             response = self.client.get(self._url([report.id]))
 
@@ -3319,7 +3350,7 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         # same answer again while GitHub is still limiting us.
         batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
         reports = [self._create_report(f"pr {n}") for n in range(batch_size + 1)]
-        pr_by_report = {str(report.id): self._pr(n + 1) for n, report in enumerate(reports)}
+        pr_by_report = {str(report.id): [self._pr(n + 1)] for n, report in enumerate(reports)}
         github = self._patch_github()
         calls: list[int] = []
 
@@ -3333,7 +3364,7 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         url = self._url([report.id for report in reports])
 
         with patch(
-            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
             return_value=pr_by_report,
         ):
             first = self.client.get(url)
@@ -3356,8 +3387,8 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         github = self._patch_github()
 
         with patch(
-            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
-            return_value={str(other_report.id): self._pr(7)},
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(other_report.id): [self._pr(7)]},
         ) as fetch_pr_state:
             response = self.client.get(self._url([other_report.id]))
 
@@ -3380,8 +3411,8 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         github = self._patch_github()
 
         with patch(
-            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
-            return_value={str(report.id): self._pr(7)},
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
         ) as fetch_pr_state:
             response = self.client.get(self._url([report.id]))
 
@@ -3405,8 +3436,8 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         github.side_effect = failure
 
         with patch(
-            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
-            return_value={str(report.id): self._pr(7)},
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
         ):
             first = self.client.get(self._url([report.id]))
             github.side_effect = None
@@ -3426,8 +3457,8 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         github.return_value = None
 
         with patch(
-            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
-            return_value={str(report.id): self._pr(7)},
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
         ):
             first = self.client.get(self._url([report.id]))
             second = self.client.get(self._url([report.id]))

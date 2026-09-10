@@ -33,6 +33,22 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
         already_addressed: null,
         source_products: [],
         implementation_pr_url: null,
+        assignee: null,
+        pull_requests: overrides.implementation_pr_url
+            ? [
+                  {
+                      id: nextId(),
+                      url: overrides.implementation_pr_url,
+                      state:
+                          overrides.implementation_pr_state ??
+                          (overrides.implementation_pr_merged ? 'merged' : 'unknown'),
+                      merged: overrides.implementation_pr_merged ?? false,
+                      claim_id: null,
+                      attached_at: BASE_DATE,
+                      attached_by: null,
+                  },
+              ]
+            : [],
         ...overrides,
     }
 }

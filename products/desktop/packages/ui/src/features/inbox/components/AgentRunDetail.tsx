@@ -12,6 +12,7 @@ import {
   deriveHeadline,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
+import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import { Button } from "@posthog/quill";
 import {
   isTerminalStatus,
@@ -138,7 +139,7 @@ function RunOutputWidget({ report }: { report: SignalReport }) {
 }
 
 function RunOutputReadyCard({ report }: { report: SignalReport }) {
-  const prUrl = report.implementation_pr_url;
+  const prUrl = primaryReportPullRequest(report).url;
   const isPr = !!prUrl;
   const prRef = prUrl ? parsePrUrl(prUrl) : null;
   const sourceMeta = getSourceProductMeta(report.source_products?.[0]);

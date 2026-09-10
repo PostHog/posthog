@@ -104,13 +104,6 @@ export interface ReportChartApi {
     size?: SizeEnumApi | null
 }
 
-/**
- * * `unknown` - Unknown
- * * `draft` - Draft
- * * `open` - Open
- * * `closed` - Closed
- * * `merged` - Merged
- */
 export type SignalReportAssignmentPrStateEnumApi =
     (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
 
@@ -122,12 +115,6 @@ export const SignalReportAssignmentPrStateEnumApi = {
     Merged: 'merged',
 } as const
 
-/**
- * * `user` - User
- * * `task` - Task
- * * `agent` - Agent
- * * `system` - System
- */
 export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
 
 export const SignalActorKindEnumApi = {
@@ -145,7 +132,7 @@ export interface _UserApi {
     readonly email: string
 }
 
-export interface SignalPullRequestAttachedByApi {
+export interface SignalReportPullRequestAttachedByApi {
     /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
      *
      * * `user` - User
@@ -167,7 +154,7 @@ export interface SignalPullRequestAttachedByApi {
     task_id: string | null
 }
 
-export interface SignalPullRequestApi {
+export interface SignalReportPullRequestApi {
     /**
      * Shared PR record ID. Null for a legacy link awaiting migration.
      * @nullable
@@ -186,7 +173,7 @@ export interface SignalPullRequestApi {
     /** Whether this PR merged. */
     merged: boolean
     /** Who first attached this PR to the report, not necessarily its GitHub author. Null until a legacy link is migrated. */
-    readonly attached_by: SignalPullRequestAttachedByApi | null
+    readonly attached_by: SignalReportPullRequestAttachedByApi | null
     /**
      * Originating work claim. Null for legacy links without a recorded claim.
      * @nullable
@@ -372,7 +359,7 @@ export interface SignalReportApi {
      */
     readonly implementation_pr_url: string | null
     /** All distinct PRs linked to this report across work attempts. */
-    readonly pull_requests: readonly SignalPullRequestApi[]
+    readonly pull_requests: readonly SignalReportPullRequestApi[]
     /** Latest known pull request state: unknown, draft, open, closed, or merged. */
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
     /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
@@ -4724,6 +4711,13 @@ export type SignalsReportPrCommentsParams = {
 }
 
 export type SignalsReportPrReviewCommentsCreateParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentUpdateParams = {
     /**
      * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
      */

@@ -174,7 +174,7 @@ Idempotent — skips any report that already has a `task_run` artefact referenci
 ## Backfilling report work and pull requests
 
 `uv run manage.py backfill_report_pull_requests --team-id <id>` imports assignment
-ownership and legacy PR links into work artefacts and shared `SignalPullRequest`
+ownership and legacy PR links into work artefacts and shared `SignalReportPullRequest`
 records. `--batch-size` bounds each page; the printed `--after` cursor resumes it.
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.

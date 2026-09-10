@@ -10,10 +10,10 @@ from products.signals.backend.custom_agent.persistence import create_custom_agen
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import (
     SignalActorKind,
-    SignalPullRequest,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
     SignalReportTask,
 )
 from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments
@@ -202,7 +202,7 @@ class TestTaskRunArtefacts(BaseTest):
         assert assignment.pr_state == SignalReportAssignment.PrState.MERGED
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
-        assert SignalPullRequest.objects.for_team(self.team.id).count() == 2
+        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 2
         assert (
             SignalReportArtefact.objects.filter(
                 report=report, type="pull_request", claim_id=assignment.claim_id

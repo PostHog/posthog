@@ -44,7 +44,7 @@ describe("buildCreatePrReportPrompt", () => {
 
   it("tells the agent to continue an existing linked PR instead of opening a duplicate", () => {
     const prompt = buildCreatePrReportPrompt({ reportId: "abc123" });
-    expect(prompt).toContain("implementation_pr_url");
+    expect(prompt).toContain("pull_requests");
     expect(prompt).toMatch(/gh pr checkout/i);
     expect(prompt).toMatch(/do not open a second PR/i);
   });

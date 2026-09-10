@@ -10,7 +10,7 @@ erDiagram
     SignalReport ||--o{ SignalReportArtefact : "work history"
     SignalReportAssignment }o--o| SignalReportArtefact : "active claim"
     SignalReportArtefact }o--o| SignalReportArtefact : "claim"
-    SignalReportArtefact }o--o| SignalPullRequest : "PR link"
+    SignalReportArtefact }o--o| SignalReportPullRequest : "PR link"
 ```
 
 `SignalReportAssignment` retains ownership fields and gains `claim_id`. This
@@ -19,7 +19,7 @@ separate session table. `work_release` records release or takeover, and notes,
 commits, task runs, and PR links can reference their claim. Claim and release
 history and PR links cannot be edited or deleted through the artefact API.
 
-`SignalPullRequest` stores one PR per `(team, repository, number)`, with URL,
+`SignalReportPullRequest` stores one PR per `(team, repository, number)`, with URL,
 state, and last verification time. Repository identity is case-insensitive.
 `pull_request` artefacts connect reports and claims to these records. Multiple
 reports can share a PR, and a report can link a stack spanning repositories.
@@ -70,7 +70,8 @@ the backfill time; unmigrated links have null attachment metadata.
 
 Existing `implementation_pr_*` fields retain a deterministic representative:
 unfinished PRs first, then merged, then closed, with URL ordering within each group. Existing
-web and desktop callers and the batch CI endpoint use that representative. PR
+compact cards use that representative. Web and desktop details select a linked PR explicitly.
+Batch CI rolls up every active PR: any failure wins; missing answers cannot yield a passing report. PR
 checks and review endpoints accept `pull_request_id` to address any linked PR;
 the server verifies that it belongs to the requested report and team. Outcome
 metrics count distinct linked PRs. Billing and refunds retain report-level rules.
@@ -104,3 +105,22 @@ Reviewer assignment is queued after commit for newly linked PRs and reviewer edi
 
 Backfill does not recover missed webhook states. Unknown or stale PRs require a
 subsequent GitHub event or explicit state reconciliation before auto-completion.
+
+## PR consumer map
+
+| Consumer                                                      | PR source and scope                                                                                  |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Report serializers, REST and MCP                              | Canonical collection; compatibility fields select the same deterministic primary.                    |
+| Inbox filters, counts, analytics, kickoff and refund controls | Linked PR collection, with legacy fallback only when the server omits it.                            |
+| Web and desktop detail, comments, checks and review actions   | Selected linked PR; request and cache scope follow its identity.                                     |
+| Desktop/mobile cards and canvas previews                      | Deterministic primary from the collection.                                                           |
+| Batch CI and desktop diff prefetch                            | All active PRs for CI; all visible linked URLs for diff prefetch.                                    |
+| Task continuation                                             | Active linked PR attribution identifies the originating task; running task state remains task-owned. |
+| Task output receiver                                          | Imports every PR URL through the shared linking service before completion.                           |
+| GitHub webhooks                                               | Reverse lookup of every linked report, including secondary stack PRs.                                |
+| Dismissal and reviewer assignment                             | Every linked PR, with ownership and shared-report safeguards.                                        |
+| Notification timing                                           | Canonical links attributed to the implementation task being awaited.                                 |
+| Outcome metrics                                               | Distinct linked PRs.                                                                                 |
+| Billing eligibility and spend gates                           | Immutable implementation task/run evidence, never externally attached PRs.                           |
+| Refund merge state                                            | Canonical state of the particular billed PR; task-output fallback for unmigrated evidence.           |
+| Agent instructions and validation scout                       | Full collection and each PR's state; claims and attachment use one interaction.                      |

@@ -99,14 +99,18 @@ def assignment_snapshot(assignment: SignalReportAssignment | None) -> Assignment
             "agent": assignment.actor_agent,
             "claimed_at": assignment.claimed_at.isoformat() if assignment.claimed_at else None,
         }
+    from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
+
     implementation_pr: PullRequestSnapshot | None = None
-    if assignment.pr_url:
+    pr = fetch_implementation_pr_state_for_reports([str(assignment.report_id)]).get(str(assignment.report_id))
+    if pr is not None:
+        parsed = GitHubIntegration.parse_pull_request_url(pr.url)
         implementation_pr = {
-            "url": assignment.pr_url,
-            "repository": assignment.repository,
-            "number": assignment.pr_number,
-            "state": assignment.pr_state,
-            "merged": assignment.pr_merged,
+            "url": pr.url,
+            "repository": parsed.repository if parsed else None,
+            "number": parsed.number if parsed else None,
+            "state": pr.state,
+            "merged": pr.merged,
         }
     return {"assignee": assignee, "implementation_pr": implementation_pr}
 

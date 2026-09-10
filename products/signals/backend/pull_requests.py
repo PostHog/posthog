@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PullRequestLink
-from products.signals.backend.models import SignalPullRequest, SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 
 if TYPE_CHECKING:
     from products.signals.backend.report_assignments import PullRequestDetails
@@ -26,7 +26,7 @@ def link_pull_request(
     claim_id: str | None,
     migrated: bool = False,
     notify_reviewers: bool = True,
-) -> SignalPullRequest:
+) -> SignalReportPullRequest:
     if (
         claim_id
         and not SignalReportArtefact.objects.filter(
@@ -37,14 +37,14 @@ def link_pull_request(
         ).exists()
     ):
         raise ValueError("Claim must belong to the report and team.")
-    pr, _ = SignalPullRequest.objects.for_team(report.team_id).get_or_create(
+    pr, _ = SignalReportPullRequest.objects.for_team(report.team_id).get_or_create(
         team_id=report.team_id,
         repository=details.repository,
         number=details.number,
         defaults={"url": details.url},
     )
-    pr = SignalPullRequest.objects.for_team(report.team_id).select_for_update().get(id=pr.id)
-    if pr.state != SignalPullRequest.State.MERGED and details.state != SignalPullRequest.State.UNKNOWN:
+    pr = SignalReportPullRequest.objects.for_team(report.team_id).select_for_update().get(id=pr.id)
+    if pr.state != SignalReportPullRequest.State.MERGED and details.state != SignalReportPullRequest.State.UNKNOWN:
         # Imported/task snapshots must not overwrite a state already verified with GitHub.
         if not migrated or pr.checked_at is None:
             pr.state = details.state
@@ -88,7 +88,7 @@ def apply_report_completion(report: SignalReport) -> None:
     from products.signals.backend.report_assignments import _apply_pr_report_state
 
     states = list(
-        SignalPullRequest.objects.for_team(report.team_id)
+        SignalReportPullRequest.objects.for_team(report.team_id)
         .filter(report_links__team_id=report.team_id, report_links__report_id=report.id)
         .values_list("state", flat=True)
         .distinct()
@@ -159,7 +159,7 @@ def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool 
                 url=url,
                 repository=parsed.repository.lower(),
                 number=parsed.number,
-                state=state if state in SignalPullRequest.State.values else "unknown",
+                state=state if state in SignalReportPullRequest.State.values else "unknown",
                 merged=state == "merged",
             ),
             actor=actor,
@@ -191,7 +191,7 @@ def update_pull_request_state(*, team_id: int, repository: str, number: int, sta
             SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
         )
         pr = (
-            SignalPullRequest.objects.for_team(team_id)
+            SignalReportPullRequest.objects.for_team(team_id)
             .select_for_update()
             .filter(
                 repository=repository.lower(),
@@ -201,7 +201,7 @@ def update_pull_request_state(*, team_id: int, repository: str, number: int, sta
         )
         if pr is None:
             return 0
-        if pr.state != SignalPullRequest.State.MERGED:
+        if pr.state != SignalReportPullRequest.State.MERGED:
             pr.state = state
         pr.checked_at = timezone.now()
         pr.save(update_fields=["state", "checked_at", "updated_at"])
@@ -209,7 +209,7 @@ def update_pull_request_state(*, team_id: int, repository: str, number: int, sta
             team_id=team_id, repository=repository.lower(), pr_number=number
         ).update(
             pr_state=pr.state,
-            pr_merged=pr.state == SignalPullRequest.State.MERGED,
+            pr_merged=pr.state == SignalReportPullRequest.State.MERGED,
         )
         for report in reports:
             apply_report_completion(report)

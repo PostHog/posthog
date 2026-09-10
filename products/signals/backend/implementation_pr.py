@@ -15,10 +15,10 @@ from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import (
     SignalActorKind,
-    SignalPullRequest,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
 )
 from products.signals.backend.task_run_artefacts import (
     NON_PR_BEARING_TASK_RUN_TYPES,
@@ -293,7 +293,7 @@ def _close_implementation_pr(
             repository=parsed.repository.lower(),
             pr_number=parsed.number,
         )
-        shared_pr = SignalPullRequest.objects.for_team(team_id).filter(
+        shared_pr = SignalReportPullRequest.objects.for_team(team_id).filter(
             repository=parsed.repository.lower(), number=parsed.number
         )
 
@@ -341,14 +341,16 @@ def _close_implementation_pr(
             )
             return False
         if pr_status.get("merged"):
-            shared_pr.update(state=SignalPullRequest.State.MERGED, checked_at=timezone.now(), updated_at=timezone.now())
+            shared_pr.update(
+                state=SignalReportPullRequest.State.MERGED, checked_at=timezone.now(), updated_at=timezone.now()
+            )
             assignment_for_pr.update(
                 pr_state=SignalReportAssignment.PrState.MERGED,
                 pr_merged=True,
             )
         elif pr_status.get("state") == "closed":
-            shared_pr.exclude(state=SignalPullRequest.State.MERGED).update(
-                state=SignalPullRequest.State.CLOSED, checked_at=timezone.now(), updated_at=timezone.now()
+            shared_pr.exclude(state=SignalReportPullRequest.State.MERGED).update(
+                state=SignalReportPullRequest.State.CLOSED, checked_at=timezone.now(), updated_at=timezone.now()
             )
             assignment_for_pr.update(
                 pr_state=SignalReportAssignment.PrState.CLOSED,
@@ -392,8 +394,8 @@ def _close_implementation_pr(
             pr_state=SignalReportAssignment.PrState.CLOSED,
             pr_merged=False,
         )
-        shared_pr.exclude(state=SignalPullRequest.State.MERGED).update(
-            state=SignalPullRequest.State.CLOSED, checked_at=timezone.now(), updated_at=timezone.now()
+        shared_pr.exclude(state=SignalReportPullRequest.State.MERGED).update(
+            state=SignalReportPullRequest.State.CLOSED, checked_at=timezone.now(), updated_at=timezone.now()
         )
         return True
     except Exception:

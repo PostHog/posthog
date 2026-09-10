@@ -1,5 +1,16 @@
 import { GitPullRequestIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
+import {
+  primaryReportPullRequest,
+  reportPullRequests,
+} from "@posthog/core/inbox/reportPullRequests";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
@@ -12,6 +23,7 @@ import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/component
 import { PrCommentsSection } from "@posthog/ui/features/pr-review/PrCommentsSection";
 import { PrDecisionBlock } from "@posthog/ui/features/pr-review/PrDecisionBlock";
 import { PrFilesChangedSection } from "@posthog/ui/features/pr-review/PrFilesChangedSection";
+import { useState } from "react";
 
 interface PullRequestDetailProps {
   reportId: string;
@@ -43,10 +55,12 @@ export function PullRequestDetail({
  * from them into one line.
  */
 export function PullRequestDetailContent({ report }: { report: SignalReport }) {
-  const prRef = report.implementation_pr_url
-    ? parsePrUrl(report.implementation_pr_url)
-    : null;
-  const prUrl = prRef ? report.implementation_pr_url : null;
+  const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
+  const prs = reportPullRequests(report);
+  const selectedPr =
+    prs.find((pr) => pr.url === selectedUrl) ??
+    primaryReportPullRequest(report);
+  const prUrl = parsePrUrl(selectedPr.url) ? selectedPr.url : null;
 
   return (
     <InboxDetailFrame
@@ -58,7 +72,27 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
         prUrl ? (
           <>
             <InboxMetaSeparator />
-            <ReportImplementationPrLink prUrl={prUrl} size="md" />
+            {prs.length > 1 ? (
+              <Select value={prUrl} onValueChange={setSelectedUrl}>
+                <SelectTrigger
+                  aria-label="Pull request"
+                  data-attr="inbox-report-select-pull-request"
+                >
+                  <SelectValue>
+                    {selectedPr.url} ({selectedPr.state})
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {prs.map((pr) => (
+                    <SelectItem key={pr.url} value={pr.url}>
+                      {pr.url} ({pr.state})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <ReportImplementationPrLink prUrl={prUrl} size="md" />
+            )}
           </>
         ) : undefined
       }
@@ -73,15 +107,15 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
                   <PrDiffStats prUrl={prUrl} hideWhileLoading />
                 </>
               ),
-              content: <PrFilesChangedSection prUrl={prUrl} bare />,
+              content: <PrFilesChangedSection key={prUrl} prUrl={prUrl} bare />,
             }
           : undefined
       }
       belowSummary={
         prUrl && (
           <>
-            <PrDecisionBlock prUrl={prUrl} />
-            <PrCommentsSection prUrl={prUrl} />
+            <PrDecisionBlock key={prUrl} prUrl={prUrl} />
+            <PrCommentsSection key={prUrl} prUrl={prUrl} />
           </>
         )
       }

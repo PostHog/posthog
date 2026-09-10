@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 
 from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
-from products.signals.backend.models import SignalPullRequest, SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -476,14 +476,14 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
                 extra={"scanner_id": "sA"},
             )
 
-        shared_pr = SignalPullRequest.objects.for_team(self.team.id).create(
+        shared_pr = SignalReportPullRequest.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             repository="example/app",
             number=1,
             url="https://github.com/example/app/pull/1",
             state="merged",
         )
-        second_pr = SignalPullRequest.objects.for_team(self.team.id).create(
+        second_pr = SignalReportPullRequest.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             repository="example/app",
             number=2,

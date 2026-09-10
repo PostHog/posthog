@@ -46,7 +46,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.CreateModel(
-            name="SignalPullRequest",
+            name="SignalReportPullRequest",
             fields=[
                 (
                     "id",
@@ -98,7 +98,7 @@ class Migration(migrations.Migration):
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="report_links",
-                to="signals.signalpullrequest",
+                to="signals.signalreportpullrequest",
             ),
         ),
         SafeAddIndexConcurrently(
@@ -110,7 +110,7 @@ class Migration(migrations.Migration):
             index=models.Index(fields=["claim"], name="signals_artefact_claim_idx"),
         ),
         migrations.AddConstraint(
-            model_name="signalpullrequest",
+            model_name="signalreportpullrequest",
             constraint=models.UniqueConstraint(
                 fields=("team", "repository", "number"),
                 name="signals_pr_identity_unique",
