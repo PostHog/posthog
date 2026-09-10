@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from django.utils.timezone import now
@@ -33,7 +33,7 @@ ONBOARDING_INITIALIZED = {
 }
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -283,7 +283,7 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
         )
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSessionRecordingsNegativeFiltersWithMultipleEvents(ClickhouseTestMixin, APIBaseTest):
     """
     Negative filters should match sessions where NO events match the positive condition.

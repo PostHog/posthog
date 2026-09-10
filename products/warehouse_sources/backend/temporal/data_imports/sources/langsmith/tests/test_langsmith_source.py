@@ -7,9 +7,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LangSmithSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
-    RESPONSE_TOO_LARGE_ERROR,
     RETRYABLE_API_ERROR,
+    LangSmithPaginationTooLargeError,
+    LangSmithResponseTooLargeError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.settings import RUNS_SELECT_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source import LangSmithSource
 
 
@@ -52,6 +54,8 @@ class TestLangSmithSource:
         assert schema.supports_incremental is expected_incremental
         assert schema.supports_append is expected_incremental
         assert schema.detected_primary_keys == ["id"]
+        expected_columns = [{"name": name} for name in RUNS_SELECT_FIELDS] if endpoint == "runs" else None
+        assert (schema.schema_metadata or {}).get("columns") == expected_columns
 
     def test_validate_credentials_collapses_blank_host_and_forwards_team_id(self):
         config = LangSmithSourceConfig(api_key="key", host="")
@@ -79,6 +83,7 @@ class TestLangSmithSource:
         inputs.schema_name = "runs"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-06-01T00:00:00Z"
+        inputs.enabled_columns = ["id", "start_time"]
         config = LangSmithSourceConfig(api_key="key", host=host)
 
         with mock.patch(
@@ -91,6 +96,7 @@ class TestLangSmithSource:
         assert kwargs["base_url"] == expected_base_url
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-06-01T00:00:00Z"
+        assert kwargs["enabled_columns"] == ["id", "start_time"]
 
     def test_source_for_pipeline_drops_incremental_value_on_full_refresh(self):
         inputs = mock.MagicMock()
@@ -107,11 +113,17 @@ class TestLangSmithSource:
         # A stale watermark must not leak into a full-refresh run.
         assert kwargs["db_incremental_field_last_value"] is None
 
-    def test_oversized_response_is_non_retryable(self):
-        # Retrying an oversized page re-requests the same data and hits the same cap every time,
-        # so the error must be registered as non-retryable to stop immediately.
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(RESPONSE_TOO_LARGE_ERROR in key for key in non_retryable)
+    @pytest.mark.parametrize(
+        "error",
+        [
+            LangSmithResponseTooLargeError("body over 100 bytes"),
+            LangSmithPaginationTooLargeError("the runs cursor went over 100 bytes"),
+        ],
+    )
+    def test_oversized_errors_are_classified_non_retryable(self, error):
+        # Classification matches on message text, so a raise site that adds its own detail must
+        # still carry the sentinel.
+        assert any(key in str(error) for key in self.source.get_non_retryable_errors())
 
     def test_rejected_request_is_non_retryable(self):
         # A 4xx means LangSmith rejected the request we built, so every retry re-sends the same

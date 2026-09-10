@@ -90,6 +90,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
         <LemonButton
             type="primary"
             size="small"
+            className="[--lemon-button-hover-depth:0px]"
             icon={<IconPullRequest />}
             onClick={() => submit('')}
             loading={isCreatingPr}
