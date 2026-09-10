@@ -149,7 +149,43 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
         self.team.refresh_from_db()
         assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
-        assert report["repairs"][0]["new_key"] == "gate-c"
+        # The relink did the write, so this run has nothing left to repair and claims none.
+        assert report["repairs"] == []
+        assert report["outcomes"] == {"already_correct": 1}
+
+    def test_a_repoint_mid_scan_is_not_reported_as_a_repair(self) -> None:
+        # An admin can send the gate to a different flag between the chunk read and the lock.
+        # That edit is not this command's to touch, and reporting a repair here would name a key
+        # the team does not hold, on a flag it no longer points at.
+        stale_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-current")
+        other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-current")
+        set_linked_flag(self.team, {"id": stale_flag.id, "key": "gate-stale"})
+
+        real_save = repair_command.save_replay_gate_rewrites
+
+        def repoint_then_save(team_id: int, compute: Any) -> None:
+            admin = Team.objects.get(pk=team_id)
+            admin.session_recording_linked_flag = {"id": other_flag.id, "key": "other-current"}
+            admin.save()
+            real_save(team_id, compute)
+
+        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=repoint_then_save):
+            report = self._run("--live-run", teams=[self.team])
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": other_flag.id, "key": "other-current"}
+        assert report["repairs"] == []
+
+    def test_a_team_row_gone_at_write_time_is_not_reported_as_a_missing_flag(self) -> None:
+        # `save_replay_gate_rewrites` skips the rewrite when the team row is gone, which reads the
+        # same as a flag that resolved to nothing. Filing it under flag_missing sends whoever runs
+        # the repair looking at the wrong row.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-live")
+
+        write = repair_command.Command()._write_current_key(team_id=self.team.pk + 10_000_000, flag_id=flag.id)
+
+        assert write.outcome == repair_command.Outcome.TEAM_MISSING
+        assert write.written_key is None
 
     def test_repairs_every_team_across_chunk_boundaries(self) -> None:
         # A chunk size smaller than the number of scanned teams forces _iter_team_chunks through
