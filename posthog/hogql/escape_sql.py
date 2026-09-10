@@ -313,21 +313,25 @@ def escape_clickhouse_identifier(identifier: str) -> str:
     return quote_clickhouse_identifier(identifier)
 
 
-# HogQL accepts these words as identifiers (the `keyword` rule in HogQLParser.g4), but ClickHouse reads
-# them as the start of a clause where an identifier belongs, so an unquoted one is a syntax error:
-# `SELECT top.tier FROM (...) AS top` fails because ClickHouse takes `TOP` as its `SELECT TOP n` clause.
-# The set is every HogQL keyword that ClickHouse rejects unquoted in an identifier position, matched
-# case-insensitively because ClickHouse keywords are. Re-derive it after a major ClickHouse upgrade.
+# ClickHouse misreads these words in an identifier position, so they are always backquoted. A clause
+# keyword is a syntax error: `SELECT top.tier FROM (...) AS top` fails because ClickHouse takes `TOP`
+# as its `SELECT TOP n` clause. A literal wins silently: bare `true`, `false`, `null`, `inf`,
+# `infinity` and `nan` read as the literal, so a column with one of those names returns the literal
+# instead of its stored value. `INFINITY` is the second spelling of the same HogQL token as `INF`.
+# Matched case-insensitively because ClickHouse keywords are. Re-derive after a major ClickHouse upgrade.
 CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED = {
     "ALL",
     "DISTINCT",
+    "FALSE",
     "INF",
+    "INFINITY",
     "NAN",
     "NOT",
     "NULL",
     "RECURSIVE",
     "SELECT",
     "TOP",
+    "TRUE",
 }
 
 

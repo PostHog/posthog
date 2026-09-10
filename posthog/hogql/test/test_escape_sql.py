@@ -229,3 +229,11 @@ class TestClickHouseIdentifierExecution(ClickhouseTestMixin, BaseTest):
         # Unquoted, ClickHouse reads these names as the start of a clause instead of an identifier.
         escaped = escape_clickhouse_identifier(keyword.lower())
         sync_execute(f"SELECT {escaped}.a FROM (SELECT 1 AS a) AS {escaped}")
+
+    @parameterized.expand([(keyword,) for keyword in sorted(CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED)])
+    def test_escaped_keyword_identifier_reads_the_column_not_a_literal(self, keyword):
+        # Unquoted, names like `true` and `null` read as a literal in this position, so the column
+        # value never reaches the caller and nothing raises.
+        escaped = escape_clickhouse_identifier(keyword.lower())
+        results = sync_execute(f"SELECT {escaped} FROM (SELECT 4711 AS {escaped})")
+        self.assertEqual(results[0][0], 4711)
