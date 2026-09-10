@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconRefresh, IconSparkles, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
@@ -19,6 +19,9 @@ const COLLAPSED_TITLE_PREVIEW = 2
 /**
  * The "Suggested for this project" strip above the roster: a pre-computed batch of scouts worth
  * running here, each ready to turn on or create without waiting for a scan.
+ *
+ * Refresh pays for a new scan, which takes minutes. The picks it will replace stay on screen while
+ * it runs, next to a line saying how long it has been going and that leaving the page is fine.
  *
  * Nothing renders without picks to read, so a project with an empty batch sees the roster exactly
  * as it was. `stale` is a footer note rather than an error: any fleet change flips it and the picks
@@ -61,7 +64,7 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
                         icon={<IconRefresh />}
                         loading={isRefreshing}
                         disabledReason={isRefreshing ? 'Scanning the project…' : undefined}
-                        onClick={() => requestRefresh()}
+                        onClick={() => requestRefresh('strip')}
                         data-attr="scout-suggestions-refresh"
                     >
                         Refresh
@@ -90,19 +93,27 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
     )
 }
 
-/** Whichever of the strip's three states applies: collapsed, scanning, or the cards. */
+/** Whichever of the strip's states applies: collapsed, placeholders with nothing yet to read, or the cards. */
 function StripBody(): JSX.Element {
     const { suggestions, collapsed, batchStatus, isRefreshing, suggestionSetLoading } = useValues(scoutSuggestionsLogic)
 
     if (collapsed) {
         return <CollapsedLine titles={suggestions.map((item) => item.title)} />
     }
-    if (isRefreshing || (suggestionSetLoading && suggestions.length === 0)) {
-        return <SuggestionsSkeleton />
+    // Skeletons only when there is genuinely nothing to read. A scan replaces the picks it finds,
+    // so throwing the current ones away for placeholders costs minutes of usable cards.
+    if (suggestions.length === 0 && (isRefreshing || suggestionSetLoading)) {
+        return (
+            <>
+                <SuggestionsSkeleton />
+                {isRefreshing && <ScanningNote />}
+            </>
+        )
     }
     return (
         <>
             <SuggestionGrid surface="strip" />
+            {isRefreshing && <ScanningNote />}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                 {batchStatus === 'stale' && (
                     <span>
@@ -153,6 +164,23 @@ function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurf
             {suggestions.map((item) => (
                 <ScoutSuggestionCard key={item.id} item={item} surface={surface} />
             ))}
+        </div>
+    )
+}
+
+/**
+ * What a running scan looks like from the strip. The cards it will replace are still the ones on
+ * screen, so without this line a press has no visible effect at all.
+ */
+function ScanningNote(): JSX.Element {
+    const { refreshElapsedLabel } = useValues(scoutSuggestionsLogic)
+    return (
+        <div className="flex items-start gap-1.5 text-xs text-muted">
+            <Spinner className="mt-0.5 shrink-0" />
+            <span>
+                Scanning the project for new picks{refreshElapsedLabel ? `: ${refreshElapsedLabel}` : ''}. It usually
+                takes 2 to 5 minutes. You can leave this page. The new picks will be here when you come back.
+            </span>
         </div>
     )
 }

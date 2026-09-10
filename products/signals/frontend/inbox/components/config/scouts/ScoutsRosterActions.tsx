@@ -30,39 +30,65 @@ export function ScoutsRosterActions(): JSX.Element {
 }
 
 /**
- * Takes the "Suggest a scout" spot whenever the strip has no picks to show: it reopens a closed
- * strip, and on a project with none it starts a scan rather than opening a chat. It stays put while
- * that scan runs, because the empty-fleet state renders no strip whose skeletons could report it.
+ * Takes the "Suggest a scout" spot whenever the strip has no picks to show. With picks waiting it
+ * reopens the closed strip; with none it opens the authoring chat, exactly as the button did
+ * before the strip existed. It never starts a headless scan: that would spend minutes with an
+ * empty roster on screen, and the person pressing this asked for a suggestion, not a wait.
  */
 function ShowSuggestionsButton(): JSX.Element | null {
     const { suggestButtonVisible, hasPicks, isRefreshing, suggestionSetLoading, aiConsentDisabledReason } =
         useValues(scoutSuggestionsLogic)
+    const { runningChatType } = useValues(scoutFleetLogic)
     const { askForSuggestions } = useActions(scoutSuggestionsLogic)
+    // Opening the chat ends in a skill write, so this press carries the same editor gate as the
+    // other authoring paths. Reopening a strip that already has picks needs neither gate.
+    const creationDisabledReason = useScoutCreateDisabledReason()
     if (!suggestButtonVisible) {
         return null
     }
-    // Reopening a closed strip needs no scan, so the AI gate only applies when a press would pay
-    // for one. The refresh endpoint refuses without consent, and a refusal reads as a failure.
-    const busyReason = isRefreshing
-        ? 'Scanning the project…'
-        : suggestionSetLoading
-          ? 'Reading the suggestions…'
-          : hasPicks
-            ? null
-            : aiConsentDisabledReason
+    const busyReason = showSuggestionsBusyReason({ hasPicks, isRefreshing, suggestionSetLoading, runningChatType })
+    const gateReason = hasPicks ? null : (creationDisabledReason ?? aiConsentDisabledReason)
     return (
         <LemonButton
             type="secondary"
             size="small"
             icon={<IconSparkles />}
             loading={!!busyReason}
-            disabledReason={busyReason ?? undefined}
+            disabledReason={busyReason ?? gateReason ?? undefined}
             onClick={() => askForSuggestions()}
             data-attr="scout-suggestions-show"
         >
             Suggest a scout
         </LemonButton>
     )
+}
+
+/** Why a press would land nowhere right now, which is also what makes the button spin. */
+function showSuggestionsBusyReason({
+    hasPicks,
+    isRefreshing,
+    suggestionSetLoading,
+    runningChatType,
+}: {
+    hasPicks: boolean
+    isRefreshing: boolean
+    suggestionSetLoading: boolean
+    runningChatType: ScoutChatType | null
+}): string | null {
+    if (suggestionSetLoading) {
+        return 'Reading the suggestions…'
+    }
+    // A scan already running is the answer to the press, so say so instead of opening a chat on top.
+    if (isRefreshing && !hasPicks) {
+        return 'Scanning the project…'
+    }
+    if (runningChatType === 'author_scout') {
+        return 'Starting a task…'
+    }
+    if (runningChatType !== null) {
+        return 'Starting another task…'
+    }
+    return null
 }
 
 /**

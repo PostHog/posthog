@@ -56,6 +56,7 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTION_CREATED: 'Scout suggestion created',
     SCOUT_SUGGESTION_DISMISSED: 'Scout suggestion dismissed',
     SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
+    SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
     RUN_OPENED: 'Inbox run opened',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
@@ -827,8 +828,17 @@ export type ScoutSuggestionClickVia = 'button' | 'card'
 /** How a suggestion became a scout: the create API in place, or a chat the person drove. */
 export type ScoutSuggestionCreatedVia = 'api' | 'chat'
 
-/** How a refresh request ended, from the endpoint's answer. */
-export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed'
+/**
+ * How a refresh request ended. `accepted` and `running` come from the endpoint's answer;
+ * `resumed` is a scan this client picked back up after a reload, which sent no request at all.
+ */
+export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed' | 'resumed'
+
+/**
+ * What put the scan on screen. A scan outlives the tab, so `reload` rows are a client resuming one
+ * it had already paid for — without this they read as duplicate presses that the endpoint refused.
+ */
+export type ScoutSuggestionsRefreshSource = 'strip' | 'reload'
 
 /**
  * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is
@@ -897,6 +907,21 @@ export function captureScoutSuggestionDismissed(params: {
 }
 
 /** A refresh was asked for, and what the endpoint said. Refreshes cost a scan, so the cap matters. */
-export function captureScoutSuggestionsRefreshed(params: { outcome: ScoutSuggestionsRefreshOutcome }): void {
-    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_REFRESHED, { outcome: params.outcome })
+export function captureScoutSuggestionsRefreshed(params: {
+    outcome: ScoutSuggestionsRefreshOutcome
+    source: ScoutSuggestionsRefreshSource
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_REFRESHED, {
+        outcome: params.outcome,
+        source: params.source,
+    })
+}
+
+/**
+ * "Suggest a scout" opened the authoring chat because the project had no picks to reopen. The
+ * chat and a headless scan are both ways to get a suggestion, so this separates the cold-start
+ * press from the refresh of a batch that already exists.
+ */
+export function captureScoutSuggestionsChatOpened(params: { batchStatus: string }): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_CHAT_OPENED, { batch_status: params.batchStatus })
 }

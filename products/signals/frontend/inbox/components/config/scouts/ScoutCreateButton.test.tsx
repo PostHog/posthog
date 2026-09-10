@@ -114,8 +114,8 @@ describe('scout creation buttons', () => {
     })
 
     // A project with no picks has no strip to reopen, so the header button is the only entry point
-    // there. It has to be present, and it has to pay for a scan rather than open a chat.
-    it('starts a scan from the header on a project with no picks', async () => {
+    // there. A headless scan would spend minutes with nothing on screen, so it opens the chat.
+    it('opens the authoring chat from the header on a project with no picks', async () => {
         setSuggestionsFlag(true)
         useMocks({
             get: { '/api/projects/:team/signals/scout/suggestions/': mockScoutSuggestionSet({ items: [] }) },
@@ -129,14 +129,13 @@ describe('scout creation buttons', () => {
         const logic = scoutSuggestionsLogic()
         logic.mount()
         const { findByText } = render(<ScoutsRosterActions />)
-        // The button is busy until the batch is known, so a press before then costs no scan.
+        // The button is busy until the batch is known, so a press before then does nothing.
         await waitFor(() => expect(logic.values.suggestionSet).not.toBeNull())
 
         fireEvent.click(await findByText('Suggest a scout'))
 
-        await waitFor(() => expect(refreshRequests).toBe(1))
-        expect(logic.values.stripVisible).toBe(true)
-        expect(startedChatTypes).toEqual([])
+        await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
+        expect(refreshRequests).toBe(0)
         logic.unmount()
     })
 
