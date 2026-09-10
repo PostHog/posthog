@@ -48,4 +48,18 @@ describe('PieChart wrapper', () => {
         // The quill PieChart canvas carries this accessible name.
         expect(await screen.findByLabelText(/pie chart with/i, {}, { timeout: 5000 })).toBeInTheDocument()
     })
+
+    it('renders a donut total in the chart center', async () => {
+        render(
+            <PieChart
+                {...props}
+                visualizationType={ChartDisplayType.ActionsDonut}
+                chartSettings={{ pie: { sliceContent: 'labels', showTotal: true } }}
+            />
+        )
+
+        await screen.findByLabelText(/pie chart with/i, {}, { timeout: 5000 })
+
+        expect((await screen.findByText('100')).closest('[data-attr="sql-pie-chart"]')).toBeInTheDocument()
+    })
 })

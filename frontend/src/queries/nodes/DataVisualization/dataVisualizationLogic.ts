@@ -543,6 +543,10 @@ export function applyVisualizationType(
         chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
     }
 
+    if (visualizationType === ChartDisplayType.ActionsDonut && chartSettings.pie?.showTotal === undefined) {
+        chartSettings.pie = { ...chartSettings.pie, showTotal: true }
+    }
+
     if (visualizationType === ChartDisplayType.Metric) {
         yAxis = yAxis.slice(0, 1)
     }

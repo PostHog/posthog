@@ -422,7 +422,7 @@ describe('dataVisualizationLogic', () => {
             logic.actions.setVisualizationType(displayType)
 
             await expectLogic(logic).toMatchValues({
-                chartSettings: expect.objectContaining({ pie: { sliceContent: 'labels' } }),
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'labels' }) }),
             })
         }
     )
@@ -434,10 +434,29 @@ describe('dataVisualizationLogic', () => {
             logic.actions.setVisualizationType(displayType)
 
             await expectLogic(logic).toMatchValues({
-                chartSettings: expect.objectContaining({ pie: { sliceContent: 'values' } }),
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'values' }) }),
             })
         }
     )
+
+    it('defaults a newly selected donut total and preserves an explicit setting', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: true }),
+            }),
+        })
+
+        logic.actions.updateChartSettings({ pie: { showTotal: false } })
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: false }),
+            }),
+        })
+    })
 
     it('moves a scatter plot onto a numeric x-axis when the selected one has no coordinates', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({

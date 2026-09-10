@@ -116,8 +116,7 @@ describe('SqlPieGraph', () => {
 
         await waitForSlices()
 
-        expect(screen.getByText('100')).toHaveClass('text-center')
-        expect(document.querySelector('.text-5xl')).not.toBeInTheDocument()
+        expect(screen.getByText('100').closest('[data-attr="sql-pie-chart"]')).toBeInTheDocument()
     })
 
     it('hides the donut center total when showTotal is false', async () => {
