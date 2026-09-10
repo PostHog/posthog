@@ -158,6 +158,42 @@ practice that is most of the queue. So:
   merge commits are the first suspects.
 - In the digest this is the `blocking_merge_queue` state.
 
+### 3. Read the CI report comment (for a PR)
+
+Before reading job logs, read the shared CI report comment when the target is a
+PR. It collects independent CI signals in many sections. A red run may have a
+useful report section, and a green run can still carry an advisory that needs
+review.
+
+Read the complete raw comment, not only GitHub's collapsed view. The marker
+identifies the report that CI owns; its section markers preserve each section's
+status and summary. This command returns every page, so it does not miss the
+report when a PR has many comments:
+
+```bash
+gh api --paginate "repos/<owner>/<repo>/issues/<pr>/comments?per_page=100" \
+  --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- posthog-ci-report -->"))) | .body'
+```
+
+Inspect every `ci-report:section` block, including an unknown section. New
+checks can add sections before this skill changes. Record each section's title,
+status, summary, and any linked run or failed command. Do not stop at the first
+`fail` section or treat the comment heading as an overall verdict.
+
+- `fail` and `alert` sections are investigation leads. Match them to the
+  current check or job before naming a cause.
+- `warn` sections are advisory unless the linked check or job failed. Explain
+  them separately from a blocking CI failure.
+- `ok` and `info` sections can show that a previous warning has cleared or that
+  a check did not measure this push. Do not call either a passing test result.
+- No matching comment means the reporter did not run or could not write. Carry
+  on with the checks and logs; it is not proof that the PR is healthy.
+
+The report is a summary, not the source of truth for current job state. Check
+the head SHA and current check status before relying on it, especially after a
+new push or a re-run. If the comment and logs disagree, report the mismatch and
+prefer the current run's logs for the failure cause.
+
 Inspect read-only:
 
 ```bash
