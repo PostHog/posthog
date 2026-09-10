@@ -68,8 +68,8 @@ async def select_items_within_temporal_payload(
         )
 
     if not candidates:
-        limited_by: PayloadLimit = "item_limit" if items else "none"
-        return PayloadSelection(items=(), encoded_size_bytes=empty_size, limited_by=limited_by)
+        empty_limited_by: PayloadLimit = "item_limit" if items else "none"
+        return PayloadSelection(items=(), encoded_size_bytes=empty_size, limited_by=empty_limited_by)
 
     lower = 0
     upper = 1
@@ -79,8 +79,8 @@ async def select_items_within_temporal_payload(
 
     candidate_size = await size_for(upper)
     if upper == len(candidates) and candidate_size <= payload_budget_bytes:
-        limited_by: PayloadLimit = "item_limit" if len(items) > len(candidates) else "none"
-        return PayloadSelection(items=candidates, encoded_size_bytes=candidate_size, limited_by=limited_by)
+        full_limited_by: PayloadLimit = "item_limit" if len(items) > len(candidates) else "none"
+        return PayloadSelection(items=candidates, encoded_size_bytes=candidate_size, limited_by=full_limited_by)
 
     while lower < upper:
         midpoint = (lower + upper + 1) // 2
