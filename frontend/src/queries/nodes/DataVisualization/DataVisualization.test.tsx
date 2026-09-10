@@ -82,8 +82,8 @@ describe('DataTableVisualization', () => {
         }
     )
 
-    it('offers a retry when the source query never ran', async () => {
-        render(
+    it('stops loading and offers the query debugger when the source query never ran', async () => {
+        const { container } = render(
             <DataTableVisualization
                 uniqueKey="data-visualization-unrunnable"
                 query={{ ...query, source: { kind: NodeKind.HogQLQuery, query: '' } }}
@@ -93,6 +93,8 @@ describe('DataTableVisualization', () => {
         )
 
         expect(await screen.findByText("This chart didn't load")).toBeTruthy()
-        expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy()
+        // A retry re-runs the same guards on the same query, so it can never leave this state.
+        expect(container.querySelector('[data-attr="insight-retry-button"]')).toBeNull()
+        expect(container.querySelector('[data-attr="insight-error-query"]')).toBeTruthy()
     })
 })
