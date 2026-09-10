@@ -108,8 +108,10 @@ describe('ReportPrimaryMetric', () => {
         expect(await observation.findByText('42')).toBeInTheDocument()
         expect(observation.getByText('users')).toBeInTheDocument()
         const chart = await waitFor(() => {
-            const element = container.querySelector('[data-attr="report-primary-metric-chart"]')
-            expect(element).not.toBeNull()
+            const element = container.querySelector<HTMLElement>('[data-attr="report-primary-metric-chart"]')
+            if (!element) {
+                throw new Error('Expected the observation chart to render')
+            }
             return element
         })
         expect(chart).toHaveAttribute('data-chart-type', 'bar')

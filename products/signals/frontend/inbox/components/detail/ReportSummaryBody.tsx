@@ -112,7 +112,9 @@ export function ReportSummaryBody({
                         {section.kind === 'solution' && pullRequestNote && (
                             <div className="mt-2">{pullRequestNote}</div>
                         )}
-                        {section.kind === 'solution' && implementButton && <div className="mt-2">{implementButton}</div>}
+                        {section.kind === 'solution' && implementButton && (
+                            <div className="mt-2">{implementButton}</div>
+                        )}
                     </section>
                 </Fragment>
             ))}
