@@ -38,6 +38,14 @@
 #   no-ops here and there is nothing to mirror. Canonical's turbo-tests gate now calls
 #   ./.github/actions/trunk-quarantine-gate to retry once. The shadow has no gate, so it
 #   does not need a mirrored action)
+# - Failed-test retry: canonical reruns only the tests that failed, once, in the same job
+#   ("Retry failed Django tests" and "Retry failed product tests", driven by
+#   .github/scripts/retry-failed-tests.sh) into a retry-junit-*.xml report that the quarantine
+#   gate uploads next to the first one, so Trunk keeps the first failure as flake signal while
+#   the verdict step lets the shard pass. That whole path exists to feed the Trunk gate and the
+#   verdict step, both of which the shadow strips, so the retry steps, the PYTEST_RETRY_TARGETS
+#   and PERSON_ON_EVENTS_V2_ENABLED exports to GITHUB_ENV that feed them, and the retry-aware
+#   junit-paths globs are depot-exempt.
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
