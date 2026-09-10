@@ -22602,6 +22602,11 @@ export namespace Schemas {
        * * `full_refresh` - Full refresh
        * * `incremental` - Incremental */
       readonly run_mode: DataModelingJobRunModeEnum | null;
+      /**
+         * Why this run rebuilt the whole table instead of updating only new rows, for example first run, definition changed, or table missing. Null when the run was incremental.
+         * @nullable
+         */
+      readonly full_refresh_reason: string | null;
       readonly rows_materialized: number;
       /** @nullable */
       readonly error: string | null;
@@ -24297,6 +24302,7 @@ export namespace Schemas {
      * * `Freshchat` - Freshchat
      * * `Freshservice` - Freshservice
      * * `Fulcrum` - Fulcrum
+     * * `GainsightCs` - GainsightCs
      * * `GainsightPx` - GainsightPx
      * * `GitBook` - GitBook
      * * `Glassfrog` - Glassfrog
@@ -25637,6 +25643,7 @@ export namespace Schemas {
       Freshchat: 'Freshchat',
       Freshservice: 'Freshservice',
       Fulcrum: 'Fulcrum',
+      GainsightCs: 'GainsightCs',
       GainsightPx: 'GainsightPx',
       GitBook: 'GitBook',
       Glassfrog: 'Glassfrog',
@@ -26991,6 +26998,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -29036,6 +29044,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -37852,6 +37861,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -39226,6 +39236,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -80908,6 +80919,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -82298,6 +82310,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -83670,6 +83683,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
