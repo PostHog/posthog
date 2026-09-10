@@ -1004,7 +1004,7 @@ class OauthIntegration:
                     error=str(e),
                 )
                 raise ValidationError(
-                    f"{kind} did not respond in time while we confirmed your account. Please try connecting again."
+                    f"We could not reach {kind} to confirm your account. Please try connecting again."
                 )
 
             if token_info_res.status_code == 200:
