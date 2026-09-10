@@ -1672,7 +1672,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             clear_incremental_state(saved_query)
 
         try:
-            materialize_saved_query(saved_query)
+            materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."

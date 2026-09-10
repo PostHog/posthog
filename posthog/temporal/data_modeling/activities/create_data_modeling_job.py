@@ -19,6 +19,7 @@ class CreateDataModelingJobInputs:
     dag_id: str
     engine: str = DataModelingJobEngine.CLICKHOUSE
     parent_workflow_id: str | None = None
+    manually_triggered_by_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -66,6 +67,7 @@ def _create_data_modeling_job(
         workflow_run_id=workflow_run_id,
         parent_workflow_id=inputs.parent_workflow_id,
         created_by_id=node.saved_query.created_by_id if node.saved_query else None,
+        manually_triggered_by_id=inputs.manually_triggered_by_id,
     )
     return CreatedDataModelingJob(
         job_id=str(job.id),

@@ -114,6 +114,12 @@ class _SavedQueryViewers(RecipientsResolver):
             # No team is no way to run the per-view check, so nobody is told, for the same reason
             # `_viewers_of` drops a member it could not check.
             return []
+        # The shared resolver applies this to a team target and returns a user target untouched, so
+        # a member who has since lost the project would otherwise skip it.
+        with_project_access = set(team.all_users_with_access().values_list("id", flat=True))
+        user_ids = [user_id for user_id in user_ids if user_id in with_project_access]
+        if not user_ids:
+            return []
         return _viewers_of(_access_of(team, user_ids), self._saved_query)
 
 
@@ -145,9 +151,9 @@ def maybe_notify_materialization_failure(
         # The DAG run this belongs to notifies for every view it broke, once, at the end.
         return False
 
-    # A run with no parent was started by hand, usually to check a fix, and the person who started
-    # it may have moved on. Silence mid-streak would read as success, so every failure is told.
-    runner_id = job.created_by_id
+    # A run with no parent was started outside a DAG, usually to check a fix. Silence mid-streak
+    # would read as success, so every failure is told, not just the one that opened the streak.
+    runner_id = job.manually_triggered_by_id
     create_notification(
         _failure_notification(
             team_id=team_id,
@@ -156,8 +162,8 @@ def maybe_notify_materialization_failure(
             source_id=str(job.id),
             recipient_id=runner_id,
             # A critical notification also raises a toast that does not close on its own, which is
-            # right for the person waiting on this run. An unattributed run has no such person and
-            # reaches everyone with access, so it stays at the volume of a scheduled failure.
+            # right for the person waiting on this run. A run nobody asked for, such as a repair
+            # triggered by read traffic, has no such person and stays at the scheduled volume.
             priority=Priority.CRITICAL if runner_id else Priority.NORMAL,
         )
     )

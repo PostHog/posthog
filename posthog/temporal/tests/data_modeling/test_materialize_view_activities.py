@@ -82,7 +82,7 @@ async def _make_job(
     engine=DataModelingJobEngine.CLICKHOUSE,
     error=None,
     parent_workflow_id=None,
-    created_by=None,
+    manually_triggered_by=None,
 ):
     return await database_sync_to_async(DataModelingJob.objects.create)(
         team=ateam,
@@ -91,16 +91,24 @@ async def _make_job(
         engine=engine,
         error=error,
         parent_workflow_id=parent_workflow_id,
-        created_by=created_by,
+        manually_triggered_by=manually_triggered_by,
     )
 
 
 class TestCreateDataModelingJobActivity:
-    async def test_creates_job_with_running_status(self, activity_environment, ateam, auser, anode, asaved_query, adag):
+    @pytest.mark.parametrize("with_runner", [True, False])
+    async def test_creates_job_with_running_status(
+        self, activity_environment, ateam, auser, anode, asaved_query, adag, aorganization, with_runner
+    ):
+        # These tests share a database, so the emails have to be unique per run.
+        runner = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"runner-{uuid4()}@posthog.com", None
+        )
         inputs = CreateDataModelingJobInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
             dag_id=str(adag.id),
+            manually_triggered_by_id=runner.pk if with_runner else None,
         )
         with unittest.mock.patch("temporalio.activity.info") as mock_info:
             mock_info.return_value.workflow_id = "test-workflow-id"
@@ -114,7 +122,9 @@ class TestCreateDataModelingJobActivity:
         assert job.saved_query_id == asaved_query.id
         assert job.workflow_id == "test-workflow-id"
         assert job.workflow_run_id == "test-run-id"
+        # The person who wrote the view is not the person who started this run.
         assert job.created_by_id == auser.id
+        assert job.manually_triggered_by_id == (runner.pk if with_runner else None)
 
 
 class TestFailMaterializationActivity:
@@ -240,7 +250,7 @@ class TestFailMaterializationActivity:
             asaved_query,
             DataModelingJob.Status.RUNNING,
             parent_workflow_id=parent_workflow_id,
-            created_by=auser if with_runner else None,
+            manually_triggered_by=auser if with_runner else None,
         )
 
         inputs = FailMaterializationInputs(
@@ -369,6 +379,36 @@ class TestFailMaterializationActivity:
 
         assert allowed.id in resolved
         assert denied.id not in resolved
+
+    async def test_notification_resolver_drops_a_named_user_who_left_the_project(
+        self, activity_environment, ateam, asaved_query, aorganization
+    ):
+        # These tests share a database, so the emails have to be unique per run.
+        member = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"member-{uuid4()}@posthog.com", None
+        )
+        outsider = await database_sync_to_async(User.objects.create_user)(
+            f"outsider-{uuid4()}@posthog.com", None, "Outsider"
+        )
+
+        class FakeAccess:
+            def __init__(self, user, team):
+                pass
+
+            is_organization_admin = False
+
+            def check_access_level_for_object(self, obj, required_level):
+                return True
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl", FakeAccess
+        ):
+            resolve = database_sync_to_async(_SavedQueryViewers(asaved_query).resolve)
+            kept = await resolve(TargetType.USER, str(member.pk), ateam.pk)
+            dropped = await resolve(TargetType.USER, str(outsider.pk), ateam.pk)
+
+        assert kept == [member.pk]
+        assert dropped == []
 
     async def test_a_child_of_a_dag_run_leaves_the_in_app_notification_to_its_parent(
         self, activity_environment, ateam, anode, asaved_query, adag
