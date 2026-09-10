@@ -19,7 +19,7 @@ needs a user gesture and a confirm step in the host.
 import json
 import base64
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import field, replace
 from typing import TYPE_CHECKING, Any
 
 from django.core.validators import RegexValidator
@@ -59,6 +59,7 @@ class ConnectorCallStatus(models.TextChoices):
     OK = "ok"
     NOT_CONNECTED = "not_connected"
     NEEDS_REAUTH = "needs_reauth"
+    NEEDS_APPROVAL = "needs_approval"
     BLOCKED = "blocked"
     TOOL_MISSING = "tool_missing"
     WRITE_BLOCKED = "write_blocked"
@@ -97,6 +98,7 @@ class ConnectorCallResult:
     truncated: bool = False
     # Where the viewer connects the provider, for the not_connected state.
     connect_path: str | None = None
+    approval_token: str | None = field(default=None, repr=False)
 
 
 @frozen
@@ -561,15 +563,31 @@ def _call_native_tool(
 
 
 def _call_mcp_tool(
-    team_id: int, user_id: int, host: str, tool_name: str, arguments: dict[str, Any], actor_label: str
+    team_id: int,
+    user_id: int,
+    host: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    actor_label: str,
+    approval_token: str | None,
+    approval_context: str,
 ) -> ConnectorCallResult:
     outcome = mcp_store_facade.call_member_server_tool(
-        team_id, user_id, host, tool_name, arguments, actor_label=actor_label, allow_writes=False
+        team_id,
+        user_id,
+        host,
+        tool_name,
+        arguments,
+        actor_label=actor_label,
+        allow_writes=False,
+        approval_token=approval_token,
+        approval_context=approval_context,
     )
     if outcome.status != "ok":
         return ConnectorCallResult(
             status=ConnectorCallStatus(outcome.status),
             detail=outcome.detail,
+            approval_token=outcome.approval_token,
             connect_path="/settings/mcp-servers" if outcome.status in ("not_connected", "needs_reauth") else None,
         )
     bounded, truncated = _bounded(
@@ -590,6 +608,8 @@ def call_connector_tool(
     arguments: dict[str, Any],
     *,
     actor_label: str = "",
+    approval_token: str | None = None,
+    approval_context: str = "",
 ) -> ConnectorCallResult:
     """Run one declared connector tool as the viewer. The caller has already
     checked the canvas's capabilities and the rollout flag."""
@@ -603,7 +623,7 @@ def call_connector_tool(
             detail=f'Unknown provider "{provider}". Use a native provider ({", ".join(sorted(NATIVE_CONNECTORS))}) '
             f'or "{MCP_PROVIDER_PREFIX}<server host>".',
         )
-    return _call_mcp_tool(team_id, user_id, host, tool_name, arguments, actor_label)
+    return _call_mcp_tool(team_id, user_id, host, tool_name, arguments, actor_label, approval_token, approval_context)
 
 
 @frozen
