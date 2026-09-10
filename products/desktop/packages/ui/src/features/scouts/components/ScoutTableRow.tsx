@@ -14,7 +14,6 @@ import {
   deriveScoutLifecycle,
   formatNextRun,
   formatRunDuration,
-  formatScoutScheduleShort,
   hasPendingScoutRun,
   nextRunAt,
   prettifyScoutSkillName,
@@ -48,6 +47,7 @@ import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { useScoutRunNow } from "../hooks/useScoutRunNow";
 import { AgentNameLink } from "./AgentNameLink";
 import { DryRunBadge } from "./ScoutBadges";
+import { ScoutCadenceLabel } from "./ScoutCadenceLabel";
 import { ScoutEnabledSwitch } from "./ScoutConfigControls";
 import { ScoutLifecycleBadge } from "./ScoutLifecycleBadges";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
@@ -164,9 +164,11 @@ function ScoutTableRowInner({
       </TableCell>
 
       <TableCell>
-        <div className="flex flex-col gap-0.5 truncate">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          {/* Wraps rather than truncates: a clipped cadence loses the timezone first, which is
+              the part a reader cannot guess. */}
           <span className="text-[12.5px] text-gray-12">
-            {formatScoutScheduleShort(config)}
+            <ScoutCadenceLabel config={config} />
           </span>
           {rollup?.runningRun &&
           deriveRunOutcome(rollup.runningRun, now) === "running" ? (

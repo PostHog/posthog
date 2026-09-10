@@ -1001,6 +1001,18 @@ export function formatScoutScheduleShort(config: ScoutScheduleFields): string {
 }
 
 /**
+ * Whether the schedule pins the run to an hour of the day. Only such a schedule is resolved in
+ * the project timezone, so only it needs the timezone said next to it: a rolling cadence and a
+ * cron that runs through the day fire at the same instants whatever the timezone.
+ */
+export function scoutScheduleNamesClockTime(
+  config: ScoutScheduleFields,
+): boolean {
+  const hours = config.run_cron_schedule?.trim().split(/\s+/)[1];
+  return hours !== undefined && hours !== "*" && !hours.startsWith("*/");
+}
+
+/**
  * Enabled scouts first, then the ones the system switched off (they need a
  * human to switch them back on, so they lead the off-block), then the rest
  * alphabetically.
