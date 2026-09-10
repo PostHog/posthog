@@ -12,8 +12,8 @@ from temporalio.testing import ActivityEnvironment
 from posthog.clickhouse.client import sync_execute
 from posthog.models.usage_ingestion.billing_usage_records import (
     BASE_BILLING_USAGE_RECORDS_COLUMNS,
-    BILLING_USAGE_RECORDS_DAILY_DATA_TABLE_SQL,
-    BILLING_USAGE_RECORDS_DAILY_ROLLUP_SQL,
+    BILLING_USAGE_RECORDS_HOURLY_DATA_TABLE_SQL,
+    BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL,
 )
 from posthog.temporal.billing_usage_rollup.activities import rollup_billing_usage_records
 from posthog.temporal.billing_usage_rollup.types import BillingUsageRecordsRollupInput
@@ -44,7 +44,7 @@ class TestRollupActivityStorage(ClickhouseTestMixin, SimpleTestCase):
             ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
             """
         )
-        sync_execute(BILLING_USAGE_RECORDS_DAILY_DATA_TABLE_SQL(TARGET_TABLE))
+        sync_execute(BILLING_USAGE_RECORDS_HOURLY_DATA_TABLE_SQL(TARGET_TABLE))
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -79,8 +79,8 @@ class TestRollupActivityStorage(ClickhouseTestMixin, SimpleTestCase):
         )
 
         with patch(
-            "posthog.temporal.billing_usage_rollup.activities.BILLING_USAGE_RECORDS_DAILY_ROLLUP_SQL",
-            return_value=BILLING_USAGE_RECORDS_DAILY_ROLLUP_SQL(SOURCE_TABLE, TARGET_TABLE),
+            "posthog.temporal.billing_usage_rollup.activities.BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL",
+            return_value=BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL(SOURCE_TABLE, TARGET_TABLE),
         ):
             asyncio.run(
                 ActivityEnvironment().run(
@@ -95,7 +95,7 @@ class TestRollupActivityStorage(ClickhouseTestMixin, SimpleTestCase):
 
         self.assertEqual(source_rows, ROW_COUNT)
         self.assertEqual(source_quantity, target_quantity)
-        self.assertEqual(target_rows, 100 * 4 * 4)
+        self.assertEqual(target_rows, 100 * 4 * 4 * 24)
         self.assertLess(target_rows, source_rows)
         self.assertLess(target_bytes, source_bytes)
 
