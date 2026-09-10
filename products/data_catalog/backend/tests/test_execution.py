@@ -24,6 +24,7 @@ from products.data_catalog.backend.models import Metric
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() as c from events"}
 _EVENTS_NODE = {"kind": "EventsNode", "event": "purchase"}
+_TRENDS = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "purchase"}]}
 _PROCESS_QUERY = "products.data_catalog.backend.logic.execution.process_query_dict"
 _OK_PAYLOAD = {"results": [[1]], "hogql": "SELECT 1"}
 
@@ -201,6 +202,24 @@ class TestMetricRunPreparation(APIBaseTest):
                 run_metric(team=self.team, metric=metric, user=self.user)
         metric.refresh_from_db()
         assert metric.last_run_at is None
+
+    @parameterized.expand(
+        [
+            ("truncated_rows", _HOGQL, {"results": [[1]], "limit": 1000, "hasMore": True}, True, 1000),
+            ("complete_rows", _HOGQL, {"results": [[1]], "limit": 1000, "hasMore": False}, False, 1000),
+            ("collapsed_breakdown", _TRENDS, {"results": [{"count": 1}], "hasMore": True}, False, None),
+        ]
+    )
+    def test_truncation_is_reported_only_from_row_paginator_metadata(
+        self, _name: str, definition: dict, payload: dict, expected_has_more: bool, expected_row_limit: int | None
+    ) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="prep", description="d", definition=definition)
+
+        with patch(_PROCESS_QUERY, return_value=payload):
+            envelope = run_metric(team=self.team, metric=metric, user=self.user)
+
+        assert envelope["has_more"] is expected_has_more
+        assert envelope["row_limit"] == expected_row_limit
 
     @parameterized.expand(
         [
