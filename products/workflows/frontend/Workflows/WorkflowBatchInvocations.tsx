@@ -138,6 +138,7 @@ function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlow
                         hideDateFilter
                         hideInstanceIdColumn
                         defaultAscending
+                        disableUrlSync
                         defaultFilters={{ instanceId: job.id, dateFrom: defaultDateFrom }}
                         renderMessage={workflow ? (m) => renderWorkflowLogMessage(workflow, m) : undefined}
                     />

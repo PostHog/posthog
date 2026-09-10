@@ -1,6 +1,11 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { LogEntryLevel } from '~/types'
 
 import {
@@ -8,6 +13,7 @@ import {
     groupLogs,
     LogEntry,
     LogEntryParams,
+    logsViewerLogic,
     toAbsoluteClickhouseTimestamp,
 } from './logsViewerLogic'
 
@@ -199,6 +205,64 @@ describe('logsViewerLogic', () => {
             const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
 
             expect(firstPage.replace('OFFSET 0', 'OFFSET 10')).toEqual(secondPage)
+        })
+    })
+
+    describe('disableUrlSync', () => {
+        const baseProps = { sourceType: 'hog_flow' as const, sourceId: 'flow-1' }
+
+        beforeEach(() => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+        })
+
+        it('keeps a scoped viewer out of the shared URL params', async () => {
+            // The params carry no prefix, so a scoped viewer writing them would move the window of
+            // every other logs viewer mounted on the same scene.
+            const scoped = logsViewerLogic({ ...baseProps, logicKey: 'batch-run-1', disableUrlSync: true })
+            scoped.mount()
+            const before = { ...router.values.searchParams }
+
+            await expectLogic(scoped, () => {
+                scoped.actions.setFilters({ date_from: '-7d' })
+            }).toDispatchActions(['setFilters'])
+
+            expect(router.values.searchParams).toEqual(before)
+            scoped.unmount()
+        })
+
+        it('holds a scoped viewer on its default window when the URL carries another one', () => {
+            // The run log hides the date control, so a date_from left behind by another viewer would
+            // narrow it to a window predating the run, with nothing on screen to undo it.
+            router.actions.push('/pipeline/logs', { date_from: '-1h' })
+            const scoped = logsViewerLogic({
+                ...baseProps,
+                logicKey: 'batch-run-2',
+                disableUrlSync: true,
+                defaultFilters: { dateFrom: '2026-09-07' },
+            })
+            scoped.mount()
+
+            router.actions.push('/pipeline/logs', { date_from: '-30m' })
+
+            expect(scoped.values.filters.date_from).toBe('2026-09-07')
+            scoped.unmount()
+        })
+
+        it('still syncs a viewer that owns the URL', async () => {
+            const owning = logsViewerLogic({ ...baseProps, logicKey: 'flat-list' })
+            owning.mount()
+
+            await expectLogic(owning, () => {
+                owning.actions.setFilters({ date_from: '-7d' })
+            }).toDispatchActions(['setFilters'])
+
+            expect(router.values.searchParams.date_from).toBe('-7d')
+            owning.unmount()
         })
     })
 })
