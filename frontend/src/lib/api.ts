@@ -6579,6 +6579,8 @@ const api = {
             type?: 'messaging' | 'automation'
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** An owning product, or `none` for workflows built in the workflows UI or over the API. */
+            origin_product?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {

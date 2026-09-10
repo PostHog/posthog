@@ -584,7 +584,7 @@ export interface HogFlowApi {
      * * `active` - Active
      * * `archived` - Archived */
     status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`; `none` lists workflows with no owning product.
      *
      * * `loops` - Loops */
     origin_product?: HogFlowOriginProductEnumApi | null
