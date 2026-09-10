@@ -36,3 +36,10 @@ One PR can back several reports, and each report queues its own task, so the PR 
 Fallback reads do not require a data migration. This does not replay webhook
 events that were missed before the fix; those reports need a subsequent event
 or explicit reconciliation.
+
+## Report evidence
+
+Both inbox report layouts show up to two evidence cards when a report opens.
+If the report has more evidence, select **Show more** to show all remaining cards.
+The list keeps its existing order and shows all cards until the report detail closes.
+Opening another report starts with up to two cards again.
