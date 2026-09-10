@@ -646,9 +646,7 @@ async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retain
         ("cap_bust", _build_research_output_with_duplicate_chart_ids, []),
     ],
 )
-async def test_run_agentic_report_activity_resolves_charts_payload(
-    monkeypatch, ateam, name, output_factory, expected
-):
+async def test_run_agentic_report_activity_resolves_charts_payload(monkeypatch, ateam, name, output_factory, expected):
     # The activity resolves the charts payload but does not write it — the transition activity does,
     # atomically with the title/summary (see test_mark_report_ready_activity_applies_charts). So we
     # assert the resolved payload on the returned output rather than the report row.
