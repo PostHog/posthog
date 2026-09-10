@@ -119,6 +119,7 @@ import {
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
+import { useCanvasConnectorPermission } from "./useCanvasConnectorPermission";
 import { useCanvasNavigation } from "./useCanvasNavigation";
 import { usePinnedArtifact } from "./usePinnedArtifact";
 
@@ -610,12 +611,17 @@ export function FreeformCanvasView({
       setAgentRequest(null);
     }
   }, [dashboardId]);
+  const requestConnectorPermission = useCanvasConnectorPermission(
+    dashboardId,
+    displayedVersionId,
+  );
   const onDataRequest = useCallback(
     (method: string, payload: unknown) => {
       if (method !== "agentRequest") {
         return handleFreeformDataRequest(method, payload, queryClient, {
           dashboardId,
           sourceVersionId: displayedVersionId ?? undefined,
+          requestConnectorPermission,
         });
       }
       const input = canvasAgentRequestInputSchema.parse(payload);
@@ -631,7 +637,7 @@ export function FreeformCanvasView({
         agentRequestPromiseRef.current = { resolve, reject };
       });
     },
-    [queryClient, dashboardId, displayedVersionId],
+    [queryClient, dashboardId, displayedVersionId, requestConnectorPermission],
   );
   const cancelAgentRequest = useCallback(() => {
     agentRequestPromiseRef.current?.reject(new Error("Agent request canceled"));
