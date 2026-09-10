@@ -157,6 +157,18 @@ PostgresErrors = {
         '"postgres.<project-ref>"). Update the username to the pooler username shown in your '
         "Supabase dashboard and try again."
     ),
+    # Some multi-tenant Postgres providers route connections by TLS SNI and reject one that
+    # carries none, naming the hostname to use instead: "FATAL: this server requires connecting
+    # via <hostname>". SNI is only sent when the configured host is a hostname, so this fires
+    # when the host is set to a raw IP address. `get_non_retryable_errors` already handles this
+    # on the streaming path; map it here too so validation returns an actionable message instead
+    # of the generic fallback. The volatile hostname is excluded from the match.
+    "requires connecting via": (
+        "Your database provider requires connecting through a specific hostname for routing "
+        '("requires connecting via ..."). This usually happens when the host is configured as an '
+        "IP address instead of a hostname. Update the host to the hostname your database "
+        "provider gave you and try again."
+    ),
     # Some poolers (for example Supabase's transaction pooler on port 6543) reject bad credentials
     # during the SASL/SCRAM exchange with "FATAL: SASL authentication failed" instead of libpq's
     # "password authentication failed for user", so none of the password keys above substring-match
@@ -462,6 +474,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "the username must include your project ref (for example "
                 '"postgres.<project-ref>"). Update the user for this source to the pooler username '
                 "shown in your Supabase dashboard, then re-enable the sync."
+            ),
+            # Some multi-tenant Postgres providers route connections by TLS SNI and reject one
+            # that carries none, naming the hostname to use instead: "FATAL: this server requires
+            # connecting via <hostname>". SNI is only sent when the configured host is a hostname
+            # (see `pinned_host_kwargs`), so this fires when the host is set to a raw IP address —
+            # with sslmode=prefer, libpq then falls back to a second, unencrypted attempt the
+            # provider also rejects for requiring SSL/TLS. Deterministic until the customer
+            # switches the host to the hostname named in the message, so retrying just re-hits it.
+            # Match the stable fragment and exclude the volatile hostname.
+            "requires connecting via": (
+                "Your database provider requires connecting through a specific hostname for "
+                'routing ("requires connecting via ..."). This usually happens when the host is '
+                "configured as an IP address instead of a hostname. Update the host for this "
+                "source to the hostname your database provider gave you, then re-enable the sync."
             ),
             "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_ERROR,
             # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
