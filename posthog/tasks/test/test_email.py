@@ -366,7 +366,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
+        assert "This link works for 24 hours" in mocked_email_messages[0].html_body
 
     def test_send_provisioning_welcome(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
