@@ -1,5 +1,6 @@
 import hmac
 import json
+import uuid
 import base64
 import hashlib
 from datetime import UTC, datetime, timedelta
@@ -7,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 import jwt
@@ -16,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from posthog.api.wizard.ci_oidc import (
     GITHUB_OIDC_ISSUER,
     WizardCiOidcError,
+    WizardCiOidcUnavailable,
     looks_like_jwt,
     reset_key_set_cache,
     verify_github_oidc,
@@ -28,6 +31,7 @@ _PUBLIC_KEY = _PRIVATE_KEY.public_key()
 
 AUDIENCE = "posthog-wizard-ci"
 REPOSITORY = "PostHog/wizard"
+REPOSITORY_ID = "938775588"
 OWNER_ID = "60330232"
 WORKFLOW_PATH = "PostHog/wizard/.github/workflows/smoke-test.yml"
 SUBJECT = "repo:PostHog/wizard:ref:refs/heads/main"
@@ -36,6 +40,7 @@ KID = "github-signing-key-1"
 CI_SETTINGS = {
     "WIZARD_CI_OIDC_AUDIENCE": AUDIENCE,
     "WIZARD_CI_REPOSITORY": REPOSITORY,
+    "WIZARD_CI_REPOSITORY_ID": REPOSITORY_ID,
     "WIZARD_CI_REPOSITORY_OWNER_ID": OWNER_ID,
     "WIZARD_CI_WORKFLOW_PATH": WORKFLOW_PATH,
     "WIZARD_CI_SUBJECT": SUBJECT,
@@ -48,11 +53,12 @@ def _jwk(kid: str = KID, use: str = "sig") -> dict:
     return key
 
 
-def _key_set(*keys: dict) -> jwt.PyJWKSet:
+def key_set(*keys: dict) -> jwt.PyJWKSet:
+    """Also imported by test_ci_mint for its unstubbed end-to-end cases."""
     return jwt.PyJWKSet.from_dict({"keys": list(keys) or [_jwk()]})
 
 
-def _token(kid: str = KID, **overrides) -> str:
+def token(kid: str = KID, **overrides) -> str:
     """A token GitHub would issue for the smoke-test workflow, before overrides."""
     now = datetime.now(tz=UTC)
     claims = {
@@ -61,7 +67,9 @@ def _token(kid: str = KID, **overrides) -> str:
         "sub": SUBJECT,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=10)).timestamp()),
+        "jti": str(uuid.uuid4()),
         "repository": REPOSITORY,
+        "repository_id": REPOSITORY_ID,
         "repository_owner_id": OWNER_ID,
         "workflow_ref": f"{WORKFLOW_PATH}@refs/heads/main",
         "run_id": "42",
@@ -75,9 +83,11 @@ def _token(kid: str = KID, **overrides) -> str:
 @pytest.fixture(autouse=True)
 def _fetch():
     reset_key_set_cache()
-    with patch("posthog.api.wizard.ci_oidc._fetch_key_set", return_value=_key_set()) as fetch:
+    cache.clear()
+    with patch("posthog.api.wizard.ci_oidc._fetch_key_set", return_value=key_set()) as fetch:
         yield fetch
     reset_key_set_cache()
+    cache.clear()
 
 
 class TestVerifyGitHubOidc:
@@ -87,41 +97,41 @@ class TestVerifyGitHubOidc:
             yield
 
     def test_a_smoke_test_token_verifies(self):
-        claims = verify_github_oidc(_token())
+        claims = verify_github_oidc(token())
         assert claims.repository == REPOSITORY
         assert claims.repository_owner_id == OWNER_ID
         assert claims.run_id == "42"
 
     def test_another_audience_is_refused(self):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(aud="sts.amazonaws.com"))
+            verify_github_oidc(token(aud="sts.amazonaws.com"))
 
     def test_another_issuer_is_refused(self):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(iss="https://evil.example.com"))
+            verify_github_oidc(token(iss="https://evil.example.com"))
 
     def test_another_repository_is_refused(self):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(repository="PostHog/not-the-wizard"))
+            verify_github_oidc(token(repository="PostHog/not-the-wizard"))
 
     def test_another_owner_id_is_refused(self):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(repository_owner_id="999"))
+            verify_github_oidc(token(repository_owner_id="999"))
 
     def test_a_matching_name_under_another_owner_id_is_refused(self):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(repository_owner_id="999", repository=REPOSITORY))
+            verify_github_oidc(token(repository_owner_id="999", repository=REPOSITORY))
 
     def test_another_workflow_in_the_same_repository_is_refused(self):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(workflow_ref="PostHog/wizard/.github/workflows/publish.yml@refs/heads/main"))
+            verify_github_oidc(token(workflow_ref="PostHog/wizard/.github/workflows/publish.yml@refs/heads/main"))
 
     def test_the_same_workflow_on_another_ref_is_refused(self):
         # The bypass this pin exists for: both claims move to the attacker's ref
         # together.
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(
-                _token(
+                token(
                     sub=f"repo:{REPOSITORY}:ref:refs/heads/attacker",
                     workflow_ref=f"{WORKFLOW_PATH}@refs/heads/attacker",
                 )
@@ -130,7 +140,7 @@ class TestVerifyGitHubOidc:
     def test_a_ref_that_extends_the_pinned_ref_is_refused(self):
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(
-                _token(
+                token(
                     sub=f"repo:{REPOSITORY}:ref:refs/heads/main-x",
                     workflow_ref=f"{WORKFLOW_PATH}@refs/heads/main-x",
                 )
@@ -139,7 +149,7 @@ class TestVerifyGitHubOidc:
     def test_a_pull_request_run_is_refused(self):
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(
-                _token(
+                token(
                     sub=f"repo:{REPOSITORY}:pull_request",
                     workflow_ref=f"{WORKFLOW_PATH}@refs/pull/1/merge",
                 )
@@ -147,26 +157,26 @@ class TestVerifyGitHubOidc:
 
     def test_a_workflow_path_that_extends_the_pinned_one_is_refused(self):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(workflow_ref=f"{WORKFLOW_PATH}.bak@refs/heads/main"))
+            verify_github_oidc(token(workflow_ref=f"{WORKFLOW_PATH}.bak@refs/heads/main"))
 
     def test_a_token_for_another_issuer_costs_no_fetch(self, _fetch):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(iss="https://evil.example.com"))
+            verify_github_oidc(token(iss="https://evil.example.com"))
         _fetch.assert_not_called()
 
     def test_a_token_for_another_audience_costs_no_fetch(self, _fetch):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(aud="sts.amazonaws.com"))
+            verify_github_oidc(token(aud="sts.amazonaws.com"))
         _fetch.assert_not_called()
 
     def test_a_smoke_test_token_still_reaches_the_fetch(self, _fetch):
         # Derived from the two above: the pre-filter must not become the check.
-        verify_github_oidc(_token())
+        verify_github_oidc(token())
         _fetch.assert_called_once()
 
     def test_a_second_verification_reuses_the_cached_key_set(self, _fetch):
-        verify_github_oidc(_token())
-        verify_github_oidc(_token())
+        verify_github_oidc(token())
+        verify_github_oidc(token())
         _fetch.assert_called_once()
 
     def test_an_unknown_kid_refetches_once_then_stops(self, _fetch):
@@ -174,9 +184,71 @@ class TestVerifyGitHubOidc:
         # without the interval each invented token would reach GitHub.
         for _ in range(5):
             with pytest.raises(WizardCiOidcError):
-                verify_github_oidc(_token(kid="made-up"))
-        # One cold fetch plus one forced refresh, then the interval holds.
+                verify_github_oidc(token(kid="made-up"))
+        assert _fetch.call_count == 1
+
+    def test_a_failing_fetch_is_not_retried_until_the_interval_passes(self, _fetch):
+        # A failed attempt has to spend the interval too. Otherwise an unreachable
+        # GitHub puts one outbound request behind every request that arrives.
+        _fetch.side_effect = Exception("github unreachable")
+        for _ in range(5):
+            with pytest.raises(WizardCiOidcError):
+                verify_github_oidc(token())
+        assert _fetch.call_count == 1
+
+    def test_a_token_is_unresolvable_rather_than_invalid_when_no_key_set_exists(self, _fetch):
+        # The caller retries an outage; it does not retry a bad token.
+        _fetch.side_effect = Exception("github unreachable")
+        with pytest.raises(WizardCiOidcUnavailable):
+            verify_github_oidc(token())
+
+    def test_a_failed_refetch_keeps_serving_the_cached_key_set(self, _fetch):
+        verify_github_oidc(token())
+        _fetch.side_effect = Exception("github unreachable")
+        with patch("posthog.api.wizard.ci_oidc._JWKS_TTL_SECONDS", -1):
+            claims = verify_github_oidc(token())
+        assert claims.repository == REPOSITORY
+
+    def test_an_unrecognized_key_is_refused_rather_than_unresolvable(self, _fetch):
+        # A key set we hold and a kid that is not in it is the caller's problem.
+        with pytest.raises(WizardCiOidcError) as refused:
+            verify_github_oidc(token(kid="made-up"))
+        assert not isinstance(refused.value, WizardCiOidcUnavailable)
+
+    def test_an_expired_key_set_is_refetched(self, _fetch):
+        verify_github_oidc(token())
+        with patch("posthog.api.wizard.ci_oidc._JWKS_TTL_SECONDS", -1):
+            with patch("posthog.api.wizard.ci_oidc._JWKS_MIN_FETCH_INTERVAL_SECONDS", -1):
+                verify_github_oidc(token())
         assert _fetch.call_count == 2
+
+    def test_a_replayed_token_is_refused(self):
+        bearer = token()
+        verify_github_oidc(bearer)
+        with pytest.raises(WizardCiOidcError):
+            verify_github_oidc(bearer)
+
+    def test_a_second_distinct_token_still_verifies(self):
+        # Derived from the replay test: the cache must key on jti, not on the run.
+        verify_github_oidc(token())
+        assert verify_github_oidc(token()).repository == REPOSITORY
+
+    def test_a_replay_still_verifies_when_the_cache_is_unreachable(self):
+        # Refusing every CI run because Redis blinked is the worse trade; the mint
+        # limits still bound a replay.
+        bearer = token()
+        with patch("posthog.api.wizard.ci_oidc.cache.add", side_effect=Exception("redis down")):
+            assert verify_github_oidc(bearer).repository == REPOSITORY
+            assert verify_github_oidc(bearer).repository == REPOSITORY
+
+    def test_another_repository_id_is_refused(self):
+        with pytest.raises(WizardCiOidcError):
+            verify_github_oidc(token(repository_id="1"))
+
+    def test_a_renamed_repository_reusing_the_name_is_refused(self):
+        # The name pins pass; only the immutable id catches this.
+        with pytest.raises(WizardCiOidcError):
+            verify_github_oidc(token(repository_id="999999"))
 
     def test_a_token_with_no_kid_is_refused_without_a_fetch(self, _fetch):
         now = datetime.now(tz=UTC)
@@ -187,6 +259,7 @@ class TestVerifyGitHubOidc:
                 "sub": SUBJECT,
                 "iat": int(now.timestamp()),
                 "exp": int((now + timedelta(minutes=10)).timestamp()),
+                "jti": str(uuid.uuid4()),
             },
             _PRIVATE_KEY,
             algorithm="RS256",
@@ -198,19 +271,19 @@ class TestVerifyGitHubOidc:
     def test_an_encryption_key_is_not_used_to_verify(self, _fetch):
         # Same kid, wrong use: verifying with it would accept a key GitHub never
         # offered for signatures.
-        _fetch.return_value = _key_set(_jwk(use="enc"))
+        _fetch.return_value = key_set(_jwk(use="enc"))
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token())
+            verify_github_oidc(token())
 
     def test_an_expired_token_is_refused(self):
         past = datetime.now(tz=UTC) - timedelta(minutes=30)
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(exp=int(past.timestamp()), iat=int(past.timestamp())))
+            verify_github_oidc(token(exp=int(past.timestamp()), iat=int(past.timestamp())))
 
-    @pytest.mark.parametrize("claim", ["exp", "iat", "aud", "sub"])
+    @pytest.mark.parametrize("claim", ["exp", "iat", "aud", "sub", "jti"])
     def test_a_missing_required_claim_is_refused(self, claim):
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token(**{claim: None}))
+            verify_github_oidc(token(**{claim: None}))
 
     def test_a_token_signed_with_another_key_is_refused(self):
         other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -222,7 +295,9 @@ class TestVerifyGitHubOidc:
                 "sub": SUBJECT,
                 "iat": int(now.timestamp()),
                 "exp": int((now + timedelta(minutes=10)).timestamp()),
+                "jti": str(uuid.uuid4()),
                 "repository": REPOSITORY,
+                "repository_id": REPOSITORY_ID,
                 "repository_owner_id": OWNER_ID,
                 "workflow_ref": f"{WORKFLOW_PATH}@refs/heads/main",
             },
@@ -246,7 +321,9 @@ class TestVerifyGitHubOidc:
             "sub": SUBJECT,
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(minutes=10)).timestamp()),
+            "jti": str(uuid.uuid4()),
             "repository": REPOSITORY,
+            "repository_id": REPOSITORY_ID,
             "repository_owner_id": OWNER_ID,
             "workflow_ref": f"{WORKFLOW_PATH}@refs/heads/main",
         }
@@ -265,7 +342,7 @@ class TestVerifyGitHubOidc:
     def test_an_unreachable_key_set_refuses(self, _fetch):
         _fetch.side_effect = Exception("jwks unreachable")
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(_token())
+            verify_github_oidc(token())
 
     def test_a_malformed_token_is_refused(self):
         with pytest.raises(WizardCiOidcError):
@@ -282,7 +359,7 @@ class TestConfiguration:
         with override_settings(**{**CI_SETTINGS, missing: ""}):
             assert not wizard_ci_oidc_configured()
             with pytest.raises(WizardCiOidcError):
-                verify_github_oidc(_token())
+                verify_github_oidc(token())
 
 
 class TestLooksLikeJwt:

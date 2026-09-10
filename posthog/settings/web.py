@@ -1273,6 +1273,7 @@ except ValueError:
 # The workflow path is what precedes the "@" in workflow_ref.
 WIZARD_CI_OIDC_AUDIENCE = get_from_env("WIZARD_CI_OIDC_AUDIENCE", "")
 WIZARD_CI_REPOSITORY = get_from_env("WIZARD_CI_REPOSITORY", "")
+WIZARD_CI_REPOSITORY_ID = get_from_env("WIZARD_CI_REPOSITORY_ID", "")
 WIZARD_CI_REPOSITORY_OWNER_ID = get_from_env("WIZARD_CI_REPOSITORY_OWNER_ID", "")
 WIZARD_CI_WORKFLOW_PATH = get_from_env("WIZARD_CI_WORKFLOW_PATH", "")
 WIZARD_CI_SUBJECT = get_from_env("WIZARD_CI_SUBJECT", "")

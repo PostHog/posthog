@@ -29,7 +29,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.email_verification import email_verification_pending
-from posthog.api.wizard.ci_oidc import WizardCiOidcError, looks_like_jwt, verify_github_oidc, wizard_ci_oidc_configured
+from posthog.api.wizard.ci_oidc import (
+    WizardCiOidcError,
+    WizardCiOidcUnavailable,
+    looks_like_jwt,
+    verify_github_oidc,
+    wizard_ci_oidc_configured,
+)
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
@@ -98,8 +104,10 @@ WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "Wizard gateway-token mint requests, by outcome (minted/unconfigured/invalid_token/"
     "not_wizard_app/scope_missing/team_ambiguous/team_missing/unauthorized/blocked/"
     "program_unknown/not_rolled_out/throttled/mint_failed). A GitHub Actions CI run "
-    "reports the same outcomes under a ci_ prefix, so it is separable without a "
-    "second label changing every existing query.",
+    "reports its own outcomes under a ci_ prefix, so it stays separable without a "
+    "second label changing every existing query: ci_minted/ci_invalid_token/"
+    "ci_verify_unavailable/ci_verify_throttled/ci_unconfigured/ci_program_unknown/"
+    "ci_team_missing/ci_not_rolled_out/ci_throttled/ci_mint_failed.",
     labelnames=["outcome"],
 )
 
@@ -167,6 +175,30 @@ def _ci_bearer(request: Request) -> str | None:
     return token if looks_like_jwt(token) else None
 
 
+def _wizard_gateway_switched_off(distinct_id: str, team: Team) -> bool:
+    """Whether the kill switch refuses this mint.
+
+    A kill switch, not a rollout gate: only a literal False refuses. With the legacy
+    product off there is no second path, so reading a flag-service outage as "not
+    rolled out" would turn a blip into a global wizard outage.
+    """
+    try:
+        rolled_out = posthoganalytics.feature_enabled(
+            "wizard-gateway-v2",
+            distinct_id,
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception as e:
+        logger.warning("wizard_gateway_token: rollout flag unavailable, minting", error=str(e))
+        return False
+    if rolled_out is None:
+        logger.warning("wizard_gateway_token: rollout flag returned no verdict, minting")
+    return rolled_out is False
+
+
 def _ci_mint(request: Request, bearer: str, *, program: object, product: str | None) -> Response:
     """Mint one run's token for a verified GitHub Actions workflow.
 
@@ -188,6 +220,10 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
 
     try:
         claims = verify_github_oidc(bearer)
+    except WizardCiOidcUnavailable as e:
+        # Ordered first: a subclass. GitHub being unreachable is our outage, and
+        # answering it as a bad token would blame the caller and page nobody.
+        refuse("ci_verify_unavailable", exceptions.APIException(str(e)))
     except WizardCiOidcError as e:
         refuse("ci_invalid_token", AuthenticationFailed(str(e)))
 
@@ -204,6 +240,11 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     team = Team.objects.select_related("organization").filter(id=settings.WIZARD_CI_TEAM_ID).first()
     if team is None:
         refuse("ci_team_missing", exceptions.PermissionDenied("The configured wizard CI team does not exist."))
+
+    # The same switch the user path reads, keyed on the repository because no person
+    # owns this run. Only a literal False refuses, so a flag outage still mints.
+    if _wizard_gateway_switched_off(f"wizard-ci:{claims.repository}", team):
+        refuse("ci_not_rolled_out", exceptions.PermissionDenied("Wizard gateway tokens are switched off."))
 
     try:
         reserved = reserve_wizard_ci_mint(claims.repository, settings.WIZARD_CI_MINTS_PER_HOUR)
@@ -228,6 +269,12 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
         return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
     WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="ci_minted").inc()
+    logger.info(
+        "wizard_gateway_token: minted for CI",
+        repository=claims.repository,
+        run_id=claims.run_id,
+        program=program,
+    )
     return Response(
         {
             "token": minted["token"],
@@ -689,25 +736,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # Ahead of the rollout gate, so a ban reads as a ban whatever the flag says.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
-        # A kill switch, not a rollout gate: only a literal False refuses. With the
-        # legacy product off there is no second path, so reading an outage as "not
-        # rolled out" turns a flag-service blip into a global wizard outage.
-        try:
-            rolled_out = posthoganalytics.feature_enabled(
-                "wizard-gateway-v2",
-                distinct_id,
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception as e:
-            logger.warning("wizard_gateway_token: rollout flag unavailable, minting", error=str(e))
-            rolled_out = None
-        else:
-            if rolled_out is None:
-                logger.warning("wizard_gateway_token: rollout flag returned no verdict, minting")
-        if rolled_out is False:
+        if _wizard_gateway_switched_off(distinct_id, team):
             refuse_absent_gateway(
                 "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
             )

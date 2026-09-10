@@ -1313,12 +1313,13 @@ WIZARD_CI_VERIFY_WINDOW_SECONDS = 60
 def reserve_wizard_ci_verify(ip: str | None, limit: int) -> None:
     """Charge one signature verification for this source address, or raise.
 
-    Charged before the signing-key fetch, because that fetch is outbound work an
-    anonymous caller can force and no claim is trusted yet to key on. Nothing is
-    refunded: what this bounds is the attempt, not the mint.
+    First line only. Cloud trusts every proxy, so the address is caller-written and
+    a client that rotates it buys a fresh bucket; the bound that survives that is
+    the fetch interval in `posthog.api.wizard.ci_oidc`. This keeps the cheap
+    repeat-offender case off the CPU. Nothing is refunded: it charges the attempt.
 
-    `ip` is None when the proxy chain is untrusted, and those callers share one
-    bucket rather than each getting a fresh one.
+    Fails open on a cache error, matching the reservation beside it: verification
+    still costs no outbound request beyond that interval.
     """
     charged = _charge_mint_slot(f"wizard_ci_verify:{ip or 'unknown'}", WIZARD_CI_VERIFY_WINDOW_SECONDS)
     if charged is None:

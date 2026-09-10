@@ -9,6 +9,7 @@ import threading
 from typing import Any
 
 from django.conf import settings
+from django.core.cache import cache
 
 import jwt
 import requests
@@ -26,13 +27,20 @@ _JWKS_TIMEOUT_SECONDS = 10
 # How long a fetched key set serves before the next verification refetches it.
 # Also how long a key GitHub has revoked stays accepted.
 _JWKS_TTL_SECONDS = 300
-# Floor between refetches forced by an unrecognised `kid`, which bounds outbound
-# requests to GitHub no matter how many source addresses ask.
-_JWKS_FORCED_REFRESH_INTERVAL_SECONDS = 60
+# Floor between outbound fetches, whichever caller asks for one. This is what
+# bounds the outbound work an anonymous caller can force. The per-address throttle
+# on the endpoint is not: production trusts every proxy, so the address it reads
+# comes from a header the caller writes.
+_JWKS_MIN_FETCH_INTERVAL_SECONDS = 60
+_JTI_CLOCK_SKEW_SECONDS = 60
 
 
 class WizardCiOidcError(Exception):
     """The presented token is not a wizard CI identity. Never carries the token."""
+
+
+class WizardCiOidcUnavailable(WizardCiOidcError):
+    """No signing key was available to decide. Retryable, unlike a refusal."""
 
 
 @frozen
@@ -40,6 +48,7 @@ class GitHubOidcClaims:
     """The claims the mint path is allowed to act on."""
 
     repository: str
+    repository_id: str
     repository_owner_id: str
     workflow_ref: str
     run_id: str
@@ -47,14 +56,14 @@ class GitHubOidcClaims:
 
 _key_set: jwt.PyJWKSet | None = None
 _key_set_fetched_at = 0.0
-_forced_refresh_at = 0.0
-_refresh_lock = threading.Lock()
+_fetch_attempted_at = 0.0
+_fetch_lock = threading.Lock()
 
 
 def reset_key_set_cache() -> None:
     """Test hook: drop the cached key set so the next verification refetches."""
-    global _key_set, _key_set_fetched_at, _forced_refresh_at
-    _key_set, _key_set_fetched_at, _forced_refresh_at = None, 0.0, 0.0
+    global _key_set, _key_set_fetched_at, _fetch_attempted_at
+    _key_set, _key_set_fetched_at, _fetch_attempted_at = None, 0.0, 0.0
 
 
 def _fetch_key_set() -> jwt.PyJWKSet:
@@ -68,16 +77,6 @@ def _fetch_key_set() -> jwt.PyJWKSet:
     return jwt.PyJWKSet.from_dict(response.json())
 
 
-def _cached_key_set(force: bool) -> jwt.PyJWKSet:
-    global _key_set, _key_set_fetched_at
-    now = time.monotonic()
-    if not force and _key_set is not None and now - _key_set_fetched_at < _JWKS_TTL_SECONDS:
-        return _key_set
-    fetched = _fetch_key_set()
-    _key_set, _key_set_fetched_at = fetched, now
-    return fetched
-
-
 def _match_kid(key_set: jwt.PyJWKSet, kid: str) -> Any | None:
     for key in key_set.keys:
         if key.key_id == kid and key.public_key_use in ("sig", None):
@@ -85,32 +84,55 @@ def _match_kid(key_set: jwt.PyJWKSet, kid: str) -> Any | None:
     return None
 
 
-def _claim_forced_refresh() -> bool:
-    """Whether this caller may refetch now. One caller wins per interval."""
-    global _forced_refresh_at
-    now = time.monotonic()
-    with _refresh_lock:
-        if _forced_refresh_at and now - _forced_refresh_at < _JWKS_FORCED_REFRESH_INTERVAL_SECONDS:
-            return False
-        _forced_refresh_at = now
-        return True
+def _current_key_set(kid: str) -> jwt.PyJWKSet | None:
+    """The key set to verify against, refetching at most once per interval.
+
+    The lock is held across the fetch so concurrent callers share one request
+    rather than each opening their own. A failed attempt spends the interval just
+    as a successful one does: otherwise an unreachable GitHub puts a fresh
+    outbound request behind every inbound request.
+    """
+    global _key_set, _key_set_fetched_at, _fetch_attempted_at
+    with _fetch_lock:
+        now = time.monotonic()
+        cached = _key_set
+        fresh = cached is not None and now - _key_set_fetched_at < _JWKS_TTL_SECONDS
+        if cached is not None and fresh and _match_kid(cached, kid) is not None:
+            return cached
+        if _fetch_attempted_at and now - _fetch_attempted_at < _JWKS_MIN_FETCH_INTERVAL_SECONDS:
+            return cached
+        _fetch_attempted_at = now
+        try:
+            _key_set = _fetch_key_set()
+            _key_set_fetched_at = now
+        except Exception as e:
+            logger.warning("wizard_ci_oidc: key set fetch failed", error=str(e))
+        return _key_set
 
 
 def _signing_key(kid: str) -> Any:
-    """Resolve `kid`, refetching for an unrecognised one at most once per interval.
-
-    PyJWKClient refetches the whole set on every miss, which would let an anonymous
-    caller drive one request to GitHub per token it invents.
-    """
-    key = _match_kid(_cached_key_set(force=False), kid)
-    if key is not None:
-        return key
-    if not _claim_forced_refresh():
-        raise WizardCiOidcError("could not resolve the signing key for this token")
-    key = _match_kid(_cached_key_set(force=True), kid)
+    key_set = _current_key_set(kid)
+    if key_set is None:
+        raise WizardCiOidcUnavailable("no GitHub signing key is available right now")
+    key = _match_kid(key_set, kid)
     if key is None:
-        raise WizardCiOidcError("could not resolve the signing key for this token")
+        raise WizardCiOidcError("token was signed by an unrecognized key")
     return key
+
+
+def _claim_jti(jti: str, exp: int) -> bool:
+    """Whether this token is being presented for the first time.
+
+    True when the cache is unreachable: a replay is still bounded by the hourly
+    mint limit and the per-token cap, and refusing every CI run because Redis
+    blinked is the worse trade.
+    """
+    ttl = max(1, exp - int(time.time()) + _JTI_CLOCK_SKEW_SECONDS)
+    try:
+        return bool(cache.add(f"wizard_ci_oidc:jti:{jti}", "1", ttl))
+    except Exception as e:
+        logger.warning("wizard_ci_oidc: replay cache unavailable", error=str(e))
+        return True
 
 
 def wizard_ci_oidc_configured() -> bool:
@@ -118,6 +140,7 @@ def wizard_ci_oidc_configured() -> bool:
     return bool(
         settings.WIZARD_CI_OIDC_AUDIENCE
         and settings.WIZARD_CI_REPOSITORY
+        and settings.WIZARD_CI_REPOSITORY_ID
         and settings.WIZARD_CI_REPOSITORY_OWNER_ID
         and settings.WIZARD_CI_WORKFLOW_PATH
         and settings.WIZARD_CI_SUBJECT
@@ -162,13 +185,7 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     if not kid:
         raise WizardCiOidcError("token failed verification")
 
-    try:
-        signing_key = _signing_key(kid)
-    except WizardCiOidcError:
-        raise
-    except Exception as e:
-        logger.warning("wizard_ci_oidc: signing key unavailable", error=str(e))
-        raise WizardCiOidcError("could not resolve the signing key for this token")
+    signing_key = _signing_key(kid)
 
     try:
         claims: dict[str, Any] = jwt.decode(
@@ -177,7 +194,7 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
             algorithms=["RS256"],
             issuer=GITHUB_OIDC_ISSUER,
             audience=settings.WIZARD_CI_OIDC_AUDIENCE,
-            options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+            options={"require": ["exp", "iat", "iss", "aud", "sub", "jti"]},
         )
     except jwt.PyJWTError as e:
         logger.warning("wizard_ci_oidc: token rejected", error=str(e))
@@ -192,6 +209,12 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     if repository != settings.WIZARD_CI_REPOSITORY:
         raise WizardCiOidcError("token was issued to another repository")
 
+    # The name pins above are the ones a rename moves. This one never moves, so a
+    # repository that takes the wizard's freed name still fails here.
+    repository_id = str(claims.get("repository_id") or "")
+    if repository_id != str(settings.WIZARD_CI_REPOSITORY_ID):
+        raise WizardCiOidcError("token was issued to another repository")
+
     # `sub` carries the trigger and the ref, so it pins which branch ran. Compared
     # whole because `refs/heads/main` is a prefix of `refs/heads/main-x`.
     subject = str(claims.get("sub") or "")
@@ -204,8 +227,13 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     if workflow_ref.split("@", 1)[0] != settings.WIZARD_CI_WORKFLOW_PATH:
         raise WizardCiOidcError("token was issued to another workflow")
 
+    # Last, so a token refused above does not spend the single use its own run needs.
+    if not _claim_jti(str(claims["jti"]), int(claims.get("exp") or 0)):
+        raise WizardCiOidcError("token has already been used")
+
     return GitHubOidcClaims(
         repository=repository,
+        repository_id=repository_id,
         repository_owner_id=owner_id,
         workflow_ref=workflow_ref,
         run_id=str(claims.get("run_id") or ""),
