@@ -197,8 +197,11 @@ export interface ExperimentRecordingsListEmptyContext {
     /** Null when the list holds every variant. */
     variantKey: string | null
     /**
-     * The scope the list actually ran under. A reason that can be empty under the narrower scope
-     * while the wider one has rows needs this to know whether to offer the way back.
+     * The scope the list actually ran under, which is not always the one the control settled on: a
+     * session bucket or a watch card supplies the session set itself and drops the narrowing. A
+     * reason that can be empty under the narrower scope while the wider one has rows needs this to
+     * know whether to offer the way back, and offering it where the narrowing never applied would
+     * move nothing.
      */
     exposureScope: ExperimentReplayExposureScope
 }
@@ -665,7 +668,7 @@ export interface experimentReplayTabLogicMeta {
         listEmptyContext: (
             currentTeam: TeamPublicType | TeamType | null,
             effectiveVariantKey: string | null,
-            effectiveExposureScope: ExperimentReplayExposureScope,
+            recordingsFilters: RecordingUniversalFilters,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
         filterContext: (
@@ -1310,18 +1313,21 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         listEmptyContext: [
-            (s) => [s.currentTeam, s.effectiveVariantKey, s.effectiveExposureScope, (_, props) => props.experiment],
+            (s) => [s.currentTeam, s.effectiveVariantKey, s.recordingsFilters, (_, props) => props.experiment],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 effectiveVariantKey: string | null,
-                effectiveExposureScope: ExperimentReplayExposureScope,
+                recordingsFilters: RecordingUniversalFilters,
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
                 endDate: experiment.end_date ?? null,
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
-                exposureScope: effectiveExposureScope,
+                // Off the filter the list ran with rather than the settled scope: where a bucket or
+                // a card supplies the session set the narrowing never reached the query, so it is
+                // not what emptied the list and the way back out would move nothing.
+                exposureScope: recordingsFilters.experiment_exposure?.in_session ? 'in_session' : 'all_exposed',
             }),
         ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so

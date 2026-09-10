@@ -129,6 +129,27 @@ const REASON_CASES: ReasonCase[] = [
         actions: [],
     },
     {
+        // A young run reaches this reason before the metric-filter one, so it can render while a
+        // bucket supplies the session set. The bucket drops the narrowing from the query, so the
+        // way back out would move nothing: it must not be offered, and the copy must not claim the
+        // list is narrowed to the exposure session.
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 216,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                session_ids: ['bucket-session'],
+                truncated: false,
+                considered_metrics: [],
+                excluded_metrics: [],
+                filter_test_accounts: true,
+            })
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+        copy: 'The experiment started 1 day ago',
+        actions: [],
+    },
+    {
         reason: ExperimentReplayListEmptyReason.EndedPastRetention,
         experimentId: 204,
         experiment: { start_date: daysAgo(200), end_date: daysAgo(60) },
