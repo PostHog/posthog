@@ -409,4 +409,48 @@ describe('entityFilterLogic', () => {
             )
         })
     })
+
+    describe('series filter visibility', () => {
+        const browserFilter: AnyPropertyFilter = {
+            key: '$browser',
+            value: 'Chrome',
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+        const filtersWithSeriesProperties = {
+            ...filtersJson,
+            events: [
+                { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
+                { id: '$pageview', name: '$pageview', type: 'events', order: 1, properties: [browserFilter] },
+            ],
+            actions: [],
+        } as FilterType
+
+        function mountWithSeriesProperties(): ReturnType<typeof entityFilterLogic.build> {
+            const visibilityLogic = entityFilterLogic({
+                setFilters: jest.fn(),
+                filters: filtersWithSeriesProperties,
+                typeKey: 'visibility_test',
+            })
+            visibilityLogic.mount()
+            return visibilityLogic
+        }
+
+        it('expands a series that already carries filters', async () => {
+            await expectLogic(mountWithSeriesProperties()).toMatchValues({
+                entityFilterVisible: { 1: true },
+            })
+        })
+
+        it('keeps a series collapsed after the user hides its filters', async () => {
+            const visibilityLogic = mountWithSeriesProperties()
+
+            await expectLogic(visibilityLogic, () => {
+                visibilityLogic.actions.setEntityFilterVisibility(1, false)
+                visibilityLogic.actions.setLocalFilters(filtersWithSeriesProperties)
+            }).toMatchValues({
+                entityFilterVisible: { 1: false },
+            })
+        })
+    })
 })

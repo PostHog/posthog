@@ -378,6 +378,23 @@ describe('ActionFilterRow', () => {
                 expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
             })
 
+            it('renders PropertyFilters for a saved series that already carries filters', () => {
+                const savedSeries = {
+                    ...DEFAULT_FILTER,
+                    properties: [
+                        {
+                            key: '$browser',
+                            value: 'Chrome',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                }
+                const { logic } = setup({ events: [savedSeries], actions: [] } as Partial<FilterType>)
+                renderRow(logic, { filter: savedSeries })
+                expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
+            })
+
             it('does not render PropertyFilters when visibility is off', () => {
                 const { logic } = setup()
                 renderRow(logic)
