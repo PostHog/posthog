@@ -725,19 +725,30 @@ export function formatInputValidationError(
     // A strict schema rejects unknown keys instead of dropping them, and the
     // `unrecognized_keys` branch below already names them.
     const keysWereRejected = error.issues.some((issue) => issue.code === 'unrecognized_keys')
-    const describeIssue = (issue: z.core.$ZodIssue, issuePath: ReadonlyArray<PropertyKey>): string => {
+    const describeIssue = (
+        issue: z.core.$ZodIssue,
+        issuePath: ReadonlyArray<PropertyKey>,
+        maskUndeclaredKeys = false
+    ): string => {
         const path = issuePath.map(String).join('.')
         // A union reports only "Invalid input" for the whole field, naming neither
         // the branch that came closest nor what it wanted, so a caller that sent a
         // near-miss has nothing to correct and retries variations of the same
         // payload. Describe the branches that got furthest instead.
         if (issue.code === 'invalid_union') {
-            const closest = closestUnionBranches(issue.errors)
-            const described = [
-                ...new Set(closest.flatMap((branch) => branch.map((i) => describeIssue(i, [...issuePath, ...i.path])))),
-            ]
-            if (described.length > 0) {
-                return described.slice(0, MAX_UNION_ISSUES_NAMED).join('; ')
+            const unionInput = 'input' in issue ? issue.input : undefined
+            const closest = closestUnionBranches(issue.errors, unionInput)
+            const described = new Set<string>()
+            outer: for (const branch of closest) {
+                for (const branchIssue of branch) {
+                    described.add(describeIssue(branchIssue, [...issuePath, ...branchIssue.path], true))
+                    if (described.size >= MAX_UNION_ISSUES_NAMED) {
+                        break outer
+                    }
+                }
+            }
+            if (described.size > 0) {
+                return [...described].join('; ')
             }
         }
         if (issue.code === 'invalid_type') {
@@ -760,6 +771,9 @@ export function formatInputValidationError(
             return `parameter "${path}" must be of type ${issue.expected}`
         }
         if (issue.code === 'unrecognized_keys') {
+            if (maskUndeclaredKeys) {
+                return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}`
+            }
             return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}`
         }
         // A too-long string names the limit and the input's actual length so the
@@ -791,10 +805,26 @@ const MAX_UNION_ISSUES_NAMED = 3
  * matched no discriminator at all still sees each accepted value.
  */
 function closestUnionBranches(
-    branches: ReadonlyArray<ReadonlyArray<z.core.$ZodIssue>>
+    branches: ReadonlyArray<ReadonlyArray<z.core.$ZodIssue>>,
+    input: unknown
 ): ReadonlyArray<ReadonlyArray<z.core.$ZodIssue>> {
-    const fewest = Math.min(...branches.map((branch) => branch.length))
-    return branches.filter((branch) => branch.length === fewest)
+    const discriminatorMatches = branches.filter((branch) => !hasMismatchedLiteralProperty(branch, input))
+    const candidates = discriminatorMatches.length > 0 ? discriminatorMatches : branches
+    const fewest = Math.min(...candidates.map((branch) => branch.length))
+    return candidates.filter((branch) => branch.length === fewest)
+}
+
+function hasMismatchedLiteralProperty(branch: ReadonlyArray<z.core.$ZodIssue>, input: unknown): boolean {
+    if (!isRecord(input)) {
+        return false
+    }
+    return branch.some(
+        (issue) =>
+            issue.code === 'invalid_value' &&
+            issue.path.length === 1 &&
+            issue.values.length === 1 &&
+            Object.prototype.hasOwnProperty.call(input, String(issue.path[0]))
+    )
 }
 
 /** Caps on what we record so a single failure can't blow up analytics cardinality. */

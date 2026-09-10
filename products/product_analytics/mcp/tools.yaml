@@ -102,8 +102,9 @@ tools:
             ```
 
 
-            A bare query is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }` are each
-            wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
+            A bare query object is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }`
+            are each wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight
+            through.
         exclude_params:
             - query
         include_params:

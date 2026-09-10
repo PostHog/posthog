@@ -458,7 +458,7 @@ function operationIdToPascal(operationId: string): string {
 const CAST_HELPERS = {
     'string-int': 'castStringToInt',
     'boolean-string': 'castBooleanToString',
-    'insight-query-node': 'castToInsightQueryNode',
+    'insight-query-node': 'withInsightQueryCast',
 } as const
 
 interface SchemaComposition {
@@ -734,7 +734,10 @@ function composeToolSchema(
                 if (!castHelper) {
                     return inner
                 }
-                const wrapped = `z.preprocess(${castHelper}, ${inner})`
+                const wrapped =
+                    override.cast === 'insight-query-node'
+                        ? `${castHelper}(${inner})`
+                        : `z.preprocess(${castHelper}, ${inner})`
                 return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
             }
 

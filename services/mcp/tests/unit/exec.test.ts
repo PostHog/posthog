@@ -1838,6 +1838,53 @@ describe('exec tool', () => {
                 expect(message).toContain('DataVisualizationNode')
             })
 
+            it('prefers the branch whose discriminator matched', () => {
+                const detailedSchema = z.object({
+                    query: z.union([
+                        z.object({ kind: z.literal('InsightVizNode'), source: z.record(z.string(), z.unknown()) }),
+                        z.object({
+                            kind: z.literal('DataVisualizationNode'),
+                            source: z.record(z.string(), z.unknown()),
+                            xAxis: z.object({ column: z.string() }),
+                            yAxis: z.array(z.object({ column: z.string() })),
+                        }),
+                    ]),
+                })
+                const input = {
+                    query: {
+                        kind: 'DataVisualizationNode',
+                        source: {},
+                        xAxis: 'day',
+                        yAxis: ['count()'],
+                    },
+                }
+                const result = detailedSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('insight-create', result.error!, input, detailedSchema)
+
+                expect(message).toContain('query.xAxis')
+                expect(message).toContain('query.yAxis.0')
+                expect(message).not.toContain('expected "InsightVizNode"')
+            })
+
+            it('masks caller-controlled keys inside a union error', () => {
+                const strictSchema = z.object({
+                    query: z.union([
+                        z.object({ kind: z.literal('InsightVizNode') }).strict(),
+                        z.object({ kind: z.literal('DataVisualizationNode') }).strict(),
+                    ]),
+                })
+                const input = { query: { kind: 'InsightVizNode', 'private-api-key': true } }
+                const result = strictSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('insight-create', result.error!, input, strictSchema)
+
+                expect(message).toContain('unexpected property')
+                expect(message).not.toContain('private-api-key')
+            })
+
             it('names the expected type when the input is not an object at all', () => {
                 const message = reject(42)
 

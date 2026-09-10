@@ -95,9 +95,8 @@ export const ToolConfigSchema = z
                          *   unchanged so zod still rejects with its honest error.
                          * - `'boolean-string'` — casts a boolean to `"true"` / `"false"` for a
                          *   string param that reads as a boolean to an agent (e.g. `enabled`).
-                         * - `'insight-query-node'` — wraps a bare insight query in the node the
-                         *   saved-insight `query` field takes, and parses one sent as a JSON
-                         *   string.
+                         * - `'insight-query-node'` — accepts supported bare insight queries and
+                         *   wraps them in the node that the saved-insight `query` field takes.
                          *
                          * Mutually exclusive with `input_schema` (which fully replaces the
                          * schema); composes with `schema_ref` and with the existing one.

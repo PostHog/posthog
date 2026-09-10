@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 
@@ -50,16 +51,33 @@ describe('insight query shapes', () => {
         expect(parseQuery(tool, base, query)).toMatchObject({ kind: 'DataVisualizationNode', source: query })
     })
 
-    it.each(tools)('$tool parses a whole query sent as a JSON string', ({ tool, base }) => {
-        const source = { kind: 'TrendsQuery', series: [] }
+    it.each(tools)('$tool infers the default kind for a bare HogQL query', ({ tool, base }) => {
+        const query = { query: 'SELECT 1' }
 
-        expect(parseQuery(tool, base, JSON.stringify({ kind: 'InsightVizNode', source }))).toEqual({
-            kind: 'InsightVizNode',
-            source,
-        })
+        expect(parseQuery(tool, base, query)).toMatchObject({ kind: 'DataVisualizationNode', source: query })
     })
 
-    it.each(tools)('$tool still rejects a query that is not an object', ({ tool, base }) => {
+    it.each(tools)('$tool rejects a query that is not an object', ({ tool, base }) => {
         expect(GENERATED_TOOLS[tool]!().schema.safeParse({ ...base, query: 'SELECT 1' }).success).toBe(false)
+    })
+
+    it.each(tools)('$tool rejects unsupported bare query kinds', ({ tool, base }) => {
+        for (const kind of ['DataTableNode', 'HogQuery', 'TotallyMadeUpNode']) {
+            expect(GENERATED_TOOLS[tool]!().schema.safeParse({ ...base, query: { kind } }).success).toBe(false)
+        }
+    })
+
+    it.each(tools)('$tool advertises its supported bare query objects', ({ tool }) => {
+        const schema = z.toJSONSchema(GENERATED_TOOLS[tool]!().schema, { io: 'input' }) as unknown as {
+            properties: { query: { anyOf: Array<{ properties?: { kind?: { const?: string; enum?: string[] } } }> } }
+        }
+        const queryKinds = schema.properties.query.anyOf.flatMap((branch) => {
+            const kind = branch.properties?.kind
+            return kind?.const ? [kind.const] : (kind?.enum ?? [])
+        })
+
+        expect(queryKinds).toContain('TrendsQuery')
+        expect(queryKinds).toContain('HogQLQuery')
+        expect(queryKinds).not.toContain('DataTableNode')
     })
 })
