@@ -75,6 +75,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
 import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
@@ -676,6 +677,15 @@ export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined
         return query.trendsFilter?.showAnnotations
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showAnnotations
+    }
+    return undefined
+}
+
+export const getVisibleAnnotationIds = (query: InsightQueryNode): integer[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.visibleAnnotationIds
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.visibleAnnotationIds
     }
     return undefined
 }
