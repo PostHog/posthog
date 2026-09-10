@@ -1,0 +1,39 @@
+import { getRelativeDateGroup } from "@posthog/shared";
+import type { SignalReport } from "@posthog/shared/types";
+
+export interface ReportAgeGroup {
+  label: string;
+  reports: SignalReport[];
+}
+
+const AGE_ORDER = [
+  "Today",
+  "Yesterday",
+  "This week",
+  "This month",
+  "Earlier",
+] as const;
+
+/**
+ * The buckets widen with age (`getRelativeDateGroup`, the same ones the task
+ * list uses) because reports arrive over weeks: a separator per calendar day
+ * left most of this list one row per header.
+ */
+export function groupReportsByAge(
+  reports: readonly SignalReport[],
+  now: Date = new Date(),
+): ReportAgeGroup[] {
+  const buckets = new Map<string, SignalReport[]>();
+  for (const report of reports) {
+    // A clock skewed ahead of ours would otherwise fall out of every bucket.
+    const timestamp = Math.min(new Date(report.created_at).getTime(), +now);
+    const label = getRelativeDateGroup(timestamp) ?? "Today";
+    const bucket = buckets.get(label);
+    if (bucket) bucket.push(report);
+    else buckets.set(label, [report]);
+  }
+  return AGE_ORDER.filter((label) => buckets.has(label)).map((label) => ({
+    label,
+    reports: buckets.get(label) ?? [],
+  }));
+}

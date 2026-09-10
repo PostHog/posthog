@@ -104,6 +104,7 @@ const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
   "activity",
   "canvases",
   "feeds",
+  "inbox",
 ]);
 
 export function railPaneHasSidebar(pane: NavRailPane): boolean {

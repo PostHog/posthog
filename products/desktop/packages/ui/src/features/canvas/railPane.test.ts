@@ -77,14 +77,14 @@ describe("isRestorableVisitHref", () => {
 });
 
 describe("railPaneHasSidebar", () => {
-  it.each(["home", "inbox", "reports", "command-center", "loops"] as const)(
+  it.each(["home", "reports", "command-center", "loops"] as const)(
     "gives %s the whole screen",
     (pane) => {
       expect(railPaneHasSidebar(pane)).toBe(false);
     },
   );
 
-  it.each(["spaces", "activity", "feeds"] as const)(
+  it.each(["spaces", "activity", "feeds", "inbox"] as const)(
     "gives %s a column",
     (pane) => {
       expect(railPaneHasSidebar(pane)).toBe(true);

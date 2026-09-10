@@ -1,7 +1,6 @@
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   type NavRailPane,
-  railPaneForMatches,
   railPaneForPath,
   railPaneHasSidebar,
 } from "@posthog/ui/features/canvas/railPane";
@@ -18,16 +17,19 @@ export interface RailSurface {
  *  stable and unrelated route changes don't re-render every consumer. */
 export function useRailPane(): NavRailPane {
   return useRouterState({
+    // One location decides, and it is the one the app is navigating to. The
+    // three things a navigation moves — `location`, `matches`, and
+    // `resolvedLocation` — land at different points in the transition, so a
+    // rule that reads two of them can answer with a destination neither is on:
+    // reading the source off `resolvedLocation` while the fallback read
+    // `matches` gave "reports" for the frames after the matches arrived and
+    // before the settled location caught up, which took the column off screen
+    // and put it back.
     select: (state) => {
-      // The settled location, not the in-flight one: during a pending
-      // navigation `location` is already the destination while `matches` still
-      // describe the page being left. Pairing the two unmounts the sidebar for
-      // one painted frame (the yieldToPaint skeleton) and rebuilds it after.
-      const location = state.resolvedLocation ?? state.location;
-      const source = reportSourceHrefFromLocation(location);
-      return source
-        ? railPaneForPath(source.split(/[?#]/)[0])
-        : railPaneForMatches(state.matches);
+      const source = reportSourceHrefFromLocation(state.location);
+      return railPaneForPath(
+        (source ?? state.location.pathname).split(/[?#]/)[0],
+      );
     },
   });
 }

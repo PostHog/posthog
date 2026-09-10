@@ -52,7 +52,6 @@ interface ReportDetailActionsProps {
 
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-const HEADER_ACTION_CLASS = "h-7 gap-1.5 px-2.5 text-[12px]";
 
 /** Report actions split between page-level housekeeping and conversation work. */
 export function ReportDetailActions({
@@ -128,7 +127,7 @@ export function ReportDetailActions({
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="icon-sm"
             aria-label="More report actions"
           >
             <DotsThreeIcon size={14} weight="bold" />
@@ -177,8 +176,7 @@ export function ReportDetailActions({
       <Button
         type="button"
         variant="outline"
-        size="xs"
-        className={HEADER_ACTION_CLASS}
+        size="sm"
         onClick={() => openExternalUrl(safePrUrl)}
       >
         <ArrowSquareOutIcon size={14} />
@@ -188,8 +186,7 @@ export function ReportDetailActions({
       <Button
         type="button"
         variant="outline"
-        size="xs"
-        className={HEADER_ACTION_CLASS}
+        size="sm"
         onClick={() => openExternalUrl(safePrUrl)}
       >
         <ArrowSquareOutIcon size={16} />
@@ -207,8 +204,7 @@ export function ReportDetailActions({
           <Button
             type="button"
             variant="outline"
-            size="xs"
-            className={HEADER_ACTION_CLASS}
+            size="sm"
             loading={resolve.isPending}
             disabled={resolve.isPending}
             data-attr="inbox-report-resolve"
@@ -222,8 +218,7 @@ export function ReportDetailActions({
           <Button
             type="button"
             variant="outline"
-            size="xs"
-            className={HEADER_ACTION_CLASS}
+            size="sm"
             data-attr="inbox-report-dismiss"
             onClick={() => dismiss.openDialog()}
           >
@@ -237,8 +232,7 @@ export function ReportDetailActions({
             <Button
               type="button"
               variant="outline"
-              size="icon-xs"
-              className="h-7 w-7"
+              size="icon-sm"
               aria-label="Copy link"
               title="Copy link"
             >
@@ -253,8 +247,7 @@ export function ReportDetailActions({
                 <Button
                   type="button"
                   variant="outline"
-                  size="icon-xs"
-                  className="h-7 w-7"
+                  size="icon-sm"
                   aria-label="Refund"
                   disabled={refund.disabledReason !== null}
                   onClick={() => setRefundOpen(true)}
@@ -314,9 +307,8 @@ export function ReportDetailActions({
               <Button
                 type="button"
                 variant="outline"
-                size="xs"
+                size="sm"
                 disabled={isCreatingCanvas || awaitingChannel}
-                className={HEADER_ACTION_CLASS}
                 title="Have the agent build a canvas from this report"
               >
                 {isCreatingCanvas ? <Spinner /> : <ShapesIcon size={16} />}

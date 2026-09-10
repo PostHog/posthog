@@ -25,6 +25,13 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   other surface. Trust the defaults. Layout-only utilities (`flex`, `gap`,
   width/`max-w`, `truncate`) on wrappers are fine; reach for `className` overrides
   on Quill items only when there is a real, deliberate exception — and call it out.
+- **A list's filter menu is `primitives/FilterMenu`, not a new one.** The funnel
+  button with its active dot, the "Label            value ›" rows, the radio and
+  checkbox submenus, and the destructive "Clear filters" footer are one set of
+  parts. Canvases, Activity and Self-driving all draw them; three hand-written
+  copies drifted in spacing and in what counted as "active". A new filter is a
+  `FilterRadioSubMenu` or `FilterCheckboxSubMenu` with an option table, and a
+  filter whose default is a selection rather than an empty one passes `active`.
 - **Suffix `…` on anything that opens another step.** A menu item or button whose
   click opens a follow-up surface — a dialog, a nested menu, a picker, a
   confirmation — gets a trailing ellipsis (`…`, the character, not three dots) to
@@ -45,9 +52,17 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Canonical report pages (`/reports/$reportId`) are not a new rail button.
   `useRailPane` keeps the source pane from the validated `?from=` search param;
   a report with no source selects no rail button and has no contextual sidebar.
+  It reads one thing, the location being navigated to. `location`, `matches` and
+  `resolvedLocation` land at different points in a transition, so a rule mixing
+  two of them answers with a destination neither is on, and the column blinks
+  off and back mid-navigation.
   Space and feed sources retain their own sidebar, not the report's owning space.
-  Only Spaces and Activity own the column beside the rail; the rest are
-  whole-screen, so no route under them may draw a second nav.
+  Spaces, Activity and Self-driving own the column beside the rail; the rest
+  are whole-screen, so no route under them may draw a second nav.
+- **The column's contents are a dispatch, not a conditional chain.**
+  `RailPaneBody` (`ChannelsSidebar.tsx`) returns the pane for the destination,
+  so a new destination adds a case rather than another rung on a nested ternary
+  the next reader has to unwind.
 - **A rail pick returns you to where that destination was**, not to its index.
   `BrowserTabStrip` records the settled route per destination in the active
   tab's `viewState.lastByPane`, and `pickRailDestination` replays it. Only Spaces
@@ -240,6 +255,13 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   filters into `/inbox/reports` before opening it.
   Picking a preview report stays on `/activity` and renders that already-loaded
   report beside the feed while its detail query refreshes in the background.
+- **An empty pane that says "pick something from the list" offers a way back to
+  a collapsed one.** The sidebar collapses with ⌘B and the rail stays, so a pane
+  whose empty state points at the list can be the only thing on screen with no
+  list beside it. Those empty states carry `OpenSidebarButton`
+  (`features/sidebar/components`), which draws nothing while the sidebar is on
+  screen. Activity, saved searches, canvases and Self-driving all use it; a new
+  rail destination with a list and a detail pane joins them.
 - **Every Activity detail header must have a close button.** This rule applies
   to sessions, Self-driving reports, and each future item type that Activity
   renders. The button must call the shared Activity route helper. It must clear
@@ -279,6 +301,11 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
     dashboard's name is the h1 below, not a crumb.
 - Crumbs reflect navigable parents above the current page; the current page is
   the H1, never a crumb of itself.
+- **A control that acts on the leaf rides with the leaf.** Copy-link buttons go
+  in `ChannelBreadcrumb`'s `leafTrailing`, beside the name, the way a thread's
+  does (`CopyThreadLinkButton`, `CopyCanvasLinkButton`). The bar's far end is
+  for actions on the page as a whole (Edit, New canvas, the overflow menu); a
+  copy button parked out there reads as unrelated to the thing it copies.
 
 ## Canvas naming
 

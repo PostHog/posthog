@@ -15,8 +15,8 @@ export function ActivityDetailCloseButton() {
           <Button
             type="button"
             variant="outline"
-            size="icon-xs"
-            className="no-drag h-7 w-7 shrink-0"
+            size="icon-sm"
+            className="no-drag shrink-0"
             aria-label="Close activity item"
             data-attr="activity-detail-close"
             onClick={clearActivitySelection}

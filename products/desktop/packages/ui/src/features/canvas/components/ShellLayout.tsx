@@ -21,12 +21,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
+import { CopyCanvasLinkButton } from "@posthog/ui/features/canvas/components/CopyCanvasLinkButton";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { SpaceHeaderRow } from "@posthog/ui/features/canvas/components/SpaceHeaderRow";
@@ -164,22 +162,6 @@ function FreeformEditControls({
 
   return (
     <div className="no-drag flex items-center gap-2">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="icon-sm"
-              aria-label="Copy link to canvas"
-              onClick={() =>
-                void copyCanvasLink(channelId, dashboardId, "canvas")
-              }
-            >
-              <LinkIcon size={14} />
-            </Button>
-          }
-        />
-        <TooltipContent side="bottom">Copy link to canvas</TooltipContent>
-      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -329,6 +311,9 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
+      leafTrailing={
+        <CopyCanvasLinkButton channelId={channelId} dashboardId={dashboardId} />
+      }
       trailing={
         <>
           {commentTaskId && (
