@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField
 
 # How an endpoint's request URLs are derived:
@@ -12,7 +14,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 FanOut = Literal["none", "project", "organization", "invoice", "two_level"]
 
 
-@dataclass
+@frozen
 class TwoLevelFanOut:
     """Describes a generic organization -> intermediate-list -> child fan-out.
 
