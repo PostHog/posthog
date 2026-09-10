@@ -81,6 +81,15 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+// Queue depth cannot separate a healthy burst from a stuck queue: a large backlog that
+// drains is fine, a small one that does not move is an outage. The age of the job at the
+// front of the line can: no healthy queue leaves a ready job waiting for minutes.
+const oldestDueJobAgeGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_oldest_due_job_age_seconds',
+    help: 'How long the oldest ready-to-run job has been waiting to be picked up, per queue.',
+    labelNames: ['queue'],
+})
+
 interface PoisonRow {
     id: string
     team_id: number
@@ -525,8 +534,11 @@ export class CyclotronV2Janitor {
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
-        const result = await this.pool.query<{ queue_name: string; count: string }>(
-            `SELECT queue_name, COUNT(*) as count
+        // EXTRACT(EPOCH ...) computes the age on the database's clock, so worker clock
+        // drift cannot make a queue look stuck or freshly drained.
+        const result = await this.pool.query<{ queue_name: string; count: string; oldest_age_seconds: string }>(
+            `SELECT queue_name, COUNT(*) as count,
+                    EXTRACT(EPOCH FROM (NOW() - MIN(scheduled))) as oldest_age_seconds
              FROM cyclotron_jobs
              WHERE status = 'available' AND scheduled <= NOW()
              GROUP BY queue_name`
@@ -538,6 +550,7 @@ export class CyclotronV2Janitor {
             depths.set(row.queue_name, count)
             this.seenQueues.add(row.queue_name)
             queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+            oldestDueJobAgeGauge.labels({ queue: row.queue_name }).set(Math.max(0, Number(row.oldest_age_seconds)))
         }
 
         // GROUP BY returns no row for a queue that is empty. Without the write below,
@@ -548,6 +561,7 @@ export class CyclotronV2Janitor {
         for (const queue of this.seenQueues) {
             if (!depths.has(queue)) {
                 queueDepthGauge.labels({ queue }).set(0)
+                oldestDueJobAgeGauge.labels({ queue }).set(0)
             }
         }
 

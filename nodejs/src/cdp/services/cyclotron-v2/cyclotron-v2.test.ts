@@ -171,6 +171,12 @@ async function gaugeValueForQueue(queue: string): Promise<number | null> {
     return line ? Number(line.trim().split(' ').pop()) : null
 }
 
+async function ageValueForQueue(queue: string): Promise<number | null> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_oldest_due_job_age_seconds')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : null
+}
+
 // Absent until the queue's first churning dequeue, so a missing line reads as 0.
 async function churnCountForQueue(queue: string): Promise<number> {
     const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_high_transition_dequeues')
@@ -2621,6 +2627,40 @@ describe('Cyclotron V2', () => {
 
             expect(result.depths.get('queue-a')).toBe(2)
             expect(result.depths.get('queue-b')).toBe(1)
+        })
+
+        it('measureQueueDepths reports how long the oldest ready job has waited', async () => {
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-aging',
+                status: 'available',
+                scheduled: new Date(Date.now() - 120_000),
+            })
+            // A younger ready job must not lower the age, a future one must not count at all.
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-aging',
+                status: 'available',
+                scheduled: new Date(Date.now() - 10_000),
+            })
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-aging',
+                status: 'available',
+                scheduled: new Date(Date.now() + 3_600_000),
+            })
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            await janitor.runOnce()
+            const age = await ageValueForQueue('queue-aging')
+            expect(age).toBeGreaterThanOrEqual(119)
+            expect(age).toBeLessThan(150)
+
+            // Zeroes when the queue drains, so an age alert cannot fire on an idle queue.
+            await assertPool.query(`DELETE FROM cyclotron_jobs WHERE queue_name = 'queue-aging'`)
+            await janitor.runOnce()
+            await janitor.stop()
+            expect(await ageValueForQueue('queue-aging')).toBe(0)
         })
 
         it('sweeps expired conversion watchers and keeps live ones', async () => {
