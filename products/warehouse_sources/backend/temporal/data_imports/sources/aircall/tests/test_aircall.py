@@ -38,6 +38,13 @@ def _response(items_key: str, items: list[dict[str, Any]], next_link: str | None
     return resp
 
 
+def _plain_response(status_code: int, body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
 def _make_manager(resume_state: AircallResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume_state is not None
@@ -345,6 +352,52 @@ class TestPagination:
         assert requests_seen[0]["params"] == {"per_page": 50, "order": "asc", "from": 1700000000}
         # started_at did not advance past the watermark, so no re-anchored window is issued.
         assert len(requests_seen) == 1
+
+
+class TestConversationIntelligenceFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_rows_carry_call_id_from_parent(self, MockSession):
+        # The per-call sub-resource is fanned out over the calls list. Each child row must carry
+        # the parent call id as `call_id` (the primary key), overriding whatever the body itself
+        # holds, so one CI object per call stays uniquely keyed.
+        session = MockSession.return_value
+        requests_seen = _wire(
+            session,
+            [
+                _response("calls", [{"id": 1, "started_at": 100}, {"id": 2, "started_at": 200}], None),
+                _plain_response(200, {"id": 55, "content": "hi", "call_id": 999}),
+                _plain_response(200, {"id": 66, "content": "yo"}),
+                # The calls paginator re-anchors once the first window ends; an empty window stops it.
+                _response("calls", [], None),
+            ],
+        )
+
+        rows = _rows(_source("call_transcriptions", _make_manager()))
+
+        assert [(row["call_id"], row["id"], row["content"]) for row in rows] == [(1, 55, "hi"), (2, 66, "yo")]
+        child_urls = [req["url"] for req in requests_seen if "transcription" in (req["url"] or "")]
+        assert child_urls == [
+            "https://api.aircall.io/v1/calls/1/transcription",
+            "https://api.aircall.io/v1/calls/2/transcription",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_calls_without_ci_data_are_skipped(self, MockSession):
+        # A call with no AI data answers 404; that call is skipped rather than sinking the table.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response("calls", [{"id": 1, "started_at": 100}, {"id": 2, "started_at": 200}], None),
+                _plain_response(404, {"error": "not found"}),
+                _plain_response(200, {"id": 66, "content": "yo"}),
+                _response("calls", [], None),
+            ],
+        )
+
+        rows = _rows(_source("call_evaluations", _make_manager()))
+
+        assert [row["call_id"] for row in rows] == [2]
 
 
 class TestAircallSourceResponse:
