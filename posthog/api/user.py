@@ -47,7 +47,11 @@ from two_factor.utils import default_device
 from posthog.schema import UserUIConfiguration
 
 from posthog.api.credential_reconciliation import reconcile_email_claim_credentials
-from posthog.api.email_verification import SIGNUP_EMAIL_PROOF_SESSION_KEY, email_verification_code_verifier
+from posthog.api.email_verification import (
+    EMAIL_CHANGE_PROOF_SESSION_KEY,
+    SIGNUP_EMAIL_PROOF_SESSION_KEY,
+    email_verification_code_verifier,
+)
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
@@ -704,6 +708,9 @@ class UserSerializer(serializers.ModelSerializer):
             and validated_data["email"].lower() != instance.email.lower()
             and is_email_available()
         ):
+            request = self.context["request"]
+            if not isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
+                raise exceptions.PermissionDenied("Email changes require a browser session.")
             new_email = validated_data["email"]
             # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
             # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
@@ -734,6 +741,10 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
             instance.pending_email = new_email
             instance.save(update_fields=["pending_email"])
+            request.session[EMAIL_CHANGE_PROOF_SESSION_KEY] = {
+                "user_uuid": str(instance.uuid),
+                "target_email": new_email,
+            }
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
             email_verification_code_verifier.send_code(instance, target_email=new_email)
@@ -1128,10 +1139,26 @@ class UserViewSet(
                 {"code": ["This code is invalid or has expired."]},
                 code="invalid_code",
             )
-        email_verification_code_verifier.invalidate(user)
-
         email_changed = bool(user.pending_email and user.is_email_verified is not False)
-        same_user_session = bool(request.user.is_authenticated and request.user.pk == user.pk)
+        authenticator = getattr(request, "successful_authenticator", None)
+        if authenticator is not None and not isinstance(authenticator, SessionAuthentication):
+            raise exceptions.PermissionDenied("Email verification does not accept token authentication.")
+
+        email_change_proof = request.session.get(EMAIL_CHANGE_PROOF_SESSION_KEY)
+        email_change_proof_matches = (
+            isinstance(email_change_proof, dict)
+            and email_change_proof.get("user_uuid") == str(user.uuid)
+            and email_change_proof.get("target_email") == user.pending_email
+        )
+        same_user_session = bool(
+            isinstance(authenticator, SessionAuthentication)
+            and request.user.pk == user.pk
+            and email_change_proof_matches
+        )
+        if email_changed and not same_user_session:
+            raise exceptions.PermissionDenied("Complete this email change in the browser where it started.")
+
+        email_verification_code_verifier.invalidate(user)
 
         if email_changed:
             old_email = user.email
@@ -1139,15 +1166,10 @@ class UserViewSet(
                 user.email = cast(str, user.pending_email)
                 user.pending_email = None
                 user.save(update_fields=["email", "pending_email"])
-                if same_user_session:
-                    UserSocialAuth.objects.filter(user=user).delete()
-                else:
-                    reconcile_email_claim_credentials(user)
+                UserSocialAuth.objects.filter(user=user).delete()
+            request.session.pop(EMAIL_CHANGE_PROOF_SESSION_KEY, None)
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
-            if same_user_session:
-                revoke_other_sessions_for_request(request, user)
-            else:
-                revoke_other_sessions(user, keep_session_key=None)
+            revoke_other_sessions_for_request(request, user)
 
         if user.is_email_verified is False:
             signup_proof = request.session.get(SIGNUP_EMAIL_PROOF_SESSION_KEY)

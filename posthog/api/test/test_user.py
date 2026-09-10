@@ -1101,7 +1101,7 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     @patch("posthog.api.email_verification.send_email_verification_code")
-    def test_email_change_from_another_session_removes_existing_login_credentials(
+    def test_email_change_requires_the_initiating_browser_session(
         self,
         mock_send_code,
         _mock_send_email_change_emails,
@@ -1168,22 +1168,28 @@ class TestUserAPI(APIBaseTest):
             "/api/users/verify_email/",
             {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         self.user.refresh_from_db()
-        assert self.user.email == "beta@example.com"
-        assert not self.user.has_usable_password()
-        assert not self.user.passkeys_enabled_for_2fa
-        assert not WebauthnCredential.objects.filter(id=passkey.id).exists()
-        assert not UserSocialAuth.objects.filter(id=social_auth.id).exists()
-        assert not PersonalAPIKey.objects.filter(id=personal_api_key.id).exists()
-        assert not OAuthAccessToken.objects.filter(id=oauth_access_token.id).exists()
-        assert not OAuthRefreshToken.objects.filter(id=oauth_refresh_token.id).exists()
-        assert not OAuthGrant.objects.filter(id=oauth_grant.id).exists()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email == "beta@example.com"
+        assert self.user.has_usable_password()
+        assert self.user.passkeys_enabled_for_2fa
+        assert WebauthnCredential.objects.filter(id=passkey.id).exists()
+        assert UserSocialAuth.objects.filter(id=social_auth.id).exists()
+        assert PersonalAPIKey.objects.filter(id=personal_api_key.id).exists()
+        assert OAuthAccessToken.objects.filter(id=oauth_access_token.id).exists()
+        assert OAuthRefreshToken.objects.filter(id=oauth_refresh_token.id).exists()
+        assert OAuthGrant.objects.filter(id=oauth_grant.id).exists()
 
-        self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
-        assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
+        response = self.client.patch("/api/users/@me/", {"email": "gamma@example.com"})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [

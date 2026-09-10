@@ -47,8 +47,11 @@ from two_factor.views.utils import get_remember_device_cookie, validate_remember
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.credential_reconciliation import reconcile_email_claim_credentials
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.email_verification import (
+    SIGNUP_EMAIL_PROOF_SESSION_KEY,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
@@ -329,6 +332,11 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         if not is_email_verified_for_login(user):
+            request.session[SIGNUP_EMAIL_PROOF_SESSION_KEY] = {
+                "user_uuid": str(user.uuid),
+                "credential_type": "password",
+                "credential_id": None,
+            }
             # A fresh code was just emailed; hand the frontend the uuid so it can route to
             # the code entry page.
             raise EmailVerificationPending(str(user.uuid))
@@ -1188,16 +1196,15 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         except ValidationError as e:
             raise serializers.ValidationError({"password": e.messages})
 
-        user.set_password(password)
-        user.requested_password_reset_at = None
-        if user.is_email_verified is False:
-            reconcile_email_claim_credentials(user, trusted_password=True)
-        # Possessing the unique reset token (only ever delivered by email via
-        # send_password_reset) proves the user owns this address, regardless of
-        # whether they came in as None (legacy / agentic-provisioned), False
-        # (invite-accept, Vercel-provisioned), or True.
-        user.is_email_verified = True
-        user.save()
+        with transaction.atomic():
+            user.set_password(password)
+            user.requested_password_reset_at = None
+            # Possessing the unique reset token (only ever delivered by email via
+            # send_password_reset) proves the user owns this address, regardless of
+            # whether they came in as None (legacy / agentic-provisioned), False
+            # (invite-accept, Vercel-provisioned), or True.
+            user.is_email_verified = True
+            user.save()
 
         # The reset flow doesn't log the user in, and a reset is the canonical compromise-recovery
         # action, so revoke every existing login session for this user.

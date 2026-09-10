@@ -16,11 +16,20 @@ from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
+from webauthn.helpers import bytes_to_base64url
 
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
+from posthog.api.webauthn import (
+    WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+    WEBAUTHN_SIGNUP_EMAIL_KEY,
+    WEBAUTHN_SIGNUP_USER_UUID_KEY,
+)
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
@@ -30,7 +39,10 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY, OrganizationInvite
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.backend import SessionStore
 from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -1236,6 +1248,32 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
+    def test_sso_merge_into_legacy_account_preserves_credentials(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            email = "legacy@posthog.net"
+            existing = User.objects.create(email=email, distinct_id=str(uuid.uuid4()), is_email_verified=None)
+            existing.set_password(VALID_TEST_PASSWORD)
+            existing.save()
+            passkey = WebauthnCredential.objects.create(
+                user=existing,
+                credential_id=b"legacy-credential",
+                label="Legacy passkey",
+                public_key=b"legacy-public-key",
+                algorithm=-7,
+                verified=True,
+            )
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            existing.refresh_from_db()
+            self.assertTrue(existing.has_usable_password())
+            self.assertTrue(WebauthnCredential.objects.filter(id=passkey.id).exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
     def test_cannot_social_signup_with_allowed_but_unverified_domain(self, mock_sso_providers, mock_request):
         mock_sso_providers.return_value = {"google-oauth2": True}
         new_org = Organization.objects.create(name="Test org")
@@ -1925,16 +1963,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         self.assertFalse(me_response.json()["requires_credential_review"])
 
     def _passkey_signup_capturing_code(self, email: str) -> User:
-        """Run a passkey signup from a fresh browser session and return the created user."""
-        from webauthn.helpers import bytes_to_base64url
-
-        from posthog.api.webauthn import (
-            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
-            WEBAUTHN_SIGNUP_EMAIL_KEY,
-            WEBAUTHN_SIGNUP_USER_UUID_KEY,
-        )
-        from posthog.session.backend import SessionStore
-
         session = SessionStore()
         session[WEBAUTHN_SIGNUP_EMAIL_KEY] = email
         session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
@@ -1991,20 +2019,24 @@ class TestPasskeySignupAPI(APIBaseTest):
     @override_instance_config("EMAIL_HOST", "localhost")
     @pytest.mark.skip_on_multitenancy
     def test_verify_email_from_other_session_deletes_pre_registered_passkey(self):
-        from posthog.session.backend import SessionStore
-
         user = self._passkey_signup_capturing_code("passkey_squat@posthog.com")
         # The same squat works when the squatter signed up with a password instead of a passkey.
         user.set_password(VALID_TEST_PASSWORD)
         user.save()
         stale_social_auth = UserSocialAuth.objects.create(user=user, provider="github", uid="stale-github")
+        totp_device = TOTPDevice.objects.create(user=user, name="default", confirmed=True)
+        static_device = StaticDevice.objects.create(user=user, name="backup", confirmed=True)
+        personal_api_key = PersonalAPIKey.objects.create(
+            label="Existing API key",
+            user=user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
+        )
         self.assertTrue(user.has_usable_password())
 
         # A password change rotates the code derivation, so the address holder requests a
         # fresh code the way request_email_verification allows, then proves the address from
         # a different browser (without the signup session).
-        from posthog.api.email_verification import email_verification_code_verifier
-
         with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
             email_verification_code_verifier.send_code(user)
         code = mock_send.call_args[0][1]
@@ -2021,6 +2053,9 @@ class TestPasskeySignupAPI(APIBaseTest):
         self.assertFalse(user.has_usable_password())
         self.assertFalse(WebauthnCredential.objects.filter(user=user).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
+        self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
 
     @pytest.mark.skip_on_multitenancy
     def test_password_signup_generates_random_uuid(self):

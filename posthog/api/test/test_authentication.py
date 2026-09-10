@@ -34,7 +34,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
-from posthog.api.email_verification import is_email_verification_disabled
+from posthog.api.email_verification import SIGNUP_EMAIL_PROOF_SESSION_KEY, is_email_verification_disabled
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
@@ -61,6 +61,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.webauthn_credential import WebauthnCredential
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -543,8 +544,18 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["detail"], str(self.user.uuid))
         mock_send_code.assert_called_once()
 
+        proof = self.client.session[SIGNUP_EMAIL_PROOF_SESSION_KEY]
+        self.assertEqual(proof["credential_type"], "password")
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.has_usable_password())
+
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("posthog.ph_client.posthoganalytics.get_feature_flag", side_effect=RuntimeError("flags down"))
     @patch("posthog.ph_client.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down"))
@@ -1968,17 +1979,8 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_email_verified, True)
 
-    @parameterized.expand(
-        [
-            ("none_keeps_passkey", None),
-            ("true_keeps_passkey", True),
-            ("false_deletes_passkey", False),
-        ]
-    )
-    def test_password_reset_deletes_pre_registered_passkey_only_for_unverified_account(self, _name, initial_state):
-        from posthog.models.webauthn_credential import WebauthnCredential
-
-        self.user.is_email_verified = initial_state
+    def test_password_reset_preserves_existing_credentials_for_unverified_account(self):
+        self.user.is_email_verified = False
         self.user.requested_password_reset_at = datetime.now()
         self.user.passkeys_enabled_for_2fa = True
         self.user.save()
@@ -2003,14 +2005,9 @@ class TestPasswordResetAPI(APIBaseTest):
 
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_email_verified, True)
-        if initial_state is False:
-            self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
-            self.assertFalse(UserSocialAuth.objects.filter(id=social_auth.id).exists())
-            self.assertFalse(self.user.passkeys_enabled_for_2fa)
-        else:
-            self.assertTrue(WebauthnCredential.objects.filter(user=self.user).exists())
-            self.assertTrue(UserSocialAuth.objects.filter(id=social_auth.id).exists())
-            self.assertTrue(self.user.passkeys_enabled_for_2fa)
+        self.assertTrue(WebauthnCredential.objects.filter(user=self.user).exists())
+        self.assertTrue(UserSocialAuth.objects.filter(id=social_auth.id).exists())
+        self.assertTrue(self.user.passkeys_enabled_for_2fa)
 
     def test_password_reset_does_not_clear_pending_email(self):
         self.user.is_email_verified = False

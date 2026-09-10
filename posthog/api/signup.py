@@ -19,6 +19,7 @@ import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
 from social_core.pipeline.partial import partial
+from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
@@ -991,7 +992,7 @@ def social_create_user(
     backend,
     request,
     user: Union[User, None] = None,
-    social=None,
+    social: UserSocialAuth | None = None,
     *args,
     **kwargs,
 ):
@@ -1035,7 +1036,7 @@ def social_create_user(
         # on the organization domain or if JIT provisioning is enabled, we'll provision them.
         logger.info(f"social_create_user_is_not_new")
 
-        if not user.is_email_verified:
+        if user.is_email_verified is False:
             logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
             with transaction.atomic():
                 reconcile_email_claim_credentials(

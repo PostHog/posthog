@@ -10,8 +10,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from webauthn.helpers import bytes_to_base64url
 
-from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet
+from posthog.api.email_verification import SIGNUP_EMAIL_PROOF_SESSION_KEY
+from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet, user_uuid_to_handle
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -254,15 +256,11 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.json()["email"], self.user.email)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
+    @patch("posthog.api.email_verification.send_email_verification_code")
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_blocks_explicitly_unverified_email_accounts(
         self, mock_verify, mock_send_email_verification, mock_is_email_available
     ):
-        from webauthn.helpers import bytes_to_base64url
-
-        from posthog.api.webauthn import user_uuid_to_handle
-
         self.user.is_email_verified = False
         self.user.save()
 
@@ -296,60 +294,17 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_send_email_verification.assert_called_once_with(self.user)
-
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
-    @patch("posthog.auth.verify_passkey_authentication_response")
-    def test_login_with_signup_minted_unverified_credential_reaches_verification_flow(
-        self, mock_verify, mock_send_email_verification, mock_is_email_available
-    ):
-        # A passkey minted by signup stays unverified until the emailed code proves the
-        # address. Logging in with it on the still-unverified account must route to the code
-        # entry page (not fail as an unknown credential), and must not establish a session.
-        from webauthn.helpers import bytes_to_base64url
-
-        from posthog.api.webauthn import user_uuid_to_handle
-
-        self.credential.verified = False
-        self.credential.save()
-        self.user.is_email_verified = False
-        self.user.save()
-
-        self.client.post("/api/webauthn/login/begin/")
-        mock_verify.return_value = MagicMock(new_sign_count=1)
-
-        user_handle = user_uuid_to_handle(self.user.uuid)
-
+        proof = self.client.session[SIGNUP_EMAIL_PROOF_SESSION_KEY]
+        self.assertEqual(proof["credential_id"], str(self.credential.id))
         response = self.client.post(
-            "/api/webauthn/login/complete/",
-            {
-                "id": bytes_to_base64url(self.credential.credential_id),
-                "rawId": bytes_to_base64url(self.credential.credential_id),
-                "type": "public-key",
-                "response": {
-                    "authenticatorData": "data",
-                    "clientDataJSON": "data",
-                    "signature": "sig",
-                    "userHandle": bytes_to_base64url(user_handle),
-                },
-            },
-            format="json",
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_email_verification.call_args[0][1]},
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "verify_email_pending")
-        self.assertEqual(response.json()["detail"], str(self.user.uuid))
-
-        me_response = self.client.get("/api/users/@me/")
-        self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
-        mock_send_email_verification.assert_called_once_with(self.user)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(WebauthnCredential.objects.filter(id=self.credential.id).exists())
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_with_unverified_credential_fails(self, mock_verify):
-        from webauthn.helpers import bytes_to_base64url
-
-        from posthog.api.webauthn import user_uuid_to_handle
-
         self.credential.verified = False
         self.credential.save()
 
