@@ -1,4 +1,6 @@
 import { Meta } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import type { Mocks } from '~/mocks/utils'
 
@@ -89,8 +91,13 @@ export const MCPAnalyticsNeedsSetupNarrow: ProductEmptyStateStory = productEmpty
 
 export const MCPAnalyticsAgentPrompt: ProductEmptyStateStory = {
     ...MCPAnalyticsNeedsSetup,
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, snapshotTargetSelector: 'body' },
+    },
     play: async ({ canvasElement }) => {
-        canvasElement.querySelector<HTMLButtonElement>('[data-attr="mcp-analytics-install-with-agent"]')!.click()
+        const trigger = await within(canvasElement).findByRole('button', { name: 'Install with your agent' })
+        await userEvent.click(trigger)
+        await screen.findByRole('dialog')
     },
 }
 
