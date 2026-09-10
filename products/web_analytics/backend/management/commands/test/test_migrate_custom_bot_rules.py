@@ -1,10 +1,7 @@
 from posthog.test.base import BaseTest
 
+from products.web_analytics.backend.custom_bot_rules_migration import find_teams_with_flat_rules, migrate_team
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import parse_rules
-from products.web_analytics.backend.management.commands.migrate_custom_bot_rules import (
-    find_teams_with_flat_rules,
-    migrate_team,
-)
 
 FLAT_RULE = {"id": "r1", "name": "Acme", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"}
 FLAT_RULE_WITH_CATEGORY = {
