@@ -590,11 +590,12 @@ jobs:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
+            # Direct install: Tests run the explicit PR head, which may predate the local action.
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1333,7 +1334,7 @@ jobs:
 
     # Collate test + VR completion status for the required check
     playwright_tests:
-        needs: [playwright, vr-complete]
+        needs: [changes, playwright, vr-complete]
         name: Playwright tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1341,6 +1342,14 @@ jobs:
         steps:
             - name: Check outcome
               run: |
+                  # Change detection gates the playwright job. A failure there skips it, and this
+                  # gate reads a skip as a pass, so test its result directly. select-specs is not
+                  # tested here: the playwright job runs past a failed selector and takes the full
+                  # suite, so its failure costs runner time but never coverage.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
                     echo "Playwright tests failed."
                     exit 1

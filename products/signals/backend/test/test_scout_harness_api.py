@@ -2312,6 +2312,57 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             body="# test scout",
         )
 
+    def test_display_name_update_preserves_identity_and_running_history(self) -> None:
+        skill = self._make_skill("signals-scout-daily-digest")
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name=skill.name,
+            source_product="replay_vision",
+            source_id=str(uuid4()),
+            output_destinations={"webhook": {"hog_function_id": "test-webhook"}},
+        )
+        run = _make_run(self.team, scout_config=config, skill_name=skill.name)
+        note = SignalScoutNote.objects.create(team=self.team, skill_name=skill.name, content="Check checkout errors.")
+        memory = SignalScratchpad.objects.create(
+            team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{skill.name}:test", content="Keep this memory."
+        )
+        original_config = next(
+            item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
+        )
+        assert original_config["display_name"] == ""
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {**original_config, "display_name": "Checkout / daily digest"}
+        saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
+        assert saved_config["display_name"] == "Checkout / daily digest"
+        config.refresh_from_db()
+        skill.refresh_from_db()
+        run.refresh_from_db()
+        note.refresh_from_db()
+        memory.refresh_from_db()
+        assert config.skill_name == skill.name == run.skill_name == note.skill_name == "signals-scout-daily-digest"
+        assert memory.key == f"{FOLLOWUP_KEY_PREFIX}{skill.name}:test"
+        assert memory.content == "Keep this memory."
+
+    @parameterized.expand([("", 200), ("Shared name", 200), ("a" * 201, 400), (None, 400)])
+    def test_display_name_validation(self, display_name: str | None, expected_status: int) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", display_name="Original"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-bar", display_name="Shared name")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"display_name": display_name}, format="json"
+        )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.display_name == (display_name if expected_status == 200 else "Original")
+
     def test_list_returns_team_configs_ordered_by_skill(self) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
