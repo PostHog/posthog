@@ -303,6 +303,12 @@ jobs:
 
                   - name: Lint with ESLint
                     run: pnpm --filter=@posthog/nodejs lint
+                    env:
+                        # Type-aware linting holds the whole package's type graph at once and
+                        # peaks near 3 GB. V8 derives its default heap from physical memory,
+                        # so an 8 GB runner allows only ~2 GB and eslint aborts on it. Matches
+                        # the Node test jobs below.
+                        NODE_OPTIONS: '--max_old_space_size=4096'
 
                   # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane
                   # imports. Presence-checked so branches without the guard yet are unaffected.
