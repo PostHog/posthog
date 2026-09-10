@@ -290,6 +290,7 @@ export interface marketingAnalyticsLogicValues {
         dw_source_type: string
         external_type: DataWarehouseSettingsTab
         id: string
+        latest_error?: string | null | undefined
         name: string
         schema_name: string
         schema_status?: string | undefined
@@ -577,6 +578,7 @@ export interface marketingAnalyticsLogicMeta {
             dw_source_type: string
             external_type: DataWarehouseSettingsTab
             id: string
+            latest_error?: string | null | undefined
             name: string
             schema_name: string
             schema_status?: string | undefined
