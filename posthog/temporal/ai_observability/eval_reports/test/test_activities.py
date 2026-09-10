@@ -28,6 +28,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     _fetch_count_triggered_eval_report_candidate_groups,
     _fetch_eval_report_candidate_page,
     _find_nth_eval_timestamp,
+    _group_count_triggered_report_rows,
     _load_detector_evaluation_ids,
     _load_evaluation_target,
     _period_for_scheduled_report,
@@ -68,6 +69,16 @@ def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
     visitor = CollectTimestamps()
     visitor.visit(query.where)
     return sorted(visitor.timestamps)
+
+
+class TestGroupCountTriggeredReportRows(SimpleTestCase):
+    def test_chunks_stay_single_team_and_interleave_by_rank(self):
+        rows = [(f"a{index}", 1) for index in range(5)] + [("b0", 2), ("c0", 3)]
+
+        with patch("posthog.temporal.ai_observability.eval_reports.activities.COUNT_TRIGGER_QUERY_WIDTH", 2):
+            groups = _group_count_triggered_report_rows(rows)
+
+        assert groups == [["a0", "a1"], ["b0"], ["c0"], ["a2", "a3"], ["a4"]]
 
 
 class TestUpdateNextDeliveryDate(SimpleTestCase):
@@ -617,7 +628,9 @@ class TestCountTriggeredReportChecks(BaseTest):
 
     def test_fetch_candidates_groups_by_team_and_chunks_by_width(self):
         # One check activity handles one group, so a group must never span teams (its counts
-        # would run against the wrong team's data) nor exceed the per-query width cap.
+        # would run against the wrong team's data) nor exceed the per-query width cap. The
+        # quiet team's only chunk comes before the busy team's second chunk, so it is checked
+        # in an early window instead of waiting behind the whole busy team.
         team_a_report_ids = sorted(str(self._create_report().id) for _ in range(3))
         other_team = Team.objects.create(organization=self.organization, name="other")
         team_b_report = self._create_report(team=other_team)
@@ -625,7 +638,7 @@ class TestCountTriggeredReportChecks(BaseTest):
         with patch("posthog.temporal.ai_observability.eval_reports.activities.COUNT_TRIGGER_QUERY_WIDTH", 2):
             groups = _fetch_count_triggered_eval_report_candidate_groups()
 
-        self.assertEqual(groups, [team_a_report_ids[:2], team_a_report_ids[2:], [str(team_b_report.id)]])
+        self.assertEqual(groups, [team_a_report_ids[:2], [str(team_b_report.id)], team_a_report_ids[2:]])
 
     def test_bounded_candidate_page_gives_a_quiet_team_a_slot(self):
         for _ in range(5):

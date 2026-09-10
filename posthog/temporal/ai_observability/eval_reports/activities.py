@@ -5,7 +5,7 @@ import time
 import datetime as dt
 from collections import defaultdict
 from collections.abc import Sequence
-from itertools import batched
+from itertools import batched, zip_longest
 from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -366,9 +366,14 @@ def _group_count_triggered_report_rows(rows: Sequence[tuple[str, int]]) -> list[
     ids_by_team: dict[int, list[str]] = defaultdict(list)
     for report_id, team_id in rows:
         ids_by_team[team_id].append(report_id)
-    return [
-        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
+    chunks_by_team = [
+        [list(chunk) for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)] for ids in ids_by_team.values()
     ]
+    # Interleaved by chunk rank, so every team's first chunk lands in an early check window.
+    # The workflow takes fixed-size windows off this list in order, so emitting one team's
+    # chunks back to back would let a team with several chunks hold the early windows and
+    # push the rest of the page behind it.
+    return [chunk for rank in zip_longest(*chunks_by_team) for chunk in rank if chunk is not None]
 
 
 def _count_triggered_payload(rows: Sequence[tuple[str, int]], items_lower_bound: int) -> FetchDueEvalReportsOutput:
