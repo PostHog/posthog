@@ -613,6 +613,8 @@ export interface QueryScanSummary {
     range_share?: number
     /** How much of all the project's events the query read, 0 to 1. Set once the analysis is done. */
     project_share?: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean
 }
 
 /**
@@ -2862,6 +2864,9 @@ export type QueryStatus = {
     labels?: string[]
     bytes_read?: integer
     budget_remaining_bytes?: integer
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string
+    query_scan?: QueryScanSummary
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {

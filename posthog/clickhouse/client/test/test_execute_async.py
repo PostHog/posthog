@@ -308,6 +308,43 @@ class TestExecuteProcessQuery(TestCase):
         else:
             assert user is None
 
+    @parameterized.expand(
+        [
+            ("a real user", True, True),
+            # A shared link is read from outside the project, and the scan reports how much data
+            # the project holds, so neither it nor the key that addresses it may be stored.
+            ("a shared link viewer", False, False),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_a_killed_run_stores_its_scan_only_for_a_real_user(
+        self, _name, real_user, expect_scan, mock_process_query_dict, mock_redis_client
+    ):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        error = ExposedCHQueryError("query timed out")
+        error.cache_key = "cache_key_1"
+        error.query_scan = {"mode": "show", "rows_read": 41_200, "duration_ms": 19_000, "killed": True}
+        mock_process_query_dict.side_effect = error
+        sharing_configuration = None if real_user else SharingConfiguration.objects.create(team=self.team, enabled=True)
+
+        execute_process_query(
+            self.team.id,
+            self.user.id if real_user else None,
+            self.query_id,
+            self.query_json,
+            self.limit_context,
+            sharing_configuration_id=sharing_configuration.id if sharing_configuration else None,
+        )
+
+        stored = json.loads(mock_redis.set.call_args.args[1])
+        assert (stored.get("cache_key") == "cache_key_1") is expect_scan
+        assert (stored.get("query_scan") is not None) is expect_scan
+
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):

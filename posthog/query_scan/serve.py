@@ -63,6 +63,7 @@ def attach_scan_slot(team: Team, response: Any) -> None:
             return
         summary.range_share = lookup.slot.range_share
         summary.project_share = lookup.slot.project_share
+        summary.killed = lookup.slot.killed
         # `log_only` collects the analysis without showing it to anyone.
         if lookup.flag.mode == "show" and lookup.slot.findings and hasattr(response, "warnings"):
             response.warnings = [*(response.warnings or []), *lookup.slot.findings]
@@ -89,6 +90,7 @@ def scan_summary_with_findings(team: Team, summary: dict[str, Any], cache_key: s
         if lookup.slot.status == "done":
             folded["range_share"] = lookup.slot.range_share
             folded["project_share"] = lookup.slot.project_share
+            folded["killed"] = lookup.slot.killed
             findings = lookup.slot.findings if lookup.flag.mode == "show" else ()
             folded["warnings"] = [finding.model_dump(by_alias=True, exclude_none=True) for finding in findings]
         return folded

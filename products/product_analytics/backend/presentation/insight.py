@@ -110,6 +110,7 @@ from posthog.models.utils import UUIDT
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.ph_client import feature_enabled_or_false
 from posthog.query_cache import QueryCache
+from posthog.query_scan.serve import scan_summary_with_findings
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
@@ -639,6 +640,10 @@ class InsightSerializer(InsightBasicSerializer):
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
+    query_scan = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="What ClickHouse read for this insight's last slow run, with the findings of its query scan.",
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
@@ -685,6 +690,7 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "resolved_date_range",
+            "query_scan",
             "_create_in_folder",
             "alerts",
             "filter_override_context",
@@ -1116,7 +1122,12 @@ class InsightSerializer(InsightBasicSerializer):
 
     @extend_schema_field(OpenApiTypes.ANY)
     def get_query_status(self, insight: Insight):
-        return self.insight_result(insight).query_status
+        query_status = self.insight_result(insight).query_status
+        if not self.context.get("is_shared") or not isinstance(query_status, dict):
+            return query_status
+        # A shared insight is read from outside the project, and both fields address the stored
+        # analysis of its data.
+        return {key: value for key, value in query_status.items() if key not in ("cache_key", "query_scan")}
 
     def _query_variables_mapping(self, query: dict):
         if (
@@ -1151,6 +1162,24 @@ class InsightSerializer(InsightBasicSerializer):
     )
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
+
+    @extend_schema_field(OpenApiTypes.ANY)
+    def get_query_scan(self, insight: Insight):
+        # A shared insight is read from outside the project, and the scan describes the
+        # project's data volume.
+        if self.context.get("is_shared"):
+            return None
+        result = self.insight_result(insight)
+        summary = result.query_scan
+        cache_key = result.cache_key
+        query_status = result.query_status or {}
+        if query_status.get("error"):
+            # A killed run has no response to carry the summary, so it rides on the status.
+            summary = query_status.get("query_scan") or summary
+            cache_key = query_status.get("cache_key") or cache_key
+        if not isinstance(summary, dict):
+            return None
+        return scan_summary_with_findings(self.context["get_team"](), summary, cache_key)
 
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
@@ -1338,6 +1367,7 @@ class InsightSerializer(InsightBasicSerializer):
                     query_status=cached_response.get("query_status"),
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
+                    query_scan=cached_response.get("query_scan"),
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()
@@ -1429,6 +1459,7 @@ class InsightSerializer(InsightBasicSerializer):
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
+                    error=e,
                     error_message=str(e),
                     error_code=getattr(e, "code_name", None),
                     last_refresh=None,
@@ -1440,6 +1471,7 @@ class InsightSerializer(InsightBasicSerializer):
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
+                    error=e,
                     error_message="concurrency_limit_exceeded",
                     error_code="concurrency_limit_exceeded",
                     last_refresh=now(),
@@ -1450,6 +1482,7 @@ class InsightSerializer(InsightBasicSerializer):
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
+                    error=e,
                     error_message=str(e),
                     error_code=None,
                     last_refresh=None,
@@ -1460,13 +1493,18 @@ class InsightSerializer(InsightBasicSerializer):
         insight: Insight,
         dashboard: Any,
         *,
+        error: Exception,
         error_message: str,
         error_code: str | None,
         last_refresh: datetime | None,
     ) -> InsightResult:
         """A 200 response carrying the failure on query_status, so a failing insight degrades in
         place rather than failing the whole request. `error_code` lets the client tell a
-        deterministic query failure from a transient one."""
+        deterministic query failure from a transient one.
+
+        A run ClickHouse stopped carries its scan on the exception, and the analysis is stored
+        under the cache key, so both ride along instead of dropping with the results."""
+        query_scan = getattr(error, "query_scan", None)
         return InsightResult(
             result=None,
             last_refresh=last_refresh,
@@ -1485,7 +1523,8 @@ class InsightSerializer(InsightBasicSerializer):
                     error=True,
                 )
             ),
-            cache_key=None,
+            cache_key=getattr(error, "cache_key", None),
+            query_scan=query_scan if isinstance(query_scan, dict) else None,
             hogql=None,
             columns=None,
             has_more=None,

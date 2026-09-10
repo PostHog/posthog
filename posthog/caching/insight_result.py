@@ -22,6 +22,9 @@ class InsightResult:
     types: Optional[list] = None
     # A ResolvedDateRangeResponse-shaped dict — the field carries model_dump output
     resolved_date_range: Optional[dict] = None
+    # A QueryScanSummary-shaped dict. The response's `warnings` never reach a tile, so the
+    # serializer folds the scan findings into this dict instead.
+    query_scan: Optional[dict] = None
 
 
 @dataclass(frozen=True)

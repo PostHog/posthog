@@ -1353,6 +1353,8 @@ export namespace Schemas {
     export interface QueryScanSummary {
       /** ClickHouse time for the last fresh run, summed over every ClickHouse query the run made. */
       duration_ms: number;
+      /** True when ClickHouse stopped the run instead of finishing it. */
+      killed?: boolean | null;
       /** What clients may show for this response. The server evaluated the flag once for this query; clients and the assistant read this field and never evaluate the flag themselves. */
       mode: QueryScanMode;
       /** How much of all the project's events the query read, 0 to 1. Set once the analysis is done. */
@@ -1376,6 +1378,8 @@ export namespace Schemas {
     export interface QueryStatus {
       budget_remaining_bytes?: number | null;
       bytes_read?: number | null;
+      /** Cache key of the run that failed, so clients can ask for its query scan. */
+      cache_key?: string | null;
       /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
       complete?: boolean | null;
       dashboard_id?: number | null;
@@ -1395,6 +1399,7 @@ export namespace Schemas {
       /** ONLY async queries use QueryStatus. */
       query_async?: true;
       query_progress?: ClickhouseQueryProgress | null;
+      query_scan?: QueryScanSummary | null;
       results?: unknown;
       /** When was query execution task enqueued. */
       start_time?: string | null;
@@ -9459,6 +9464,8 @@ export namespace Schemas {
       readonly types: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range: InsightResolvedDateRange;
+      /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+      readonly query_scan: unknown;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -66179,6 +66186,8 @@ export namespace Schemas {
       readonly types?: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
+      /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+      readonly query_scan?: unknown;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */

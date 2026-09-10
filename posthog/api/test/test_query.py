@@ -43,6 +43,7 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
@@ -94,6 +95,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
         self.assertEqual(mock_capture.called, expect_capture)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut("query timed out"), ClickHouseQueryTimeOut.status_code),
+            ("internal clickhouse error", InternalCHQueryError("too many rows", code=158), 500),
+        ]
+    )
+    def test_a_killed_run_puts_its_scan_on_the_error_body(self, _name, error, expected_status):
+        error.cache_key = "cache_key_1"
+        error.query_scan = {"mode": "show", "rows_read": 41_200, "duration_ms": 19_000, "killed": True}
+
+        with patch("posthog.api.query.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        # Without the cache key on the failure the caller cannot read the stored analysis.
+        extra = response.json()["extra"]
+        self.assertEqual(extra["cache_key"], "cache_key_1")
+        self.assertEqual(extra["query_scan"]["killed"], True)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
@@ -1017,6 +1040,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "dashboard_id": mock.ANY,
                         "query_progress": None,
                         "labels": None,
+                        "cache_key": None,
+                        "query_scan": None,
                     }
                 },
             )
