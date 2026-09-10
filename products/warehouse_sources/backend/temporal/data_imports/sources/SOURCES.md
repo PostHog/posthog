@@ -1082,6 +1082,7 @@ doesn't conflict with concurrent PRs.
 - goldcast
 - gologin
 - google_ad_manager
+- google_adsense
 - google_analytics
 - google_calendar
 - google_chat
@@ -1344,6 +1345,7 @@ doesn't conflict with concurrent PRs.
 - semrush
 - sendpulse
 - senseforce
+- sequenzy
 - serpstat
 - service_fusion
 - servicetitan
@@ -1367,6 +1369,7 @@ doesn't conflict with concurrent PRs.
 - sinch
 - singular
 - site24x7
+- skio
 - skyvern
 - slash
 - sleuth
