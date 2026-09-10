@@ -284,6 +284,11 @@ _CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
     "schedule."
 )
 
+_HOST_RESOLUTION_EXHAUSTED_MESSAGE = (
+    "PostHog could not resolve your database host: the DNS lookup timed out or the resolver asked "
+    "to try again on every attempt. Check that the host name is correct and that its DNS records "
+    "are answering. This sync is still enabled and will run again on its next schedule."
+)
 _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
     "Your read replica kept canceling PostHog's reads because it had to apply changes from the "
     "primary that removed rows the sync was still reading, and the conflict outlasted every retry. "
@@ -1061,6 +1066,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
+            HOST_RESOLUTION_TIMEOUT_ERROR: _HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            TEMPORARY_HOST_RESOLUTION_ERROR: _HOST_RESOLUTION_EXHAUSTED_MESSAGE,
         }
 
     def reconcile_schema_metadata(

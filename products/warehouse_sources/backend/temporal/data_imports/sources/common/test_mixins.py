@@ -141,6 +141,22 @@ class TestIsHostSafe(SimpleTestCase):
         assert error is not None and "Try again" in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_host_with_characters_outside_ascii_is_refused_before_any_lookup(self) -> None:
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo") as getaddrinfo_mock:
+            valid, error = _is_host_safe("täst.example.com", team_id=999)
+
+        assert not valid
+        assert error is not None and "punycode" in error
+        getaddrinfo_mock.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_allows_the_punycode_form_of_a_hostname(self) -> None:
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=[(None, None, None, None, ("52.1.2.3", 0))]):
+            valid, _ = _is_host_safe("xn--tst-qla.example.com", team_id=999)
+
+        assert valid
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocks_fake_postwh_suffix(self):
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.socket.getaddrinfo",

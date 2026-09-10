@@ -36,6 +36,9 @@ _INTERNAL_IP_ERROR = (
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
 _MALFORMED_HOST_ERROR = "Enter a single hostname or IP address for the host, without a port, path, comma or space."
+_NON_ASCII_HOST_ERROR = (
+    "This host has characters outside ASCII. Enter its punycode form instead, the spelling that starts with xn--."
+)
 
 # The sync registry and the schema-refresh map match this prefix; the rest of the message carries
 # the volatile host details.
@@ -136,9 +139,9 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     addresses in turn, resolves the host itself and passes the answer to
     `check_resolved_addresses` instead, so the set it validates is the set it dials.
     """
-    if is_cloud() and not _is_single_host(host):
-        _log_host_check(host, team_id, "block", "malformed_host", _MALFORMED_HOST_ERROR)
-        return HostResolution(connect_host=None, error=_MALFORMED_HOST_ERROR)
+    if is_cloud() and (guard_error := _single_host_error(host)) is not None:
+        _log_host_check(host, team_id, "block", "malformed_host", guard_error)
+        return HostResolution(connect_host=None, error=guard_error)
 
     exempt_stage = _host_check_exemption(host, team_id)
     if exempt_stage is not None:
@@ -188,9 +191,9 @@ def check_resolved_addresses(host: str, addresses: Sequence[str], team_id: int |
     exempt caller still dials what it resolved. An empty `addresses` is a failed lookup and is
     refused, because letting the connection library resolve again would reopen the gap.
     """
-    if is_cloud() and not _is_single_host(host):
-        _log_host_check(host, team_id, "block", "malformed_host", _MALFORMED_HOST_ERROR)
-        return HostResolution(connect_host=None, error=_MALFORMED_HOST_ERROR)
+    if is_cloud() and (guard_error := _single_host_error(host)) is not None:
+        _log_host_check(host, team_id, "block", "malformed_host", guard_error)
+        return HostResolution(connect_host=None, error=guard_error)
 
     exempt_stage = _host_check_exemption(host, team_id)
     if exempt_stage is not None:
@@ -221,8 +224,8 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
     if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
         return {"host": host}
 
-    if is_cloud() and not _is_single_host(host):
-        raise DatabaseHostNotAllowedError(_MALFORMED_HOST_ERROR)
+    if is_cloud() and (guard_error := _single_host_error(host)) is not None:
+        raise DatabaseHostNotAllowedError(guard_error)
 
     if not is_resolvable_hostname(host):
         return {"host": host}
@@ -263,6 +266,20 @@ def _is_single_host(host: str) -> bool:
     except ValueError:
         pass
     return 0 < len(normalized) <= 253 and all(_HOST_LABEL.match(label) for label in normalized.split("."))
+
+
+def _single_host_error(host: str) -> str | None:
+    """Why `host` is not one endpoint the drivers can dial as written, or None when it is.
+
+    A name with characters outside ASCII is refused rather than converted: the drivers hand the
+    host to the resolver as raw bytes, so a validator that converted would approve a name they
+    never dial.
+    """
+    if not host.isascii():
+        return _NON_ASCII_HOST_ERROR
+    if not _is_single_host(host):
+        return _MALFORMED_HOST_ERROR
+    return None
 
 
 def _host_check_exemption(host: str, team_id: int | None) -> str | None:
