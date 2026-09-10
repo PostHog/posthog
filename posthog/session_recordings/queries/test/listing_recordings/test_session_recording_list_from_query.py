@@ -844,6 +844,19 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_one],
         )
 
+    def test_event_filter_session_subquery_has_no_ordering(self) -> None:
+        subquery = ReplayFiltersEventsSubQuery(
+            team=self.team,
+            query=RecordingsQuery(
+                properties=[{"key": "$pathname", "value": "/", "operator": "exact", "type": "event"}]
+            ),
+        )
+
+        queries = subquery.get_queries_for_session_id_matching()
+
+        assert len(queries) == 1
+        assert queries[0].order_by is None
+
         self._assert_query_matches_session_ids(
             {
                 "events": [
