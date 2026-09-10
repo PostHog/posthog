@@ -1268,7 +1268,13 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+        # `$group_key` is the group's key column, not an entry in its property JSON. Flag
+        # matching and the blast radius already resolve it that way, so resolve it here too —
+        # otherwise the same filter silently matches nothing in insights, cohorts and the
+        # groups list.
+        is_group_key_column = property.type == "group" and property.key == "$group_key"
+
+        if property.key and (is_group_key_column or GROUP_KEY_PATTERN.match(str(property.key))):
             value = _stringify_group_key_value(value)
 
         if property.type == "person" and property.key == "distinct_id":
@@ -1328,6 +1334,8 @@ def property_to_expr(
                 property.key = key
             else:
                 raise QueryError("Data warehouse person property filter value must be a string")
+        elif is_group_key_column:
+            chain = ["key"] if scope == "group" else [f"group_{property.group_type_index}", "key"]
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "session" and scope in ["event", "replay"]:
@@ -1365,7 +1373,7 @@ def property_to_expr(
         # We pretend elements chain is a property, but it is actually a column on the events table
         if chain == ["properties"] and property.key == "$elements_chain":
             field = ast.Field(chain=["elements_chain"])
-        elif property.key == "":
+        elif property.key == "" or is_group_key_column:
             field = ast.Field(chain=[*chain])
         else:
             field = ast.Field(chain=[*chain, property.key])
