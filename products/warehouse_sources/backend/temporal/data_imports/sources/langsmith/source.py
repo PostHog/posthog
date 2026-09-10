@@ -99,6 +99,11 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # LangSmith rejects the request itself — a filter or parameter its deployment doesn't
+            # accept — rather than the credentials. The request shape is fixed per endpoint, so
+            # every retry sends the identical query and is rejected identically. `_fetch_page`
+            # logs the response body, which is the only place the vendor's reason survives.
+            "400 Client Error": "LangSmith rejected PostHog's request for this table. Check that the Host field matches your LangSmith region or deployment, then contact support if it keeps failing.",
             "401 Client Error": "Your LangSmith API key is invalid or has been revoked. Create a new API key in your LangSmith settings, then reconnect.",
             "403 Client Error": "Your LangSmith API key does not have access to this workspace. Check the key's workspace scope, then reconnect.",
             REPEATED_CURSOR_ERROR: "LangSmith kept returning the same pagination cursor, so the import was stopped to avoid looping. This usually means the host is misconfigured. Check the Host field, then reconnect.",

@@ -7,7 +7,8 @@ export interface DebouncedDraft {
     /** Bind to `Composer.Root`'s `onChange` — updates the local echo now, syncs upstream on a debounce. */
     onChange: (next: string) => void
     /** Wrap the caller's submit so the latest keystroke is flushed to the owning logic before it reads the draft. */
-    submit: (send: () => void) => void
+    submit: (send: () => string | void) => void
+    flush: () => void
 }
 
 /**
@@ -39,15 +40,20 @@ export function useDebouncedDraft(externalValue: string, sync: (value: string) =
 
     return {
         value,
+        flush: debouncedSync.flush,
         onChange: (next: string): void => {
             setValue(next)
             debouncedSync(next)
         },
-        submit: (send: () => void): void => {
+        submit: (send: () => string | void): void => {
             // Flush the pending keystroke synchronously so the send reads the latest draft, not the stale
             // debounced value; a no-op when nothing is pending (kea already has it).
             debouncedSync.flush()
-            send()
+            const nextValue = send()
+            // A flush and reset can batch back to the original external value, skipping its effect.
+            if (typeof nextValue === 'string') {
+                setValue(nextValue)
+            }
         },
     }
 }

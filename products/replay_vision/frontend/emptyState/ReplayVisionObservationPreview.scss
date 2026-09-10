@@ -30,6 +30,10 @@
 
     &__chips {
         display: flex;
+
+        // Five chips are more than the narrowest scene fits on one line, and the preview
+        // must not scroll - so let the row wrap instead.
+        flex-wrap: wrap;
         gap: 0.375rem;
         padding: 0.625rem 0.75rem;
     }

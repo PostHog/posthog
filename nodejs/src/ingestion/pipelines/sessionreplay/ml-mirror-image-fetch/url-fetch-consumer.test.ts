@@ -562,6 +562,58 @@ describe('UrlFetchConsumer', () => {
         expect(harness.run).not.toHaveBeenCalled()
     })
 
+    it('drops a tracking beacon job without quarantining its record', async () => {
+        const harness = build()
+        const beacon = candidate('beacon', {
+            currentUrl: 'https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter',
+            host: 'analytics.twitter.com',
+            origin: 'https://analytics.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        const image = candidate('logo', {
+            currentUrl: 'https://cdn.twitter.com/logo.png',
+            host: 'cdn.twitter.com',
+            origin: 'https://cdn.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        const dropped = jest.spyOn(ImageFetchConsumerMetrics, 'incDropped')
+        const skipped = jest.spyOn(ImageFetchConsumerMetrics, 'incSkipped')
+
+        await expect(
+            harness.consumer.handleBatch([message([beacon, image], 'twitter.com')], NOW_MS)
+        ).resolves.toBeUndefined()
+
+        expect(harness.park).not.toHaveBeenCalled()
+        expect(harness.run).toHaveBeenCalledTimes(1)
+        expect(harness.run.mock.calls[0][0].map((fetched) => fetched.originalRef)).toEqual([image.originalRef])
+        expect(skipped).toHaveBeenCalledWith('tracking_beacon', 1)
+        expect(dropped).not.toHaveBeenCalled()
+    })
+
+    it('does not count a skipped beacon when the batch fails before its commit', async () => {
+        const harness = build()
+        const beacon = candidate('beacon', {
+            currentUrl: 'https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter',
+            host: 'analytics.twitter.com',
+            origin: 'https://analytics.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        const image = candidate('logo', {
+            currentUrl: 'https://cdn.twitter.com/logo.png',
+            host: 'cdn.twitter.com',
+            origin: 'https://cdn.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        harness.history.readError = new Error('read failed')
+        const skipped = jest.spyOn(ImageFetchConsumerMetrics, 'incSkipped')
+
+        await expect(harness.consumer.handleBatch([message([beacon, image], 'twitter.com')], NOW_MS)).rejects.toThrow(
+            'read failed'
+        )
+
+        expect(skipped).not.toHaveBeenCalled()
+    })
+
     it('rejects a whole multi-job record when one job belongs to another partition', async () => {
         const harness = build()
         const foreign = candidate('foreign', {

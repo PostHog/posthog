@@ -5,7 +5,6 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { pluralize } from 'lib/utils/strings'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
@@ -24,7 +23,6 @@ import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/Samplin
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { FunnelVizType } from 'scenes/insights/views/Funnels/FunnelVizType'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
@@ -39,6 +37,8 @@ import {
     PathType,
 } from '~/types'
 
+import { FunnelVizType } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelVizType'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { JourneysExclusions } from 'products/product_analytics/frontend/insights/journeys/JourneysExclusions'
 import { JourneysSettings } from 'products/product_analytics/frontend/insights/journeys/JourneysSettings'
 import { JourneysStepSourcePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysStepSourcePicker'

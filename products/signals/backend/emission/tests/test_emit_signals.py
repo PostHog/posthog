@@ -165,6 +165,48 @@ class TestQueryNewRecords:
         query_arg = mock_parse.call_args[0][0]
         assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
 
+    @pytest.mark.parametrize(
+        "table_name,expected_chain",
+        [
+            ("test_table", ["test_table"]),
+            # A GitHub source keys its table on the repository name, so a hyphen reaches HogQL.
+            ("github.owner_my-repo__issues", ["github", "owner_my-repo__issues"]),
+            ("github.owner_my.repo__issues", ["github", "owner_my", "repo__issues"]),
+        ],
+    )
+    def test_query_parses_for_any_table_name(self, table_name, expected_chain):
+        config = _make_config()
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result) as mock_execute:
+            data_warehouse_record_fetcher(
+                team=MagicMock(),
+                config=config,
+                context={"table_name": table_name, "last_synced_at": "2025-01-01T00:00:00Z", "extra": {}},
+            )
+
+        assert mock_execute.call_args.kwargs["query"].select_from.table.chain == expected_chain
+
+    def test_logs_and_reraises_when_the_query_cannot_be_parsed(self):
+        # A parse failure used to escape before the first log line, so a broken query looked like silence.
+        config = _make_config()
+
+        with (
+            patch(f"{FETCHER_MODULE_PATH}.parse_select", side_effect=Exception("cannot parse")),
+            patch(f"{FETCHER_MODULE_PATH}.logger") as mock_logger,
+        ):
+            with pytest.raises(Exception, match="cannot parse"):
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={"table_name": "test_table", "last_synced_at": None, "extra": {"team_id": 7}},
+                )
+
+        assert "Error querying new records" in mock_logger.exception.call_args[0][0]
+        assert mock_logger.exception.call_args.kwargs["team_id"] == 7
+
     def test_reraises_on_query_error(self):
         # Must NOT swallow: silenced failures advance last_synced_at and permanently skip records.
         # Re-raising lets the activity's retry policy handle transient HogQL/ClickHouse failures.

@@ -39,10 +39,9 @@ import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
-export interface ProjectTreeProps {
+interface ProjectTreeBaseProps {
     logicKey?: string // key override?
     root?: string
-    onlyTree?: boolean
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
@@ -60,6 +59,17 @@ export interface ProjectTreeProps {
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
+
+/** A bare tree has no panel to label, so `panelName` is only required when the panel renders. */
+export type ProjectTreeProps = ProjectTreeBaseProps &
+    (
+        | { onlyTree: true; panelName?: string }
+        | {
+              onlyTree?: false
+              /** Names the panel in the DOM. Pin it at the call site; a `data-attr` value is API and must not change. */
+              panelName: string
+          }
+    )
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
@@ -95,19 +105,20 @@ const isItemActive = (item: TreeDataItem): boolean => {
     return false
 }
 
-export function ProjectTree({
-    logicKey,
-    root,
-    onlyTree = false,
-    searchPlaceholder,
-    treeSize = 'default',
-    showRecents,
-    selectModeOverride,
-    checkedItemsOverride,
-    onItemCheckedOverride,
-    onItemClicked,
-    isActiveInPanel,
-}: ProjectTreeProps): JSX.Element {
+export function ProjectTree(props: ProjectTreeProps): JSX.Element {
+    const {
+        logicKey,
+        root,
+        onlyTree = false,
+        searchPlaceholder,
+        treeSize = 'default',
+        showRecents,
+        selectModeOverride,
+        checkedItemsOverride,
+        onItemCheckedOverride,
+        onItemClicked,
+        isActiveInPanel,
+    } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
     const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
@@ -588,12 +599,13 @@ export function ProjectTree({
         />
     )
 
-    if (onlyTree) {
+    if (props.onlyTree) {
         return tree
     }
 
     return (
         <PanelLayoutPanel
+            panelName={props.panelName}
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
                     <TreeSearchField

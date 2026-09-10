@@ -24,7 +24,22 @@ Inbox has four tabs and one reviewer-scope control:
 | Runs | `/inbox/runs` | Reports that are still in progress or waiting on input |
 | Archive | `/inbox/dismissed` | Terminal reports: archived/suppressed (`status === "suppressed"`) and resolved-by-merged-PR (`status === "resolved"`) |
 
-Detail pages live under the same tab: `/inbox/<tab>/$reportId`.
+Reports have one canonical detail route: `/reports/$reportId`. The old
+`/inbox/{reports,pulls,dismissed}/$reportId` and space-report URLs replace-redirect
+there. Runs remain at `/inbox/runs/$reportId`.
+
+`ReportPage` renders the shared report, PR, or archived content based on current
+status without changing the URL. In-app links carry the source in a validated
+`?from=` search param, so it survives a reload, a new tab and a window restore:
+the source rail/sidebar remains selected, and the report header breadcrumb links
+to that source. `resolveNavigationSource` in `router/reportNavigation.ts` is the
+only place that reads a source path; ask it for the label, space or feed rather
+than matching the href again. A report with no source reads as
+`Self-driving / <space>` and never renders inside another page's chrome.
+The header identifies the object and links to its owning space rather than
+treating ownership as a back destination. Report opening must not reset Inbox
+filters. Restore updates the canonical page in place. Existing embedded Activity
+previews remain supported.
 
 The Archive tab (route `/inbox/dismissed`, user-facing label "Archive") is
 the exception: it holds the two terminal, not-in-inbox states — `suppressed`
@@ -53,7 +68,7 @@ same artefact-lift pattern as `priority`/`actionability`/`already_addressed` —
 so cards avoid an N+1 per-card artefact fetch. Unknown reason codes fall back to
 the raw value; cards with no dismissal artefact simply omit the label.
 
-Responder configuration is **not** an Inbox tab. It is the top-level Responders sidebar item at `/agents`. The legacy `/inbox/agents` route redirects there.
+Responder configuration is **not** an Inbox tab. It lives in Settings under the `agents` category (`/settings/agents`), on the Connections tab beside the scout fleet (`features/scouts/`). The legacy `/agents` and `/inbox/agents` routes redirect there.
 
 Reviewer scope is a UI preference stored in `inboxReviewerScopeStore`. It filters the list between reports suggested for the current user and reports for someone else. It does not change tab membership; the tab predicates are independent.
 
@@ -124,9 +139,11 @@ Card headlines are derived client-side from `summary` by `utils/reportPresentati
 
 ## Configuration Surface
 
-Responder setup lives in `features/agents/components/AgentsView.tsx`, which mounts `ConfigureAgentsSection`. This surface composes existing GitHub, Slack, source-toggle, and MCP configuration pieces. Keep setup copy outcome-focused: the user is asking Self-driving to figure out what matters, not choosing internal artefact types.
+Responder setup lives in `features/agents/components/AgentsView.tsx`, the Agents settings page, which mounts `ConfigureAgentsSection` on its Connections tab and the scout fleet on the others. This surface composes existing GitHub, Slack, source-toggle, and MCP configuration pieces. Keep setup copy outcome-focused: the user is asking Self-driving to figure out what matters, not choosing internal artefact types.
 
 Onboarding/setup should be task-backed when it starts work. Do not model it as a static checklist if the intended behavior is to launch an agent task.
+
+An empty Reports view has two distinct causes, and they need different copy: nothing configured yet, versus configured with nothing found. `useSelfDrivingSetupStatus` (`hooks/useSelfDrivingSetupStatus.ts`) reads enabled signal source and scout counts to tell them apart. `ReportsInboxView` only sets `showConfigureAgentsEmptyState` when the inbox is empty with no active filters, so a genuinely quiet but configured project still gets "Nothing to review", not the welcome copy again. The welcome state's CTA links to this same configuration surface; it does not duplicate setup logic.
 
 ## UI Architecture
 
@@ -149,7 +166,7 @@ Components come from `@posthog/quill`; layout is `div`s with Tailwind. Radix is 
 - Do not add any `@radix-ui/*` import. Use `@posthog/quill` plus `div` + Tailwind.
 - Do not reuse the deleted legacy `ReportListRow`, `ReportDetailPane`, or old list/detail stores.
 - Do not put page-level Inbox title or navigation into the global app header; `InboxView` owns the Inbox page chrome.
-- Responder configuration stays at `/agents`. The Inbox header carries a "Configure agents" link to it, but do not embed configuration UI in the Inbox itself.
+- Responder configuration stays in Settings (`/settings/agents`). The Inbox header carries a "Configure agents" link toward it, but do not embed configuration UI in the Inbox itself.
 - Scout (`signals_scout`) is a real Cloud source product. Keep it covered wherever source products surface: `INBOX_SOURCE_OPTIONS`, `SOURCE_PRODUCT_META`, and the scout-name display in `SignalCard`.
 - Scout management UI (fleet configuration, run history) lives in `features/scouts/` and is backed by the PostHog Cloud scout endpoints (`/api/projects/{teamId}/signals/scout/`). Do not add scout controls that have no backing endpoint there.
 - Do not put preview shims or mock report data in `apps/code/index.html`; the app shell should stay minimal.

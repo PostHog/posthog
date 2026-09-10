@@ -645,7 +645,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         appending from that offset instead of re-streaming from row 0, so a table too large to rewrite
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
-        {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str}.
+        {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str,
+        "budget_exhausted": bool}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)

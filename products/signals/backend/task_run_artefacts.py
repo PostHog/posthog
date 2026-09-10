@@ -48,6 +48,7 @@ __all__ = [
     "append_task_run_artefact",
     "enforce_report_implementation_rerun_cap",
     "enforce_report_task_cap",
+    "is_report_implementation_task",
     "record_implementation_task",
     "record_report_task",
     "release_quota_cancelled_implementation",
@@ -254,6 +255,17 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
         )
 
 
+def is_report_implementation_task(*, team_id: int, report_id: str, task_id: str) -> bool:
+    """Whether this task is the report's implementation, the relationship that opens a pull request.
+
+    Reads the `SignalReportTask` gate rows rather than the artefact log, because the log is
+    API-mutable and so cannot carry a spend-controlling decision.
+    """
+    return SignalReportTask.objects.filter(
+        team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+    ).exists()
+
+
 def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, task_id: str) -> None:
     """Re-check the one-live-implementation slot before starting another run of an existing task.
 
@@ -278,10 +290,7 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
         raise RuntimeError(
             "enforce_report_implementation_rerun_cap must run inside a transaction; it locks the report row"
         )
-    is_implementation = SignalReportTask.objects.filter(
-        team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-    ).exists()
-    if not is_implementation:
+    if not is_report_implementation_task(team_id=team_id, report_id=report_id, task_id=task_id):
         return
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
