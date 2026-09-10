@@ -8,6 +8,7 @@ import {
   filterReportsBySearch,
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PIPELINE_STATUSES,
+  INBOX_REFETCH_INTERVAL_MS,
   sortInboxReports,
 } from "./reportFiltering";
 
@@ -16,6 +17,12 @@ describe("inbox pipeline statuses", () => {
     expect(INBOX_PIPELINE_STATUS_FILTER).toBe(
       INBOX_PIPELINE_STATUSES.join(","),
     );
+  });
+});
+
+describe("inbox polling", () => {
+  it("keeps the shared mobile refresh cadence", () => {
+    expect(INBOX_REFETCH_INTERVAL_MS).toBe(3_000);
   });
 });
 
