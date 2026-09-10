@@ -140,6 +140,7 @@ class TestIncrementalMaterialization:
         # The runs UI reads the mode off the job to explain what its row count means.
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.run_mode == "full_refresh"
+        assert ajob.full_refresh_reason == "first run"
 
     async def test_second_run_updates_touched_rows_and_leaves_the_rest(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -164,6 +165,7 @@ class TestIncrementalMaterialization:
 
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.run_mode == "incremental"
+        assert ajob.full_refresh_reason is None
 
     async def test_replaying_a_run_does_not_duplicate_rows(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

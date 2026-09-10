@@ -43,6 +43,15 @@ const highTransitionDequeuesCounter = new Counter({
     labelNames: ['queue'] as const,
 })
 
+// The loop swallows the error and retries, so without this counter a queue whose every
+// dequeue throws looks exactly like an idle queue. Exported for the rate-limited
+// subclass, which has its own loop and catch.
+export const consumerLoopErrorsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_consumer_loop_errors_total',
+    help: 'Consumer loop iterations that threw, per queue. A sustained positive rate can indicate the queue is not being consumed.',
+    labelNames: ['queue'] as const,
+})
+
 export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -218,6 +227,7 @@ export class CyclotronV2Worker {
     protected lastPollTime = new Date()
     private consumerLoopPromise: Promise<void> | null = null
 
+    protected readonly queueName: string
     protected readonly batchMaxSize: number
     protected readonly pollDelayMs: number
     private readonly heartbeatTimeoutMs: number
@@ -230,6 +240,7 @@ export class CyclotronV2Worker {
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
         })
+        this.queueName = config.queueName
         this.batchMaxSize = config.batchMaxSize ?? 100
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
@@ -266,6 +277,7 @@ export class CyclotronV2Worker {
                 const jobs = rows.map((row) => this.wrapJob(row))
                 await processBatch(jobs)
             } catch (err) {
+                consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
                 logger.error('CyclotronV2Worker consumer loop error', { error: String(err) })
                 await sleep(this.pollDelayMs)
             }

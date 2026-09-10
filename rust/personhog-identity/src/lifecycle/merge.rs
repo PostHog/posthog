@@ -239,6 +239,29 @@ pub(crate) fn record_outcome_count(outcome: &str, count: u64) {
     );
 }
 
+/// Unsettled (skipped_conflict) verdicts by the check that produced them.
+const CONFLICTS_TOTAL: &str = "personhog_identity_merge_conflicts_total";
+
+/// Emit accumulated conflict reasons; called only after the recording
+/// transaction commits, so rollbacks and step re-runs never count.
+fn record_conflicts(conflicts: Vec<(&'static str, u64)>) {
+    for (reason, count) in conflicts {
+        record_conflict(reason, count);
+    }
+}
+
+/// Attribute each conflict verdict, so an unsettled spike reads as live
+/// contention, concurrent remaps, or vanished persons.
+pub(crate) fn record_conflict(reason: &str, count: u64) {
+    if count > 0 {
+        common_metrics::inc(
+            CONFLICTS_TOTAL,
+            &[("reason".to_string(), reason.to_string())],
+            count,
+        );
+    }
+}
+
 fn record_outcomes(outcome: &Value) {
     let Ok(parsed) = serde_json::from_value::<MergeOutcome>(outcome.clone()) else {
         return;
@@ -486,6 +509,7 @@ fn reconcile_pending_claims(
     claim_persons: &[(i64, Uuid, i32)],
     marked: &[i64],
     fresh: &HashMap<String, Resolution>,
+    conflicts: &mut Vec<(&'static str, u64)>,
 ) -> Vec<i64> {
     for d in dispositions.iter_mut() {
         if d.decision != DECISION_PENDING_MERGE {
@@ -501,6 +525,7 @@ fn reconcile_pending_claims(
             .get(&d.distinct_id)
             .is_none_or(|r| r.person_id != person_id)
         {
+            conflicts.push(("remapped_after_claim", 1));
             d.decision = OUTCOME_SKIPPED_CONFLICT.to_string();
         }
     }
@@ -562,6 +587,8 @@ impl MergeDriver {
     async fn claim(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
         let team_id = op.team_id as i32;
+        // Conflict reasons emit only after a commit (see record_conflicts).
+        let mut conflicts: Vec<(&'static str, u64)> = Vec::new();
         let mut tx = pool.begin().await?;
 
         // Authoritative resolution: the handler's classification aged while
@@ -577,7 +604,7 @@ impl MergeDriver {
             // The target person vanished between classification and now. The
             // caller's re-drive (new op) re-classifies; this op has changed
             // nothing.
-            let dispositions = request
+            let dispositions: Vec<Disposition> = request
                 .sources
                 .iter()
                 .map(|s| Disposition {
@@ -586,7 +613,8 @@ impl MergeDriver {
                     decision: OUTCOME_SKIPPED_CONFLICT.to_string(),
                 })
                 .collect();
-            return abort_in_claim_tx(tx, op, dispositions).await;
+            conflicts.push(("target_vanished", dispositions.len() as u64));
+            return abort_in_claim_tx(tx, op, dispositions, conflicts).await;
         };
         let (target_person_id, target_person_uuid) = (target.person_id, target.person_uuid);
 
@@ -599,6 +627,7 @@ impl MergeDriver {
             let Some(resolution) = resolved.get(&source.distinct_id) else {
                 // Consumed by another lifecycle op (or never existed): a
                 // retryable signal — the caller's re-drive re-classifies it.
+                conflicts.push(("source_consumed", 1));
                 dispositions.push(Disposition {
                     distinct_id: source.distinct_id.clone(),
                     person_id: None,
@@ -728,12 +757,15 @@ impl MergeDriver {
             )
             .execute(&mut *tx)
             .await?;
+            let mut converted = 0;
             for d in dispositions.iter_mut() {
                 if d.decision == DECISION_PENDING_MERGE {
                     d.decision = OUTCOME_SKIPPED_CONFLICT.to_string();
+                    converted += 1;
                 }
             }
-            return abort_in_claim_tx(tx, op, dispositions).await;
+            conflicts.push(("target_marked", converted));
+            return abort_in_claim_tx(tx, op, dispositions, conflicts).await;
         }
 
         // Sources another live op holds: record the skip (the status keeps
@@ -763,13 +795,16 @@ impl MergeDriver {
             )
             .execute(&mut *tx)
             .await?;
+            let mut converted = 0;
             for d in dispositions.iter_mut() {
                 if d.decision == DECISION_PENDING_MERGE
                     && d.person_id.is_some_and(|id| conflicted_ids.contains(&id))
                 {
                     d.decision = OUTCOME_SKIPPED_CONFLICT.to_string();
+                    converted += 1;
                 }
             }
+            conflicts.push(("source_marked", converted));
         }
 
         // Post-insert liveness recheck. The resolve above and the insert run
@@ -792,14 +827,23 @@ impl MergeDriver {
             )
             .execute(&mut *tx)
             .await?;
+            let mut converted = 0;
             for d in dispositions.iter_mut() {
                 if d.decision == DECISION_PENDING_MERGE {
                     d.decision = OUTCOME_SKIPPED_CONFLICT.to_string();
+                    converted += 1;
                 }
             }
-            return abort_in_claim_tx(tx, op, dispositions).await;
+            conflicts.push(("target_vanished", converted));
+            return abort_in_claim_tx(tx, op, dispositions, conflicts).await;
         }
-        let dropped = reconcile_pending_claims(&mut dispositions, &claim_persons, &marked, &fresh);
+        let dropped = reconcile_pending_claims(
+            &mut dispositions,
+            &claim_persons,
+            &marked,
+            &fresh,
+            &mut conflicts,
+        );
         if !dropped.is_empty() {
             sqlx::query!(
                 r#"
@@ -833,7 +877,7 @@ impl MergeDriver {
             )
             .execute(&mut *tx)
             .await?;
-            return abort_in_claim_tx(tx, op, dispositions).await;
+            return abort_in_claim_tx(tx, op, dispositions, conflicts).await;
         }
 
         // Persist the claim record on the target row; the terminal outcome
@@ -862,6 +906,7 @@ impl MergeDriver {
             return Ok(());
         }
         tx.commit().await?;
+        record_conflicts(conflicts);
         record_transition(MergeStep::Started.as_str(), MergeStep::Claimed.as_str());
         Ok(())
     }
@@ -874,6 +919,7 @@ async fn abort_in_claim_tx(
     mut tx: Tx<'_>,
     op: &OpRow,
     dispositions: Vec<Disposition>,
+    conflicts: Vec<(&'static str, u64)>,
 ) -> Result<(), SagaError> {
     let mut outcome = outcome_from_dispositions(
         &dispositions,
@@ -897,6 +943,7 @@ async fn abort_in_claim_tx(
         return Ok(());
     }
     tx.commit().await?;
+    record_conflicts(conflicts);
     record_transition(MergeStep::Started.as_str(), STEP_ABORTED);
     record_outcomes(&outcome);
     Ok(())
@@ -1969,7 +2016,13 @@ mod tests {
             ("d2".to_string(), resolution(9)),
         ]);
 
-        let dropped = reconcile_pending_claims(&mut dispositions, &claim_persons, &[7], &fresh);
+        let dropped = reconcile_pending_claims(
+            &mut dispositions,
+            &claim_persons,
+            &[7],
+            &fresh,
+            &mut Vec::new(),
+        );
 
         assert!(dropped.is_empty(), "person 7 is still reachable via d1");
         assert_eq!(dispositions[0].decision, DECISION_PENDING_MERGE);
@@ -1988,7 +2041,13 @@ mod tests {
             ("d2".to_string(), resolution(9)),
         ]);
 
-        let dropped = reconcile_pending_claims(&mut dispositions, &claim_persons, &[7], &fresh);
+        let dropped = reconcile_pending_claims(
+            &mut dispositions,
+            &claim_persons,
+            &[7],
+            &fresh,
+            &mut Vec::new(),
+        );
 
         assert_eq!(dropped, vec![7]);
         for d in &dispositions {
