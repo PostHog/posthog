@@ -1104,6 +1104,7 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
+    Comments = 'comments',
     Templates = 'templates',
     Settings = 'settings',
 }
@@ -4763,7 +4764,6 @@ export enum DashboardPlacement {
 
 // Default mode is null
 export enum DashboardMode {
-    Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
 }
@@ -5174,6 +5174,8 @@ export interface CoreFilterDefinition {
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
     primary_property?: string
+    /** Keep this event out of pickers that build a query someone saves and runs later. Surfaces that read live event data still offer it. */
+    hidden_in_query_builders?: boolean
 }
 
 export interface TileParams {
@@ -7424,6 +7426,7 @@ export type HogFunctionTypeType =
     | 'site_app'
     | 'transformation'
     | 'transformation_log'
+    | 'legacy_destination'
 
 export type HogFunctionType = {
     id: string
@@ -7858,7 +7861,10 @@ export interface FeaturePreviewGateConfig {
     offerRequestAccess?: boolean
     /**
      * Product intent recorded when a user joins the waitlist from the gate, so waitlist sign-ups
-     * count as product intent the same way opting in from the feature previews page does.
+     * count as product intent the same way opting in from the feature previews page does. When
+     * set, the gate also reads this product's setup-detection status to end the post-enrollment
+     * "turning it on" state as soon as the API agrees the flag is on, instead of waiting out a
+     * fixed timer.
      */
     productIntent?: ProductKey
 }
