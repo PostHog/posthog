@@ -33,7 +33,13 @@ export function dataWarehouseColumnsWithJoins(
             if (!includeJoinedColumns || !field.table) {
                 continue
             }
-            for (const joinedField of Object.values(tablesMap[field.table]?.fields ?? {})) {
+            // `field.table` carries the joined table's printed HogQL name, which is backquoted when
+            // the name is not a bare identifier. A connector-synced table is registered under its
+            // dotted chain, so it arrives as a backquoted "stripe.campaigns" while `tablesMap` is
+            // keyed by the bare form. Strip the quotes as a fallback, the same way the SQL editor
+            // sidebar does in `normalizeTableLookupKey`.
+            const joinedTable = tablesMap[field.table] ?? tablesMap[field.table.replaceAll('`', '')]
+            for (const joinedField of Object.values(joinedTable?.fields ?? {})) {
                 if (HIDDEN_FIELD_TYPES.includes(joinedField.type)) {
                     continue
                 }
