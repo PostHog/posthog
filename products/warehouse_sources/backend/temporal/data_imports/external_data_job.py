@@ -116,6 +116,11 @@ LOGGER = get_logger(__name__)
 MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
+MISSING_INTEGRATION_MESSAGE = (
+    "The connected account for this source is no longer available — it may have been disconnected. "
+    "Please reconnect the source's account."
+)
+
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
     # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
@@ -145,7 +150,13 @@ Any_Source_Errors: dict[str, str | None] = {
         "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
         "table replication, then re-enable the sync."
     ),
-    "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
+    "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
+    # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
+    # two, so the ORM wording above never reaches here for the sources that go through it. Left
+    # unclassified they were retried to exhaustion and then shown raw, echoing an internal
+    # integration id back at the customer.
+    "Integration not found:": MISSING_INTEGRATION_MESSAGE,
+    "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
