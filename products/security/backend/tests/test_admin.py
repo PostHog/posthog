@@ -61,13 +61,19 @@ class TestSecurityRuleAdmin(BaseTest):
         self.assertNotContains(response, "Save and add another")
         self.assertNotContains(response, "Save and view")
 
-    def test_confirmed_submit_saves_the_normalized_rule_with_its_author(self):
-        response = self._post_add(_confirm_rule="1")
+    @parameterized.expand(
+        [
+            (Scope.ALL_ACCESS, "Block all access: Email root farm.bot@example.com"),
+            (Scope.AI_GATEWAY, "Block AI gateway: Email root farm.bot@example.com"),
+        ]
+    )
+    def test_confirmed_submit_saves_the_normalized_rule_with_its_author(self, scope: Scope, saved_message: str):
+        response = self._post_add(scope=scope, _confirm_rule="1")
 
         assert response.status_code == 302
         rule = SecurityRule.objects.get()
         assert (rule.target_value, rule.effect, rule.created_by) == ("farm.bot@example.com", Effect.BLOCK, self.user)
-        self.assertContains(self.client.get(response.url), "Block all access: Email root farm.bot@example.com")
+        self.assertContains(self.client.get(response.url), saved_message)
 
     def test_a_saved_rule_opens_read_only(self):
         rule = self._stored_rule()
@@ -78,6 +84,7 @@ class TestSecurityRuleAdmin(BaseTest):
         self.assertContains(response, "All access")
         self.assertContains(response, "Active")
         self.assertNotContains(response, 'name="_save"')
+        self.assertNotContains(response, "Leave empty to keep the rule")
 
     def test_a_refused_rule_stays_on_the_form_with_the_reason(self):
         response = self._post_add(target_type=TargetType.EMAIL_DOMAIN, target_value="gmail.com")

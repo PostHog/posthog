@@ -34,6 +34,12 @@ def scope_choices() -> list[tuple[str, str]]:
     return [(scope.value, label) for scope, label in SCOPE_LABELS.items()]
 
 
+def _mid_sentence(label: str) -> str:
+    # Lowercase a sentence-case label to sit after another word, but leave an acronym
+    # such as "AI gateway" alone.
+    return label if label[:2].isupper() else label[:1].lower() + label[1:]
+
+
 class SecurityRuleQuerySet(models.QuerySet):
     def active(self) -> "SecurityRuleQuerySet":
         now = timezone.now()
@@ -76,10 +82,7 @@ class SecurityRule(models.Model):
         ]
 
     def __str__(self) -> str:
-        return (
-            f"{self.get_effect_display()} {self.get_scope_display().lower()}: "
-            f"{self.get_target_type_display()} {self.target_value}"
-        )
+        return f"{self.get_effect_display()} {_mid_sentence(self.get_scope_display())}: {self.get_target_type_display()} {self.target_value}"
 
     @property
     def is_active(self) -> bool:

@@ -159,6 +159,10 @@ class SecurityRuleAdmin(admin.ModelAdmin):
     def get_form(
         self, request: HttpRequest, obj: SecurityRule | None = None, change: bool = False, **kwargs: Any
     ) -> type[forms.ModelForm]:
+        if obj is not None:
+            # The help texts tell someone filling in the add form what to type. On a saved
+            # rule every field is read-only, so they would describe inputs that aren't there.
+            kwargs["help_texts"] = {}
         form_class = super().get_form(request, obj, change=change, **kwargs)
         requester_ip = get_trusted_client_ip(request)
 
