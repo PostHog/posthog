@@ -63,6 +63,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         yAxisScaleType,
         showMultipleYAxes,
         showAlertThresholdLines,
+        showAnnotations,
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
@@ -81,6 +82,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
     const isSlopeGraph = display === ChartDisplayType.SlopeGraph
     const isMetric = display === ChartDisplayType.Metric
+    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const hideContinuousChartOptions = isNonTimeSeriesDisplay || isMetric || isSlopeGraph
     const showSmoothing =
         isTrends &&
@@ -88,7 +90,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
         !!interval &&
         (smoothingOptions[interval]?.length ?? 0) > 0
-    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions && !isBoxPlot
     const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions
     const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions) || isTrendsFunnel
     const showTrendLinesConfig = (isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions
@@ -101,7 +103,6 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const showAxisLabelsConfig = isTrends && (isLineDisplay || isBarDisplay)
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
-    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     const isPie = !!display && PIE_DISPLAY_TYPES.includes(display)
     // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
@@ -300,6 +301,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         isPie && trendsFilter?.showLabelsOnSeries,
         unitIsSet,
         (hasLegend || showFunnelLegendConfig) && showLegend,
+        showAnnotationsConfig && showAnnotations === false,
         isMetric && trendsFilter?.metricShowChange === false,
         isMetric && trendsFilter?.metricColorByDirection,
         isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total'
@@ -342,7 +344,7 @@ export function displayOptionsToMenuItems(tabs: DisplayOptionTab[]): LemonMenuIt
                     {section.title ?? tab.label}
                 </SectionHeader>
             ),
-            items: section.items.map((Item, index) => ({ key: index, label: () => <Item /> })),
+            items: section.items.map((Item, index) => ({ key: index, label: Item })),
         }))
     )
 }

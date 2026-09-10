@@ -348,9 +348,16 @@ describe('InsightDisplayConfig', () => {
     })
 
     describe('options count', () => {
-        it('counts a non-default option on a hidden tab on the button, but keeps tab labels fixed', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { yAxisScaleType: 'log10' }))
-            expect(screen.getAllByLabelText('Options')[0]).toHaveTextContent(/\(1\)/)
+        it('sums non-default options across every tab, but keeps tab labels fixed', async () => {
+            setupAndRender(
+                makeTrendsQuery(ChartDisplayType.ActionsLineGraph, {
+                    showValuesOnSeries: true,
+                    showAnnotations: false,
+                    yAxisScaleType: 'log10',
+                    showTrendLines: true,
+                })
+            )
+            expect(screen.getAllByLabelText('Options')[0]).toHaveTextContent(/\(4\)/)
 
             await openOptionsMenu()
             expect(getTabLabels()).toEqual(['General', 'Axes', 'Lines'])

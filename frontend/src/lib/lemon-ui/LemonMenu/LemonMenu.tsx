@@ -64,7 +64,7 @@ export type LemonMenuItemLeaf = LemonMenuItemLeafCallback | LemonMenuItemLeafLin
 
 export interface LemonMenuItemCustom {
     /** A label that's a component means it will be rendered directly, and not wrapped in a button. */
-    label: () => JSX.Element
+    label: () => JSX.Element | null
     key?: React.Key
     active?: never
     items?: never
