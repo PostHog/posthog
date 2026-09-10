@@ -54,6 +54,12 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
 ]
 
 
+def test_schedule_due_alert_checks_parses_legacy_schedule_inputs() -> None:
+    inputs = ScheduleDueAlertChecksWorkflow.parse_inputs(['{"max_alerts_per_run": 17}'])
+
+    assert inputs == ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
+
+
 @pytest.mark.asyncio
 async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() -> None:
     execute_activity = AsyncMock(return_value=[])
