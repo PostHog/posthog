@@ -64,6 +64,7 @@ from .sharing_configuration import SharingConfiguration
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
+from .temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from .uploaded_media import UploadedMedia
@@ -167,6 +168,8 @@ __all__ = [
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
+    "TemporalSchedulerClaim",
+    "TemporalSchedulerPermitPool",
     "EventIngestionRestrictionConfig",
     "GlobalRateLimitThresholdConfig",
     "UploadedMedia",
