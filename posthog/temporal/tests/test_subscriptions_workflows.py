@@ -3234,6 +3234,7 @@ async def test_fetch_due_subscriptions_claims_let_later_work_bypass_running_chil
 
 
 async def test_recover_subscription_scheduler_claims_releases_closed_workflow(team, user):
+    region = "claim-test"
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-recovery", name="Claim recovery")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
     await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
@@ -3244,7 +3245,7 @@ async def test_recover_subscription_scheduler_claims_releases_closed_workflow(te
         FetchDueSubscriptionsActivityInputs(
             buffer_minutes=15,
             max_subscriptions_per_run=1,
-            region="claim-recovery-test",
+            region=region,
             use_durable_claims=True,
         ),
     )
@@ -3264,7 +3265,7 @@ async def test_recover_subscription_scheduler_claims_releases_closed_workflow(te
     ):
         result = await ActivityEnvironment().run(
             recover_subscription_scheduler_claims_activity,
-            RecoverSubscriptionSchedulerClaimsInputs(region="claim-recovery-test", limit=1),
+            RecoverSubscriptionSchedulerClaimsInputs(region=region, limit=1),
         )
 
     assert result == {"released": 1, "renewed": 0, "retained": 0, "pruned": 0}
