@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import api from 'lib/api'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -76,6 +77,24 @@ describe('SelfManagedColumnsSection', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Save types' }))
 
         await waitFor(() => expect(updateSchema).toHaveBeenCalledWith('table-1', { total: 'integer' }))
+    })
+
+    it('drops an abandoned type change when the edit is canceled', async () => {
+        render(<SelfManagedColumnsSection table={TABLE} />)
+        await waitFor(() => expect(screen.getByText('total')).toBeInTheDocument())
+
+        await userEvent.click(screen.getByRole('button', { name: 'Edit column types' }))
+        await userEvent.click(screen.getByRole('button', { name: 'String' }))
+        await userEvent.click(await screen.findByText('Integer'))
+        await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+        // The pending type is held on the same object as the shared schema store, which the SQL
+        // editor's schema tree and the taxonomic filters read too.
+        expect(databaseTableListLogic.values.database?.tables.orders_csv.fields.total.type).toEqual('string')
+
+        await userEvent.click(screen.getByRole('button', { name: 'Edit column types' }))
+        expect(screen.getByRole('button', { name: 'String' })).toBeInTheDocument()
+        expect(updateSchema).not.toHaveBeenCalled()
     })
 
     it('recovers from a failed schema query through the retry', async () => {

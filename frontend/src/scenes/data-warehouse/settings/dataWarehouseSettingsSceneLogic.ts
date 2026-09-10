@@ -279,15 +279,15 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
                         return state
                     }
 
-                    const newState = { ...state }
-
-                    const column = newState?.fields[columnKey]
+                    const column = state.fields[columnKey]
                     if (!column) {
                         return state
                     }
 
-                    column.type = columnType
-                    return newState
+                    // `selectedRow` is the same object the shared schema store holds, so writing
+                    // into `fields` would change what every other schema consumer reads, and would
+                    // outlive a cancel because cancel restores from that same store.
+                    return { ...state, fields: { ...state.fields, [columnKey]: { ...column, type: columnType } } }
                 },
                 loadDatabaseSuccess: (state, { database }) => {
                     if (!state || !database) {
