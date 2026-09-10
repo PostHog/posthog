@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -72,7 +72,7 @@ def rank_anything(test: Any) -> Any:
     return test
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
