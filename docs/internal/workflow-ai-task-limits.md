@@ -18,7 +18,7 @@ Keep both limits enabled when raising capacity. Set the per-workflow limit for t
 A workflow run pauses at an AI task step or a scout step until the run it started reaches a terminal status.
 After success, the next step sees the dispatch IDs, `status: completed`, and a capped `final_message` (tasks) or `summary` (scouts). The result also includes `pr_urls` when present.
 A failed or cancelled run fails the step. The step's `on_error` setting decides whether the workflow continues.
-With `on_error: continue`, the dispatch IDs remain available. The failed step does not store the terminal status, message, or `error_message` in its result.
+With `on_error: continue`, the next step sees the dispatch IDs, the terminal `status`, and `error_message`, so a condition step can route a failed run to a notification.
 
 A template asks for the wait by returning an `await` object next to its result, for example `{ 'id': ..., 'run_id': ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
 `max_wait` is set by the template's author, never by the workflow author, and the engine caps it at 24 hours.

@@ -265,7 +265,7 @@ export class HogFunctionHandler implements ActionHandler {
             if (resume.status !== 'completed') {
                 const detail = typeof payload.error_message === 'string' ? `: ${payload.error_message}` : ''
                 const outcome = resume.status === 'cancelled' ? 'was cancelled' : 'failed'
-                throw new Error(`The ${label} ${outcome}${detail}`)
+                return { error: new Error(`The ${label} ${outcome}${detail}`), result: payload }
             }
             result.logs.push({
                 level: 'info',

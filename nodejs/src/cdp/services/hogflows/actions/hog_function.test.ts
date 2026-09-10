@@ -905,14 +905,22 @@ describe('HogFunctionHandler', () => {
                 )
             })
 
-            it('fails the step when the task did not complete', async () => {
+            it('fails the step with the outcome as its result when the task did not complete', async () => {
                 invocation.state.currentAction!.resumeResult = {
                     key: dispatchKey,
                     status: 'failed',
                     result: { error_message: 'sandbox crashed' },
                 }
 
-                await expect(execute()).rejects.toThrow('The task failed: sandbox crashed')
+                const { handlerResult } = await execute()
+
+                expect(handlerResult.error).toEqual(new Error('The task failed: sandbox crashed'))
+                expect(handlerResult.result).toEqual({
+                    id: 't1',
+                    run_id: 'r1',
+                    status: 'failed',
+                    error_message: 'sandbox crashed',
+                })
                 expect(executeSpy).not.toHaveBeenCalled()
             })
 
