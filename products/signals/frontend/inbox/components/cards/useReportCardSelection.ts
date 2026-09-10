@@ -4,6 +4,7 @@ import { MouseEvent, PointerEvent, useCallback, useEffect, useRef, useState } fr
 import { captureInboxSelectionModeEntered, InboxSelectionEntryMethod } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import {
+    isNestedControlClick,
     resolveReportCardClickIntent,
     SELECTION_HOLD_MOVE_TOLERANCE_PX,
     SELECTION_HOLD_MS,
@@ -112,6 +113,15 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
                 suppressClickRef.current = false
                 event.preventDefault()
                 event.stopPropagation()
+                return
+            }
+            // A modifier click on a link nested in the row, such as the scout's name, belongs to
+            // that link: Cmd or Ctrl opens it in a new tab. The link cannot keep the click for
+            // itself here, because a capture handler runs before the target's own handlers.
+            if (
+                (event.shiftKey || event.metaKey || event.ctrlKey) &&
+                isNestedControlClick(event.target, event.currentTarget)
+            ) {
                 return
             }
             const intent = resolveReportCardClickIntent(event, hasSelection)

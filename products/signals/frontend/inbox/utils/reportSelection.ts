@@ -25,6 +25,21 @@ export function resolveReportCardClickIntent(
     return hasSelection ? 'toggle' : 'open'
 }
 
+/** Controls a report row can nest inside its own link, such as the authoring scout's name. */
+const ROW_CONTROL_SELECTOR = 'a, button, [role="button"], input, select, textarea'
+
+/**
+ * True when a click landed on a control nested inside the row's own link. The row's link is the
+ * first control in the wrapper, so any other control is one the person aimed at directly.
+ */
+export function isNestedControlClick(target: EventTarget | null, wrapper: Element): boolean {
+    if (!(target instanceof Element)) {
+        return false
+    }
+    const clicked = target.closest(ROW_CONTROL_SELECTOR)
+    return clicked !== null && clicked !== wrapper.querySelector(ROW_CONTROL_SELECTOR)
+}
+
 /** True while the keyboard is in a field, where Esc belongs to the field and not to the list. */
 export function isTextEntryTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {

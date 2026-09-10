@@ -130,6 +130,27 @@ describe('ReportCard', () => {
         expect(lastSelectionEntry()).toMatchObject({ entry_method: entryMethod })
     })
 
+    it('leaves a cmd-click on the nested scout link to the browser', () => {
+        // The card rendered for every other test names no scout, so it carries no nested link.
+        cleanup()
+        render(
+            <ReportCard
+                report={{
+                    ...makeReport('r-2'),
+                    source_products: ['signals_scout'],
+                    scout_name: 'signals-scout-web-vitals',
+                }}
+                selectable
+            />
+        )
+        const scoutLink = screen.getByText('Web vitals').closest('a') as HTMLElement
+
+        // `fireEvent` returns false once anything calls `preventDefault`, which is what would
+        // cancel the browser's open-in-a-new-tab gesture.
+        expect(fireEvent.click(scoutLink, { metaKey: true })).toBe(true)
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
     it('selects from the gutter checkbox', () => {
         fireEvent.click(screen.getByLabelText('Select this report'))
 
