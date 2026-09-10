@@ -203,9 +203,9 @@ Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or bo
 - **`github_login`** — a **bare, lowercase GitHub login** (e.g. `octocat`, not `@OctoCat`).
   Internal assignment matches it against each user's linked GitHub login by exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS **team** slug, or an email won't set `is_suggested_reviewer` for anyone (autostart's PR-selection path is more lenient, but the assignment path is not).
 - **`user_uuid`** — a **PostHog user UUID**.
-  The server resolves it to that org member's linked GitHub login for you (and it wins if you also pass a `github_login`).
-  Use this whenever your evidence already names a PostHog user — an account owner, an entity's `created_by`, a CSM — so you can route to them without ever looking up their handle.
-  A `user_uuid` that isn't an org member of this team **with a linked GitHub identity** is rejected (the whole call fails), so it never silently drops.
+  The server resolves it to that org member. It wins if you also pass a `github_login`.
+  Use this whenever your evidence already names a PostHog user. It works without a linked GitHub account.
+  A `user_uuid` that is not an org member of this team is rejected, so it never silently drops.
 
 So you have two routes to a reviewer.
 If you already hold a PostHog user UUID, prefer passing it as `user_uuid` — it's the most reliable.
@@ -219,7 +219,7 @@ Otherwise resolve a `github_login`, cheapest source first:
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
    Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
 4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`, or hand the `user_uuid` straight through and let the server resolve it.
+   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.

@@ -51,6 +51,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
+from products.canvas.backend.models import Canvas
 from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -92,6 +93,7 @@ from products.tasks.backend.logic.services.network_policy import (
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
@@ -125,6 +127,11 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.repository_config_analytics import (
+    capture_repository_config_changed,
+    capture_space_context_changed,
+    repositories_differ,
+)
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
     task_control_q,
@@ -231,6 +238,7 @@ __all__ = [
     "resolve_task_run_preview_redirect",
     "task_run_preview_ready",
     "get_task_run_living_artifact",
+    "capture_context_wiki_changed",
     "capture_relay_command_telemetry",
     "PermissionResponseUnavailable",
     "validate_permission_response_target",
@@ -419,6 +427,7 @@ _TASK_RUN_LOG_URL_CACHE_TTL = 55 * 60
 
 _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
+        "ai_agent_name",
         "ai_stage",
         "auto_publish",
         "benjamin_enabled",
@@ -876,14 +885,22 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
       integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
       team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
-      entitled through self-driving (`product-autonomy`). A report task that resolved a
-      repository, or that carries the team integration for a repo-less discussion, is not
-      exempt, because `create_task` only gives it either after the gate passed. Re-checking
+      entitled through self-driving (`product-autonomy`). A discussion that resolved a
+      repository, or that carries the team integration while repo-less, is not exempt under
+      this shape, because `create_task` only gives it either after the gate passed. Re-checking
       here costs the caller nothing.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
       would turn the exemption into ungated cloud code work.
+    - ``SIGNAL_REPORT`` linked to a report in this team that also carries an ``implementation``
+      ``SignalReportTask`` row for this task (the Inbox "Create PR"). Such a task holds a
+      repository by design, so the repo-less shape above can never cover it. Auto-start opens the
+      same PR run for the same report from the server without consulting the gate, and
+      self-driving prices a PR flat and caps it per report, so gating the button would only make
+      the outcome depend on who started the run. ``record_report_task`` writes the row on both
+      paths. The relationship label is client input, but it counts only on a row scoped to this
+      team and to the report the task itself links, so asserting it buys nothing on its own.
 
     A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
     ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
@@ -905,6 +922,13 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
             repositories=[],
             github_integration__isnull=True,
             github_user_integration__isnull=True,
+        )
+        | Q(
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report__team_id=team_id,
+            signal_report_tasks__team_id=team_id,
+            signal_report_tasks__report_id=F("signal_report_id"),
+            signal_report_tasks__relationship="implementation",
         ),
         id=task_id,
         team_id=team_id,
@@ -1704,6 +1728,7 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_failed(error, error_type=error_type)
+        resume_workflow_step_for_run(run)
     return True
 
 
@@ -2250,6 +2275,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
+        # $ai_generation events. A PATCHable value would bill a caller's spend to another agent.
+        "ai_agent_name",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
         # PR, which is the exact forgery the stamp exists to prevent.
@@ -2680,6 +2708,14 @@ def update_task_run(
         # marking it failed or cancelled frees the per-run idempotency slot. The workflow and the
         # run's own agent write status through paths that do not pass through here.
         validated_data.pop("status")
+    if (
+        "status" in validated_data
+        and not caller_is_agent
+        and run.task.origin_product == Task.OriginProduct.WORKFLOW
+        and validated_data["status"] != TaskRun.Status.CANCELLED
+    ):
+        # A finished status wakes the workflow step with this run's output, so only the agent may set it.
+        validated_data.pop("status")
 
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
     has_state_merge = "state" in validated_data and isinstance(validated_data["state"], dict)
@@ -2700,9 +2736,11 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation or only_if_non_terminal:
+        if has_output_merge or has_state_mutation or only_if_non_terminal or "status" in validated_data:
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_non_terminal and run.is_terminal:
+            if validated_data.get("status") == run.status:
+                transaction.on_commit(lambda: resume_workflow_step_for_run(run))
             return _task_run_detail_to_dto(run)
         old_status = run.status
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
@@ -2755,6 +2793,16 @@ def update_task_run(
             update_fields.add("state")
 
         new_status = validated_data.get("status")
+        if (
+            caller_is_agent
+            and new_status == TaskRun.Status.COMPLETED
+            and old_status != new_status
+            and run.task.origin_product == Task.OriginProduct.WORKFLOW
+            and (run.state or {}).get("end_run_when_done")
+        ):
+            if isinstance(run.output, dict):
+                run.output = {key: value for key, value in run.output.items() if key != "final_message"}
+                update_fields.add("output")
         if new_status in _TERMINAL_TASK_RUN_STATUSES:
             if not run.completed_at:
                 run.completed_at = django_timezone.now()
@@ -2821,6 +2869,9 @@ def update_task_run(
     new_commit_head = _commit_push_head_sha(run.output)
     if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
         post_commits_pushed_thread_update(run, run.output["commit_push"])
+
+    if new_status in _TERMINAL_TASK_RUN_STATUSES:
+        resume_workflow_step_for_run(run)
 
     return _task_run_detail_to_dto(run)
 
@@ -5962,7 +6013,7 @@ def create_task(
     # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
     # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
     # resolves one only for a caller the Desktop gate passed: the run endpoint gates a
-    # repository-backed report task, so resolving for anyone else would 403 the very click this
+    # repository-backed discussion, so resolving for anyone else would 403 the very click this
     # path exists to unblock (see `task_exempt_from_code_access`).
     signal_report = validated_data.get("signal_report")
     if (
@@ -6076,6 +6127,23 @@ def create_task(
                 relationship=signal_report_task_relationship,
             )
 
+    # Only an override is a change. The inherited case is already counted by `task_created`.
+    if channel is not None and repositories_differ(channel.repositories, task.repositories):
+        capture_repository_config_changed(
+            team=team,
+            user_id=user_id,
+            subject="task",
+            trigger="task_created",
+            previous_repositories=channel.repositories,
+            repositories=task.repositories,
+            previous_integration_id=channel.github_integration_id,
+            integration_id=task.github_integration_id,
+            channel_id=str(channel.id),
+            task_id=str(task.id),
+            origin_product=task.origin_product,
+            space_repositories=channel.repositories,
+        )
+
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
 
@@ -6108,6 +6176,8 @@ def update_task(
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
+        previous_repositories = list(task.repositories or [])
+        previous_integration_id = task.github_integration_id
 
         # Repo and credential are immutable for code-access-exempt tasks: a mutable repo reopens the
         # gate (see task_exempt_from_code_access), and provisioning injects whatever integration is
@@ -6130,11 +6200,33 @@ def update_task(
         if "archived" in validated_data and validated_data["archived"] != task.archived:
             validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
 
+        repo_fields_touched = any(key in validated_data for key in ("repositories", "repository", "github_integration"))
         logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
         for key, value in validated_data.items():
             setattr(task, key, value)
         task.save()
         logger.info("Task %s updated successfully", task.id)
+
+    if repo_fields_touched:
+        space_repositories = (
+            Channel.objects.filter(id=task.channel_id).values_list("repositories", flat=True).first()
+            if task.channel_id
+            else None
+        )
+        capture_repository_config_changed(
+            team=task.team,
+            user_id=user_id,
+            subject="task",
+            trigger="task_settings_edit",
+            previous_repositories=previous_repositories,
+            repositories=task.repositories,
+            previous_integration_id=previous_integration_id,
+            integration_id=task.github_integration_id,
+            channel_id=str(task.channel_id) if task.channel_id else None,
+            task_id=str(task.id),
+            origin_product=task.origin_product,
+            space_repositories=space_repositories,
+        )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
@@ -8238,6 +8330,8 @@ def update_channel(
             if (name is not None or channel_type is not None) and _is_general_channel(channel):
                 return "general"
             update_fields: list[str] = []
+            previous_repositories = list(channel.repositories or [])
+            previous_integration_id = channel.github_integration_id
             if channel_type is not None and channel_type != channel.channel_type:
                 channel.channel_type = channel_type
                 update_fields.append("channel_type")
@@ -8258,9 +8352,21 @@ def update_channel(
             if not update_fields:
                 return _channel_to_dto(channel)
             channel.save(update_fields=[*update_fields, "updated_at"])
-            return _channel_to_dto(channel)
     except IntegrityError:
         return "name_taken"
+    if repositories is not None:
+        capture_repository_config_changed(
+            team=channel.team,
+            user_id=user_id,
+            subject="space",
+            trigger="space_settings_edit",
+            previous_repositories=previous_repositories,
+            repositories=channel.repositories,
+            previous_integration_id=previous_integration_id,
+            integration_id=channel.github_integration_id,
+            channel_id=str(channel.id),
+        )
+    return _channel_to_dto(channel)
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
@@ -8274,7 +8380,7 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
             return "general"
         if (
             channel.tasks.filter(deleted=False, archived=False).exists()
-            or channel.canvases.filter(deleted=False).exists()
+            or Canvas.objects.filter(channel=channel, deleted=False).exists()
         ):
             return "not_empty"
 
@@ -8539,6 +8645,41 @@ def loop_context_channel_id_for_task(task_id: str | UUID) -> str | None:
     return str(channel_id) if channel_id else None
 
 
+def capture_context_wiki_changed(
+    organization_id: str | UUID,
+    team_id: int,
+    channel_id: str | UUID,
+    user_id: int | None,
+    *,
+    actor_type: Literal["user_or_api", "task_agent", "loop_agent"],
+    is_first_version: bool,
+    content_bytes: int,
+    base_version_provided: bool,
+) -> bool:
+    channel = (
+        Channel.objects.unscoped()
+        .select_related("team")
+        .filter(id=channel_id, team_id=team_id, team__organization_id=organization_id)
+        .first()
+    )
+    if channel is None:
+        return False
+    capture_space_context_changed(
+        team=channel.team,
+        user_id=user_id,
+        channel_id=str(channel.id),
+        action="published",
+        source="user" if actor_type == "user_or_api" else "agent",
+        previous_version=None,
+        content_bytes=content_bytes,
+        base_version_provided=base_version_provided,
+        storage="context_wiki",
+        actor_type=actor_type,
+        is_first_version=is_first_version,
+    )
+    return True
+
+
 def publish_channel_instructions(
     channel_id: str | UUID,
     team_id: int,
@@ -8546,6 +8687,7 @@ def publish_channel_instructions(
     *,
     content: str,
     base_version: int | None = None,
+    source: Literal["user", "agent"] = "user",
 ) -> contracts.ChannelInstructionsDTO | None:
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
@@ -8560,6 +8702,7 @@ def publish_channel_instructions(
             .first()
         )
         current_version = current_latest.version if current_latest is not None else 0
+        previous_content_bytes = len(current_latest.content.encode("utf-8")) if current_latest is not None else None
         if base_version is not None and base_version != current_version:
             raise ChannelInstructionsVersionConflictError(current_version=current_version)
         if current_version >= MAX_CHANNEL_INSTRUCTIONS_VERSION:
@@ -8585,20 +8728,51 @@ def publish_channel_instructions(
             raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
 
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    capture_space_context_changed(
+        team=channel.team,
+        user_id=user_id,
+        channel_id=str(channel.id),
+        action="published",
+        source=source,
+        previous_version=current_version,
+        new_version=published.version,
+        content_bytes=len(content.encode("utf-8")),
+        previous_content_bytes=previous_content_bytes,
+        base_version_provided=base_version is not None,
+    )
     return _instructions_to_dto(published)
 
 
-def delete_channel_instructions(channel_id: str | UUID, team_id: int, user_id: int | None) -> int | None:
+def delete_channel_instructions(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, source: Literal["user", "agent"] = "user"
+) -> int | None:
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
             return None
+        previous_version = (
+            ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
+            .order_by("-version")
+            .values_list("version", flat=True)
+            .first()
+            or 0
+        )
         count = (
             ChannelInstructions.objects.select_for_update()
             .filter(channel_id=channel.id, deleted=False)
             .update(deleted=True, is_latest=False)
         )
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    if count:
+        capture_space_context_changed(
+            team=channel.team,
+            user_id=user_id,
+            channel_id=str(channel.id),
+            action="cleared",
+            source=source,
+            previous_version=previous_version,
+            versions_deleted=count,
+        )
     return count
 
 

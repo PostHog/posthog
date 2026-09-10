@@ -19,6 +19,7 @@ import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
 import type { AccountApi } from '../../generated/api.schemas'
 import { AccountDetailActions } from './AccountDetailActions'
+import { AccountPresence } from './AccountPresence'
 import { AccountSidebar } from './AccountSidebar'
 import {
     CustomerAnalyticsAccountSceneLogicProps,
@@ -96,7 +97,12 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                     type: 'cohort',
                     forceIcon: <AccountLogo domain={getAccountLogoDomain(account)} name={account.name} />,
                 }}
-                actions={<AccountDetailActions />}
+                actions={
+                    <>
+                        <AccountPresence />
+                        <AccountDetailActions />
+                    </>
+                }
             />
             <SceneDivider />
             <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto @min-[60rem]:-mt-4 @min-[60rem]:-ml-4">
