@@ -1186,7 +1186,7 @@ def is_embeddable_document(path: str) -> bool:
 CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
 
 
-def csp_enforcement_enabled(request) -> bool:
+def csp_enforcement_enabled(request: HttpRequest) -> bool:
     user = getattr(request, "user", None)
     distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
     if not distinct_id:
@@ -1212,7 +1212,7 @@ def csp_enforcement_enabled(request) -> bool:
         return False
 
 
-def app_csp_header_name(request) -> str:
+def app_csp_header_name(request: HttpRequest) -> str:
     if is_embeddable_document(request.path):
         return "Content-Security-Policy-Report-Only"
     if csp_enforcement_enabled(request):
@@ -1298,7 +1298,12 @@ class CSPMiddleware:
                     f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
-        elif getattr(response, "_posthog_canvas_artifact", False) and "Content-Security-Policy" in response.headers:
+        elif "Content-Security-Policy" in response.headers:
+            # The view picked this policy for this document: a canvas artifact runs untrusted code,
+            # and the workflow asset endpoint sandboxes captured email HTML. The app policy would
+            # drop that sandbox and impose a frame-ancestors list the app's own origin does not
+            # match. Adding it report-only is no better, because these documents never aim to
+            # satisfy it, so each load would report a violation of a policy we chose not to apply.
             return response
         else:
             resource_url = "https://*.posthog.com"
