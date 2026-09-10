@@ -1054,22 +1054,32 @@ def _facade_import_env(tree: ast.Module, product: str, model_names: _ModelNames)
     return _FacadeImportEnv(types=types, modules=modules, model_names=model_names)
 
 
-def _annotation_refs(node: ast.expr | None) -> list[tuple[str, str]]:
-    """(root name, named type) for every type an annotation names.
+@dataclass(frozen=True)
+class _TypeRef:
+    """One type an annotation names: the name bound at module level, and the type it names.
 
-    `QuerySet[Thing]` gives ('QuerySet', 'QuerySet') and ('Thing', 'Thing'); `models.QuerySet` gives
-    ('models', 'QuerySet'). A quoted annotation is parsed and read the same way. One that does not
-    parse is skipped, because this is a ratchet and not a proof.
+    `QuerySet[Thing]` gives (QuerySet, QuerySet) and (Thing, Thing); `models.QuerySet` gives
+    (models, QuerySet)."""
+
+    root: str
+    named: str
+
+
+def _annotation_refs(node: ast.expr | None) -> list[_TypeRef]:
+    """Every type an annotation names.
+
+    A quoted annotation is parsed and read the same way. One that does not parse is skipped,
+    because this is a ratchet and not a proof.
     """
     if node is None:
         return []
     if isinstance(node, ast.Name):
-        return [(node.id, node.id)]
+        return [_TypeRef(node.id, node.id)]
     if isinstance(node, ast.Attribute):
         root: ast.expr = node
         while isinstance(root, ast.Attribute):
             root = root.value
-        return [(root.id, node.attr)] if isinstance(root, ast.Name) else []
+        return [_TypeRef(root.id, node.attr)] if isinstance(root, ast.Name) else []
     if isinstance(node, ast.Constant):
         if not isinstance(node.value, str):
             return []
@@ -1101,8 +1111,8 @@ def _named_type(env: _FacadeImportEnv, root: str, named: str) -> _ForbiddenType 
 def _forbidden_types_in(env: _FacadeImportEnv, annotation: ast.expr | None) -> list[_ForbiddenType]:
     """Every forbidden type one annotation names, first occurrence kept."""
     found: dict[str, _ForbiddenType] = {}
-    for root, named in _annotation_refs(annotation):
-        forbidden = _named_type(env, root, named)
+    for ref in _annotation_refs(annotation):
+        forbidden = _named_type(env, ref.root, ref.named)
         if forbidden is not None:
             found.setdefault(forbidden.type_name, forbidden)
     return list(found.values())
@@ -1111,7 +1121,7 @@ def _forbidden_types_in(env: _FacadeImportEnv, annotation: ast.expr | None) -> l
 def _annotation_is_any(env: _FacadeImportEnv, annotation: ast.expr | None) -> bool:
     """True when the whole annotation is `Any`. `dict[str, Any]` is not: the data stays data."""
     refs = _annotation_refs(annotation)
-    return len(refs) == 1 and _named_type(env, *refs[0]) == _ANY
+    return len(refs) == 1 and _named_type(env, refs[0].root, refs[0].named) == _ANY
 
 
 def _is_sanctioned(product: str, forbidden: _ForbiddenType) -> bool:
