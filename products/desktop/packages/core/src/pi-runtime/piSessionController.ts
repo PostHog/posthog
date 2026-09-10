@@ -1193,6 +1193,9 @@ export class PiSessionController {
         ? "Model not available"
         : "Usage limit reached";
     }
+    if (failure.kind === "provider_credentials") {
+      return "AI provider credentials rejected";
+    }
     if (failure.kind === "transient") {
       return "Provider temporarily unavailable";
     }

@@ -151,6 +151,7 @@ export {
   isAuthError,
   isFatalSessionError,
   isNotAuthenticatedError,
+  isProviderCredentialError,
   isRateLimitError,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
