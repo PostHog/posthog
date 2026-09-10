@@ -38,7 +38,6 @@ class OIDCResponseTooLargeError(RequestException):
 
 
 OIDC_FETCH_TIMEOUT_SECONDS = 10
-OIDC_FETCH_MAX_BYTES = 1024 * 1024
 
 
 @frozen
@@ -212,13 +211,6 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
                     if response.is_redirect:
                         raise AuthFailed(self, "OIDC endpoint redirects are not supported.")
                     response.raise_for_status()
-
-                    content_length = response.headers.get("Content-Length")
-                    if content_length and content_length.isdigit() and int(content_length) > OIDC_FETCH_MAX_BYTES:
-                        raise OIDCResponseTooLargeError()
-
-                    if len(response.content) > OIDC_FETCH_MAX_BYTES:
-                        raise OIDCResponseTooLargeError()
 
                     return response
                 finally:

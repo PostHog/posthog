@@ -148,8 +148,8 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
 
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
-    if connect_from:
-        # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
+    if connect_from and backend == "github":
+        # For linking GitHub, keep the session and set the next URL to /account-connected/github-login
         # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
         query_dict["next"] = (
@@ -1284,6 +1284,28 @@ def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
         return None
 
     return request
+
+
+def social_identity_matches_session(
+    strategy: DjangoStrategy,
+    backend: Any,
+    details: dict[str, Any] | None = None,
+    user: User | None = None,
+    social: Any = None,
+    **kwargs: Any,
+) -> None:
+    request = strategy.request
+    if not request or not request.user.is_authenticated or social is not None:
+        return
+
+    identity_email = ((details or {}).get("email") or "").lower()
+    if user is None or user.pk != request.user.pk or identity_email != request.user.email.lower():
+        logger.warning(
+            "SSO identity mismatch for authenticated session",
+            backend=getattr(backend, "name", ""),
+            session_user_id=request.user.pk,
+        )
+        raise AuthFailed(backend, "reauth_user_mismatch")
 
 
 def social_reauth(

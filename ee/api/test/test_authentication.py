@@ -25,6 +25,7 @@ from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingP
 from social_django.models import UserSocialAuth
 from social_django.utils import load_strategy
 
+from posthog.api.authentication import social_identity_matches_session
 from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
@@ -642,6 +643,27 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("accounts.google.com", response.headers["Location"])
         self.assertEqual(self.client.session.session_key, session_key_before)
+
+    @patch("posthog.api.authentication.auth", return_value=redirect("/"))
+    def test_connect_from_oidc_flushes_the_authenticated_session(self, _mock_auth):
+        response = self.client.get("/login/oidc/?connect_from=posthog_code")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_authenticated_session_cannot_attach_a_different_social_identity(self):
+        request = RequestFactory().get("/complete/oidc/")
+        request.session = self.client.session
+        request.user = self.user
+        strategy = load_strategy(request)
+
+        with self.assertRaises(AuthFailed):
+            social_identity_matches_session(
+                strategy,
+                backend=cast(Any, "oidc"),
+                details={"email": "someone-else@example.com"},
+                user=None,
+            )
 
     @parameterized.expand(
         [
