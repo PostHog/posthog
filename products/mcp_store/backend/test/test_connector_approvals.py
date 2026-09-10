@@ -2,7 +2,7 @@ from dataclasses import replace
 from datetime import timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 
 from django.test import SimpleTestCase, override_settings
 
@@ -49,8 +49,8 @@ class TestConnectorApprovals(SimpleTestCase):
 
     def test_invalid_and_expired_tokens_fail_closed(self) -> None:
         assert not consume_connector_approval("forged", self.binding)
-        with freeze_time("2026-01-01T00:00:00Z") as clock:
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock:
             token = issue_connector_approval(self.binding)
             assert not consume_connector_approval(token + "changed", self.binding)
-            clock.tick(timedelta(seconds=CONNECTOR_APPROVAL_TTL_SECONDS + 1))
+            clock.shift(timedelta(seconds=CONNECTOR_APPROVAL_TTL_SECONDS + 1))
             assert not consume_connector_approval(token, self.binding)
