@@ -30,7 +30,12 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
-from posthog.rate_limit import AIObservabilityBackfillCreateThrottle, AIObservabilityBackfillEstimateThrottle
+from posthog.rate_limit import (
+    AIObservabilityBackfillCreateSustainedThrottle,
+    AIObservabilityBackfillCreateThrottle,
+    AIObservabilityBackfillEstimateSustainedThrottle,
+    AIObservabilityBackfillEstimateThrottle,
+)
 from posthog.temporal.ai_observability.evaluation_backfill import (
     BACKFILL_WORKFLOW_NAME,
     EvaluationBackfillInputs,
@@ -249,12 +254,20 @@ class EvaluationBackfillViewSet(
         ]
 
     def get_throttles(self) -> list[BaseThrottle]:
-        # Append, never replace: returning only this throttle would drop the global burst and
+        # Append, never replace: returning only these throttles would drop the global burst and
         # sustained limits from the two actions that run a ClickHouse count.
         if self.action == "estimate":
-            return [*super().get_throttles(), AIObservabilityBackfillEstimateThrottle()]
+            return [
+                *super().get_throttles(),
+                AIObservabilityBackfillEstimateThrottle(),
+                AIObservabilityBackfillEstimateSustainedThrottle(),
+            ]
         if self.action == "create":
-            return [*super().get_throttles(), AIObservabilityBackfillCreateThrottle()]
+            return [
+                *super().get_throttles(),
+                AIObservabilityBackfillCreateThrottle(),
+                AIObservabilityBackfillCreateSustainedThrottle(),
+            ]
         return super().get_throttles()
 
     def _evaluation_for_url(self) -> Evaluation:

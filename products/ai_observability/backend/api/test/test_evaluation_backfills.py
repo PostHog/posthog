@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,7 +20,12 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Project, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import AIObservabilityBackfillCreateThrottle, AIObservabilityBackfillEstimateThrottle
+from posthog.rate_limit import (
+    AIObservabilityBackfillCreateSustainedThrottle,
+    AIObservabilityBackfillCreateThrottle,
+    AIObservabilityBackfillEstimateSustainedThrottle,
+    AIObservabilityBackfillEstimateThrottle,
+)
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -125,6 +131,22 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
     def _stale_backfill(self, evaluation: Evaluation | None = None) -> EvaluationBackfill:
         return self._running_backfill(evaluation, age=BACKFILL_START_GRACE + timedelta(minutes=1))
+
+    # Guards the wiring and the bucket, not the rate: the team-wide throttle has to reach
+    # `get_throttles()`, and a second member of the project has to land in the same bucket, or the
+    # count these actions run scales with the number of members and keys again.
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
+    @patch("posthog.rate_limit.AIObservabilityBackfillEstimateSustainedThrottle.rate", new="1/hour")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_estimate_is_rate_limited_across_the_project(self, _enabled, _count):
+        cache.clear()
+        assert self.client.post(f"{self.url}/estimate/", _body(), format="json").status_code == status.HTTP_200_OK
+
+        second_member = User.objects.create_and_join(self.organization, "backfill-throttle@posthog.com", "testtest")
+        self.client.force_login(second_member)
+
+        throttled = self.client.post(f"{self.url}/estimate/", _body(), format="json")
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS, throttled.json()
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=42)
     def test_estimate_counts_without_creating_a_row(self, _count):
@@ -653,6 +675,26 @@ class TestBackfillThrottleBuckets(APIBaseTest):
         second = throttle.get_cache_key(_throttle_request(self.user, personal_api_key=second_key), view)
 
         assert len({session, first, second}) == 3
+
+    @parameterized.expand(
+        [
+            ("estimate", AIObservabilityBackfillEstimateSustainedThrottle),
+            ("create", AIObservabilityBackfillCreateSustainedThrottle),
+        ]
+    )
+    def test_the_sustained_bucket_is_one_per_project(self, _case, throttle_class):
+        other_user = User.objects.create_and_join(self.organization, "backfill-third@posthog.com", "testtest")
+        view = SimpleNamespace(team_id=self.team.id)
+        throttle = throttle_class()
+        key = self._personal_api_key("key-sustained")
+
+        keys = {
+            throttle.get_cache_key(_throttle_request(self.user), view),
+            throttle.get_cache_key(_throttle_request(other_user), view),
+            throttle.get_cache_key(_throttle_request(self.user, personal_api_key=key), view),
+        }
+
+        assert len(keys) == 1
 
     def _personal_api_key(self, label: str) -> str:
         key_value = generate_random_token_personal()
