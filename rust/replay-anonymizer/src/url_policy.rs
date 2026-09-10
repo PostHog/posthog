@@ -384,19 +384,21 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     }
 
     let original_query = original_query(raw);
-    let resized_query = shopify::normalize_image_size(&mut url, original_query);
-    let fetch_query = resized_query.as_deref().or(original_query);
     url.set_fragment(None);
     url.set_query(None);
     let serialized_without_query = url.to_string();
-    let fetch = serialize_with_query(&serialized_without_query, fetch_query);
+    let fetch = serialize_with_query(&serialized_without_query, original_query);
     // Percent-encoding and IDNA can grow a URL, so the cap is re-checked on what we emit.
     if fetch.len() > MAX_URL_LEN {
         return Err(Decline::TooLong);
     }
 
-    let dedup_query = remove_volatile_params(fetch_query)?;
-    let dedup = serialize_with_query(&serialized_without_query, dedup_query.as_deref());
+    let resized_query = shopify::normalize_image_size(&mut url, original_query);
+    let dedup_query = remove_volatile_params(resized_query.as_deref().or(original_query))?;
+    let dedup = serialize_with_query(url.as_str(), dedup_query.as_deref());
+    if dedup.len() > MAX_URL_LEN {
+        return Err(Decline::TooLong);
+    }
 
     Ok(CanonicalUrl {
         fetch,
@@ -723,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn shopify_resize_variants_share_a_fetch_url_and_global_identity() {
+    fn shopify_resize_variants_share_an_identity_and_keep_their_fetch_urls() {
         for (first, second, expected) in [
             (
                 "photo.jpg?v=123&width=300",
@@ -753,10 +755,13 @@ mod tests {
                 "https://cdn.shopify.com/s/files/1/0000/0001/files/",
                 "https://store.example.com/cdn/shop/files/",
             ] {
-                let first = canonicalize(&format!("{prefix}{first}")).unwrap();
-                let second = canonicalize(&format!("{prefix}{second}")).unwrap();
-                assert_eq!(first.fetch, format!("{prefix}{expected}"));
-                assert_eq!(first.fetch, second.fetch);
+                let first_url = format!("{prefix}{first}");
+                let second_url = format!("{prefix}{second}");
+                let first = canonicalize(&first_url).unwrap();
+                let second = canonicalize(&second_url).unwrap();
+                assert_eq!(first.fetch, first_url);
+                assert_eq!(second.fetch, second_url);
+                assert_eq!(first.dedup, format!("{prefix}{expected}"));
                 assert_eq!(first.dedup, second.dedup);
                 assert_eq!(canonicalize(&first.fetch).unwrap(), first);
             }

@@ -12,19 +12,19 @@ A usable candidate is an admitted HTTPS image URL or a supported base64 image da
 
 The policy recognises raster images on `cdn.shopify.com/s/files/<numeric store path>/{files,products,collections}/` and the Shopify storefront routes `/cdn/shop/{files,products,collections}/`. It keeps the hostname, store path, asset name, file extension, version, and other retained query bytes distinct.
 
-Recognised resizes use a consistent fetch size, which also determines the global identity:
+Recognised resizes use a consistent size in the dedup URL, which determines the global identity. The fetch URL retains its observed resize suffix and query bytes:
 
 - A `width` query without `height` becomes `width=1024`.
 - A `height` query without `width` becomes `height=1024`.
 - Uncropped legacy suffixes such as `_480x`, `_x480`, and `_480x480` use an integer scale with a longest requested side at most 1024. Two dimensions retain their exact requested ratio. Ratios that cannot fit at that size remain unchanged.
 - Legacy sizes `pico`, `icon`, `thumb`, `small`, `compact`, `medium`, `large`, and `grande` use a 1024-by-1024 bounding box.
-- A legacy `@2x` or `@3x` density suffix is absorbed into the consistent fetch size.
+- A legacy `@2x` or `@3x` density suffix is absorbed into the consistent dedup size.
 
-The policy changes the fetch URL as well as the identity. Otherwise, the first small thumbnail stored for a shared identity could determine the image used for every larger variant. Shopify does not enlarge an image beyond its original dimensions.
+The dedup URL is an identity input, not a fetch target. For example, `photo_480x.jpg` has a dedup suffix of `photo_1024x.jpg`, but the fetcher still requests `photo_480x.jpg`. Within a collection batch, the first observed variant supplies the fetch URL. Across batches, the first successfully stored variant can supply the image for later variants, including larger ones.
 
 Crop suffixes, crop parameters, and query URLs with both `width` and `height` remain unchanged. The crop result can depend on the original image bounds as well as the requested ratio. Unknown query fields, duplicate resize fields, invalid dimensions, and combined legacy/query resizing also keep their original resize values. `_480px` is not a recognised Shopify suffix.
 
-The fetch size is independent of the image scrubber's output size. The URL-image scrubber defaults to a 50,000-pixel output ceiling and can store less to satisfy its detection constraints. Scrubbing still applies to every fetched image.
+The normalised identity size does not set the fetch or output resolution. The URL-image scrubber defaults to a 50,000-pixel output ceiling and can store less to satisfy its detection constraints. Scrubbing still applies to every fetched image.
 
 See Shopify's [image_url](https://shopify.dev/docs/api/liquid/filters/image_url) and [legacy img_url](https://shopify.dev/docs/api/liquid/filters/img_url) contracts.
 
@@ -36,4 +36,4 @@ The existing volatile-query rules still apply. Admission checks run before size 
 
 ## Rollout
 
-The mirror and image fetcher use the same compiled Rust policy. Deploy both to obtain consistent producer deduplication and fetching. Existing queued jobs keep their original refs; the fetcher can normalise their current URLs. Existing stored refs remain readable, while newly collected size variants use their new shared identity.
+The mirror and image fetcher use the same compiled Rust policy. Deploy both to obtain consistent identity rules. Existing queued jobs keep their original refs and observed resize values. Existing stored refs remain readable, while newly collected size variants use their new shared identity.
