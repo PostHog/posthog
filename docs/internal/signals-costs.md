@@ -25,6 +25,7 @@ Only integer cents enter signal metadata or cross a stage boundary.
 `normalise_cost(model, spend)` is a passthrough hook for future pricing policy.
 `add_cost` applies it when recording spend; `merge_costs` combines amounts that were already normalized.
 Validation retries count every returned model response, not just the final accepted response.
+A failed activity attempt discards the spend it recorded, so a later retry omits those responses.
 The catalog cache expires after one hour, and an unpriced model raises rather than silently reporting zero.
 
 `TaskRun.get_current_spend()` is deliberately a placeholder returning zero token and compute cents.
