@@ -37,17 +37,6 @@ export function FeaturePreviewSceneGate({
     const settlingLogic = featurePreviewGateSettlingLogic({ flag: config.flag })
     const { settling } = useValues(settlingLogic)
     const { markServerCaughtUp } = useActions(settlingLogic)
-    // The product's own setup detection is the probe: once it has any real answer from the
-    // server, the enrollment window has closed and the wait has done its job. Gates without a
-    // product intent have no detection to listen to and just wait out the timer.
-    const { status: setupStatus } = useValues(
-        productSetupStatusLogic({ productKey: config.productIntent ?? ('' as ProductKey) })
-    )
-    useEffect(() => {
-        if (settling && setupStatus !== 'loading' && setupStatus !== 'unknown') {
-            markServerCaughtUp()
-        }
-    }, [settling, setupStatus, markServerCaughtUp])
 
     const isEnabled = featureFlags[config.flag as keyof typeof featureFlags]
     if (isEnabled && !settling) {
@@ -55,7 +44,38 @@ export function FeaturePreviewSceneGate({
     }
     // Only hold the enabling state once the flag is actually on locally; before that the gate
     // has nothing to wait for and should keep showing the toggle.
-    return <FeaturePreviewGateContent config={config} justEnrolled={settling && !!isEnabled} />
+    const justEnrolled = settling && !!isEnabled
+    return (
+        <>
+            {config.productIntent && settling && (
+                <SetupDetectionEarlyStop productKey={config.productIntent} onServerCaughtUp={markServerCaughtUp} />
+            )}
+            <FeaturePreviewGateContent config={config} justEnrolled={justEnrolled} />
+        </>
+    )
+}
+
+/**
+ * Watches the product's own setup detection while the gate settles: once detection has any real
+ * answer from the server, the enrollment window has closed and the wait has done its job. Lives
+ * in its own component so `productSetupStatusLogic` is only mounted with a real productKey -
+ * the keyed logic throws on a missing key, and gates without a product intent simply wait out
+ * the timer.
+ */
+function SetupDetectionEarlyStop({
+    productKey,
+    onServerCaughtUp,
+}: {
+    productKey: ProductKey
+    onServerCaughtUp: () => void
+}): null {
+    const { status: setupStatus } = useValues(productSetupStatusLogic({ productKey }))
+    useEffect(() => {
+        if (setupStatus !== 'loading' && setupStatus !== 'unknown') {
+            onServerCaughtUp()
+        }
+    }, [setupStatus, onServerCaughtUp])
+    return null
 }
 
 function FeaturePreviewGateContent({
