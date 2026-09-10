@@ -15,9 +15,6 @@ from posthog.permissions import IsStaffUserOrImpersonating, PostHogFeatureFlagPe
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.presentation.views.serializers import AccountOrganizationMemberSerializer
 
-# Whitelisted `ordering` values. `joined_at` is the index-backed default; `level` and `last_login`
-# sort one org's members in memory, which is cheap because the queryset is already narrowed to
-# `organization_id`. Each is paired with `-joined_at` as a tiebreaker so pagination stays stable.
 DEFAULT_ORDERING = "-joined_at"
 ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at", "level", "-level", "last_login", "-last_login"})
 
@@ -73,6 +70,7 @@ class OrganizationMembersForAccountViewSet(
         return queryset
 
     def _ordering(self) -> list:
+        """Whitelisted `ordering` param, nulls-last for last_login, `-joined_at` as the tiebreaker."""
         ordering = self.request.query_params.get("ordering") or DEFAULT_ORDERING
         if ordering not in ALLOWED_ORDERINGS:
             raise serializers.ValidationError({"ordering": f"Must be one of: {', '.join(sorted(ALLOWED_ORDERINGS))}."})
@@ -80,8 +78,6 @@ class OrganizationMembersForAccountViewSet(
             return [ordering]
         descending = ordering.startswith("-")
         field = F(ordering.lstrip("-"))
-        # Members who never logged in sort after everyone else when newest-first, and before them when
-        # oldest-first, so "never" reads as the extreme end of the list in both directions.
         primary = field.desc(nulls_last=True) if descending else field.asc(nulls_first=True)
         return [primary, DEFAULT_ORDERING]
 

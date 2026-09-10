@@ -72,8 +72,6 @@ const memberMatchesSearch = (member: AccountOrganizationMember, searchTerm: stri
     return `${first_name} ${last_name} ${email}`.toLowerCase().includes(normalizedSearch)
 }
 
-// Mirrors the backend's ordering: members who never logged in sit at the far end of the list in
-// either direction, and ties keep the view's joined-at order (the cached array is already newest-first).
 const compareMembers = (a: AccountOrganizationMember, b: AccountOrganizationMember, sorting: Sorting): number => {
     if (sorting.columnKey === 'level') {
         return (a.level - b.level) * sorting.order
@@ -255,14 +253,13 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                         })
                         breakpoint()
                         if (response.count > 0) {
+                            cache.isUsOrg = true
                             return {
                                 ...response,
                                 results: response.results.map((member) => ({ ...member, region: Region.US })),
                             }
                         }
-                        // An empty US page with a search or level filter active means "no match", not
-                        // "EU org" — only fall back when the unfiltered org really has no members here.
-                        if (!search && !levels) {
+                        if (!cache.isUsOrg) {
                             const euMembers = await fetchEuMembers(props.externalId)
                             breakpoint()
                             if (euMembers?.length) {

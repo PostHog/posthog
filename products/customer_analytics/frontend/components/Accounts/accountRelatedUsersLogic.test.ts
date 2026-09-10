@@ -132,7 +132,10 @@ describe('accountRelatedUsersLogic', () => {
     })
 
     it('sends selected access levels as a comma-separated levels param', async () => {
-        const listForOrg = jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(buildResponse([]))
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockResolvedValueOnce(buildResponse([buildMember()]))
+            .mockResolvedValueOnce(buildResponse([]))
         const query = jest.spyOn(api, 'query')
 
         logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
@@ -143,9 +146,8 @@ describe('accountRelatedUsersLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ page: 1 })
         expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0, levels: '15,8' })
-        // The unfiltered load already fell back to the EU view once; a level filter with no US
-        // matches must not trigger a second lookup.
-        expect(query).toHaveBeenCalledTimes(1)
+        // The org has US members, so an empty filtered page is "no match", not a reason to look in the EU view.
+        expect(query).not.toHaveBeenCalled()
     })
 
     it('does not load EU members when a US user search has no matches', async () => {
@@ -241,6 +243,29 @@ describe('accountRelatedUsersLogic', () => {
         expect(listForOrg).toHaveBeenCalledTimes(1)
         expect(query).toHaveBeenCalledTimes(1)
         expect(logic.values.membersResponse).toMatchObject({ count: 1, results: [{ id: 'eu-m-2' }] })
+    })
+
+    it('applies a filter set before the first load finishes to EU members', async () => {
+        jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(buildResponse([], 0))
+        const query = jest.spyOn(api, 'query').mockResolvedValue({
+            results: [
+                buildEuRow(1, OrganizationMembershipLevel.Member),
+                buildEuRow(2, OrganizationMembershipLevel.Admin),
+            ],
+        } as any)
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        logic.actions.setLevels([OrganizationMembershipLevel.Admin])
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.membersResponse).toMatchObject({ count: 1, results: [{ id: 'eu-m-2' }] })
+
+        logic.actions.setLevels([])
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(query).toHaveBeenCalledTimes(1)
+        expect(logic.values.membersResponse).toMatchObject({ count: 2 })
     })
 
     it('sorts and filters cached EU members client-side without refetching', async () => {

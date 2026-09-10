@@ -35,8 +35,7 @@ function ColumnValueFilterOverlay<V>({
                     onChange(
                         selected.includes(option.value)
                             ? selected.filter((value) => value !== option.value)
-                            : // Keep the menu's order rather than click order so the selection reads the same as the list.
-                              options
+                            : options
                                   .map(({ value }) => value)
                                   .filter((value) => selected.includes(value) || value === option.value)
                     ),

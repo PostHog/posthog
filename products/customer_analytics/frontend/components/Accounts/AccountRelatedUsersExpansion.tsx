@@ -15,7 +15,6 @@ import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
 
-// Highest access first, matching the table's default sort direction for the column.
 const LEVEL_FILTER_OPTIONS = [
     OrganizationMembershipLevel.Owner,
     OrganizationMembershipLevel.Admin,
@@ -131,7 +130,6 @@ export function AccountRelatedUsersExpansion({
                 columns={columns}
                 sorting={sorting}
                 onSort={setSorting}
-                // Sorting is per expanded row and the accounts URL already carries the list's view state.
                 useURLForSorting={false}
                 pagination={{
                     controlled: true,
