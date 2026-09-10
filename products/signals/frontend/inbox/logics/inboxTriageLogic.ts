@@ -3,13 +3,13 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { canCreateImplementationPr } from '../components/detail/ReportDetailActions'
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport } from '../types'
+import { canCreateImplementationPr } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
@@ -75,23 +75,9 @@ export interface inboxTriageLogicActions {
     } // inboxTaskKickoffLogic
     dismissReport: (
         reportId: string,
-        reason:
-            | 'already_fixed'
-            | 'analysis_wrong'
-            | 'other'
-            | 'report_unclear'
-            | 'wontfix_intentional'
-            | 'wontfix_irrelevant',
-        note: string
+        dismissal: import('../utils/dismissalReasons').DismissalFeedback
     ) => {
-        note: string
-        reason:
-            | 'already_fixed'
-            | 'analysis_wrong'
-            | 'other'
-            | 'report_unclear'
-            | 'wontfix_intentional'
-            | 'wontfix_irrelevant'
+        dismissal: import('../utils/dismissalReasons').DismissalFeedback
         reportId: string
     } // reportListLogic
     ensureLoaded: () => {
@@ -375,17 +361,23 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 openDismissReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
                     hotkeys: true,
-                    onConfirm: ({ reason, note }) => {
+                    onConfirm: (dismissal) => {
                         // The structured reason plus the user's note, matching the list-card dismiss
                         // path so the dismiss analytics read the same from every surface.
                         captureInboxReportAction({
                             report,
                             actionType: 'dismiss',
                             surface: 'triage_mode',
-                            extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
+                            extra: {
+                                dismissal_reason: dismissal.reason,
+                                ...(dismissal.note ? { dismissal_note: dismissal.note } : {}),
+                                ...(dismissal.correctedRepository
+                                    ? { dismissal_corrected_repository: dismissal.correctedRepository }
+                                    : {}),
+                            },
                         })
                         // The list logic drops the row optimistically, so the next report takes this index.
-                        actions.dismissReport(report.id, reason, note)
+                        actions.dismissReport(report.id, dismissal)
                     },
                 })
             },

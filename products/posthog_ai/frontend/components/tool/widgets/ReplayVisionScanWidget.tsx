@@ -5,6 +5,7 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from 'products/replay_vision/frontend/generated/api.schemas'
+import { flattenMarkdownToLine } from 'products/replay_vision/frontend/utils/markdown'
 import {
     readErrorMessage,
     readReasoning,
@@ -98,9 +99,10 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
         )
     }
 
-    // Summarizers write a title and a body; a monitor scan on the same widget has reasoning instead.
+    // Summarizers write a title and a body; a monitor scan has reasoning, which can carry markdown.
     const title = readTitle(observation)
-    const body = readSummary(observation) ?? readReasoning(observation)
+    const reasoning = readReasoning(observation)
+    const body = readSummary(observation) ?? (reasoning ? flattenMarkdownToLine(reasoning) : null)
 
     return (
         <div className="px-3 py-2 text-sm">

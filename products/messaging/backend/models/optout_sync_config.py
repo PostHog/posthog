@@ -4,7 +4,7 @@ from posthog.models.team import Team
 
 
 class OptOutSyncConfig(models.Model):
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+")
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     # Step 1: App API import
     app_integration = models.ForeignKey(

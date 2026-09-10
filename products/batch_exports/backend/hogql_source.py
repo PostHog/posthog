@@ -51,10 +51,12 @@ def create_hogql_context_for_batch_export(team: "Team", values: dict[str, typing
     """Build the HogQLContext batch exports use to resolve and print a query.
 
     Both API-side validation and worker-side execution must build the context the same
-    way (team-default modifiers, full database, no top-level LIMIT), otherwise a query
-    that validates could resolve differently when it runs. This builder is the single
-    source of truth for those semantics. It reads from Postgres, so worker code must
-    call it off the event loop.
+    way, otherwise a query that validates could resolve differently when it runs. This
+    builder is the single source of truth for those semantics: the database is built
+    with team-default modifiers, the context keeps plain default modifiers for printing
+    (`Database.create_for` team-defaults a copy, not this context's instance), and no
+    top-level LIMIT is applied. It reads from Postgres, so worker code must call it off
+    the event loop.
     """
     context = HogQLContext(
         team=team,

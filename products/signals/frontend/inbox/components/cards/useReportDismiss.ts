@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport } from '../../types'
-import { DismissalReasonValue } from '../../utils/dismissalReasons'
+import { DismissalFeedback, suppressDismissalPayload } from '../../utils/dismissalReasons'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 
 /**
@@ -28,7 +28,7 @@ export function useReportDismiss({
     report?: SignalReport | null
     /** Which surface the dismiss was triggered from, for the `dismiss` analytics. */
     surface?: InboxReportActionSurface
-    onDismiss?: (reason: DismissalReasonValue, note: string) => void
+    onDismiss?: (dismissal: DismissalFeedback) => void
     /** Fired once the report is dismissed (after `onDismiss`, or after the fallback API call succeeds). */
     onDismissed?: () => void
 }): { isDismissing: boolean; onDismissClick: (event: React.MouseEvent) => void } {
@@ -39,17 +39,22 @@ export function useReportDismiss({
         event.stopPropagation()
         openDismissReportDialog({
             reportTitle: cardTitle,
-            onConfirm: async ({ reason, note }) => {
+            onConfirm: async (dismissal) => {
+                const { reason, note, correctedRepository } = dismissal
                 // The structured reason plus the user's note — the note is the actionable signal
                 // we want for tuning the agent, so it rides along with the dismiss event.
                 captureInboxReportAction({
                     report: report ?? null,
                     actionType: 'dismiss',
                     surface: surface ?? 'list_row',
-                    extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
+                    extra: {
+                        dismissal_reason: reason,
+                        ...(note ? { dismissal_note: note } : {}),
+                        ...(correctedRepository ? { dismissal_corrected_repository: correctedRepository } : {}),
+                    },
                 })
                 if (onDismiss) {
-                    onDismiss(reason, note)
+                    onDismiss(dismissal)
                     onDismissed?.()
                     return
                 }
@@ -58,8 +63,7 @@ export function useReportDismiss({
                 try {
                     await api.signalReports.setState(reportId, {
                         state: 'suppressed',
-                        dismissal_reason: reason,
-                        ...(note ? { dismissal_note: note } : {}),
+                        ...suppressDismissalPayload(dismissal),
                     })
                     onDismissed?.()
                 } finally {

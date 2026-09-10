@@ -19,10 +19,10 @@ class PreferenceStatus(models.TextChoices):
 
 
 class MessageRecipientPreference(UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     identifier = models.CharField(max_length=512)
     preferences = models.JSONField(default=dict)

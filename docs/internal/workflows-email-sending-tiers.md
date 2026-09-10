@@ -24,7 +24,6 @@ Django (`posthog/settings/web.py`):
 - `WORKFLOWS_EMAIL_TIER_MODE`: `off` (default), `shadow`, or `enforce`. Unrecognized values read as `off`.
 - `WORKFLOWS_EMAIL_TIER_HOURLY_CAPS`, `WORKFLOWS_EMAIL_TIER_DAILY_CAPS`, `WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS`: comma-separated tables indexed by tier. The shortest table decides the tier count.
 - `WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER`: per-tier dwell before promotion, comma-separated, clamped to the last entry.
-- `WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER`: ISO date. Empty enforces every team; a valid date enforces only teams created on or after it; an unparseable value enforces nobody, so a typo narrows instead of widening.
 - Promotion and demotion knobs: `WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS` (promotion window), `WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS`, `WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS` (keep at least as long as the demotion window), `WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS` (0 disables decay), `WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS`, `WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO`, `WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE`, `WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE`, `WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS`, `WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP`, `WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS`.
 - `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS`: the pre-tier allowlist. It overrides the tier entirely, so a saved tier does nothing for a listed team.
 
@@ -32,7 +31,6 @@ Worker (`nodejs/src/cdp/config.ts`):
 
 - `EMAIL_TEAM_SENDING_CAP_MODE`: `off` (default), `shadow`, or `enforce`.
 - `EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER`, `EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER`: must mirror the Django tables. An unusable table turns the cap off rather than applying a wrong number.
-- `EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER`: same three-state semantics as the Django cutoff, except that empty caps every team and an unparseable value caps nobody.
 
 All of these reach production as environment variables through `posthog/charts` (with any secret values via `posthog/secrets`).
 None of them are wired there yet; the charts change is part of turning the rollout mode on, not part of merging the code.
@@ -43,12 +41,15 @@ In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-da
 Rates only count on a meaningful denominator; below the complaint floor, the absolute complaint backstop still applies, including in windows with no sends.
 Pinned teams never move automatically.
 
+While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
+Decay, suspension drops, admin recomputes, and the backfill stay silent.
+
 ## Rollout order
 
 1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.
 2. Run `python manage.py backfill_workflows_email_sending_tiers` per region, read the printed distribution, then re-run with `--apply`. This lands established senders on their earned tier in one step.
 3. Set both modes to `shadow` via charts. Nothing is delayed; would-be delays log and count in `cdp_team_email_cap_delayed_total{mode="shadow"}`. Watch that against real traffic.
-4. Set both modes to `enforce`, optionally with the created-after cutoffs so only new projects are enforced first. The Reputation tab's allowance card appears for enforced teams at this point.
+4. Set both modes to `enforce`. Enforcement applies to every team at once; the Reputation tab's allowance card appears at this point.
    Never set the Django mode to `enforce` on a deployment whose email worker does not carry the send-time caps: the batch audience cap alone can be sidestepped by editing a workflow while a batch is queued, and the send-time buckets are what bound that.
 5. To back out, set the modes back to `off`; the tiers keep computing and nothing else changes.
 
@@ -58,3 +59,4 @@ Pinned teams never move automatically.
 - Test-panel sends bypass the team buckets on purpose, matching the per-workflow rate limit.
 - The buckets are token buckets: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTLs exceed the refill periods so this does not recur from idling.
 - Gmail provides no per-message feedback loop, so complaint rates (ours and AWS's) cannot see Gmail complaints at all.
+- The `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS` allowlist elevates a team to the top tier in Django only: the UI, the admin, and the batch audience cap show top-tier numbers, but the worker's send-time buckets read the stored tier. An allowlisted team below the top tier is therefore throttled at its stored tier while being told otherwise, and its shadow-mode delay counts overstate real impact. Before enforcing, pin each allowlisted team at the top tier from the Django admin and empty the allowlist, rather than plumbing the list into the worker.

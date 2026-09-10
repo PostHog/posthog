@@ -118,6 +118,28 @@ describe('composerModels', () => {
         expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Codex)).toEqual([])
     })
 
+    it('uses GPT-6 Astra at Max as the smartest Codex rung', () => {
+        const catalogue: ModelChoiceApi[] = [
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-5.6-sol',
+                display_name: 'GPT-5.6 Sol',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-6-astra',
+                display_name: 'GPT-6 Astra',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+        ]
+
+        expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Codex).at(-1)).toEqual({
+            model: 'gpt-6-astra',
+            effort: ReasoningEffortEnumApi.Max,
+        })
+    })
+
     // The picker groups by harness and offers one row per runtime, so both have to come off the catalogue rather
     // than a hardcoded list — a runtime the gateway stops serving must stop being offered.
     it("derives the harness list and each harness's models from the catalogue", () => {

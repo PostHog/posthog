@@ -104,7 +104,7 @@ def describe_metric_definition(query: Any, *, series_index: int = 0) -> str:
 
 
 def _describe(query: Any, series_index: int) -> str:
-    source = _unwrap(query)
+    source = unwrap_query_source(query)
     if not source:
         return UNAVAILABLE
 
@@ -126,7 +126,7 @@ def _describe(query: Any, series_index: int) -> str:
     return "\n".join(lines)
 
 
-def _unwrap(query: Any) -> dict[str, Any] | None:
+def unwrap_query_source(query: Any) -> dict[str, Any] | None:
     """Peel InsightVizNode/DataTable/DataVisualization wrappers off the stored query."""
     current = query
     for _ in range(len(_WRAPPER_KINDS) + 1):

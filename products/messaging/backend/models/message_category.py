@@ -9,10 +9,10 @@ class MessageCategoryType(models.TextChoices):
 
 
 class MessageCategory(UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     key = models.CharField(max_length=64)
     name = models.CharField(max_length=128)

@@ -26,6 +26,7 @@ services:
             - 'capture:host-gateway'
             - 'capture-ai:host-gateway'
             - 'capture-logs:host-gateway'
+            - 'capture-apm-metrics:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
             - 'hypercache-server:host-gateway'
@@ -62,7 +63,12 @@ services:
                     @capture-logs {
                         path /i/v1/logs
                         path /i/v1/traces
+                    }
+
+                    @capture-apm-metrics {
                         path /i/v1/metrics
+                        path /i/v1/prometheus/write
+                        path /i/v1/prometheus/write/*
                     }
 
                     @flags {
@@ -102,6 +108,10 @@ services:
 
                     handle @capture-logs {
                         reverse_proxy capture-logs:4320
+                    }
+
+                    handle @capture-apm-metrics {
+                        reverse_proxy capture-apm-metrics:4321
                     }
 
                     handle @replay-capture {
@@ -191,7 +201,7 @@ services:
             # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
             CDP_REDIS_HOST: redis7
             CDP_VALKEY_HOST: valkey-cluster
-            CDP_VALKEY_PORT: 6379
+            CDP_VALKEY_PORT: 6390
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
             # PersonHog is required for CDP — point at the local gRPC router
@@ -428,21 +438,26 @@ services:
         image: valkey/valkey:8.1-alpine
         restart: on-failure
         ports:
-            - '127.0.0.1:6390:6379'
+            - '127.0.0.1:6390:6390'
         command:
             - /bin/sh
             - -ec
             - |
-                valkey-server --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
+                # 6390 inside the container as well as on the host, so the port CLUSTER SLOTS
+                # announces is right for both. It announces no address, which every cluster
+                # client reads as "the one you reached me on", so a host client stays on
+                # 127.0.0.1 and a container client stays on valkey-cluster. Announcing an
+                # address instead would name one of those two and break the other.
+                valkey-server --port 6390 --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
                 pid=$$!
-                until valkey-cli ping >/dev/null 2>&1; do sleep 0.1; done
-                valkey-cli cluster addslots $$(seq 0 16383)
+                until valkey-cli -p 6390 ping >/dev/null 2>&1; do sleep 0.1; done
+                valkey-cli -p 6390 cluster addslots $$(seq 0 16383)
                 wait $$pid
         healthcheck:
             test:
                 [
                     'CMD-SHELL',
-                    'valkey-cli cluster info | grep -q cluster_state:ok && test "$$(valkey-cli cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384',
+                    'valkey-cli -p 6390 cluster info | grep -q cluster_state:ok && test "$$(valkey-cli -p 6390 cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384',
                 ]
             interval: 2s
             timeout: 3s
@@ -570,41 +585,23 @@ services:
                         exit 1
                     fi
                 done
-                # The combined analytics ingestion consumer checks topic existence at
-                # startup for every output it produces to (see analytics/outputs/registry.ts).
-                # Auto-create only fires on producer-first writes, so pre-create them here.
-                TOPICS="document_embeddings_input \
-                    document_embedding_results \
-                    error_tracking_ingestion_notifications \
-                    clickhouse_events_json \
-                    clickhouse_ai_events_json \
-                    clickhouse_heatmap_events \
-                    clickhouse_flag_evaluations \
-                    clickhouse_ingestion_warnings \
-                    events_plugin_ingestion_ai \
-                    events_plugin_ingestion_dlq \
-                    events_plugin_ingestion_overflow \
-                    events_plugin_ingestion_async \
-                    ingestion-clientwarnings-main-1 \
-                    heatmaps_ingestion \
-                    clickhouse_groups \
-                    clickhouse_person \
-                    clickhouse_person_distinct_id \
-                    clickhouse_app_metrics2 \
-                    log_entries \
-                    clickhouse_property_values \
-                    clickhouse_tophog \
-                    clickhouse_billing_usage_records"
+                # The topic list is docker/kafka/topics.txt, mounted below. It is a
+                # shared file rather than a literal here so a test can check it against the
+                # Kafka tables in schema.py; that header explains what needs pre-creating.
+                TOPICS=$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' /topics.txt)
+                EXISTING=$$(rpk topic list --brokers kafka:9092 | awk '{print $$1}')
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created"
-                    elif rpk topic list --brokers kafka:9092 | grep -q "$$topic"; then
+                    elif echo "$$EXISTING" | grep -qx "$$topic"; then
                         echo "Topic $$topic already exists"
                     else
                         echo "Failed to create topic $$topic"
                         exit 1
                     fi
                 done
+        volumes:
+            - ./docker/kafka/topics.txt:/topics.txt:ro
         depends_on:
             kafka:
                 condition: service_healthy
@@ -689,9 +686,9 @@ services:
             db:
                 condition: service_healthy
         environment:
-            # Mode 2: Dual-write warming phase for developers
             FLAGS_REDIS_URL: 'redis://redis7:6379/1'
-            FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
+            # The /flags/definitions reader stays on shared Redis unless
+            # FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED is set.
             REDIS_COMPRESSION_ENABLED: 'true'
             INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
 
@@ -707,6 +704,10 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            valkey-cluster:
+                condition: service_healthy
+        environment:
+            USAGE_INGESTION_REDIS_URL: 'redis://valkey-cluster:6390'
         # Keeps a bare `up` from building an image that is not published yet.
         profiles:
             - ingestion

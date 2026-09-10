@@ -7,22 +7,25 @@
 //! topics and serializes for itself.
 
 use async_trait::async_trait;
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, gauge};
 use tracing::instrument;
 use tracing::log::error;
 
 use crate::api::CaptureError;
-use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 
 /// The leaf produce contract: run prep, publish, and fold internally and
 /// report the v0 whole-request result, so no caller sees a two-phase
 /// protocol.
+///
+/// `pub` rather than `pub(crate)` because the integration suites in
+/// `tests/` stand their own capturing sinks in as output leaves; there is
+/// no other reason to implement it outside this crate.
 #[async_trait]
-pub(crate) trait PublishEvents: Send + Sync {
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError>;
-
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
+pub trait PublishEvents: Send + Sync {
+    /// One method for any batch size: a backend that serves a one-event
+    /// batch more cheaply specializes inside its own impl.
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
 
     fn flush(&self) -> Result<(), anyhow::Error> {
         Ok(())
@@ -39,7 +42,7 @@ enum Inner {
 }
 
 impl Output {
-    pub(crate) fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
+    pub fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
         Self {
             inner: Inner::Single(Box::new(leaf)),
         }
@@ -74,17 +77,10 @@ impl Output {
 // future type.
 #[async_trait]
 impl PublishEvents for Output {
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         match &self.inner {
-            Inner::Single(leaf) => leaf.publish_one(event).await,
-            Inner::Failover(failover) => failover.publish_one(event).await,
-        }
-    }
-
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        match &self.inner {
-            Inner::Single(leaf) => leaf.publish_batch(events).await,
-            Inner::Failover(failover) => failover.publish_batch(events).await,
+            Inner::Single(leaf) => leaf.publish_events(events).await,
+            Inner::Failover(failover) => failover.publish_events(events).await,
         }
     }
 
@@ -111,44 +107,23 @@ impl Failover {
     }
 
     #[instrument(skip_all)]
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let healthy = self.primary_is_healthy();
         gauge!("capture_primary_sink_health").set(if healthy { 1.0 } else { 0.0 });
 
         if healthy {
-            match self.primary.publish_one(event.clone()).await {
+            match self.primary.publish_events(events.clone()).await {
                 Ok(()) => Ok(()),
                 Err(CaptureError::RetryableSinkError) => {
                     error!("Primary output failed, falling back");
                     counter!("capture_fallback_sink_failovers_total").increment(1);
-                    self.fallback.publish_one(event).await
+                    self.fallback.publish_events(events).await
                 }
                 Err(e) => Err(e),
             }
         } else {
             counter!("capture_fallback_sink_failovers_total").increment(1);
-            self.fallback.publish_one(event).await
-        }
-    }
-
-    #[instrument(skip_all)]
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let healthy = self.primary_is_healthy();
-        gauge!("capture_primary_sink_health").set(if healthy { 1.0 } else { 0.0 });
-
-        if healthy {
-            match self.primary.publish_batch(events.clone()).await {
-                Ok(()) => Ok(()),
-                Err(CaptureError::RetryableSinkError) => {
-                    error!("Primary output failed, falling back");
-                    counter!("capture_fallback_sink_failovers_total").increment(1);
-                    self.fallback.publish_batch(events).await
-                }
-                Err(e) => Err(e),
-            }
-        } else {
-            counter!("capture_fallback_sink_failovers_total").increment(1);
-            self.fallback.publish_batch(events).await
+            self.fallback.publish_events(events).await
         }
     }
 
@@ -170,22 +145,20 @@ impl OutputRegistry {
     pub fn new(output: Output) -> Self {
         Self { output }
     }
-}
 
-/// Transitional facade serving the `Event` call sites from the registry.
-#[async_trait]
-impl Event for OutputRegistry {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        histogram!("capture_event_batch_size").record(1.0);
-        self.output.publish_one(event).await
+    pub fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
+        Self::new(Output::single(leaf))
     }
 
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        histogram!("capture_event_batch_size").record(events.len() as f64);
-        self.output.publish_batch(events).await
+    /// Per-event failures collapse to a whole-request `CaptureError`.
+    ///
+    /// Callers record `capture_event_batch_size` themselves: batch size is a
+    /// property of the request, not of the output it lands on.
+    pub async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.output.publish_events(events).await
     }
 
-    fn flush(&self) -> Result<(), anyhow::Error> {
+    pub fn flush(&self) -> Result<(), anyhow::Error> {
         self.output.flush()
     }
 }
@@ -203,11 +176,7 @@ mod tests {
 
     #[async_trait]
     impl PublishEvents for FailLeaf {
-        async fn publish_one(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-            Err(self.0.clone())
-        }
-
-        async fn publish_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
             Err(self.0.clone())
         }
     }
@@ -257,17 +226,11 @@ mod tests {
         );
 
         output
-            .publish_one(test_event())
+            .publish_events(vec![test_event(), test_event()])
             .await
-            .expect("Failed to send event");
+            .expect("Failed to publish batch");
 
-        let batch = vec![test_event(), test_event()];
-        output
-            .publish_batch(batch)
-            .await
-            .expect("Failed to send batch");
-
-        assert_eq!(fallback.get_events().len(), 3);
+        assert_eq!(fallback.get_events().len(), 2);
     }
 
     #[tokio::test]
@@ -279,13 +242,9 @@ mod tests {
         );
 
         assert!(matches!(
-            output.publish_one(test_event()).await,
-            Err(CaptureError::RetryableSinkError)
-        ));
-
-        let batch = vec![test_event(), test_event()];
-        assert!(matches!(
-            output.publish_batch(batch).await,
+            output
+                .publish_events(vec![test_event(), test_event()])
+                .await,
             Err(CaptureError::RetryableSinkError)
         ));
     }
@@ -300,11 +259,7 @@ mod tests {
         );
 
         assert!(matches!(
-            output.publish_one(test_event()).await,
-            Err(CaptureError::NonRetryableSinkError)
-        ));
-        assert!(matches!(
-            output.publish_batch(vec![test_event()]).await,
+            output.publish_events(vec![test_event()]).await,
             Err(CaptureError::NonRetryableSinkError)
         ));
 
@@ -345,7 +300,7 @@ mod tests {
 
         kafka_handle.report_healthy();
         tokio::time::sleep(Duration::from_millis(100)).await;
-        output.publish_one(test_event()).await.unwrap();
+        output.publish_events(vec![test_event()]).await.unwrap();
         assert_eq!(
             (primary.get_events().len(), fallback.get_events().len()),
             (1, 0),
@@ -354,7 +309,7 @@ mod tests {
 
         // Let the advisory handle's deadline expire without calling report_healthy
         tokio::time::sleep(Duration::from_millis(400)).await;
-        output.publish_one(test_event()).await.unwrap();
+        output.publish_events(vec![test_event()]).await.unwrap();
         assert_eq!(
             (primary.get_events().len(), fallback.get_events().len()),
             (1, 1),
@@ -363,7 +318,7 @@ mod tests {
 
         kafka_handle.report_healthy();
         tokio::time::sleep(Duration::from_millis(100)).await;
-        output.publish_one(test_event()).await.unwrap();
+        output.publish_events(vec![test_event()]).await.unwrap();
         assert_eq!(
             (primary.get_events().len(), fallback.get_events().len()),
             (2, 1),
@@ -372,13 +327,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn registry_facade_serves_event_call_sites() {
+    async fn registry_publishes_to_its_output() {
         let leaf = MockSink::new();
-        let registry = OutputRegistry::new(Output::single(leaf.clone()));
+        let registry = OutputRegistry::single(leaf.clone());
 
-        registry.send(test_event()).await.unwrap();
+        registry.publish(vec![test_event()]).await.unwrap();
         registry
-            .send_batch(vec![test_event(), test_event()])
+            .publish(vec![test_event(), test_event()])
             .await
             .unwrap();
 

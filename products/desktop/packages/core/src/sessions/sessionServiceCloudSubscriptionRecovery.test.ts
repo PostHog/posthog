@@ -146,6 +146,19 @@ describe("SessionService cloud subscription recovery", () => {
     vi.useRealTimers();
   });
 
+  it("keeps permanent token errors on focus and manual retry", async () => {
+    const { service, sessions, store } = createHarness();
+    Object.assign(sessions[RUN_ID], {
+      status: "error",
+      errorRetryable: false,
+      errorTitle: "Claude token unavailable",
+    });
+    service.retryUnhealthyCloudSessions();
+    await service.retryCloudTaskWatch(TASK_ID);
+    expect(store.updateSession).not.toHaveBeenCalled();
+    expect(sessions[RUN_ID].errorTitle).toBe("Claude token unavailable");
+  });
+
   it("rebuilds the subscription and re-issues watch after a subscription error", async () => {
     const { service, subscriptions, watchMutate } = createHarness();
     watchTask(service);

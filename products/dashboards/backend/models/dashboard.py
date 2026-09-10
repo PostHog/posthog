@@ -25,7 +25,14 @@ DASHBOARD_GRID_SPACING_GAPS = {
     "wide": 48,
 }
 
-DASHBOARD_GRID_COMPACTION_MODES = ("vertical", "horizontal", "stable")
+
+class LayoutCompaction(models.TextChoices):
+    VERTICAL = "vertical", "vertical"
+    HORIZONTAL = "horizontal", "horizontal"
+    STABLE = "stable", "stable"
+
+
+DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
 
 
 class DashboardManager(RootTeamManager):
@@ -56,7 +63,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pinned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")

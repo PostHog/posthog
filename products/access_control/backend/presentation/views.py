@@ -101,6 +101,8 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
             raise PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
+        if not self.user_access_control.check_can_modify_access_levels_for_object(self.team):
+            raise PermissionDenied()
 
         serializer = PropertyAccessControlUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -159,6 +161,8 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
             raise PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
+        if not self.user_access_control.check_can_modify_access_levels_for_object(self.team):
+            raise PermissionDenied()
 
         serializer = PropertyAccessControlDeleteSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)

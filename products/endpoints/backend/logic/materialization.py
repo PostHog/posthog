@@ -174,6 +174,9 @@ class EndpointMaterializationService:
         """
         try:
             self._enable_materialization_inner(endpoint, version, data_freshness_seconds, bucket_overrides)
+            # The throttle may hold a not-ready snapshot cached before the enable. Drop it so the
+            # first completed run is picked up on the next request, not when the entry expires.
+            clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
             if version.saved_query:
                 log_activity(
