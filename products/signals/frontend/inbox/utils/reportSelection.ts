@@ -45,5 +45,11 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
         return false
     }
-    return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+    if (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+        return true
+    }
+    if (target instanceof HTMLInputElement) {
+        return !['button', 'checkbox', 'color', 'file', 'radio', 'range', 'reset', 'submit'].includes(target.type)
+    }
+    return false
 }

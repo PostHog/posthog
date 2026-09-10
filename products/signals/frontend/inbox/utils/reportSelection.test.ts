@@ -1,4 +1,4 @@
-import { resolveReportCardClickIntent } from './reportSelection'
+import { isTextEntryTarget, resolveReportCardClickIntent } from './reportSelection'
 
 describe('resolveReportCardClickIntent', () => {
     const plain = { shiftKey: false, metaKey: false, ctrlKey: false }
@@ -12,5 +12,19 @@ describe('resolveReportCardClickIntent', () => {
         ['shift wins over cmd', { shiftKey: true, metaKey: true, ctrlKey: false }, true, 'range'],
     ])('%s', (_name, modifiers, hasSelection, expected) => {
         expect(resolveReportCardClickIntent(modifiers, hasSelection)).toBe(expected)
+    })
+})
+
+describe('isTextEntryTarget', () => {
+    it('does not treat a checkbox as text entry', () => {
+        const checkbox = document.createElement('input')
+        checkbox.type = 'checkbox'
+
+        expect(isTextEntryTarget(checkbox)).toBe(false)
+    })
+
+    it('treats text inputs and text areas as text entry', () => {
+        expect(isTextEntryTarget(document.createElement('input'))).toBe(true)
+        expect(isTextEntryTarget(document.createElement('textarea'))).toBe(true)
     })
 })

@@ -1,8 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
@@ -14,7 +16,7 @@ import { ReportCard } from './ReportCard'
 
 jest.mock('posthog-js')
 
-function makeReport(id: string): SignalReport {
+function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
     return {
         id,
         title: `Report ${id}`,
@@ -29,6 +31,7 @@ function makeReport(id: string): SignalReport {
         source_products: ['error_tracking'],
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
+        ...overrides,
     } satisfies SignalReport
 }
 
@@ -152,8 +155,29 @@ describe('ReportCard', () => {
     })
 
     it('selects from the gutter checkbox', () => {
-        fireEvent.click(screen.getByLabelText('Select this report'))
+        fireEvent.click(screen.getByLabelText('Select report: Report r-1'))
 
         expect(logic.values.selectedReportIds).toEqual(['r-1'])
+    })
+
+    it('does not offer selection for a resolved report', () => {
+        cleanup()
+        render(<ReportCard report={makeReport('r-2', { status: SignalReportStatus.RESOLVED })} selectable />)
+
+        expect(screen.queryByLabelText('Select report: Report r-2')).not.toBeInTheDocument()
+    })
+
+    it('locks the selection while a bulk action is running', () => {
+        const setState = jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {}))
+        act(() => {
+            logic.actions.setSelectedReportIds(['r-1'])
+            logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null })
+        })
+
+        const checkbox = screen.getByLabelText('Select report: Report r-1')
+        expect(checkbox).toBeDisabled()
+        fireEvent.click(checkbox)
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+        setState.mockRestore()
     })
 })

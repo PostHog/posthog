@@ -163,9 +163,10 @@ export function ReportCard({
         isSelected,
         selectionMode,
         isHolding,
+        selectionDisabled,
         toggle: toggleSelection,
         cardHandlers,
-    } = useReportCardSelection(report.id, selectable && !preview)
+    } = useReportCardSelection(report.id, selectable && !preview && !isResolved)
 
     const { isDismissing, onDismissClick } = useReportDismiss({
         reportId: report.id,
@@ -297,7 +298,7 @@ export function ReportCard({
             )}
         >
             <div className="relative flex min-w-0 flex-1">
-                {selectable && !preview && (
+                {selectable && !preview && !isResolved && (
                     <div
                         className={clsx(
                             'mr-3 flex shrink-0 items-start pt-0.5 transition-opacity',
@@ -306,8 +307,9 @@ export function ReportCard({
                     >
                         <LemonCheckbox
                             checked={isSelected}
+                            disabledReason={selectionDisabled ? 'Wait for the bulk action to finish' : undefined}
                             onChange={() => toggleSelection('checkbox')}
-                            label={<span className="sr-only">Select this report</span>}
+                            label={<span className="sr-only">Select report: {cardTitle}</span>}
                             data-attr="inbox-report-select"
                         />
                     </div>

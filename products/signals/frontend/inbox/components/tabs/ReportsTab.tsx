@@ -328,7 +328,7 @@ export function ReportsTab(): JSX.Element {
                     <InboxScopeFilter />
                 </div>
             </div>
-            <InboxBulkSelectionBar />
+            <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
 
             {inboxIsEmpty ? (
                 <ReportsEmptyState />

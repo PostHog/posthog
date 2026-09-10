@@ -16,6 +16,8 @@ export interface ReportCardSelection {
     selectionMode: boolean
     /** Set while a hold is running, so the card suppresses text selection under the finger. */
     isHolding: boolean
+    /** True while a bulk request owns the current selection. */
+    selectionDisabled: boolean
     /** Select or deselect this report, naming the affordance the person used. */
     toggle: (method: InboxSelectionEntryMethod) => void
     /**
@@ -39,8 +41,9 @@ export interface ReportCardSelection {
  * pointer events into its actions, and it does nothing at all on a row the list marks unselectable.
  */
 export function useReportCardSelection(reportId: string, enabled: boolean): ReportCardSelection {
-    const { selectedReportIds, hasSelection } = useValues(inboxBulkActionsLogic)
+    const { selectedReportIds, hasSelection, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
     const { toggleReportSelection, selectRange } = useActions(inboxBulkActionsLogic)
+    const selectionDisabled = isDismissing || isResolving
 
     const holdTimerRef = useRef<number | null>(null)
     const holdOriginRef = useRef<{ x: number; y: number } | null>(null)
@@ -60,12 +63,15 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
 
     const toggle = useCallback(
         (method: InboxSelectionEntryMethod): void => {
+            if (selectionDisabled) {
+                return
+            }
             if (!hasSelection) {
                 captureInboxSelectionModeEntered({ method })
             }
             toggleReportSelection(reportId)
         },
-        [hasSelection, reportId, toggleReportSelection]
+        [hasSelection, reportId, selectionDisabled, toggleReportSelection]
     )
 
     const onPointerDown = useCallback(
@@ -74,7 +80,14 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
             // the next press.
             suppressClickRef.current = false
             // Only the primary button holds; a modifier click is already a selection of its own.
-            if (!enabled || event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey) {
+            if (
+                !enabled ||
+                selectionDisabled ||
+                event.button !== 0 ||
+                event.shiftKey ||
+                event.metaKey ||
+                event.ctrlKey
+            ) {
                 return
             }
             holdOriginRef.current = { x: event.clientX, y: event.clientY }
@@ -87,7 +100,7 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
                 toggle('long_press')
             }, SELECTION_HOLD_MS)
         },
-        [enabled, toggle]
+        [enabled, selectionDisabled, toggle]
     )
 
     const onPointerMove = useCallback(
@@ -113,6 +126,15 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
                 suppressClickRef.current = false
                 event.preventDefault()
                 event.stopPropagation()
+                return
+            }
+            // Keep the current selection stable until its request finishes. A row click must not
+            // open the report while the list still shows selection mode.
+            if (selectionDisabled) {
+                if (hasSelection) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                }
                 return
             }
             // A modifier click on a link nested in the row, such as the scout's name, belongs to
@@ -142,13 +164,14 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
             }
             toggle('meta_click')
         },
-        [enabled, hasSelection, reportId, selectRange, toggle]
+        [enabled, hasSelection, reportId, selectRange, selectionDisabled, toggle]
     )
 
     return {
         isSelected: enabled && selectedReportIds.includes(reportId),
         selectionMode: enabled && hasSelection,
         isHolding,
+        selectionDisabled,
         toggle,
         cardHandlers: {
             onClickCapture: onClick,
