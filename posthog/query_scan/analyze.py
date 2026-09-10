@@ -172,18 +172,26 @@ def analyze_settings(
     )
 
 
+@frozen
+class _Span:
+    """Source offsets of one node in the typed query."""
+
+    start: int
+    end: int
+
+
 class _SpanCollector(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
-        self.spans: set[tuple[int, int]] = set()
+        self.spans: set[_Span] = set()
 
     def visit(self, node: ast.AST | None) -> None:
         if node is not None and node.start is not None and node.end is not None:
-            self.spans.add((node.start, node.end))
+            self.spans.add(_Span(start=node.start, end=node.end))
         super().visit(node)
 
 
-def _typed_spans(source: str | None) -> frozenset[tuple[int, int]]:
+def _typed_spans(source: str | None) -> frozenset[_Span]:
     """The source offsets of every node in the typed query, so a clause can be cut from it."""
     if source is None:
         return frozenset()
@@ -195,7 +203,7 @@ def _typed_spans(source: str | None) -> frozenset[tuple[int, int]]:
     return frozenset(collector.spans)
 
 
-def _quote_clause(clause: ast.Expr | None, source: str | None, typed_spans: frozenset[tuple[int, int]]) -> str | None:
+def _quote_clause(clause: ast.Expr | None, source: str | None, typed_spans: frozenset[_Span]) -> str | None:
     """The offending condition in the person's own words.
 
     The checks run on the tree lowered for ClickHouse, and that tree printed back (`or(equals(…))`,
@@ -205,6 +213,6 @@ def _quote_clause(clause: ast.Expr | None, source: str | None, typed_spans: froz
     """
     if clause is None or source is None or clause.start is None or clause.end is None:
         return None
-    if (clause.start, clause.end) not in typed_spans:
+    if _Span(start=clause.start, end=clause.end) not in typed_spans:
         return None
     return source[clause.start : clause.end].strip()
