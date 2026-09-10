@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from products.experiments.backend.facade.contracts import ConcludedExperiment, FlagCleanupPlan
-from products.feature_flags.backend.facade.contracts import FlagSummary
+from products.feature_flags.backend.facade.api import FlagSummary
 from products.reaper_hog.backend.logic.repo import CommitStamp, ReferenceCount
 from products.reaper_hog.backend.logic.scouts.archaeology import classify_directory
 from products.reaper_hog.backend.logic.scouts.experiments import classify_experiment
