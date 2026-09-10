@@ -18,13 +18,13 @@ use feature_flags::api::types::{
     FlagsResponse, LegacyFlagsResponse,
 };
 use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
+use feature_flags::flags::cache_builder::compute_flag_dependencies;
+use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching::FeatureFlagMatcher;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
-use feature_flags::flags::flag_models::FeatureFlag;
+use feature_flags::flags::flag_models::{FeatureFlag, FeatureFlagList};
 use feature_flags::flags::flag_request::FlagRequest;
-use feature_flags::utils::test_utils::{
-    flag_list_with_metadata_and_filter, mock_group_type_cache, TestContext,
-};
+use feature_flags::utils::test_utils::{mock_group_type_cache, TestContext};
 use regex::Regex;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -595,9 +595,18 @@ async fn evaluate(
         mock_group_type_cache(types_to_indexes),
         groups,
     );
+    // Dependency stages and missing targets come from the production builder, the same
+    // way the batch evaluation handler assembles its flag list.
+    let evaluation_metadata = compute_flag_dependencies(&flags).expect("dependency metadata");
+    let flag_list = FeatureFlagList {
+        flags: PreparedFlags::seal(flags),
+        filtered_out_flag_ids,
+        evaluation_metadata: Arc::new(evaluation_metadata),
+        cohorts: None,
+    };
     matcher
         .evaluate_all_feature_flags(
-            flag_list_with_metadata_and_filter(flags, filtered_out_flag_ids),
+            flag_list,
             Some(person_properties),
             group_properties,
             None,
