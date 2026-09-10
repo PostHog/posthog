@@ -198,6 +198,7 @@ export enum NodeKind {
     MCPToolCallBreakdownQuery = 'MCPToolCallBreakdownQuery',
     MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+    MCPModelBreakdownQuery = 'MCPModelBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
     MCPToolFailureOccurrencesQuery = 'MCPToolFailureOccurrencesQuery',
@@ -284,6 +285,7 @@ export type AnyDataNode =
     | MCPToolCallBreakdownQuery
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
+    | MCPModelBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -417,6 +419,7 @@ export type QuerySchema =
     | MCPToolCallBreakdownQuery
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
+    | MCPModelBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -521,7 +524,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
-    customBotDefinitions?: CustomBotDefinition[]
+    customBotDefinitions?: CustomBotRule[]
     /** Classify cookieless-mode events as regular traffic instead of automation. Cookieless ingestion strips the user agent the bot classifier reads, so without this every cookieless event is reported as a bot. Resolved server-side; not intended to be set by clients. */
     cookielessTrafficIsRegular?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
@@ -3414,6 +3417,26 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
+
+/** One model's share of MCP tool calls. */
+export interface MCPModelBreakdownItem {
+    model: string
+    total_calls: integer
+}
+
+export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPModelBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by captured model identity. */
+export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryResponse> {
+    kind: NodeKind.MCPModelBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+}
+
+export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
 
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {
@@ -6841,22 +6864,32 @@ export enum CustomBotField {
 export enum CustomBotMatcher {
     Contains = 'contains',
     Regex = 'regex',
+    /** Case-sensitive equality against the whole property value. */
+    Exact = 'exact',
     /** Matches an IP against a network range, e.g. `192.0.2.0/24`. Only valid with `$ip`. */
     Cidr = 'cidr',
 }
 
-/** A bot a project defines itself, on top of PostHog's built-in bot list. */
-export interface CustomBotDefinition {
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-    name: string
-    /** The event property this rule reads. */
+/** One condition of a project's bot rule. */
+export interface CustomBotCondition {
+    /** The event property this condition reads. */
     key: CustomBotField
     /** Matched against the property named by `key`. */
     pattern: string
     matcher: CustomBotMatcher
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one rule
+}
+
+/** A bot a project defines itself, on top of PostHog's built-in bot list. */
+export interface CustomBotRule {
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
     /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
     category?: string
-    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of definitions
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperator
+    items: CustomBotCondition[]
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of rules
 }
 
 export enum DefaultChannelTypes {
@@ -8541,6 +8574,7 @@ export const externalDataSources = [
     'Freshchat',
     'Freshservice',
     'Fulcrum',
+    'GainsightCs',
     'GainsightPx',
     'GitBook',
     'Glassfrog',
@@ -9543,6 +9577,9 @@ export const externalDataSources = [
     'Tenjin',
     'Folk',
     'Cybersource',
+    'GoogleAdSense',
+    'Sequenzy',
+    'Skio',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

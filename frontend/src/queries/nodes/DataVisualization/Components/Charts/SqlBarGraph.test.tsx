@@ -67,6 +67,7 @@ describe('SqlBarGraph', () => {
     describe('bar layouts', () => {
         it.each([
             { name: 'grouped', display: ChartDisplayType.ActionsBar, extra: {} },
+            { name: 'horizontal', display: ChartDisplayType.ActionsBarValue, extra: {} },
             { name: 'stacked', display: ChartDisplayType.ActionsStackedBar, extra: {} },
             {
                 name: 'percent (100% stacked)',
@@ -78,6 +79,23 @@ describe('SqlBarGraph', () => {
 
             await screen.findByLabelText(/chart with 2 data series/i)
             await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
+        })
+
+        it('renders category labels on the vertical axis for horizontal bars', async () => {
+            renderBar(
+                ChartDisplayType.ActionsBarValue,
+                { yAxis: [{ column: 'a', settings: { formatting: { prefix: '$' } } }] },
+                barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 1000 }])
+            )
+
+            await screen.findByLabelText(/chart with/i)
+            await waitFor(() => expect(getHogChart().xTicks().length).toBeGreaterThan(0))
+            expect(getHogChart().yTicks()).toContain('Oct 1, 2025')
+            expect(
+                getHogChart()
+                    .xTicks()
+                    .map((tick) => tick.startsWith('$'))
+            ).not.toContain(false)
         })
 
         it('renders percentage y-axis ticks for the 100%-stacked layout', async () => {
@@ -191,9 +209,12 @@ describe('SqlBarGraph', () => {
     })
 
     describe('goal lines', () => {
-        it('renders a goal line as a horizontal reference line', async () => {
+        it.each([
+            [ChartDisplayType.ActionsBar, 'horizontal'],
+            [ChartDisplayType.ActionsBarValue, 'vertical'],
+        ] as const)('renders a goal line on the value axis for %s', async (display, orientation) => {
             renderBar(
-                ChartDisplayType.ActionsBar,
+                display,
                 { yAxis: [{ column: 'a' }], goalLines: [{ label: 'Target', value: 250, displayIfCrossed: true }] },
                 barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
             )
@@ -201,7 +222,7 @@ describe('SqlBarGraph', () => {
             await screen.findByLabelText(/chart with/i)
             const lines = getHogChart().referenceLines()
             expect(lines.map((l) => l.label)).toEqual(['Target'])
-            expect(lines[0].orientation).toBe('horizontal')
+            expect(lines[0].orientation).toBe(orientation)
         })
     })
 })

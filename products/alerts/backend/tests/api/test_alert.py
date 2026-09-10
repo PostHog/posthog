@@ -96,6 +96,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "snoozed_until": None,
             "skip_weekend": False,
             "schedule_restriction": None,
+            "schedule_start_time": None,
             "last_value": None,
             "investigation_agent_enabled": False,
             "investigation_gates_notifications": False,
@@ -1187,6 +1188,123 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
         assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+
+    @parameterized.expand(
+        [
+            ("real_time", "real_time", "2026-03-18T09:35:00+00:00"),
+            ("every_15_minutes", "every_15_minutes", "2026-03-18T09:35:00+00:00"),
+            ("hourly", "hourly", "2026-03-18T09:35:00+00:00"),
+            ("daily", "daily", "2026-03-18T09:35:00+00:00"),
+            ("weekly", "weekly", "2026-03-23T09:35:00+00:00"),
+            ("monthly", "monthly", "2026-04-01T09:35:00+00:00"),
+        ]
+    )
+    @freeze_time("2026-03-18T09:30:00Z")
+    def test_create_alert_with_schedule_start_time(
+        self, _name: str, calculation_interval: str, expected_next_check_at: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+        ]
+        self.organization.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": calculation_interval,
+                "schedule_start_time": "09:35",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["schedule_start_time"] == "09:35"
+        assert datetime.fromisoformat(
+            response.json()["next_check_at"].replace("Z", "+00:00")
+        ) == datetime.fromisoformat(expected_next_check_at)
+
+    @parameterized.expand(
+        [
+            ("real_time", "real_time"),
+            ("every_15_minutes", "every_15_minutes"),
+            ("hourly", "hourly"),
+            ("daily", "daily"),
+            ("weekly", "weekly"),
+            ("monthly", "monthly"),
+        ]
+    )
+    @freeze_time("2026-03-18T09:00:00Z")
+    def test_patch_schedule_start_time_keeps_the_current_next_check(
+        self, _name: str, calculation_interval: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+        ]
+        self.organization.save()
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": calculation_interval,
+                "schedule_start_time": "09:30",
+            },
+            format="json",
+        ).json()
+        scheduled_check = datetime(2026, 3, 18, 9, 30, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"schedule_start_time": "08:35"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["schedule_start_time"] == "08:35"
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+
+    @freeze_time("2026-03-18T09:00:00Z")
+    def test_patch_schedule_start_time_with_schedule_restriction_keeps_the_current_next_check(self) -> None:
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": "hourly",
+                "schedule_start_time": "09:30",
+            },
+            format="json",
+        ).json()
+        scheduled_check = datetime(2026, 3, 18, 10, 30, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {
+                "schedule_start_time": "09:35",
+                "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {

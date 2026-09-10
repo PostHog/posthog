@@ -32,7 +32,10 @@ export interface SignalReviewerUserInfo {
 }
 
 export interface EnrichedReviewer {
-    github_login: string
+    /** Null for a reviewer with no linked GitHub account — they are identified by `user` instead. */
+    github_login: string | null
+    /** Null on entries written before reviewers carried one; `user` still resolves from the login. */
+    user_uuid?: string | null
     github_name: string | null
     relevant_commits: RelevantCommit[]
     user: SignalReviewerUserInfo | null
@@ -98,6 +101,12 @@ export interface SignalReport {
     implementation_pr_merged?: boolean
     /** Latest known state of that PR: unknown, draft, open, closed, or merged. */
     implementation_pr_state?: SignalReportAssignmentPrStateEnumApi | null
+    /** Link to the tracker issue self-driving opened for this report's PR. Null when the project tracks no issues. */
+    tracker_issue_url?: string | null
+    /** How that issue reads in its provider, for example '#12' or 'ENG-123'. */
+    tracker_issue_reference?: string | null
+    /** Why the tracker issue could not be opened, for a project that wants one. Null when it exists. */
+    tracker_issue_error?: string | null
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
@@ -388,6 +397,10 @@ export interface SignalTeamConfig {
     default_slack_notification_channel?: string | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
+    /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */
+    issue_tracking_integration?: number | null
+    /** Where those issues land: github {repository}, linear {team_id}, jira {project_key}, plus an optional 'label'. */
+    issue_tracking_config?: Record<string, string>
     /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
     max_reports_per_day?: number | null
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */

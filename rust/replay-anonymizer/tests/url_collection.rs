@@ -138,7 +138,7 @@ fn picture_source_srcset_is_collected_when_its_parent_is_known() {
                                 "type": 2,
                                 "tagName": "source",
                                 "attributes": {
-                                    "srcset": "https://cdn.example.com/a.png 1x, https://cdn.example.com/b.png 2x"
+                                    "srcset": "https://cdn.example.com/a.png 1x, https://cdn.example.com/b.png 2x, https://cdn.example.com/c.png 4x"
                                 },
                                 "childNodes": []
                             }]
@@ -469,35 +469,86 @@ fn a_non_fetchable_scheme_keeps_the_placeholder() {
 }
 
 #[test]
-fn srcset_collects_only_the_largest_candidate() {
-    for (engine, result) in run(
-        json!({ "srcset": "https://cdn.example.com/a.png 1x, https://cdn.example.com/b.png 2x" }),
-        true,
-    ) {
-        let (line, meta) = (&result[0], &result[1]);
-        let srcset = attrs_of(line)["srcset"]
-            .as_str()
-            .expect("srcset is a string");
-        assert!(
-            srcset.starts_with("data:image/svg+xml"),
-            "{engine}: expected the placeholder, got {srcset}"
-        );
-        assert!(
-            attrs_of(line)["data-anon-image-ref-srcset"]
+fn srcset_collects_only_the_selected_candidate() {
+    for srcset in [
+        "https://cdn.example.com/a.png 1x, https://cdn.example.com/b.png 2x, https://cdn.example.com/c.png 4x",
+        "https://cdn.example.com/c.png 3840w, https://cdn.example.com/b.png 960w, https://cdn.example.com/a.png 320w",
+        "https://cdn.example.com/c.png 3840w, https://cdn.example.com/b.png 1280w, https://cdn.example.com/a.png 1920w",
+    ] {
+        for (engine, result) in run(
+            json!({
+                "src": "https://cdn.example.com/fallback.png",
+                "rr_src": "https://cdn.example.com/rendered.png",
+                "srcset": srcset
+            }),
+            true,
+        ) {
+            let (line, meta) = (&result[0], &result[1]);
+            let srcset = attrs_of(line)["srcset"]
                 .as_str()
-                .is_some_and(|reference| reference.starts_with("imageurl:")),
-            "{engine}"
-        );
-        assert_eq!(meta["urls"].as_array().map(Vec::len), Some(1), "{engine}");
-        assert_eq!(meta["urls"][0]["url"], "https://cdn.example.com/b.png");
+                .expect("srcset is a string");
+            assert!(
+                srcset.starts_with("data:image/svg+xml"),
+                "{engine}: expected the placeholder, got {srcset}"
+            );
+            assert!(
+                attrs_of(line)["data-anon-image-ref-srcset"]
+                    .as_str()
+                    .is_some_and(|reference| reference.starts_with("imageurl:")),
+                "{engine}"
+            );
+            assert_eq!(meta["urls"].as_array().map(Vec::len), Some(1), "{engine}");
+            assert_eq!(meta["urls"][0]["url"], "https://cdn.example.com/b.png");
+            for name in ["src", "rr_src"] {
+                assert!(attrs_of(line)[name]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("data:image/svg+xml"));
+                assert!(attrs_of(line)
+                    .get(format!("data-anon-image-ref-{name}"))
+                    .is_none());
+            }
+        }
     }
 }
 
 #[test]
-fn srcset_routes_an_inlined_largest_candidate_to_the_image_scrubber() {
+fn unusable_srcset_keeps_the_src_fallback() {
+    for srcset in [
+        "",
+        "https://cdn.example.com/a.png 1x, https://cdn.example.com/b.png 400w",
+        "https://cdn.example.com/a.png?token=secret 2x",
+        "https://127.0.0.1/a.png 2x",
+        "data:image/png;base64,%%% 2x",
+        "data:image/svg+xml;base64,PHN2Zz4= 2x",
+    ] {
+        for (engine, result) in run(
+            json!({
+                "src": "https://cdn.example.com/fallback.png", "srcset": srcset
+            }),
+            true,
+        ) {
+            assert_eq!(
+                result[1]["urls"].as_array().map(Vec::len),
+                Some(1),
+                "{engine}: {srcset}"
+            );
+            assert_eq!(
+                result[1]["urls"][0]["url"],
+                "https://cdn.example.com/fallback.png"
+            );
+        }
+    }
+}
+
+#[test]
+fn srcset_routes_an_inlined_selected_candidate_to_the_image_scrubber() {
     let small = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     let large = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l5hJxAAAAABJRU5ErkJggg==";
-    for (engine, result) in run(json!({ "srcset": format!("{small} 1x, {large} 2x") }), true) {
+    for (engine, result) in run(
+        json!({ "src": "https://cdn.example.com/fallback.png", "srcset": format!("{small} 1x, {large} 2x, https://cdn.example.com/oversized.png 4x") }),
+        true,
+    ) {
         let (line, meta) = (&result[0], &result[1]);
         let srcset = attrs_of(line)["srcset"]
             .as_str()

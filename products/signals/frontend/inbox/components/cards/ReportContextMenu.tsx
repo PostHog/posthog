@@ -1,9 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useRef } from 'react'
 
 import {
     IconArrowUpRight,
+    IconCheckbox,
     IconCheckCircle,
     IconChevronRight,
     IconCopy,
@@ -46,6 +47,7 @@ import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
 import { ReasonSubmenuItems } from './ReasonSubmenuItems'
+import { useReportCardSelection } from './useReportCardSelection'
 
 /**
  * Right-click menu on a report row in the flat inbox list: the report's major actions without
@@ -129,8 +131,25 @@ function ReportContextMenuItems({
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
+    const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
+
+    // The row's own affordances (hold, Cmd-click, checkbox) are easy to miss, so the menu names
+    // the feature outright.
+    const selectItem = (
+        <ContextMenuItem asChild>
+            <ButtonPrimitive
+                menuItem
+                onClick={() => toggleSelection('context_menu')}
+                data-attr="inbox-report-context-menu-select"
+            >
+                <IconCheckbox />
+                {isSelected ? 'Deselect' : 'Select'}
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    )
 
     const dismissWith = (dismissal: DismissalFeedback): void => {
         const { reason, note, correctedRepository } = dismissal
@@ -251,6 +270,7 @@ function ReportContextMenuItems({
         return (
             <>
                 <ContextMenuGroup>
+                    {selectItem}
                     <ContextMenuItem asChild>
                         <ButtonPrimitive
                             menuItem
@@ -270,12 +290,16 @@ function ReportContextMenuItems({
     return (
         <>
             <ContextMenuGroup>
+                {selectItem}
                 {canCreateImplementationPr(report) && (
                     <>
-                        <ContextMenuItem asChild>
+                        <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
                             <ButtonPrimitive
                                 menuItem
                                 onClick={onCreatePr}
+                                disabledReasons={
+                                    createPrDisabledReason ? { [createPrDisabledReason]: true } : undefined
+                                }
                                 data-attr="inbox-report-context-menu-create-pr"
                             >
                                 <IconPullRequest />

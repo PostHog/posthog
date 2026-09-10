@@ -15,6 +15,20 @@ export const MAX_LABEL_VALUE_LENGTH = 256
  */
 export const MAX_RECORD_AGE_MS = 20 * 60 * 1000
 
+/** OTel span status codes (`StatusCode` in the span Avro schema). Anything outside
+ * this map falls back to the raw numeric string so an unknown future code still
+ * emits a distinguishable label. */
+export const SPAN_STATUS_CODE_LABELS: Record<number, string> = { 0: 'UNSET', 1: 'OK', 2: 'ERROR' }
+
+/** OTel span kinds (`SpanKind` in the span Avro schema), 1-based per the spec. */
+export const SPAN_KIND_LABELS: Record<number, string> = {
+    1: 'INTERNAL',
+    2: 'SERVER',
+    3: 'CLIENT',
+    4: 'PRODUCER',
+    5: 'CONSUMER',
+}
+
 export type MetricTallyEntry = {
     /** Group-by values in the rule's `groupBy` key order. */
     labelValues: string[]
@@ -41,6 +55,14 @@ export function createBatchTallies(): BatchTallies {
 const ATTRIBUTES_PREFIX = 'attributes.'
 const RESOURCE_ATTRIBUTES_PREFIX = 'resource_attributes.'
 
+/**
+ * Pseudo value-attribute key resolving to the span's wall-clock duration in
+ * milliseconds, computed from `end_time - timestamp`. Lets a span rule emit a
+ * latency distribution without any SDK attribute convention. Meaningful only
+ * for `source === 'spans'` rules.
+ */
+export const SPAN_VALUE_DURATION_MS = 'duration_ms'
+
 function lookupKey(key: string, record: LogRecord): string | null | undefined {
     if (key === 'service_name') {
         return record.service_name
@@ -50,6 +72,23 @@ function lookupKey(key: string, record: LogRecord): string | null | undefined {
     }
     if (key === 'event_name') {
         return record.event_name
+    }
+    // Span top-level keys. A span arrives as a LogRecord through the shared Avro
+    // decode path, carrying these extra fields (absent on log records).
+    if (key === 'name') {
+        return (record as { name?: string | null }).name
+    }
+    if (key === 'status_code') {
+        // Emit the OTel enum name as the series label (`ERROR`, not `2`) so dashboards
+        // and alerts read without knowing the wire encoding. Filter matching keeps the
+        // numeric form — see filter-group-match.ts, where users write `value: '2'`.
+        const code = (record as { status_code?: number | null }).status_code
+        return code == null ? undefined : (SPAN_STATUS_CODE_LABELS[code] ?? String(code))
+    }
+    if (key === 'kind') {
+        // Same enum-label treatment as status_code: `SERVER`, not `2`.
+        const kind = (record as { kind?: number | null }).kind
+        return kind == null ? undefined : (SPAN_KIND_LABELS[kind] ?? String(kind))
     }
     if (key.startsWith(ATTRIBUTES_PREFIX)) {
         return decodedAttr(record.attributes, key.slice(ATTRIBUTES_PREFIX.length))
@@ -76,6 +115,15 @@ function resolveLabelValue(key: string, record: LogRecord): string {
 }
 
 function resolveNumericValue(key: string, record: LogRecord): number | null {
+    // Span wall-clock duration from Avro timestamp-micros, no attribute lookup.
+    if (key === SPAN_VALUE_DURATION_MS) {
+        const r = record as { timestamp?: number | null; end_time?: number | null }
+        if (r.timestamp == null || r.end_time == null) {
+            return null
+        }
+        const durationMs = (r.end_time - r.timestamp) / 1000
+        return Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : null
+    }
     const raw = lookupKey(key, record)
     if (raw == null || raw === '') {
         return null
@@ -124,9 +172,15 @@ export function tallyRecords(
         return
     }
     for (const record of records) {
-        // timestamp is Avro timestamp-micros; null means "no producer timestamp", which
+        // For a span, `timestamp` is the START time and the record is not exported until
+        // the span ends — so gating on `timestamp` would measure span duration + export
+        // lag, not staleness, and silently drop long-running spans (truncating exactly
+        // the latency tail a duration_ms rule exists to show). Gate on `end_time` when
+        // present, falling back to `timestamp` for logs and spans without an end.
+        // Both are Avro timestamp-micros; null means "no producer timestamp", which
         // ingestion treats as now — so it passes the staleness gate.
-        if (record.timestamp != null && nowMs - record.timestamp / 1000 > MAX_RECORD_AGE_MS) {
+        const observedAtMicros = (record as { end_time?: number | null }).end_time ?? record.timestamp
+        if (observedAtMicros != null && nowMs - observedAtMicros / 1000 > MAX_RECORD_AGE_MS) {
             continue
         }
         for (const rule of rules) {

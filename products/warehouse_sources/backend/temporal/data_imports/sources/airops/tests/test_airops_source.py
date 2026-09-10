@@ -31,7 +31,7 @@ class TestAirOpsSource:
         # AirOps exposes no server-side timestamp filter and executions mutate after creation, so
         # neither table may advertise incremental/append — that would silently drop mutated rows.
         schemas = AirOpsSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == {"apps", "executions"}
+        assert {s.name for s in schemas} == {"apps", "executions", "brand_kits", "prompts", "citations"}
         for schema in schemas:
             assert schema.supports_incremental is False
             assert schema.supports_append is False
@@ -62,6 +62,9 @@ class TestAirOpsSource:
         # from the static endpoint catalog with no network call and merge canonical descriptions.
         tables = AirOpsSource().get_documented_tables()
         by_name: dict[str, dict[str, Any]] = {t["name"]: t for t in tables}
-        assert set(by_name) == {"apps", "executions"}
+        assert set(by_name) == {"apps", "executions", "brand_kits", "prompts", "citations"}
         assert by_name["apps"]["sync_methods"] == ["Full refresh"]
         assert by_name["executions"]["description"]
+        # Canonical descriptions cover the brand-kit surface too, so the docs catalog is not a stub.
+        assert by_name["brand_kits"]["description"]
+        assert by_name["citations"]["description"]
