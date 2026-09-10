@@ -237,6 +237,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -744,6 +747,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -1139,6 +1145,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -1355,6 +1364,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -1548,6 +1560,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -6646,6 +6661,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -6775,6 +6793,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -6889,6 +6910,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7015,6 +7039,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7123,6 +7150,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7235,6 +7265,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7338,6 +7371,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7456,6 +7492,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7559,6 +7598,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7675,6 +7717,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7781,6 +7826,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -7899,6 +7947,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -8017,6 +8068,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -8180,6 +8234,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -8303,6 +8360,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -8412,6 +8472,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -8539,6 +8602,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -9114,6 +9180,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -9216,6 +9285,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -9343,6 +9415,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -9488,6 +9563,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -9862,6 +9940,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -9979,6 +10060,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10082,6 +10166,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10189,6 +10276,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10293,6 +10383,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10396,6 +10489,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10499,6 +10595,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10602,6 +10701,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10705,6 +10807,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10808,6 +10913,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -10911,6 +11019,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11014,6 +11125,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11117,6 +11231,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11220,6 +11337,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11323,6 +11443,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11426,6 +11549,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11533,6 +11659,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11637,6 +11766,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11741,6 +11873,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11844,6 +11979,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -11950,6 +12088,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -12078,6 +12219,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -12221,6 +12365,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -12356,6 +12503,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -12488,6 +12638,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -12591,6 +12744,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -12786,6 +12942,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -12886,6 +13045,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -12989,6 +13151,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -13099,6 +13264,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -13203,6 +13371,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -13318,6 +13489,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -13459,6 +13633,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -13580,6 +13757,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -13703,6 +13883,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -13812,6 +13995,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -13915,6 +14101,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -14086,6 +14275,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -14276,6 +14468,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -14386,6 +14581,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -14496,6 +14694,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -14607,6 +14808,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -14715,6 +14919,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -14826,6 +15033,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -14944,6 +15154,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15058,6 +15271,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15161,6 +15377,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15261,6 +15480,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15379,6 +15601,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15497,6 +15722,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15618,6 +15846,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15746,6 +15977,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15855,6 +16089,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -15974,6 +16211,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -16086,6 +16326,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -16218,6 +16461,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -16330,6 +16576,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -16433,6 +16682,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -16641,6 +16893,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -17997,6 +18252,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18088,6 +18346,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18180,6 +18441,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18284,6 +18548,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18368,6 +18635,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18465,6 +18735,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18551,6 +18824,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18634,6 +18910,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18727,6 +19006,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18804,6 +19086,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18884,6 +19169,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -18972,6 +19260,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19063,6 +19354,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19134,6 +19428,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19217,6 +19514,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19300,6 +19600,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19537,6 +19840,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19620,6 +19926,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19703,6 +20012,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19802,6 +20114,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -19890,6 +20205,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/QueryScanWarning"
                                             }
                                         ]
                                     },
@@ -21301,6 +21619,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -21784,6 +22105,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -21919,6 +22243,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -22044,6 +22371,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -22282,6 +22612,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -22531,6 +22864,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -22826,6 +23162,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -23212,6 +23551,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -23484,6 +23826,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -23620,6 +23965,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -23854,6 +24202,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -24346,6 +24697,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -28379,6 +28733,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -29201,6 +29558,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -29578,6 +29938,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -30349,6 +30712,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -32037,6 +32403,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -32234,6 +32603,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -32497,6 +32869,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -32698,6 +33073,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -32865,6 +33243,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33008,6 +33389,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33128,6 +33512,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33256,6 +33643,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33384,6 +33774,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33481,6 +33874,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33592,6 +33988,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33714,6 +34113,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33848,6 +34250,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -33963,6 +34368,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -34147,6 +34555,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -34248,6 +34659,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -34368,6 +34782,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -34506,6 +34923,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -34687,6 +35107,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -34827,6 +35250,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -34959,6 +35385,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -35102,6 +35531,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -35291,6 +35723,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -35561,6 +35996,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -35780,6 +36218,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -36188,6 +36629,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -36468,6 +36912,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -38657,6 +39104,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -39614,6 +40064,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -39989,6 +40442,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -40918,6 +41374,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -41115,6 +41574,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -41203,6 +41665,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -41294,6 +41759,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -41386,6 +41854,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -41573,6 +42044,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -41696,6 +42170,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -41853,6 +42330,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -41936,6 +42416,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -42013,6 +42496,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -42084,6 +42570,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -42165,6 +42654,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -42293,6 +42785,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -42389,6 +42884,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -42772,6 +43270,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -42856,6 +43357,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -42953,6 +43457,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43039,6 +43546,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43122,6 +43632,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43205,6 +43718,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43298,6 +43814,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43375,6 +43894,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43452,6 +43974,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43542,6 +44067,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43633,6 +44161,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43704,6 +44235,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43808,6 +44342,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -43909,6 +44446,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44009,6 +44549,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44116,6 +44659,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44207,6 +44753,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44299,6 +44848,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44403,6 +44955,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44487,6 +45042,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44584,6 +45142,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44670,6 +45231,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44753,6 +45317,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44846,6 +45413,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -44923,6 +45493,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45003,6 +45576,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45091,6 +45667,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45182,6 +45761,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45253,6 +45835,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45336,6 +45921,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45419,6 +46007,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45656,6 +46247,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45739,6 +46333,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45822,6 +46419,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -45921,6 +46521,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46009,6 +46612,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46088,6 +46694,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46155,6 +46764,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46223,6 +46835,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46291,6 +46906,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46356,6 +46974,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46424,6 +47045,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46492,6 +47116,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46574,6 +47201,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46668,6 +47298,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46750,6 +47383,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46821,6 +47457,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46889,6 +47528,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -46957,6 +47599,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47033,6 +47678,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47108,6 +47756,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47183,6 +47834,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47258,6 +47912,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47355,6 +48012,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47429,6 +48089,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47504,6 +48167,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47587,6 +48253,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47670,6 +48339,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47753,6 +48425,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47857,6 +48532,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -47925,6 +48603,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48024,6 +48705,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48112,6 +48796,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48180,6 +48867,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48263,6 +48953,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48331,6 +49024,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48399,6 +49095,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48467,6 +49166,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48535,6 +49237,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48603,6 +49308,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48671,6 +49379,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48739,6 +49450,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48807,6 +49521,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48876,6 +49593,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -48944,6 +49664,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49016,6 +49739,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49084,6 +49810,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49152,6 +49881,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49220,6 +49952,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49288,6 +50023,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49356,6 +50094,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49424,6 +50165,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49492,6 +50236,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49564,6 +50311,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49632,6 +50382,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/QueryScanWarning"
                                     }
                                 ]
                             },
@@ -49642,6 +50395,21 @@
                     "type": "object"
                 }
             ]
+        },
+        "QueryScanFindingKind": {
+            "enum": [
+                "no_event_filter",
+                "event_filter_not_used",
+                "no_start_date",
+                "persons_join",
+                "all_events",
+                "all_time"
+            ],
+            "type": "string"
+        },
+        "QueryScanFindingReason": {
+            "enum": ["in_or", "wrapped", "negated", "dynamic", "not_pruned", "column", "filters"],
+            "type": "string"
         },
         "QueryScanMode": {
             "description": "Variant of the `query-scan-warnings` flag for the team. `log_only`: analyze but show nothing, to calibrate the thresholds. `show`: clients may show findings. Clients read it here and never evaluate the flag themselves.",
@@ -49664,6 +50432,14 @@
                 "mode": {
                     "$ref": "#/definitions/QueryScanMode"
                 },
+                "project_share": {
+                    "description": "Share of the granules across all the project's events that the query read, 0 to 1, written by the analysis.",
+                    "type": "number"
+                },
+                "range_share": {
+                    "description": "Share of the granules in the query's date range that the query read, 0 to 1, written by the analysis.",
+                    "type": "number"
+                },
                 "rows_read": {
                     "$ref": "#/definitions/integer",
                     "description": "Rows ClickHouse read for the last fresh run, all tables included."
@@ -49674,6 +50450,47 @@
                 }
             },
             "required": ["mode", "rows_read", "duration_ms"],
+            "type": "object"
+        },
+        "QueryScanWarning": {
+            "additionalProperties": false,
+            "properties": {
+                "clause": {
+                    "description": "The offending condition printed back as HogQL, when there is one",
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "$ref": "#/definitions/integer"
+                },
+                "evidence": {
+                    "description": "What ClickHouse reported did not use the filter, when EXPLAIN was available",
+                    "type": "string"
+                },
+                "fix": {
+                    "description": "The instruction handed to \"Fix with AI\" and to agents",
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/QueryScanFindingKind"
+                },
+                "message": {
+                    "description": "Shown to the person. Sentence case, says what happened and what to do.",
+                    "type": "string"
+                },
+                "reason": {
+                    "$ref": "#/definitions/QueryScanFindingReason",
+                    "description": "Why the filter could not be used; only for event_filter_not_used and no_start_date"
+                },
+                "rows_read": {
+                    "$ref": "#/definitions/integer"
+                },
+                "type": {
+                    "const": "query_scan",
+                    "description": "Tells warning kinds apart in the shared `warnings` list",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "kind", "message", "fix", "rows_read", "duration_ms"],
             "type": "object"
         },
         "QuerySchema": {
@@ -50459,6 +51276,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -50934,6 +51754,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -51503,6 +52326,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -51741,6 +52567,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -51927,6 +52756,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -52301,6 +53133,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -52409,6 +53244,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -53503,6 +54341,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -54425,6 +55266,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -54498,6 +55342,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -54593,6 +55440,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -54925,6 +55775,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -55049,6 +55902,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -55185,6 +56041,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -55341,6 +56200,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -55453,6 +56315,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -55577,6 +56442,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -55731,6 +56599,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -56254,6 +57125,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -56455,6 +57329,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -56623,6 +57500,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -57051,6 +57931,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -57476,6 +58359,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -57656,6 +58542,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -57844,6 +58733,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -58045,6 +58937,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -58246,6 +59141,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -58420,6 +59318,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -58668,6 +59569,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -58894,6 +59798,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },
@@ -59095,6 +60002,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/QueryScanWarning"
                             }
                         ]
                     },

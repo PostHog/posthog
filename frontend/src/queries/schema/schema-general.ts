@@ -609,6 +609,38 @@ export interface QueryScanSummary {
     duration_ms: integer
     /** Absent when the run was too fast to analyze. */
     status?: QueryScanStatus
+    /** Share of the granules in the query's date range that the query read, 0 to 1, written by the analysis. */
+    range_share?: number
+    /** Share of the granules across all the project's events that the query read, 0 to 1, written by the analysis. */
+    project_share?: number
+}
+
+export type QueryScanFindingKind =
+    | 'no_event_filter'
+    | 'event_filter_not_used'
+    | 'no_start_date'
+    | 'persons_join'
+    | 'all_events'
+    | 'all_time'
+
+export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'column' | 'filters'
+
+export interface QueryScanWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'query_scan'
+    kind: QueryScanFindingKind
+    /** Why the filter could not be used; only for event_filter_not_used and no_start_date */
+    reason?: QueryScanFindingReason
+    /** Shown to the person. Sentence case, says what happened and what to do. */
+    message: string
+    /** The instruction handed to "Fix with AI" and to agents */
+    fix: string
+    /** The offending condition printed back as HogQL, when there is one */
+    clause?: string
+    /** What ClickHouse reported did not use the filter, when EXPLAIN was available */
+    evidence?: string
+    rows_read: integer
+    duration_ms: integer
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
@@ -630,7 +662,7 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | QueryScanWarning)[]
     query_scan?: QueryScanSummary
     hasMore?: boolean
     limit?: integer
@@ -2721,7 +2753,7 @@ export interface AnalyticsQueryResponseBase {
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | QueryScanWarning)[]
     query_scan?: QueryScanSummary
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
