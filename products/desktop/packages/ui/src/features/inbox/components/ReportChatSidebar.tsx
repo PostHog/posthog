@@ -23,6 +23,7 @@ import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/repor
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useOpenTask } from "@posthog/ui/router/useOpenTask";
@@ -90,7 +91,7 @@ export function ReportChatSidebar({
       side="right"
     >
       <div className="flex h-full min-w-0 flex-col border-border border-l bg-gray-1">
-        <div className="flex h-10 shrink-0 items-center justify-between border-b bg-chrome pr-2 pl-3">
+        <ChromeBar className="justify-between bg-chrome">
           <span className="flex items-center gap-1.5 font-medium text-[14px] text-gray-12">
             <ChatCircleIcon size={14} />
             Chat
@@ -116,7 +117,7 @@ export function ReportChatSidebar({
               <XIcon size={14} />
             </Button>
           </span>
-        </div>
+        </ChromeBar>
         <div className="min-h-0 flex-1">
           {taskId ? (
             <ReportChatConversation report={report} taskId={taskId} />

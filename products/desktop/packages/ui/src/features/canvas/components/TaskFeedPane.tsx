@@ -30,6 +30,7 @@ import {
   useTaskFeedSelectionStore,
 } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
@@ -134,7 +135,7 @@ export function TaskFeedPane({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="flex h-10 shrink-0 items-center gap-2 border-border border-b pr-2 pl-3">
+      <ChromeBar>
         <SavedSearchSwitcher
           currentFeedId={feedId}
           className="min-w-0 flex-1"
@@ -157,7 +158,7 @@ export function TaskFeedPane({
             <TrashIcon size={14} />
           </Button>
         </div>
-      </div>
+      </ChromeBar>
 
       <Button
         variant="default"

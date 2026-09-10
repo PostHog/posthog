@@ -12,6 +12,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useCallback, useMemo, useState } from "react";
@@ -210,7 +211,7 @@ export function GridCanvasView({
         {interactive ? (
           // The freeform canvas's toolbar shape: version info on the left,
           // panel controls on the right, in the bar rather than floating.
-          <div className="flex h-10 shrink-0 items-center justify-between border-(--gray-5) border-b px-3">
+          <ChromeBar inset="even" className="justify-between">
             <div className="flex items-center gap-1">
               {versionText ? (
                 <Text size="sm" className="text-(--gray-9)">
@@ -228,7 +229,7 @@ export function GridCanvasView({
                 <SidebarSimpleIcon size={16} />
               </Button>
             ) : null}
-          </div>
+          </ChromeBar>
         ) : null}
         <GridSurface
           grid={layout.grid}

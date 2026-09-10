@@ -2,6 +2,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { ActivityDetailCloseButton } from "@posthog/ui/features/canvas/components/ActivityDetailCloseButton";
 import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 
 /**
@@ -16,7 +17,7 @@ export function SpaceHeaderRow({ task }: { task?: Task }) {
   if (!content && !task && !showsActivitySession) return null;
 
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 border-border border-b pr-2 pl-1">
+    <ChromeBar inset="control">
       <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
         {content}
       </div>
@@ -25,6 +26,6 @@ export function SpaceHeaderRow({ task }: { task?: Task }) {
           against itself, which clips them. */}
       {task && <TaskHeaderActions task={task} />}
       {showsActivitySession && <ActivityDetailCloseButton />}
-    </div>
+    </ChromeBar>
   );
 }

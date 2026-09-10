@@ -12,13 +12,11 @@ import {
   BreadcrumbSeparator,
 } from "@posthog/ui/primitives/Breadcrumb";
 import {
-  isReportPath,
   type NavigationSource,
   resolveNavigationSource,
-  sourceHrefFromSearch,
-  validSourceHref,
+  useReportSourceHref,
 } from "@posthog/ui/router/reportNavigation";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
 interface DetailBackLinkProps {
@@ -39,14 +37,7 @@ export function DetailBackLink({
   report = null,
 }: DetailBackLinkProps) {
   const triageOrigin = useInboxTriageOrigin();
-  // The list this report was opened from: the `?from=` param on a report page,
-  // or, in a pane, the page the reader is still on.
-  const sourceHref = useRouterState({
-    select: (state) =>
-      isReportPath(state.location.pathname)
-        ? sourceHrefFromSearch(state.location)
-        : validSourceHref(state.location.pathname),
-  });
+  const sourceHref = useReportSourceHref();
   const { channels } = useChannels({ enabled: report !== null });
 
   if (report) {

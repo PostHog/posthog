@@ -5,6 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { type ReactElement, type ReactNode, useState } from "react";
 
 interface DocumentPreviewHeaderProps {
@@ -48,7 +49,7 @@ export function DocumentPreviewHeader({
   };
 
   return (
-    <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-b-(--gray-6) px-3">
+    <ChromeBar inset="even" className="justify-between">
       <div className="flex min-w-0 items-center gap-2">
         <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
           {label}
@@ -118,6 +119,6 @@ export function DocumentPreviewHeader({
           )
         )}
       </div>
-    </div>
+    </ChromeBar>
   );
 }

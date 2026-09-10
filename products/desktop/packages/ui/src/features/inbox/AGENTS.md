@@ -113,11 +113,15 @@ report with no source draws no button, because there is no list beside it.
 
 `InboxDetailFrameView` draws one header row, and only its container changes: on
 the report's own page it goes to the app header bar through the header store,
-and in a pane (Activity) the frame draws the same tight `h-10` bar at its own
-top. There is no second, padded header shape. `DetailBackLink` takes the report
-as a prop and renders its crumb trail; the first crumb is the `?from=` source on
-a report page, or the page the reader is still on when the report is in a pane,
-which is what makes Activity read "Activity / <report>".
+and in a pane (Activity) the frame draws its own `ChromeBar` at the top. There
+is no second, padded header shape. `DetailBackLink` takes the report as a prop
+and renders its crumb trail.
+
+The trail names where the report lives, not the surface it is being read on. So
+a report opened from Activity still reads "Self-driving / <report>": the first
+crumb is the `?from=` source when a route carried one, and Self-driving
+otherwise. Activity is a place you can read a report from, not a place a report
+belongs to.
 
 Triage is a route, `/inbox/triage` (`triageRoute.ts`), not a mode flag. It is a
 place you can be, so it survives a reload, restores with the rail, and a report

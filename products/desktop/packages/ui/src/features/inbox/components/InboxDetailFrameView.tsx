@@ -29,6 +29,7 @@ import { SignalReportStatusBadge } from "@posthog/ui/features/inbox/components/u
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import type { ComponentType, ReactNode } from "react";
 import { useMemo, useState } from "react";
@@ -182,11 +183,7 @@ export function InboxDetailFrameView({
 
   return (
     <div className="@container flex min-h-full flex-col">
-      {!ownsChrome && (
-        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-border border-b px-3">
-          {header}
-        </div>
-      )}
+      {!ownsChrome && <ChromeBar inset="control">{header}</ChromeBar>}
 
       <div className="mx-auto w-full max-w-[calc(160ch+5rem)]">
         <div className="flex @5xl:flex-row flex-col @5xl:items-start overflow-hidden">

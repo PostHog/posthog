@@ -62,6 +62,7 @@ import {
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
@@ -405,7 +406,7 @@ export function ShellLayout() {
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && (
-        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
+        <ChromeBar inset="control">
           {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
               channelName={toolbarChannelName}
@@ -426,7 +427,7 @@ export function ShellLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           ) : null}
-        </div>
+        </ChromeBar>
       )}
       {/* The right panel lays itself over this row's right edge and pins its
           switcher to the row's top right, so the row is its positioning context

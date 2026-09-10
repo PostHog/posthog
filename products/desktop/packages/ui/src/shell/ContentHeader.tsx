@@ -1,8 +1,8 @@
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
-import { Flex } from "@radix-ui/themes";
 
 // The in-pane content header for the unified Bluebird chrome. Shows the active
 // view's title (pushed into the header store by each view) on the left and that
@@ -38,18 +38,14 @@ export function ContentHeader() {
   if (!content && !showTaskSection) return null;
 
   return (
-    <Flex align="center" className="h-10 shrink-0 border-border border-b px-3">
+    <ChromeBar inset="control">
       {content && (
-        <Flex
-          align="center"
-          justify="between"
-          className="h-full min-w-0 flex-1 overflow-hidden"
-        >
+        <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
           {content}
-        </Flex>
+        </div>
       )}
 
       {showTaskSection && activeTask && <TaskHeaderActions task={activeTask} />}
-    </Flex>
+    </ChromeBar>
   );
 }
