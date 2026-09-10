@@ -6129,8 +6129,8 @@ def create_task(
     )
     if signal_report_id:
         enforce_self_driving_pr_quota(team, report_id=signal_report_id)
-        # Only Create PR is held back on a trial. Discuss keeps working: a discussion run that
-        # opens a PR by itself is the rare paid case the trial accepts.
+        # Only Create PR is held back on a trial. Discuss keeps working, and a Discuss run can still
+        # open a PR that billing never counts. That is an accepted risk of a sales trial.
         if signal_report_task_relationship in (None, "implementation"):
             enforce_self_driving_free_trial(team, report_id=signal_report_id)
 

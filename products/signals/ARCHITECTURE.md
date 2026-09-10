@@ -1365,11 +1365,11 @@ Implemented in `backend/free_trial.py`, a sibling of `quota.py` with the same fa
 | ------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `autostart`                     | `maybe_autostart_implementation_task` (all callers) | No implementation task is created; the report stays ready                                                                                                              |
 | `manual_create` / `task_create` | tasks facade `create_task` / `create_and_run_task`  | An implementation task from a report is refused with 402, code `self_driving_free_trial` (`FreeTrialPullRequestRefused`); a `discussion` task from a report is allowed |
-| `task_run`                      | tasks facade `run_task`                             | Starting or retrying an implementation task that already existed is refused the same way; a `discussion` task keeps running                                             |
+| `task_run`                      | tasks facade `run_task`                             | Starting or retrying an implementation task that already existed is refused the same way; a `discussion` task keeps running                                            |
 
 The research-side gates are not involved: a trial org is meant to get every report.
 The block is blanket, so billing-exempt reports (health checks) are held back too.
-Discuss stays open: a discussion run that opens a PR by itself is billed as normal, the accepted rare case.
+Discuss stays open: a Discuss run can still open a PR, and billing never counts it, because billing only counts implementation records. That is an accepted risk of a sales trial.
 The inbox reads the same flag and keeps Create PR visible but disabled (detail pane, triage view, card context menu) with the sentence the refusal carries (`FREE_TRIAL_PR_MESSAGE`); the desktop app gets the server refusal only.
 A run that is already in flight when the flag goes on is not stopped, because there is no mid-run check like the quota gate's; it can still open its PR.
 Resume is organic, like the other pauses: nothing restarts when the flag goes off; a held-back report gets its PR on the next auto-start re-evaluation, or by hand.
