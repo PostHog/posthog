@@ -63,7 +63,7 @@ describe('RestrictedArea', () => {
         )
     })
 
-    it('leaves the membership alone when the user has access', async () => {
+    it('reads the membership again for a surface the user can already open', async () => {
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
             membership_level: OrganizationMembershipLevel.Admin,
@@ -71,7 +71,7 @@ describe('RestrictedArea', () => {
 
         await expectLogic(organizationLogic, () => {
             renderHook(() => useRestrictedAreaCheck(adminOnly))
-        }).toNotHaveDispatchedActions(['loadCurrentOrganization'])
+        }).toDispatchActions(['loadCurrentOrganization'])
     })
 
     it('keeps reporting the pending organization as a reason for `useRestrictedArea` callers', () => {

@@ -131,15 +131,17 @@ export function useRestrictedAreaCheck(props: UseRestrictedAreaProps): Restricte
         }
     }, [isProjectScope, loadCurrentTeam, loadCurrentOrganization])
 
-    // The app seeds the membership level once at page load, so a promotion granted afterwards only
-    // arrives on a reload. Check once when the user lands on a surface that turned them away.
+    // The app seeds the membership level once at page load, so a level granted afterwards only
+    // arrives on a reload. Read it back once when the user opens a surface this check gates,
+    // whether the seeded level allows them in or not. Skip it while the read is unresolved,
+    // because there is nothing to refresh and the retry covers a read that came back empty.
     const hasRevalidated = useRef(false)
     useEffect(() => {
-        if (restrictionReason && !hasRevalidated.current) {
+        if (!loadingReason && !hasRevalidated.current) {
             hasRevalidated.current = true
             revalidate()
         }
-    }, [restrictionReason, revalidate])
+    }, [loadingReason, revalidate])
 
     return {
         restrictionReason: isUnavailable ? `We couldn't check your access to the current ${scope}.` : restrictionReason,
