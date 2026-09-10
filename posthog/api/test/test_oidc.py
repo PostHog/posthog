@@ -19,7 +19,8 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
         response.status_code = 200
         response.headers = CaseInsensitiveDict({"Content-Type": "application/json"})
         cast(Any, response).iter_content = Mock(return_value=iter([b'{"issuer": "https://idp.example.com"}']))
-        cast(Any, response).close = Mock()
+        close_mock = Mock()
+        cast(Any, response).close = close_mock
         session = Mock()
         session.request.return_value = response
         auth = object.__new__(MultitenantOIDCAuth)
@@ -37,14 +38,15 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
         assert timeout.total == OIDC_FETCH_TIMEOUT_SECONDS
         assert timeout.connect_timeout <= OIDC_FETCH_TIMEOUT_SECONDS
         assert timeout.read_timeout <= OIDC_FETCH_TIMEOUT_SECONDS
-        response.close.assert_called_once()
+        close_mock.assert_called_once()
 
     def test_rejects_response_that_exceeds_byte_limit_while_streaming(self) -> None:
         response = requests.Response()
         response.status_code = 200
         response.headers = CaseInsensitiveDict()
         cast(Any, response).iter_content = Mock(return_value=iter([b"x" * OIDC_FETCH_MAX_BYTES, b"y"]))
-        cast(Any, response).close = Mock()
+        close_mock = Mock()
+        cast(Any, response).close = close_mock
         session = Mock()
         session.request.return_value = response
         auth = object.__new__(MultitenantOIDCAuth)
@@ -56,7 +58,7 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
                 with self.assertRaises(AuthConnectionError):
                     auth.request("https://idp.example.com/.well-known/openid-configuration")
 
-        response.close.assert_called_once()
+        close_mock.assert_called_once()
         logger.warning.assert_called_once_with(
             "oidc_request_failed",
             phase="discovery",
