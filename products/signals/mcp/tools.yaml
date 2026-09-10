@@ -550,7 +550,7 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: false
+            idempotent: true
         title: Author a full report for a run
         description: >
             The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've
@@ -558,14 +558,17 @@ tools:
             The report passes the safety judge, then surfaces at the status your `actionability` call implies
             (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed);
             an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report
-            behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list`
-            to find a prior report and `scout-edit-report` to update it instead. `suggested_reviewers` is the primary
-            way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for
-            a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR
-            automatically (autostart, custom_agent parity); omit them to just surface the report. Optional `charts`
-            attach queries the inbox renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to
-            place it in the body, or leave it unreferenced and it renders below. Opt-in: only available to scouts that
-            list `emit_report` in their skill's `allowed_tools`.
+            behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call
+            authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on
+            the report's content — so a call that timed out is worth sending again. That is not cross-run dedup: use
+            `inbox-reports-list` to find a report from an earlier run and `scout-edit-report` to update it instead of
+            authoring a near-duplicate. `suggested_reviewers` is the primary way a report reaches a human (each a
+            `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing
+            `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart,
+            custom_agent parity); omit them to just surface the report. Optional `charts` attach queries the inbox
+            renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to place it in the body, or
+            leave it unreferenced and it renders below. Opt-in: only available to scouts that list `emit_report` in
+            their skill's `allowed_tools`.
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true

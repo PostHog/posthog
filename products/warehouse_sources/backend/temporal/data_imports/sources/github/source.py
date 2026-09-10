@@ -958,7 +958,6 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             inputs.s3_folder_name if isinstance(inputs.s3_folder_name, str) and inputs.s3_folder_name else None
         )
         response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)
-
         return github_source(
             personal_access_token=access_token,
             repository=repository,
@@ -970,6 +969,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            reconcile_since=inputs.last_synced_at,
             webhook_source_manager=webhook_source_manager,
             egress_identity=egress_identity,
             response_name=response_name,
