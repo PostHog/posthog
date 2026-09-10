@@ -175,8 +175,8 @@ class RemoveFieldAnalyzer(OperationAnalyzer):
 Consider leaving the column in place. An unused column costs little and keeps its data.
 
 To retire the field, take it out of the ORM first and leave the column:
-- `deprecate_field(...)` from `posthog.migration_helpers` keeps the field on the model and writes no migration
-- `untrack_field(...)` from `posthog.migration_helpers` replaces this RemoveField with a state-only migration
+- `deprecate_field(...)` from `posthog.migration_helpers` keeps the field on the model and writes no migration. Not for a foreign key: with no migration there is nowhere to drop the constraint
+- `untrack_field(...)` from `posthog.migration_helpers` replaces this RemoveField with a state-only migration. A foreign key needs this one, with `DropForeignKey(...)` beside it
 
 To drop the column for real, use `untrack_field(...)` here, then `RunSQL ... DROP COLUMN IF EXISTS` in a following migration. This analyzer validates that shape on its own.
 

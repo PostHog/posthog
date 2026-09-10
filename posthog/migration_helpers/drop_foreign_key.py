@@ -104,9 +104,11 @@ class DropForeignKey(Operation):
             )
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
-        # The constraint is not recreated. Its definition is not recorded anywhere this op can
-        # read, and its absence breaks nothing: the column keeps its data, and the rows it
-        # pointed at are exactly the ones the drop was meant to stop blocking.
+        # The constraint is not recreated, because its definition is recorded nowhere this op
+        # can read. Unapplying therefore gives the field back to Django's state with no
+        # database constraint behind it, so application code alone enforces integrity, the
+        # same as a ForeignKey declared db_constraint=False. The operation stays reversible so
+        # that the migration around it can still unapply.
         pass
 
     def describe(self) -> str:

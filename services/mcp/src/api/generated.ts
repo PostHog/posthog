@@ -10254,6 +10254,11 @@ export namespace Schemas {
       readonly last_notified_at: string | null;
       /** @nullable */
       readonly last_checked_at: string | null;
+      /**
+         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * @nullable
+         */
+      schedule_start_time?: string | null;
       /** @nullable */
       readonly next_check_at: string | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
@@ -30809,10 +30814,9 @@ export namespace Schemas {
     /**
      * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
      *
-     * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
-     * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
-     * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
-     * reviewer is never silently dropped.
+     * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+     * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+     * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
      */
     export interface SuggestedReviewer {
       /**
@@ -30820,7 +30824,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       github_login?: string;
-      /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+      /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
       user_uuid?: string;
       /**
          * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
@@ -62244,6 +62248,11 @@ export namespace Schemas {
       readonly last_notified_at?: string | null;
       /** @nullable */
       readonly last_checked_at?: string | null;
+      /**
+         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * @nullable
+         */
+      schedule_start_time?: string | null;
       /** @nullable */
       readonly next_check_at?: string | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
@@ -78776,7 +78785,7 @@ export namespace Schemas {
       /** The member's last name (may be empty). */
       last_name: string;
       /**
-         * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+         * The member's resolved GitHub login (lowercased), already resolved server-side. Null when the member has no linked GitHub account, which does not stop you routing to them: pass their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only means no draft PR can be opened as that person.
          * @nullable
          */
       github_login: string | null;
@@ -90783,9 +90792,27 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _LogsImpactGroupKey {
+      /** Attribute map the key lives in, in the group-by endpoint's vocabulary: "log" or "resource".
+       *
+       * * `log` - log
+       * * `resource` - resource
+       * * `column` - column */
+      source: LogsGroupBySourceEnum;
+      /** The attribute key that carries the ID on most matching logs. */
+      key: string;
+    }
+
     export interface _LogsImpactRequest {
       /** The impact query to execute. Takes the same filters as the count query. */
       query: _LogsCountBody;
+    }
+
+    export interface _LogsImpactTopValue {
+      /** The session ID or person distinct ID. */
+      value: string;
+      /** Approximate number of matching logs that carry this value (topK estimate). */
+      count: number;
     }
 
     export interface _LogsImpactResponse {
@@ -90799,6 +90826,14 @@ export namespace Schemas {
       logsWithDistinctId: number;
       /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
       users: number;
+      /** Top session IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+      topSessions: _LogsImpactTopValue[];
+      /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+      topUsers: _LogsImpactTopValue[];
+      /** The dimension that carries the session ID on most matching logs. Group by this dimension to drill into the sessions behind the counts. Null when no matching log carries a session ID. */
+      sessionGroupKey: _LogsImpactGroupKey | null;
+      /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to drill into the users behind the counts. Null when no matching log carries a distinct ID. */
+      personGroupKey: _LogsImpactGroupKey | null;
     }
 
     export interface _LogsPatternsBody {
