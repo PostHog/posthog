@@ -145,7 +145,7 @@ export function StackedBar({
                     theme={theme}
                     dataAttr="survey-stacked-bar"
                 >
-                    {size !== 'sm' && <ValueLabels valueFormatter={valueFormatter} />}
+                    {size !== 'sm' && <ValueLabels position="center" valueFormatter={valueFormatter} />}
                 </BarChart>
             </div>
             <div className="w-full">
