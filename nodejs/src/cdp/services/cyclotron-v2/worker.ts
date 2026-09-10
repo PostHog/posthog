@@ -48,7 +48,7 @@ const highTransitionDequeuesCounter = new Counter({
 // subclass, which has its own loop and catch.
 export const consumerLoopErrorsCounter = new Counter({
     name: 'cdp_cyclotron_v2_consumer_loop_errors_total',
-    help: 'Consumer loop iterations that threw, per queue. Sustained nonzero means the queue is not being consumed.',
+    help: 'Consumer loop iterations that threw, per queue. A sustained positive rate can indicate the queue is not being consumed.',
     labelNames: ['queue'] as const,
 })
 
