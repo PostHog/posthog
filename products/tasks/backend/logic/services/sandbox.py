@@ -370,6 +370,9 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
+    @abstractmethod
+    def read_file_bytes(self, path: str, max_bytes: int) -> bytes: ...
+
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""
         return self.execute(

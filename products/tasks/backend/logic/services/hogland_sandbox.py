@@ -407,6 +407,20 @@ class HoglandSandbox(AgentServerLaunchMixin):
             )
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
+    def read_file_bytes(self, path: str, max_bytes: int) -> bytes:
+        if max_bytes < 0 or not path.startswith("/") or "\x00" in path:
+            raise ValueError("path and max_bytes must be bounded")
+        if not self.is_running():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+        payload = self._box.read_file(path)
+        if len(payload) > max_bytes:
+            raise ValueError("Sandbox file exceeds byte limit")
+        return payload
+
     def get_connect_credentials(self) -> AgentServerResult:
         """URL of the agent-server behind hogplane's box proxy.
 

@@ -38,6 +38,11 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
     get_pr_context,
     is_pr_actionable,
 )
+from products.tasks.backend.temporal.publish_task_artifact.activities import (
+    PublishTaskArtifactInput,
+    resolve_completed_publication,
+)
+from products.tasks.backend.temporal.publish_task_artifact.workflow import PublishTaskArtifactWorkflow
 
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
@@ -1490,6 +1495,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     error_type=self._completion_error_type,
                     timeout_marker=self._completion_timeout_marker,
                 )
+                if self._completion_status == "completed":
+                    await self._publish_staged_artifact_if_reserved()
             elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
                 # Only reachable under the lifecycle-bounds patch (the timer is gated on it).
                 # A run that outlived the hard cap is a failure, not a completion, and the
@@ -2710,6 +2717,32 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _publish_staged_artifact_if_reserved(self) -> None:
+        if not self.context.staged_execution:
+            return
+
+        publication = await workflow.execute_activity(
+            resolve_completed_publication,
+            self.context.run_id,
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        if not isinstance(publication, PublishTaskArtifactInput):
+            return
+        try:
+            await workflow.execute_child_workflow(
+                PublishTaskArtifactWorkflow.run,
+                publication,
+                id=f"task-draft-publication-{publication.publication_id}",
+                task_queue=settings.TASKS_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+            )
+        except Exception as err:
+            workflow.logger.warning(
+                "task_draft_publication_failed",
+                extra={"publication_id": str(publication.publication_id), "error": str(err)},
+            )
 
     async def _save_required_staged_analysis_snapshot(self, sandbox_id: str | None) -> None:
         """Persist a completed analysis workspace before its status makes it advanceable."""

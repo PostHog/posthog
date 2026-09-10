@@ -62,6 +62,12 @@ from .process_task.activities.slack_agent_design import (
 )
 from .process_task.slack_agent_design_relay import SlackAgentDesignRelayWorkflow
 from .process_task.workflow import ProcessTaskWorkflow
+from .publish_task_artifact.activities import (
+    finalize_failed_publication,
+    publish_task_artifact,
+    resolve_completed_publication,
+)
+from .publish_task_artifact.workflow import PublishTaskArtifactWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
@@ -72,6 +78,7 @@ WORKFLOWS = [
     RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
+    PublishTaskArtifactWorkflow,
 ]
 
 ACTIVITIES = [
@@ -135,4 +142,8 @@ ACTIVITIES = [
     mark_image_build_failed,
     # bake_dev_stack_image activities
     bake_and_publish_dev_stack_image,
+    # publish_task_artifact activities
+    finalize_failed_publication,
+    publish_task_artifact,
+    resolve_completed_publication,
 ]
