@@ -7,6 +7,7 @@ its ``resolve_ai_gateway_config`` validator and ``ai_gateway_headers`` helper.
 """
 
 import os
+import time
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -21,7 +22,7 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_openai import ChatOpenAI
-from openai import APIError
+from openai import APIError, RateLimitError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import PrivateAttr
 from temporalio.exceptions import ApplicationError
@@ -38,6 +39,9 @@ logger = structlog.get_logger(__name__)
 AI_FEATURES_CLOUD_ONLY_ERROR_TYPE = "AIFeaturesCloudOnly"
 
 
+FLEX_REPROBE_COOLDOWN = 60.0
+
+
 class FlexFirstChatOpenAI(ChatOpenAI):
     """ChatOpenAI that retries a failed flex call once on the standard tier, per call.
 
@@ -45,30 +49,46 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     re-roll a flex capacity refusal. This override retries just the failing chat
     completion with service_tier="default", so an agent loop keeps its completed
     turns instead of rerunning from scratch. Build flex clients with max_retries=0:
-    the tier switch is the retry. The first fallback latches the client to standard,
-    so a flex brownout costs one timeout per agent run, not one per call.
+    the tier switch is the retry.
+
+    A fallback then holds the client on standard, because retrying a tier that just
+    refused wastes a call. How long it holds depends on what the tier cost to discover:
+    a capacity refusal pauses flex for ``FLEX_REPROBE_COOLDOWN`` and the run probes it
+    again, while a stall or a connection failure, which costs a full timeout to find,
+    latches the client for the rest of the run.
 
     Build one through ``build_flex_first_chat_client`` rather than directly, so every
     caller gets the same tier, timeout, and retry policy.
     """
 
     _flex_latched: bool = PrivateAttr(default=False)
+    _flex_paused_until: float = PrivateAttr(default=0.0)
+    _flex_this_call: bool = PrivateAttr(default=False)
+
+    def _flex_available(self) -> bool:
+        return self.service_tier == "flex" and not self._flex_latched and time.monotonic() >= self._flex_paused_until
 
     def _get_request_payload(self, input_: LanguageModelInput, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
-        if self._flex_latched:
+        if self.service_tier == "flex" and not self._flex_this_call:
             kwargs = {**kwargs, "service_tier": "default"}
         return super()._get_request_payload(input_, stop=stop, **kwargs)
 
     def _latch_or_raise(self, error: APIError) -> None:
-        if self._flex_latched or self.service_tier != "flex" or not is_flex_recoverable(error):
+        # Only a call that actually went out as flex has a standard tier left to try.
+        if not self._flex_this_call or not is_flex_recoverable(error):
             raise error
+        if isinstance(error, RateLimitError):
+            self._flex_paused_until = time.monotonic() + FLEX_REPROBE_COOLDOWN
+        else:
+            self._flex_latched = True
         logger.warning(
             "flex_call_fell_back",
             error_type=type(error).__name__,
             status_code=getattr(error, "status_code", None),
             model=self.model_name,
+            latched=self._flex_latched,
         )
-        self._flex_latched = True
+        self._flex_this_call = False
 
     def _generate(
         self,
@@ -77,6 +97,7 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
+        self._flex_this_call = self._flex_available()
         try:
             return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
@@ -90,6 +111,7 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
+        self._flex_this_call = self._flex_available()
         try:
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:

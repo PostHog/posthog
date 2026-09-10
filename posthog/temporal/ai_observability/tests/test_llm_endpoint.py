@@ -16,6 +16,7 @@ from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS
 from posthog.temporal.ai_observability.eval_reports.constants import EVAL_REPORT_AGENT_MODEL
 from posthog.temporal.ai_observability.llm_endpoint import (
     AI_FEATURES_CLOUD_ONLY_ERROR_TYPE,
+    FLEX_REPROBE_COOLDOWN,
     FlexFirstChatOpenAI,
     build_langchain_callbacks,
     build_langchain_chat_client,
@@ -311,7 +312,7 @@ class TestFlexFirstChatOpenAI:
 
         assert llm.client.with_raw_response.create.call_count == 1
 
-    def test_first_fallback_latches_the_client_to_standard(self):
+    def test_a_refusal_holds_the_client_on_standard_inside_the_cooldown(self):
         llm = _flex_client()
         llm.client = _mock_create(
             RateLimitError("capacity refused", response=httpx.Response(429, request=_FLEX_REQUEST), body=None),
@@ -324,6 +325,29 @@ class TestFlexFirstChatOpenAI:
 
         third = llm.client.with_raw_response.create.call_args_list[2]
         assert third.kwargs["service_tier"] == "default"
+
+    @pytest.mark.parametrize(
+        "error,tier_after_cooldown",
+        [
+            (
+                RateLimitError("capacity refused", response=httpx.Response(429, request=_FLEX_REQUEST), body=None),
+                "flex",
+            ),
+            (APITimeoutError(request=_FLEX_REQUEST), "default"),
+        ],
+    )
+    def test_flex_returns_after_a_refusal_but_stays_off_after_a_stall(self, error, tier_after_cooldown):
+        llm = _flex_client()
+        llm.client = _mock_create(error, _COMPLETION, _COMPLETION)
+        clock = {"now": 0.0}
+
+        with patch("posthog.temporal.ai_observability.llm_endpoint.time.monotonic", lambda: clock["now"]):
+            llm.invoke("label the clusters")
+            clock["now"] = FLEX_REPROBE_COOLDOWN + 1
+            llm.invoke("label the next cluster")
+
+        third = llm.client.with_raw_response.create.call_args_list[2]
+        assert third.kwargs["service_tier"] == tier_after_cooldown
 
     def test_standard_client_never_falls_back(self):
         llm = _flex_client(service_tier=None)
