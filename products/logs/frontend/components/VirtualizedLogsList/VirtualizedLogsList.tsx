@@ -7,6 +7,7 @@ import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-w
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { columnExpression, isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
@@ -26,6 +27,7 @@ import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsL
 import { LogsListEmptyState } from 'products/logs/frontend/components/VirtualizedLogsList/LogsListEmptyState'
 import { VirtualizedTableColumn } from 'products/logs/frontend/components/VirtualizedLogsList/types'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { LogsRetentionWindow } from 'products/logs/frontend/logsRetentionWindow'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -182,6 +184,7 @@ export function VirtualizedLogsList({
         setVisibleRowRange,
     } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
+    const retentionRulesAvailable = useFeatureFlag(LogsFeatureFlagKeys.retentionRules)
 
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -355,6 +358,7 @@ export function VirtualizedLogsList({
         return (
             <LogsListEmptyState
                 retention={retention}
+                retentionRulesAvailable={retentionRulesAvailable}
                 onExpandTimeRange={onExpandTimeRange}
                 onSearchRetainedRange={onSearchRetainedRange}
             />

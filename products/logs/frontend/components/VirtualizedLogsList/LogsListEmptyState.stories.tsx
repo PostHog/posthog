@@ -12,6 +12,7 @@ import { LogsListEmptyState } from './LogsListEmptyState'
 const meta: Meta<typeof LogsListEmptyState> = {
     title: 'Scenes-App/Logs/LogsListEmptyState',
     component: LogsListEmptyState,
+    args: { retentionRulesAvailable: true },
     parameters: { layout: 'padded', viewMode: 'story' },
 }
 export default meta

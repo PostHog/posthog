@@ -13,6 +13,8 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 export interface LogsListEmptyStateProps {
     /** Set when the requested range reaches back past retention, which is why the result can be empty. */
     retention?: LogsRetentionWindow | null
+    /** Off when the retention rules setting is hidden for this team, so its link would land on the whole list. */
+    retentionRulesAvailable?: boolean
     onExpandTimeRange?: () => void
     /** Re-runs the search over the retained window. Offered instead of expanding the range. */
     onSearchRetainedRange?: () => void
@@ -24,20 +26,30 @@ export interface LogsListEmptyStateProps {
  */
 export function LogsListEmptyState({
     retention,
+    retentionRulesAvailable,
     onExpandTimeRange,
     onSearchRetainedRange,
 }: LogsListEmptyStateProps): JSX.Element {
+    const retentionRulesLink = retentionRulesAvailable && (
+        <Link to={logsRetentionRulesSettingsUrl()} data-attr="logs-empty-state-retention-rules">
+            Check retention rules
+        </Link>
+    )
+
     let headline = 'No logs found'
-    let body: JSX.Element | string =
-        'Try adjusting your filters, expanding the time range, or checking that your app is sending logs. Drop rules can remove logs before they are stored, and retention rules can delete matching logs sooner than your default retention.'
+    let body: JSX.Element | string = (
+        <>
+            Try adjusting your filters, expanding the time range, or checking that your app is sending logs. Drop rules
+            can remove logs before they are stored.
+            {retentionRulesAvailable && ' Retention rules can delete matching logs sooner than your default retention.'}
+        </>
+    )
     let settingsLink = (
         <>
             <Link to={logsDropRulesSettingsUrl()} data-attr="logs-empty-state-drop-rules">
                 Check drop rules
             </Link>
-            <Link to={logsRetentionRulesSettingsUrl()} data-attr="logs-empty-state-retention-rules">
-                Check retention rules
-            </Link>
+            {retentionRulesLink}
         </>
     )
     let action = onExpandTimeRange && (
@@ -54,8 +66,10 @@ export function LogsListEmptyState({
             <>
                 Your logs are kept for <span translate="no">{retention.retentionDays}</span> days by default. Logs from
                 before <span translate="no">{retention.start.format(LOGS_RETENTION_DATE_FORMAT)}</span> have been
-                deleted. Retention rules can keep matching logs longer or delete them sooner. Retention is applied when
-                a log is stored, so raising it does not bring older logs back.
+                deleted.
+                {retentionRulesAvailable &&
+                    ' Retention rules can keep matching logs longer or delete them sooner.'}{' '}
+                Retention is applied when a log is stored, so raising it does not bring older logs back.
                 {!retention.coversWholeRange && ' No logs matched the rest of the range.'}
             </>
         )
@@ -64,9 +78,7 @@ export function LogsListEmptyState({
                 <Link to={logsRetentionSettingsUrl()} data-attr="logs-empty-state-retention">
                     Change log retention
                 </Link>
-                <Link to={logsRetentionRulesSettingsUrl()} data-attr="logs-empty-state-retention-rules">
-                    Check retention rules
-                </Link>
+                {retentionRulesLink}
             </>
         )
         action = onSearchRetainedRange && (
