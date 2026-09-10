@@ -67,6 +67,7 @@ import {
   useCanvasSource,
   useCanvasVersions,
   useDashboardMutations,
+  usePrimeCanvasView,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
@@ -200,6 +201,15 @@ export function FreeformCanvasView({
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const authenticatedClient = useOptionalAuthenticatedClient();
+
+  // One combined round trip (record + live build + head source) that seeds the
+  // per-endpoint caches below where they're empty. On a cold open this removes
+  // the sequential source hop; after a hover prime it makes the whole open a
+  // cache hit. The per-endpoint queries stay authoritative once loaded.
+  const primeCanvasView = usePrimeCanvasView();
+  useEffect(() => {
+    if (dashboardId) primeCanvasView(dashboardId);
+  }, [dashboardId, primeCanvasView]);
 
   // The generation-task association lives in the canvas record's meta. Poll it
   // while a task is running so the fresh head version + the cleared association

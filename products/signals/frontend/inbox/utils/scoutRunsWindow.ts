@@ -159,6 +159,48 @@ export function formatRunCost(costUsd: number): string {
 }
 
 /**
+ * The costs of the runs the roster holds right now. A cost batch that fails keeps the previous
+ * poll's entries, so the cost map can outlive the runs it priced. A run that has left the roster is
+ * invisible on the strip, so it must not move the cost line or count toward the minimum that turns
+ * the line on.
+ */
+export function rosterRunCosts(runs: SignalScoutRunSummary[], costs: Map<string, number>): Map<string, number> {
+    const onRoster = new Map<string, number>()
+    for (const run of runs) {
+        const cost = costs.get(run.run_id)
+        if (cost !== undefined) {
+            onRoster.set(run.run_id, cost)
+        }
+    }
+    return onRoster
+}
+
+// Below this many priced runs the top decile moves with every run that lands, so the marker would
+// point at a different box each poll and mean nothing.
+const MIN_PRICED_RUNS_FOR_COST_MARKER = 20
+
+/**
+ * What the fleet's priciest tenth of runs starts at, or null while too few runs are priced to rank
+ * them. Scout spend is heavily skewed: most runs cost about a cent, so a top-decile line is what
+ * separates a run worth opening from the cheap majority.
+ */
+export function expensiveRunCostThreshold(costs: Map<string, number>): number | null {
+    if (costs.size < MIN_PRICED_RUNS_FOR_COST_MARKER) {
+        return null
+    }
+    const sorted = [...costs.values()].sort((a, b) => a - b)
+    // The cheapest run inside the priciest tenth, so a line here marks that tenth and no more.
+    const decileStart = sorted[sorted.length - Math.ceil(sorted.length * 0.1)]
+    if (decileStart > sorted[0]) {
+        return decileStart
+    }
+    // More than nine tenths of the fleet costs the cheapest price, so a line at the decile would
+    // mark every box. Mark what costs more than that price instead, which is nothing at all when
+    // every run costs the same.
+    return sorted.find((cost) => cost > sorted[0]) ?? null
+}
+
+/**
  * Scout runs are hard-killed at the ~31-minute Temporal activity deadline and
  * surface as bare "failed" with no error field. Until the serializer carries a
  * failure kind, infer a timeout from the run length.

@@ -16,6 +16,37 @@ describe("GithubRefChip", () => {
     expect(carrier?.getAttribute(GITHUB_REF_URL_ATTR)).toBe(href);
   });
 
+  it("truncates a pull request label from the start so its number survives", () => {
+    render(
+      <GithubRefChip
+        href="https://github.com/PostHog/posthog/pull/123456789"
+        kind="pr"
+      >
+        PostHog/posthog#123456789
+      </GithubRefChip>,
+    );
+
+    const label = screen.getByText("PostHog/posthog#123456789");
+    expect(label).toHaveAttribute("dir", "ltr");
+    expect(label.parentElement).toHaveAttribute("dir", "rtl");
+    expect(label.parentElement).toHaveClass("truncate");
+  });
+
+  it("leaves a label that puts its number first alone", () => {
+    render(
+      <GithubRefChip
+        href="https://github.com/PostHog/posthog/pull/42"
+        kind="pr"
+      >
+        #42 - Fix the sign-up redirect
+      </GithubRefChip>,
+    );
+
+    expect(
+      screen.getByText("#42 - Fix the sign-up redirect"),
+    ).not.toHaveAttribute("dir");
+  });
+
   it("lets a nested right-click target resolve the URL via closest()", () => {
     const href = "https://github.com/PostHog/posthog/issues/42";
     render(

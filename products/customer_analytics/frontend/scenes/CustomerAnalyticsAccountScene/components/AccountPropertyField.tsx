@@ -19,7 +19,7 @@ const PROVENANCE = {
     canonical: { icon: <IconLogomark />, title: 'Managed by PostHog' },
 } as const
 
-export interface AccountPropertyRowProps {
+export interface AccountPropertyFieldProps {
     property: AccountSidebarProperty
     editing?: boolean
     saving?: boolean
@@ -31,7 +31,7 @@ export interface AccountPropertyRowProps {
     onSaveRelationship: (property: AccountRelationshipProperty, memberIds: number[]) => void
 }
 
-export function AccountPropertyRow({
+export function AccountPropertyField({
     property,
     editing = false,
     saving = false,
@@ -41,16 +41,17 @@ export function AccountPropertyRow({
     onCancel,
     onSaveCustomProperty,
     onSaveRelationship,
-}: AccountPropertyRowProps): JSX.Element {
+}: AccountPropertyFieldProps): JSX.Element {
     const editable =
         property.editable !== false &&
         (property.kind === 'relationship' || isCustomPropertyEditable(property.provenance))
     const provenance =
         property.kind === 'custom' && property.provenance !== 'manual' ? PROVENANCE[property.provenance] : null
 
+    // Keep the data-attr stable for existing selectors and autocapture.
     return (
         <div className="flex flex-col gap-1 min-w-0" data-attr="account-property-row">
-            <div className="flex items-center gap-1 min-w-0">
+            <div className="flex items-center gap-1 min-w-0 min-h-7">
                 <span className="text-xs text-secondary truncate">{property.definition.name}</span>
                 {provenance ? (
                     <Tooltip title={provenance.title}>
