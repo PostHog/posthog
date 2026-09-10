@@ -3,17 +3,22 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client import sync_execute
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
 from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.models import SignalReport
+from products.signals.backend.signal_handoffs import SignalHandoff
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -23,11 +28,14 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
+    RunSignalSemanticSearchInput,
     _parse_signal_row,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     fetch_signals_for_report_sync,
+    run_signal_semantic_search_activity,
 )
+from products.signals.backend.temporal.types import SignalData
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 _EMBEDDING = [0.0] * 1536
@@ -351,6 +359,49 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
         )
 
         assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == set()
+
+
+QUERIES_MODULE = "products.signals.backend.temporal.signal_queries"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,expected_candidates",
+    [(SignalReport.Status.READY, 1), (SignalReport.Status.DELETED, 0)],
+)
+async def test_semantic_search_drops_handoffs_whose_report_is_deleted(ateam, status, expected_candidates) -> None:
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=status, total_weight=1.0, signal_count=1
+    )
+    handoff = SignalHandoff(
+        team_id=ateam.pk,
+        signal=SignalData(
+            signal_id=str(uuid.uuid4()),
+            content="the pending signal",
+            source_product="github",
+            source_type="issue",
+            source_id="42",
+            weight=1.0,
+            timestamp=datetime.now(UTC),
+            # Written before the report was deleted, which is the flag the search must not trust.
+            metadata={"report_id": str(report.id), "deleted": False},
+        ),
+        embedding=[1.0, 0.0],
+    )
+
+    with (
+        patch(f"{QUERIES_MODULE}.execute_hogql_query_with_retry", AsyncMock(return_value=SimpleNamespace(results=[]))),
+        patch(f"{QUERIES_MODULE}.read_handoff", AsyncMock(return_value=handoff)),
+    ):
+        result = await ActivityEnvironment().run(
+            run_signal_semantic_search_activity,
+            RunSignalSemanticSearchInput(
+                team_id=ateam.pk, embedding=[1.0, 0.0], pending_signal_keys=[f"signals/processing/{ateam.pk}/key.json"]
+            ),
+        )
+
+    assert len(result.candidates) == expected_candidates
 
 
 class TestParseSignalRow:

@@ -20,7 +20,8 @@ from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.signal_handoffs import read_handoff
+from products.signals.backend.models import SignalReport
+from products.signals.backend.signal_handoffs import SignalHandoff, read_handoff
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     SIGNAL_DOCUMENT_PRODUCT,
@@ -265,6 +266,23 @@ class RunSignalSemanticSearchOutput:
     candidates: list[SignalCandidate]
 
 
+async def _live_report_ids(team_id: int, report_ids: set[str]) -> set[str]:
+    """The reports among `report_ids` that still exist and are not deleted.
+
+    A handoff carries the `deleted` flag it was written with, and deleting a report only tombstones
+    its ClickHouse rows, so a pending handoff would keep attracting new signals to a report the user
+    dismissed. Ask Postgres for the current status instead of trusting the stored one.
+    """
+    if not report_ids:
+        return set()
+    live = (
+        SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    )
+    return {str(report_id) async for report_id in live}
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -314,12 +332,19 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
                 )
             )
 
+        pending: list[tuple[str, SignalHandoff]] = []
         for signal_key in input.pending_signal_keys or []:
             handoff = await read_handoff(signal_key, input.team_id)
             if handoff.signal.metadata.get("deleted"):
                 continue
             report_id = handoff.signal.metadata.get("report_id")
             if not report_id:
+                continue
+            pending.append((str(report_id), handoff))
+
+        live_report_ids = await _live_report_ids(input.team_id, {report_id for report_id, _ in pending})
+        for report_id, handoff in pending:
+            if report_id not in live_report_ids:
                 continue
             embedding = np.asarray(input.embedding)
             handoff_embedding = np.asarray(handoff.embedding)
