@@ -93,7 +93,7 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 MAX_QUARANTINE_DAYS = 30
-DEFAULT_GRACE_DAYS = 7
+GRACE_DAYS = 7
 PYTEST_RUNNER = "pytest"  # also the schema default when an entry omits `runner`
 JEST_RUNNER = "jest"
 PLAYWRIGHT_RUNNER = "playwright"
@@ -332,22 +332,17 @@ def _validate_name_qualified_selector(selector: str) -> str | None:
     return None
 
 
-def check_failure_date(entry: Entry, grace_days: int = DEFAULT_GRACE_DAYS) -> date:
+def check_failure_date(entry: Entry) -> date:
     """First day ``check`` rejects ``entry`` for outliving the grace period."""
-    return entry.expires + timedelta(days=grace_days + 1)
+    return entry.expires + timedelta(days=GRACE_DAYS + 1)
 
 
-def entries_failing_check_in(
-    entries: list[Entry], today: date, days: tuple[int, ...], grace_days: int = DEFAULT_GRACE_DAYS
-) -> list[Entry]:
+def entries_failing_check_in(entries: list[Entry], today: date, days: tuple[int, ...]) -> list[Entry]:
     """Entries that start failing ``check`` exactly one of ``days`` after ``today``, sorted by id."""
-    return sorted(
-        (e for e in entries if (check_failure_date(e, grace_days) - today).days in days),
-        key=lambda e: e.id,
-    )
+    return sorted((e for e in entries if (check_failure_date(e) - today).days in days), key=lambda e: e.id)
 
 
-def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS) -> tuple[list[str], list[str]]:
+def check(result: LoadResult, today: date) -> tuple[list[str], list[str]]:
     """Lint a loaded quarantine file; returns (violations, warnings).
 
     Violations: load errors, duplicate ids, ``expires`` before ``added`` or
@@ -380,9 +375,9 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
             violations.append(f"{label}: added {entry.added} is in the future")
 
         expired_for = (today - entry.expires).days
-        fails_on = check_failure_date(entry, grace_days)
+        fails_on = check_failure_date(entry)
         if today >= fails_on:
-            violations.append(f"{label}: expired {expired_for} days ago (grace is {grace_days}) — remove or re-triage")
+            violations.append(f"{label}: expired {expired_for} days ago (grace is {GRACE_DAYS}) — remove or re-triage")
         elif expired_for > 0:
             days_left = (fails_on - today).days - 1
             deadline = f"within {days_left} days" if days_left else "today — grace period ends"

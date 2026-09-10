@@ -459,38 +459,37 @@ def test_check_passes_on_missing_file(runner: CliRunner, tmp_path: Path) -> None
     assert result.exit_code == 0
 
 
+DUE_TOMORROW = "• `posthog/test_tomorrow.py` (@team-devex): quarantine ended 2026-06-03, `check` fails on 2026-06-11"
+DUE_WEEK_OUT = "• `posthog/test_week_out.py` (@team-devex): quarantine ended 2026-06-09, `check` fails on 2026-06-17"
+
+
 @pytest.mark.parametrize(
-    "extra_args, expected_lines",
+    "args, expected_lines",
     [
+        (("--in-days", "7", "--in-days", "1"), [DUE_TOMORROW, DUE_WEEK_OUT]),
         (
-            (),
-            [
-                "• `posthog/test_tomorrow.py` (@team-devex): expired 2026-06-03, `check` fails on 2026-06-11",
-                "• `posthog/test_week_out.py` (@team-devex): expired 2026-06-09, `check` fails on 2026-06-17",
-            ],
+            ("--in-days", "9"),
+            ["• `posthog/test_active.py` (@team-devex): quarantine ends 2026-06-11, `check` fails on 2026-06-19"],
         ),
         (
-            ("--limit", "1"),
-            [
-                "• `posthog/test_tomorrow.py` (@team-devex): expired 2026-06-03, `check` fails on 2026-06-11",
-                "• 1 more not shown",
-            ],
+            ("--in-days", "7", "--in-days", "1", "--max-chars", str(len(f"{DUE_TOMORROW}\n• 1 more not shown"))),
+            [DUE_TOMORROW, "• 1 more not shown"],
         ),
     ],
 )
 def test_due_lists_entries_that_fail_check_in_the_requested_days(
-    runner: CliRunner, tmp_path: Path, extra_args: tuple[str, ...], expected_lines: list[str]
+    runner: CliRunner, tmp_path: Path, args: tuple[str, ...], expected_lines: list[str]
 ) -> None:
     entries = [
         raw_entry(
             id=f"posthog/test_{name}.py",
             added=(TODAY - timedelta(days=20)).isoformat(),
-            expires=(TODAY - timedelta(days=expired_days_ago)).isoformat(),
+            expires=(TODAY + timedelta(days=expires_in_days)).isoformat(),
         )
-        for name, expired_days_ago in (("week_out", 1), ("not_due", 3), ("tomorrow", 7))
+        for name, expires_in_days in (("week_out", -1), ("not_due", -3), ("tomorrow", -7), ("active", 1))
     ]
     path = write_file(tmp_path / "q.json", entries)
-    result = cli(runner, path, "due", "--in-days", "7", "--in-days", "1", *extra_args)
+    result = cli(runner, path, "due", *args)
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == expected_lines
 

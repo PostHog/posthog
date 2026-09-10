@@ -471,6 +471,7 @@ const TRIPWIRE_RULES = [
     ['.github/actions/setup-emsdk/**', FULLSTACK],
     ['.github/actions/desktop-build-agent-release/**', DESKTOP],
     ['.github/actions/setup-python-cached/**', PYTHON],
+    ['.github/actions/test-quarantine/**', REPO_AUTOMATION],
     // Also used by ci-scripts.yml, which is universal, so the node lane is the
     // only radius left to claim.
     ['.github/actions/report-jest-timings/**', NODE],
