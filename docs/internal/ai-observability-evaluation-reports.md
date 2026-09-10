@@ -11,6 +11,8 @@ Cooldowns and daily delivery limits still apply.
 The coordinator checks count-triggered reports every five minutes and groups queries by team.
 Each report retains its own start time within the shared query.
 If a query times out, the check divides its time range and adds the counts from the two non-overlapping ranges.
+ClickHouse can also refuse a query when it estimates the query is too slow to finish inside its limit.
+The check divides the range for that failure too, because a narrower range holds fewer rows to estimate.
 The check requests an error on timeout so partial counts cannot be mistaken for complete results.
 
 Other query failures do not point at the time range, so the check repeats the same range once instead of dividing it.

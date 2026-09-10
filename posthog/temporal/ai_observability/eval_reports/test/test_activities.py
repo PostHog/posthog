@@ -17,7 +17,11 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import CHQueryErrorQueryWasCancelled
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
@@ -744,9 +748,9 @@ class TestCountTriggeredReportChecks(BaseTest):
 
 
 class TestCountEvalResultsForReportsSplitRetry(BaseTest):
-    """Guards the retry ladder: halve the time range for a `ClickHouseQueryTimeOut`, re-attempt
-    the same range for a failure a narrower range cannot fix, and cap how many queries either
-    path may send."""
+    """Guards the retry ladder: halve the time range for a failure that says the range is too
+    wide, re-attempt the same range for a failure a narrower range cannot fix, and cap how many
+    queries either path may send."""
 
     def _entries(self, count: int, since: dt.datetime) -> list[_CountEntry]:
         return [
@@ -760,11 +764,19 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
             for i in range(count)
         ]
 
-    def test_splits_time_range_in_half_on_timeout_and_sums_the_halves(self):
-        # Catches a retry that reads the same range again, as the old column split did.
+    @parameterized.expand(
+        [
+            ("hard_timeout", ClickHouseQueryTimeOut),
+            ("estimate_too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong),
+        ]
+    )
+    def test_splits_time_range_in_half_for_a_too_wide_range_and_sums_the_halves(self, _name, error_class):
+        # Catches a retry that reads the same range again, as the old column split did. Both
+        # classes come out of the same execution limit, and a wide range can reach the estimate
+        # one first, so a ladder that halves only for the hard timeout still fails the activity.
         until = timezone.now()
         since = until - dt.timedelta(days=8)
-        side_effects = [ClickHouseQueryTimeOut(), Mock(results=[[1, 2]]), Mock(results=[[30, 40]])]
+        side_effects = [error_class(), Mock(results=[[1, 2]]), Mock(results=[[30, 40]])]
 
         with patch("posthog.hogql.query.execute_hogql_query", side_effect=side_effects) as execute_hogql_query:
             counts = _count_eval_results_for_reports_with_split_retry(self.team, self._entries(2, since), until=until)

@@ -19,7 +19,12 @@ from posthog.hogql import ast
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import CHQueryErrorQueryWasCancelled
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryTimeOut,
+)
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_MAX_ATTEMPTS,
@@ -458,6 +463,14 @@ _TRANSIENT_COUNT_QUERY_ERRORS = (
     SocketTimeoutError,
 )
 
+# Failures that say the range holds too many rows, so halving it is the answer. ClickHouse
+# raises the estimate variant once its progress-based estimate passes `max_execution_time`,
+# which a wide range can reach before the hard timeout does.
+_SPLITTABLE_COUNT_QUERY_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+)
+
 
 class _CountQueryBudget:
     """The wall clock and the attempt allowance that every query in one split ladder shares.
@@ -498,9 +511,10 @@ def _count_eval_results_for_reports_with_split_retry(
 ) -> dict[str, int]:
     """Run the batched count query, retrying the failures a count query raises here.
 
-    A `ClickHouseQueryTimeOut` means the rows in `since`..`until` don't fit the budget, so
-    replaying the identical query would just time out again. Halving the range halves the
-    rows each attempt reads, and the two halves sum to the same per-entry counts. Splitting
+    A timeout, or an estimate ClickHouse judges too slow, means the rows in `since`..`until`
+    don't fit the budget, so replaying the identical query would just fail again. Halving the
+    range halves the rows each attempt reads, and the two halves sum to the same per-entry
+    counts. Splitting
     the countIf columns instead would leave both halves reading almost the same rows, because
     the columns share one scan and the width barely moves its cost.
 
@@ -553,7 +567,7 @@ def _count_eval_results_over_range(
                 error_type=type(error).__name__,
             )
             time.sleep(COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS)
-        except ClickHouseQueryTimeOut:
+        except _SPLITTABLE_COUNT_QUERY_ERRORS:
             if (until - since) <= COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE:
                 raise
             return _count_eval_results_over_split_range(team, entries, since=since, until=until, budget=budget)
