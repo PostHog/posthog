@@ -12,7 +12,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
-from products.signals.backend.temporal.llm import call_llm
+from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 
 logger = structlog.get_logger(__name__)
@@ -108,6 +108,7 @@ async def judge_report_safety(
         thinking=True,
         stage="report_safety_judge",
         ai_product="signals_safety",
+        model=SAFETY_MODEL,
     )
 
 
