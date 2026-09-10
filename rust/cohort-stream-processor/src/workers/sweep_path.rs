@@ -10,9 +10,6 @@
 //! [`EvictionQueue::take_due`]: a pass plans over candidates but the queue stays authoritative, so
 //! an event that reschedules a candidate or a merge that cancels one wins over the plan. The
 //! per-key eviction arithmetic itself is unchanged, in [`super::sweep_callback`].
-//!
-//! `docs/internal/cohort-sweep-batching.md` carries the operator-facing version: the scheduling
-//! rules, the failure boundaries, and what each metric means.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
