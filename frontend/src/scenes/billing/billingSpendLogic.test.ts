@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -300,15 +301,18 @@ describe('billing spend load triggers', () => {
 describe('billingSpendLogic background context', () => {
     let logic: ReturnType<typeof billingSpendLogic.build>
     let toastErrorSpy: jest.SpyInstance
+    let captureExceptionSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+        captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
     })
 
     afterEach(() => {
         logic?.unmount()
         toastErrorSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
     })
 
     it('stays quiet on failure when it loads as background context', async () => {
@@ -333,6 +337,8 @@ describe('billingSpendLogic background context', () => {
         expect(logic.values.billingSpendResponse).toBeNull()
         expect(logic.values.billingSpendError).toBeNull()
         expect(toastErrorSpy).not.toHaveBeenCalled()
+        // Quiet is about the screen. A reportable failure still reaches error tracking.
+        expect(captureExceptionSpy).toHaveBeenCalled()
     })
 })
 

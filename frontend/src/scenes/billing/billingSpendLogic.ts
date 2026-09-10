@@ -6,10 +6,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -462,6 +464,12 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         return await api.get(`api/billing/spend/?${toParams(params)}`)
                     } catch (error) {
                         if (props.quiet) {
+                            // Returning here skips the gate `initKea` applies to loader failures,
+                            // so reapply it. Staying quiet is about the screen, not about hiding a
+                            // crash from error tracking.
+                            if (shouldReportApiFailure(error)) {
+                                posthog.captureException(error)
+                            }
                             return null
                         }
                         // An actionable error names something the person can change, so it is

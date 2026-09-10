@@ -845,11 +845,11 @@ export const maxLogic = kea<maxLogicType>([
                 }
 
                 // Polled in the background while the chat catches up, so a failure nobody can act
-                // on would toast once per tick.
-                if (isUnactionableRequestFailure(err)) {
-                    return
+                // on would toast once per tick. Fall through either way: the retry below is what
+                // recovers a transient failure.
+                if (!isUnactionableRequestFailure(err)) {
+                    lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
                 }
-                lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
             }
 
             if (conversation && conversation.status === ConversationStatus.Idle) {
