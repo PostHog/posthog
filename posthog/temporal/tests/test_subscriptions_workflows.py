@@ -3084,6 +3084,39 @@ async def test_fetch_due_subscriptions_fairness_is_not_defeated_by_one_teams_old
     assert quiet_subscription.id in {item.subscription_id for item in fetched}
 
 
+async def test_fetch_due_subscriptions_fills_capacity_after_sparse_teams(team, user):
+    teams = [
+        team,
+        *[
+            await sync_to_async(Team.objects.create)(organization=team.organization, name=f"Sparse team {index}")
+            for index in range(2)
+        ],
+    ]
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    counts = [1, 1, 10]
+    for team_index, (subscription_team, count) in enumerate(zip(teams, counts, strict=True)):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=subscription_team,
+            short_id=f"sparse-{team_index}",
+            name=f"Sparse insight {team_index}",
+        )
+        subscriptions = [
+            await sync_to_async(create_subscription)(team=subscription_team, insight=insight, created_by=user)
+            for _ in range(count)
+        ]
+        await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in subscriptions]).update)(
+            next_delivery_date=due_at
+        )
+
+    fetched = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15, max_subscriptions_per_run=5),
+    )
+
+    assert len(fetched) == 5
+    assert [sum(item.team_id == subscription_team.id for item in fetched) for subscription_team in teams] == [1, 1, 3]
+
+
 async def test_fetch_due_subscriptions_rotates_tenant_page_across_runs(team, user):
     teams = [
         team,
