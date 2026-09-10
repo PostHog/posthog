@@ -134,12 +134,22 @@ class TestFormatSessionForJudge:
         assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
         assert "t399" in rendered
 
-    def test_every_trace_appears(self):
+    @pytest.mark.parametrize("content_length,should_truncate", [(300_000, False), (600_000, True)])
+    def test_preserves_every_trace_and_only_truncates_content_when_the_session_exceeds_budget(
+        self, content_length: int, should_truncate: bool
+    ) -> None:
         traces = [_trace("t-alpha", cost=0, latency=0), _trace("t-beta", cost=0, latency=0)]
+        content = "start " + "x" * (content_length // 2) + " critical evidence " + "y" * (content_length // 2) + " end"
+        traces[0].events[0].properties["$ai_input"] = [{"role": "user", "content": content}]
         rendered = format_session_for_judge(traces)
         assert rendered is not None
         assert "t-alpha" in rendered
         assert "t-beta" in rendered
+        assert ("chars truncated" in rendered) == should_truncate
+        assert ("critical evidence" in rendered) == (not should_truncate)
+        assert "start " in rendered
+        assert " end" in rendered
+        assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
 
 
 @freeze_time(FROZEN_NOW)
