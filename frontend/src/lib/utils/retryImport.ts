@@ -11,6 +11,21 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
 }
 
 /**
+ * A dynamic `import()` can reject with a value that is not an object — Firefox has rejected with
+ * `undefined`. Such a value has no message and no stack, and `isChunkLoadError` cannot classify it,
+ * so every layer above treats a load failure as an application crash and skips the reload recovery.
+ * Turn it into a real `Error` and mark it as a chunk-load failure.
+ */
+function normalizeImportRejection(error: unknown): unknown {
+    if (error && typeof error === 'object') {
+        return error
+    }
+    const normalized = new Error(`Dynamic import rejected with a non-object value: ${String(error)}`)
+    markAsChunkLoadError(normalized)
+    return normalized
+}
+
+/**
  * Re-attempts a dynamic `import()` on a transient chunk-load failure before giving up.
  *
  * Most "Failed to fetch dynamically imported module" errors are transient — a network blip,
@@ -26,7 +41,8 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
 export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs = 300): Promise<Awaited<T>> {
     try {
         return await factory()
-    } catch (error) {
+    } catch (rawError) {
+        const error = normalizeImportRejection(rawError)
         if (retries <= 0 || !isChunkLoadError(error)) {
             throw error
         }
