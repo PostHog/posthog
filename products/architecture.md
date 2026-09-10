@@ -362,9 +362,14 @@ The names the doctrine spells out (`queries.py`, `temporal.py`, `max_tools.py`, 
 `api*.py` never counts, because it holds the data capabilities, and neither do `contracts.py`, `enums.py` and `testing.py`.
 
 A model reaches another facade through the owner's `facade/models` shim as often as through its models module, so both spellings count.
-The signature rules read the functions a facade hands out through a PEP 562 lazy map too, under the facade name a consumer imports, because a lazy re-export is part of the same call surface.
-Only registered Django models count: a models module also holds choices, enums and managers, which a contract may carry.
+The signature rules read the functions a facade hands out that another module defines, under the facade name a consumer imports, because a re-export is part of the same call surface.
+Both spellings count: a plain import the facade re-exports, and a PEP 562 lazy map.
+The public surface of a class includes its `__init__`, because a constructor takes what the caller hands the class.
+Only registered Django models count.
+A class is a model when one of its bases reaches a Django model base (`models.Model`, or an abstract base that `posthog/models/utils.py` or `posthog/models/scoping/` exports), or another class of the product's model modules that already counts.
+That leaves out what a models module holds besides its tables: choices, enums, managers, the pydantic models a JSON field is validated against, and the errors it raises, all of which a contract may carry.
 A nested class attribute (`Thing.Status`) is a value rather than an instance, so it is not reported.
+The arguments of a `Literal` are data, so they are not reported either, and an `Annotated` is one type followed by metadata, of which only the type counts.
 Classes on the carve-out and watched-models lists above are sanctioned for the product that owns them, so an identically named class from another product is still reported.
 Core models are not reported either, because product to core is the sanctioned direction.
 `products/model_crossing_uses_baseline.txt` records what the facades do today, as the `facade-*` kinds next to the other couplings the import graph cannot see.

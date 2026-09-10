@@ -705,6 +705,7 @@ def _iter_facade_modules(backend_dir: Path) -> Iterator[Path]:
 class _HandedOutName:
     """A product-internal name one facade module hands out, and the module that defines it."""
 
+    bound: str  # the name the facade hands out, which is what a consumer imports
     original: str  # the name at the source
     source_path: str  # backend-relative, e.g. "backend/logic/crud.py"
 
@@ -738,12 +739,12 @@ def _iter_handed_out_names(tree: ast.Module, backend_dir: Path) -> Iterator[_Han
             bound = asname or orig
             handed_out = is_pure_reexport or (allowed is not None and bound in allowed) or asname == orig
             if handed_out:
-                yield _HandedOutName(orig, source_path)
+                yield _HandedOutName(bound, orig, source_path)
     prefixes = lazy_reexport_prefixes(tree)
     for name, dotted in lazy_reexport_map(tree).items():
         source_path = _resolve_dotted_source(dotted, backend_dir, prefixes)
         if source_path is not None:
-            yield _HandedOutName(name, source_path)
+            yield _HandedOutName(name, name, source_path)
 
 
 def _iter_facade_class_reexports(backend_dir: Path) -> Iterator[FacadeClassImport]:
@@ -929,6 +930,14 @@ _LIBRARY_SOURCES: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 _LIBRARY_NAMES: frozenset[str] = frozenset(source for _, source in _LIBRARY_SOURCES)
 
+# Typing special forms whose subscript arguments are not all types: `Literal` holds values, and
+# `Annotated` holds one type followed by metadata. Both modules that export them are named, so an
+# import binds the name; a spelling nothing bound falls back to the bare name.
+_LITERAL = "Literal"
+_ANNOTATED = "Annotated"
+_SPECIAL_FORMS: frozenset[str] = frozenset({_LITERAL, _ANNOTATED})
+_SPECIAL_FORM_MODULES: frozenset[str] = frozenset({"typing", "typing_extensions"})
+
 # The model surface as dotted module names, so an import path is tested against the same definition
 # of "where a product's models live" that the input-coverage checks use.
 _MODEL_SURFACE_MODULES: tuple[str, ...] = tuple(
@@ -1004,6 +1013,7 @@ class _FacadeImportEnv:
 
     types: dict[str, _ForbiddenType]  # local name -> the forbidden type it binds
     modules: dict[str, str]  # local module alias -> source, for a `models.QuerySet` annotation
+    special_forms: dict[str, str]  # local name -> the typing special form it binds
     model_names: _ModelNames
 
 
@@ -1062,11 +1072,52 @@ def _submodule_of(module: str | None, name: str) -> str:
     return f"{module}.{name}" if module else name
 
 
+def _package_dir(level: int, module: str | None, backend_dir: Path, package_parts: Sequence[str]) -> Path | None:
+    """The directory a `from <package> import ...` reads, for a package that is on disk here.
+
+    That is this product's backend for a relative import and another product's backend for an
+    absolute one. A library package is not in this tree, so it has no directory."""
+    if level > 0:
+        module_rel = _resolve_relative(list(package_parts), level, module)
+        return None if module_rel is None else backend_dir / module_rel
+    match = _PRODUCT_BACKEND_RE.match(module or "")
+    if match is None:
+        return None
+    product, backend_module = match.groups()
+    products_dir = backend_dir.parent.parent
+    return products_dir / product / "backend" / backend_module.replace(".", "/")
+
+
+def _binds_submodule(package_dir: Path | None, source: str, name: str) -> bool:
+    """True when a `from <package> import <name>` binds a submodule rather than a type.
+
+    A product package is in this tree, so the file or the directory on disk decides. A library
+    package is not, so the PEP 8 spelling decides instead: `from rest_framework import request`
+    binds a module and `from rest_framework.request import Request` binds a type.
+
+    The on-disk test reads the directory rather than asking for the path, because a case-insensitive
+    filesystem answers `Account.py` with `account.py` and would turn every model class into a
+    module alias."""
+    if package_dir is None:
+        return source in _LIBRARY_NAMES and name[:1].islower()
+    if not package_dir.is_dir():
+        return False
+    return any(
+        (entry.name == f"{name}.py" and entry.is_file()) or (entry.name == name and entry.is_dir())
+        for entry in package_dir.iterdir()
+    )
+
+
 def _facade_import_env(
-    tree: ast.Module, product: str, model_names: _ModelNames, package_parts: Sequence[str] = ("facade",)
+    tree: ast.Module,
+    product: str,
+    model_names: _ModelNames,
+    backend_dir: Path,
+    package_parts: Sequence[str] = ("facade",),
 ) -> _FacadeImportEnv:
     types: dict[str, _ForbiddenType] = {}
     modules: dict[str, str] = {}
+    special_forms: dict[str, str] = {}
     for node in module_level_import_nodes(tree, type_checking=True):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -1075,6 +1126,10 @@ def _facade_import_env(
                     modules[alias.asname or alias.name.split(".")[0]] = source
             continue
         module = node.module or ""
+        if node.level == 0 and module in _SPECIAL_FORM_MODULES:
+            for alias in node.names:
+                if alias.name in _SPECIAL_FORMS:
+                    special_forms[alias.asname or alias.name] = alias.name
         source = (
             _relative_import_source(node.level, node.module, product, package_parts)
             if node.level > 0
@@ -1094,10 +1149,13 @@ def _facade_import_env(
                 if submodule_source is not None:
                     modules[bound] = submodule_source
                 continue
+            if _binds_submodule(_package_dir(node.level, node.module, backend_dir, package_parts), source, alias.name):
+                modules[bound] = source
+                continue
             forbidden = _forbidden(source, alias.name, model_names)
             if forbidden is not None:
                 types[bound] = forbidden
-    return _FacadeImportEnv(types=types, modules=modules, model_names=model_names)
+    return _FacadeImportEnv(types=types, modules=modules, special_forms=special_forms, model_names=model_names)
 
 
 @dataclass(frozen=True)
@@ -1111,11 +1169,34 @@ class _TypeRef:
     named: str
 
 
-def _annotation_refs(node: ast.expr | None) -> list[_TypeRef]:
+def _special_form(env: _FacadeImportEnv, node: ast.expr) -> str | None:
+    """The typing special form the head of a subscript names, or None.
+
+    Read from the import that bound the name, so `Literal as L` still resolves. A name nothing
+    module-level bound falls back to the spelling, which covers the `typing.Literal` attribute form
+    and a name bound somewhere this scan does not read."""
+    if isinstance(node, ast.Name):
+        bound = env.special_forms.get(node.id)
+        if bound is not None:
+            return bound
+        return node.id if node.id in _SPECIAL_FORMS else None
+    if isinstance(node, ast.Attribute):
+        return node.attr if node.attr in _SPECIAL_FORMS else None
+    return None
+
+
+def _first_argument(node: ast.expr) -> ast.expr:
+    """The first argument of a subscript, which is the whole slice when there is only one."""
+    if isinstance(node, ast.Tuple) and node.elts:
+        return node.elts[0]
+    return node
+
+
+def _annotation_refs(env: _FacadeImportEnv, node: ast.expr | None) -> list[_TypeRef]:
     """Every type an annotation names.
 
-    A quoted annotation is parsed and read the same way. One that does not parse is skipped,
-    because this is a ratchet and not a proof.
+    A quoted annotation is parsed and read the same way, which is how a TYPE_CHECKING import still
+    counts. One that does not parse is skipped, because this is a ratchet and not a proof.
     """
     if node is None:
         return []
@@ -1133,13 +1214,21 @@ def _annotation_refs(node: ast.expr | None) -> list[_TypeRef]:
             parsed = ast.parse(node.value, mode="eval")
         except SyntaxError:
             return []
-        return _annotation_refs(parsed.body)
+        return _annotation_refs(env, parsed.body)
     if isinstance(node, ast.Subscript):
-        return _annotation_refs(node.value) + _annotation_refs(node.slice)
+        form = _special_form(env, node.value)
+        if form == _LITERAL:
+            # The arguments of a Literal are values. A string among them is data, so parsing it as
+            # a forward reference reports a type that never crosses.
+            return _annotation_refs(env, node.value)
+        if form == _ANNOTATED:
+            # Annotated is one type followed by metadata, and only the type is on the boundary.
+            return _annotation_refs(env, node.value) + _annotation_refs(env, _first_argument(node.slice))
+        return _annotation_refs(env, node.value) + _annotation_refs(env, node.slice)
     if isinstance(node, ast.BinOp):
-        return _annotation_refs(node.left) + _annotation_refs(node.right)
+        return _annotation_refs(env, node.left) + _annotation_refs(env, node.right)
     if isinstance(node, (ast.Tuple, ast.List)):
-        return [ref for element in node.elts for ref in _annotation_refs(element)]
+        return [ref for element in node.elts for ref in _annotation_refs(env, element)]
     return []
 
 
@@ -1162,7 +1251,7 @@ def _forbidden_types_in(env: _FacadeImportEnv, annotation: ast.expr | None) -> l
     Keyed by source and name together: two types can share a name across products, and collapsing
     them would let a sanctioned one hide an unsanctioned one behind it."""
     found: dict[tuple[str, str], _ForbiddenType] = {}
-    for ref in _annotation_refs(annotation):
+    for ref in _annotation_refs(env, annotation):
         forbidden = _named_type(env, ref.root, ref.named)
         if forbidden is not None:
             found.setdefault((forbidden.source, forbidden.type_name), forbidden)
@@ -1171,7 +1260,7 @@ def _forbidden_types_in(env: _FacadeImportEnv, annotation: ast.expr | None) -> l
 
 def _annotation_is_any(env: _FacadeImportEnv, annotation: ast.expr | None) -> bool:
     """True when the whole annotation is `Any`. `dict[str, Any]` is not: the data stays data."""
-    refs = _annotation_refs(annotation)
+    refs = _annotation_refs(env, annotation)
     return len(refs) == 1 and _named_type(env, refs[0].root, refs[0].named) == _ANY
 
 
@@ -1238,9 +1327,10 @@ def _iter_module_signature_findings(
     tree: ast.Module, env: _FacadeImportEnv, product: str, facade_module: str, dotted_module: str
 ) -> Iterator[FacadeShapeFinding]:
     """Signature findings for the module's public call surface: its module-level functions and the
-    public methods of the public classes it defines. A leading underscore marks a helper the facade
-    keeps to itself, and converting a model to a contract is exactly what such a helper is for."""
-    for owner, node in iter_public_callables(tree):
+    public methods, constructor included, of the public classes it defines. A leading underscore
+    marks a helper the facade keeps to itself, and converting a model to a contract is exactly what
+    such a helper is for."""
+    for owner, node in iter_public_callables(tree, include_init=True):
         if owner.startswith("_"):
             continue
         symbol = f"{owner}.{node.name}" if owner else node.name
@@ -1254,7 +1344,7 @@ def _top_level_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.As
     return None
 
 
-def _iter_lazy_signature_findings(
+def _iter_reexport_signature_findings(
     tree: ast.Module,
     backend_dir: Path,
     product: str,
@@ -1262,14 +1352,18 @@ def _iter_lazy_signature_findings(
     dotted_module: str,
     model_names: _ModelNames,
 ) -> Iterator[FacadeShapeFinding]:
-    """Signature findings for the functions a facade hands out through a PEP 562 lazy map.
+    """Signature findings for the functions a facade hands out that another module defines.
 
-    A lazy re-export is part of the facade's own call surface: a consumer imports the name from the
-    facade and the map decides which module answers. So the defining function is read under the
-    facade name, and the lazy spelling cannot be what gets a type past the check. Annotations are
-    resolved in the defining module's own namespace, which is where they were written.
+    A re-export is part of the facade's own call surface: a consumer imports the name from the
+    facade and another module answers, whether the facade spells that as an import it re-exports or
+    as a PEP 562 lazy map. So the defining function is read under the facade name, and neither
+    spelling can be what gets a type past the check. Annotations are resolved in the defining
+    module's own namespace, which is where they were written.
+
+    A class is a re-export the wiring doctrine reads instead (facade_class_imports), and a name the
+    facade module defines itself is already read by the module scan. A source outside this product's
+    backend never resolves to a path, so nothing crosses in from core or a library.
     """
-    prefixes = lazy_reexport_prefixes(tree)
     defined_here = {
         node.name
         for node in ast.iter_child_nodes(tree)
@@ -1277,26 +1371,30 @@ def _iter_lazy_signature_findings(
     }
     parse_cache: dict[str, ast.Module | None] = {}
     env_cache: dict[str, _FacadeImportEnv] = {}
-    for name, dotted in sorted(lazy_reexport_map(tree).items()):
-        # A real definition wins over __getattr__, and the module scan already read it.
-        if name.startswith("_") or name in defined_here:
+    handed_out = set(_iter_handed_out_names(tree, backend_dir))
+    for handed in sorted(handed_out, key=lambda h: (h.bound, h.original, h.source_path)):
+        # A real definition wins over a re-export, and the module scan already read it.
+        if handed.bound.startswith("_") or handed.bound in defined_here:
             continue
-        source_path = _resolve_dotted_source(dotted, backend_dir, prefixes)
-        if source_path is None:
+        # A sibling facade module is scanned under its own name, so reading it again here would
+        # record the same signature twice.
+        if handed.source_path.startswith(_FACADE_PREFIX):
             continue
-        if source_path not in parse_cache:
-            parse_cache[source_path] = ast_parse_safe(_source_file(source_path, backend_dir))
-        source_tree = parse_cache[source_path]
+        if handed.source_path not in parse_cache:
+            parse_cache[handed.source_path] = ast_parse_safe(_source_file(handed.source_path, backend_dir))
+        source_tree = parse_cache[handed.source_path]
         if source_tree is None:
             continue
-        node = _top_level_function(source_tree, name)
+        node = _top_level_function(source_tree, handed.original)
         if node is None:
             continue
-        if source_path not in env_cache:
-            env_cache[source_path] = _facade_import_env(
-                source_tree, product, model_names, _module_package_parts(source_path)
+        if handed.source_path not in env_cache:
+            env_cache[handed.source_path] = _facade_import_env(
+                source_tree, product, model_names, backend_dir, _module_package_parts(handed.source_path)
             )
-        yield from _iter_signature_findings(node, env_cache[source_path], product, facade_module, dotted_module, name)
+        yield from _iter_signature_findings(
+            node, env_cache[handed.source_path], product, facade_module, dotted_module, handed.bound
+        )
 
 
 def _has_wiring_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> bool:
@@ -1394,9 +1492,11 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
         if tree is None:
             continue
         dotted_module = _facade_module_dotted(name, path.name)
-        env = _facade_import_env(tree, name, model_names)
+        env = _facade_import_env(tree, name, model_names, backend_dir)
         findings.extend(_iter_module_signature_findings(tree, env, name, path.name, dotted_module))
-        findings.extend(_iter_lazy_signature_findings(tree, backend_dir, name, path.name, dotted_module, model_names))
+        findings.extend(
+            _iter_reexport_signature_findings(tree, backend_dir, name, path.name, dotted_module, model_names)
+        )
         if _is_capability_module(tree, path.name, backend_dir):
             logic = _capability_finding(tree, name, path.name, dotted_module)
             if logic is not None:

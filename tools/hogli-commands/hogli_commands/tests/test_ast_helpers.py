@@ -8,6 +8,7 @@ from hogli_commands.product.ast_helpers import get_frozen_dataclass_names, get_m
 
 MODELS_SOURCE = """
 from django.db import models
+from pydantic import BaseModel
 from posthog.models.scoping import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
@@ -32,6 +33,14 @@ class AbstractBase(TeamScopedRootMixin, UUIDModel):
         abstract = True
 
 
+class Derived(AbstractBase):
+    pass
+
+
+class Payload(BaseModel):
+    name: str
+
+
 class Flavor(models.TextChoices):
     VANILLA = "vanilla", "Vanilla"
 
@@ -44,14 +53,6 @@ class PlainHelper:
     pass
 """
 
-NO_DJANGO_SOURCE = """
-from pydantic import BaseModel
-
-
-class Payload(BaseModel):
-    name: str
-"""
-
 
 class TestGetModelNames:
     @pytest.mark.parametrize(
@@ -61,6 +62,8 @@ class TestGetModelNames:
             ("SyncConfig", True),  # meta-fields mixins only
             ("Widget", True),  # classic 'Model'-suffix base
             ("AbstractBase", False),  # Meta.abstract = True never comes out of the registry
+            ("Derived", True),  # ...but it is still how its subclass reaches a Django base
+            ("Payload", False),  # a pydantic model in a models file validates a field, not a table
             ("Flavor", False),  # module-level choices class
             ("ChannelType", False),  # nested choices class
             ("WidgetManager", False),  # manager helper
@@ -73,15 +76,10 @@ class TestGetModelNames:
         (backend / "models.py").write_text(MODELS_SOURCE)
         assert (name in get_model_names(backend)) is expected
 
-    def test_ignores_files_without_django_imports(self, tmp_path: Path) -> None:
-        backend = tmp_path / "backend"
-        backend.mkdir()
-        (backend / "models.py").write_text(NO_DJANGO_SOURCE)
-        assert get_model_names(backend) == []
-
-    def test_a_proxy_model_needs_no_django_import_of_its_own(self, tmp_path: Path) -> None:
-        # A proxy model subclasses its concrete model and imports nothing from django.db, so an
-        # import gate drops it and a facade handing it out gets no finding.
+    def test_a_proxy_model_is_reached_through_its_concrete_model(self, tmp_path: Path) -> None:
+        # A proxy model sits in another module and subclasses its concrete model, so only a
+        # resolution that reaches across the model modules finds it. Dropping it lets a facade hand
+        # the class out with no finding.
         models_dir = tmp_path / "backend" / "models"
         models_dir.mkdir(parents=True)
         (models_dir / "widgets.py").write_text(MODELS_SOURCE)

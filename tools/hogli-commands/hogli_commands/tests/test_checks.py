@@ -2170,6 +2170,35 @@ class TestFacadeShape:
                 },
                 {("provenance", "request", "accepts", "Request")},
             ),
+            # ...and importing the submodule instead binds a namespace, so `request.Request` names
+            # the same class and cannot be the spelling that gets it past the check
+            (
+                {
+                    "api.py": "from rest_framework import request\n\n\ndef provenance(req: request.Request) -> None:\n    return None\n"
+                },
+                {("provenance", "req", "accepts", "Request")},
+            ),
+            # a constructor takes what the caller hands the class, so it is part of the surface
+            (
+                {
+                    "api.py": "from django.db.models import QuerySet\n\n\nclass Rows:\n    def __init__(self, queryset: QuerySet) -> None:\n        self._queryset = queryset\n"
+                },
+                {("Rows.__init__", "queryset", "accepts", "QuerySet")},
+            ),
+            # the arguments of a Literal are values, so a model name among them is data
+            (
+                {
+                    "api.py": "from typing import Literal\n\nfrom ..models import Thing\n\n\ndef pick(kind: Literal['Thing', 'ExternalDataSource']) -> None:\n    return None\n"
+                },
+                set(),
+            ),
+            # Annotated is one type plus metadata: the type counts and the metadata does not
+            (
+                {
+                    "api.py": "from typing import Annotated\n\nfrom ..models import Thing\n\n\ndef pick(row: Annotated[Thing, 'ExternalDataSource']) -> None:\n    return None\n"
+                },
+                {("pick", "row", "accepts", "Thing")},
+            ),
             # a TYPE_CHECKING import plus a quoted annotation is the same promise, spelled to dodge
             # the import graph
             (
@@ -2243,21 +2272,41 @@ class TestFacadeShape:
         findings = facade_shape_findings(backend, "warehouse_sources")
         assert [(f.source, f.type_name) for f in findings] == [("lookalike", "ExternalDataSource")]
 
-    def test_a_lazily_re_exported_function_is_read_under_the_facade_name(self, tmp_path: Path) -> None:
-        # A PEP 562 map is part of the facade's own call surface: the consumer imports the name from
-        # the facade, so a lazy spelling cannot be what gets the model past the check.
+    @pytest.mark.parametrize(
+        "facade_api, symbol",
+        [
+            # a PEP 562 map: the consumer imports the name from the facade and the map decides
+            # which module answers
+            (
+                '_B = "products.my_product.backend."\n'
+                '_LAZY = {"get_thing": "logic.crud"}\n\n\n'
+                "def __getattr__(name):\n    ...\n",
+                "get_thing",
+            ),
+            # a module with no definitions of its own hands out everything it imports
+            ("from ..logic.crud import get_thing\n", "get_thing"),
+            # the self-alias idiom, which also suppresses ruff's F401
+            (
+                "from ..logic.crud import get_thing as get_thing\n\n\ndef other() -> None:\n    return None\n",
+                "get_thing",
+            ),
+            # a renamed re-export is read under the name the facade hands out
+            ("from ..logic.crud import get_thing as fetch\n\n__all__ = ['fetch']\n", "fetch"),
+        ],
+    )
+    def test_a_re_exported_function_is_read_under_the_facade_name(
+        self, tmp_path: Path, facade_api: str, symbol: str
+    ) -> None:
+        # A re-export is part of the facade's own call surface: the consumer imports the name from
+        # the facade, so neither spelling can be what gets the model past the check.
         backend = _write_shape_product(
             tmp_path,
-            {
-                "api.py": '_B = "products.my_product.backend."\n'
-                '_LAZY = {"get_thing": "logic.crud"}\n\n\n'
-                "def __getattr__(name):\n    ...\n"
-            },
+            {"api.py": facade_api},
             sources={"logic/crud.py": "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n"},
         )
         findings = facade_shape_findings(backend, "my_product")
         assert [(f.dotted_module, f.symbol, f.kind, f.type_name) for f in findings] == [
-            ("products.my_product.backend.facade.api", "get_thing", "returns", "Thing")
+            ("products.my_product.backend.facade.api", symbol, "returns", "Thing")
         ]
 
     @pytest.mark.parametrize(
