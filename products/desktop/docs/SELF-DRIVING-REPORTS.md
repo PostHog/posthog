@@ -24,6 +24,7 @@ Read state is saved on this device for the current user and project. It does not
 Select Triage mode to review reports in sequence.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
-To filter reports for a user, open Filter reports, then Scope.
+To filter reports for a user, open Filter reports, then hover over Scope.
+Hover opens the user list without moving keyboard focus. Click the search field to type, or use the keyboard to open Scope and focus the search field.
 The search starts empty and shows up to 20 options, including For you and Entire project.
 Search by name or email across all users. The search field stays visible above the results.

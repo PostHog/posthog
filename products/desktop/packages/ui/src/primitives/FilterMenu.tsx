@@ -70,20 +70,14 @@ export function FilterSubMenuTrigger({
   value,
   active,
   disabled,
-  openOnHover,
 }: {
   label: string;
   value: string;
   active: boolean;
   disabled?: boolean;
-  openOnHover?: boolean;
 }): ReactElement {
   return (
-    <DropdownMenuSubTrigger
-      className="pr-1"
-      disabled={disabled}
-      openOnHover={openOnHover}
-    >
+    <DropdownMenuSubTrigger className="pr-1" disabled={disabled}>
       <span>{label}</span>
       <span
         title={value}
@@ -138,6 +132,7 @@ export function FilterRadioSubMenu<Value extends string>({
   searchPlaceholder?: string;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const [autoFocusSearch, setAutoFocusSearch] = useState(false);
   const [search, setSearch] = useState("");
   const selected =
     valueLabel ?? options.find((option) => option.value === value)?.label ?? "";
@@ -146,7 +141,8 @@ export function FilterRadioSubMenu<Value extends string>({
     return (
       <DropdownMenuSub
         open={open}
-        onOpenChange={(next) => {
+        onOpenChange={(next, details) => {
+          setAutoFocusSearch(next && details.event.type === "keydown");
           setOpen(next);
           setSearch("");
         }}
@@ -155,7 +151,6 @@ export function FilterRadioSubMenu<Value extends string>({
           label={label}
           value={selected}
           active={value !== defaultValue}
-          openOnHover={false}
         />
         <DropdownMenuSubContent className="w-64 [&>div]:overflow-hidden [&>div]:p-0">
           <Combobox<FilterOption<Value>>
@@ -182,12 +177,14 @@ export function FilterRadioSubMenu<Value extends string>({
           >
             <div className="p-1">
               <ComboboxInput
-                autoFocus
+                autoFocus={autoFocusSearch}
                 showTrigger={false}
                 placeholder={searchPlaceholder}
                 aria-label={searchPlaceholder}
                 onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") event.stopPropagation();
+                }}
               />
             </div>
             <ComboboxList className="group/combobox-list max-h-72 border-border border-t">
