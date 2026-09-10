@@ -108,11 +108,9 @@ export function RegionField(): JSX.Element | null {
     }
 
     // An OAuth client is registered in one region only, so an account created elsewhere could
-    // never finish the connection that brought the person here. The cookie spans both cloud
-    // hosts, so its region can differ from the host this page is served from.
-    const pinnedRegion = pendingConnection?.region ?? activeRegion
+    // never finish the connection that brought the person here.
     const pinnedReason = pendingConnection
-        ? `This connection started in the ${REGIONS.find((r) => r.value === pinnedRegion)?.label ?? pinnedRegion} region. To use another region, start again from ${pendingConnection.clientName}.`
+        ? `This connection started in the ${REGIONS.find((r) => r.value === activeRegion)?.label ?? activeRegion} region. To use another region, start again from ${pendingConnection.clientName}.`
         : undefined
 
     const options: LemonSelectOptions<Region> = REGIONS.map((region) => ({
