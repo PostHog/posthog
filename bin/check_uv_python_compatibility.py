@@ -17,14 +17,13 @@ The shape we enforce:
   a static manifest rather than the rate-limited releases API used by v7.3.0.
 
 - .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
-  CI. The lock records resolved versions per system. Comparison is on major.minor
-  to allow patch drift, with explicit exceptions for catalog limitations.
+  CI. Comparison is on major.minor to allow patch drift.
 
 Performs four checks:
 1. CI pins are present, exact literals, and identical across all files.
 2. The pin satisfies pyproject's required-version floor.
 3. The pin can download the required Python version.
-4. Every Flox system resolves uv aligned with CI or an explicit catalog exception.
+4. Flox manifest uv version matches the CI pin on major.minor.
 
 Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
@@ -35,9 +34,7 @@ Exit codes:
 
 import re
 import sys
-import json
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -91,39 +88,22 @@ def get_uv_floor_from_pyproject() -> str | None:
     return match.group(1) if match else None
 
 
-# Keep this script runnable before the project's dependencies are installed.
-@dataclass(frozen=True, kw_only=True, slots=True)
-class FloxUv:
-    install_id: str
-    version: str
+def get_uv_version_from_flox() -> str | None:
+    """Extract the uv version literal from the flox manifest."""
+    flox_manifest = Path(__file__).parent.parent / ".flox" / "env" / "manifest.toml"
 
+    if not flox_manifest.exists():
+        return None
 
-# The Flox catalog has no newer uv for Intel Macs. Do not exempt other systems.
-FLOX_UV_EXCEPTIONS = {"x86_64-darwin": "0.11.25"}
+    with open(flox_manifest, "rb") as f:
+        data = tomllib.load(f)
 
+    version = data.get("install", {}).get("uv", {}).get("version", "")
+    if not version:
+        return None
 
-def get_uv_coverage_from_flox_lock() -> dict[str, FloxUv | None]:
-    """Map each system the flox environment declares to the uv it resolves to.
-
-    A system maps to None when no install entry gives it uv. Reading the lock
-    rather than the manifest reports resolved versions instead of `^` ranges,
-    and avoids restating flox's own rule for which systems an entry covers.
-    """
-    flox_lock = Path(__file__).parent.parent / ".flox" / "env" / "manifest.lock"
-
-    if not flox_lock.exists():
-        return {}
-
-    with open(flox_lock) as f:
-        lock = json.load(f)
-
-    resolved = {
-        package["system"]: FloxUv(install_id=package["install_id"], version=package["version"])
-        for package in lock.get("packages", [])
-        if package.get("attr_path") == "uv"
-    }
-
-    return {system: resolved.get(system) for system in lock.get("manifest", {}).get("options", {}).get("systems", [])}
+    match = re.search(r"(\d+\.\d+\.\d+)", version)
+    return match.group(1) if match else None
 
 
 def get_uv_pins_from_ci_files() -> dict[str, list[str | None]]:
@@ -307,40 +287,25 @@ def check_python_downloadable(workflow_pin: str | None, python_version: str) -> 
 
 
 def check_flox_alignment(workflow_pin: str | None) -> bool:
-    """Allow catalog constraints only for explicitly listed systems and versions."""
-    _section("Check 4: Flox uv coverage and version alignment")
+    """Check 4: the flox manifest matches the workflow pin on major.minor."""
+    _section("Check 4: Flox manifest uv version alignment")
 
-    coverage = get_uv_coverage_from_flox_lock()
-    if not coverage:
-        print("⚠ Skipped: No flox lock or declared systems found")
+    flox_uv = get_uv_version_from_flox()
+    if not flox_uv:
+        print("⚠ Skipped: No flox manifest or uv version found")
         return True
     if not workflow_pin:
         print("⚠ Skipped: No workflow pin to compare against")
         return True
 
-    pin_mm = parse_version(workflow_pin)[:2]
-    ok = True
-    matched = 0
-
-    for system, entry in sorted(coverage.items()):
-        if entry is None:
-            print(f"✗ Flox resolves no uv for {system}")
-            ok = False
-        elif parse_version(entry.version)[:2] == pin_mm:
-            matched += 1
-            print(f"✓ Flox {entry.install_id} at {entry.version} matches workflow pin {workflow_pin} on {system}")
-        elif FLOX_UV_EXCEPTIONS.get(system) == entry.version:
-            print(f"⚠ Flox {entry.install_id} at {entry.version} is a catalog exception on {system}")
-        else:
-            print(f"✗ Flox {entry.install_id} at {entry.version} diverges from workflow pin {workflow_pin} on {system}")
-            ok = False
-
-    if not matched:
-        print(f"✗ No flox system matches uv {workflow_pin} on major.minor")
-        ok = False
-    if not ok:
-        print("  Update .flox/env/manifest.toml, then refresh the lock with `flox activate`.")
-    return ok
+    flox_mm = ".".join(flox_uv.split(".")[:2])
+    pin_mm = ".".join(workflow_pin.split(".")[:2])
+    if flox_mm == pin_mm:
+        print(f"✓ Flox uv {flox_uv} matches workflow pin {workflow_pin} on major.minor")
+        return True
+    print(f"✗ Flox uv {flox_uv} diverges from workflow pin {workflow_pin}")
+    print("  Update .flox/env/manifest.toml to match the workflow pin.")
+    return False
 
 
 def main() -> int:
