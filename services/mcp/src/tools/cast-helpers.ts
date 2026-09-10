@@ -90,3 +90,49 @@ export const normalizeParamAliases =
         }
         return result
     }
+
+/** The two wrapper nodes a saved insight query is stored as. */
+const INSIGHT_QUERY_WRAPPER_KINDS = new Set(['InsightVizNode', 'DataVisualizationNode'])
+
+/** Parse a JSON object literal; return the original string on anything else, so
+ *  zod still rejects it with its own message. */
+const parseJsonObject = (v: string): unknown => {
+    try {
+        const parsed: unknown = JSON.parse(v)
+        return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : v
+    } catch {
+        return v
+    }
+}
+
+/**
+ * Normalize an insight `query` into the wrapper node the tool schema declares.
+ *
+ * `insight-create` / `insight-update` declare `query` as an `InsightVizNode` or
+ * a `DataVisualizationNode`, but the endpoint behind them takes more than that:
+ * `MCPInsightSerializer.validate_query` also accepts a bare source query — the
+ * `TrendsQuery` the agent just ran through `query-trends`, or a bare
+ * `HogQLQuery` — and wraps it before saving. Agents send that bare query, and
+ * the tool boundary rejected it before the request left the client, so a shape
+ * the API supports never reached it.
+ *
+ * Applies the server's own rule: a bare `HogQLQuery` becomes a
+ * `DataVisualizationNode`, any other bare query becomes an `InsightVizNode`.
+ * Already-wrapped nodes pass through untouched. A whole query sent as a JSON
+ * string is parsed first, matching the `variables_override` / `filters_override`
+ * params that accept either form.
+ *
+ * Wired up declaratively via `param_overrides: { query: { cast: 'insight-query-node' } }`
+ * in product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
+ */
+export const castToInsightQueryNode = (v: unknown): unknown => {
+    const value = typeof v === 'string' ? parseJsonObject(v) : v
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return v
+    }
+    const kind = (value as Record<string, unknown>)['kind']
+    if (typeof kind !== 'string' || INSIGHT_QUERY_WRAPPER_KINDS.has(kind)) {
+        return value
+    }
+    return { kind: kind === 'HogQLQuery' ? 'DataVisualizationNode' : 'InsightVizNode', source: value }
+}
