@@ -118,6 +118,11 @@ const meta: Meta<typeof HeatmapNewStory> = {
         },
         msw: {
             mocks: {
+                get: {
+                    '/api/projects/:team_id/heatmap_screenshot/settings/': { allowed_hostnames: [], has_secret: false },
+                    '/api/environments/:team_id/saved': { results: [], count: 0 },
+                    '/api/projects/:team_id/heatmaps/': { results: [] },
+                },
                 post: {
                     '/api/environments/:team_id/query/:kind': queryMock(24),
                 },
@@ -182,6 +187,7 @@ export const AuthenticatedWithRecordings: Story = {
         msw: {
             mocks: {
                 get: {
+                    '/api/projects/:team_id/heatmap_screenshot/settings/': { allowed_hostnames: [], has_secret: false },
                     '/api/environments/:team_id/session_recordings': [
                         200,
                         {

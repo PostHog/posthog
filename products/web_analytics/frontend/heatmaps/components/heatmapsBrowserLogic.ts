@@ -39,6 +39,7 @@ import { hogql } from '~/queries/utils'
 import { savedPreflightCreate } from 'products/web_analytics/frontend/generated/api'
 import type { HeatmapPreflightResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { HEATMAP_SCREENSHOT_COOKIE_NAME } from '../heatmapScreenshotCookie'
 import {
     ReplayIframeData,
     getStoredRecordingBackground,
@@ -79,8 +80,9 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
         const said = preflight.body_excerpt ? ` It said: "${preflight.body_excerpt}".` : ''
         return (
             `${host} returned ${preflight.http_status} when we tried to load this page.${said} ` +
-            `This came from your site's host or CDN, not from PostHog. ` +
-            `Check its rate limits and firewall rules, then try again.`
+            `Check the page and try again. If bot protection blocks automated loads, a project admin can ` +
+            `approve this HTTPS hostname and configure the "${HEATMAP_SCREENSHOT_COOKIE_NAME}" cookie under ` +
+            `Heatmaps in project settings. Then use a screenshot background. The live preview cannot send this cookie.`
         )
     }
 

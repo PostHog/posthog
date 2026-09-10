@@ -49,7 +49,7 @@ describe('heatmapsBrowserLogic', () => {
             expect(message).toContain(expected)
         })
 
-        it('attributes a non-2xx to the customer host and quotes what it returned', () => {
+        it('reports a non-2xx and names the cookie a bot protection rule can allow', () => {
             const message = preflightBannerMessage({
                 ...base,
                 framing: 'unknown',
@@ -59,7 +59,9 @@ describe('heatmapsBrowserLogic', () => {
 
             expect(message).toContain('429')
             expect(message).toContain('local_rate_limited')
-            expect(message).toContain('host or CDN')
+            expect(message).toContain('__ph_heatmap_render')
+            expect(message).toContain('screenshot background')
+            expect(message).not.toContain('firewall rules')
             expect(message).not.toContain('embedding')
         })
 

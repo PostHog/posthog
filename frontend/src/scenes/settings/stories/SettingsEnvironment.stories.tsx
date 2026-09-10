@@ -1,10 +1,13 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -36,6 +39,7 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/billing/': { products: [] },
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/projects/:id/heatmap_screenshot/settings/': { allowed_hostnames: [], has_secret: false },
                 // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],
@@ -82,6 +86,30 @@ export const SettingsEnvironmentCustomization: Story = { args: { sectionId: 'env
 export const SettingsEnvironmentAutocapture: Story = { args: { sectionId: 'environment-autocapture' } }
 
 export const SettingsEnvironmentHeatmaps: Story = { args: { sectionId: 'environment-heatmaps' } }
+
+export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
+    args: { sectionId: 'environment-heatmaps' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: ['example.com'],
+                    has_secret: true,
+                },
+            },
+        }),
+    ],
+    render: ({ sectionId }: StoryProps) => {
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
+        const [initializedSection, setInitializedSection] = useState<SettingSectionId | null>(null)
+        useEffect(() => {
+            loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, heatmaps_screenshot_secret: 'phh_example1234abcd' })
+            router.actions.push(urls.settings(sectionId))
+            setInitializedSection(sectionId)
+        }, [loadCurrentTeamSuccess, sectionId])
+        return <>{initializedSection === sectionId && <App />}</>
+    },
+}
 
 export const SettingsEnvironmentProductAnalytics: Story = { args: { sectionId: 'environment-product-analytics' } }
 

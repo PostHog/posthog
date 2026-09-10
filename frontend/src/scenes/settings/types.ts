@@ -185,6 +185,7 @@ export type SettingId =
     | 'feature-previews-coming-soon'
     | 'group-analytics'
     | 'heatmaps'
+    | 'heatmap-screenshot-cookie'
     | 'hedgehog-mode'
     | 'homepage'
     | 'human-friendly-comparison-periods'
