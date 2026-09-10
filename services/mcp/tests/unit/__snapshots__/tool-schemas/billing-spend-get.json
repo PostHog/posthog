@@ -14,15 +14,12 @@
             "description": "The `next` cursor from the previous page. Opaque. Ignored without page_size."
         },
         "breakdowns": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are \"type\" (by product) and \"team\" (by project). Pass `[\"type\"]` for per-product series, `[\"team\"]` for one series per project summed across products, or `[\"type\",\"team\"]` for per-project series within each product. Omit for a single aggregate series. Sending a bare string like \"type,team\" will fail with a 400 error."
+            "description": "Dimensions to break spend down by. Pass `[\"type\"]` for per-product series, `[\"team\"]` for one series per project summed across products, or `[\"type\",\"team\"]` for per-project series within each product. Omit for one aggregate series.",
+            "items": {
+                "enum": ["type", "team"],
+                "type": "string"
+            },
+            "type": "array"
         },
         "end_date": {
             "anyOf": [
@@ -71,15 +68,13 @@
             "description": "Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use \"all\", also pass end_date."
         },
         "team_ids": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
+            "description": "Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.",
+            "items": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+            },
+            "type": "array"
         },
         "top_projects": {
             "anyOf": [
@@ -95,15 +90,12 @@
             "description": "Maximum number of projects to return, ranked by total spend, when breakdowns includes \"team\". The projects beyond it are folded into one \"All other projects (N)\" series rather than dropped, so the totals still add up to the real bill. Ignored without a team breakdown. Omit it to get every project, which is the default and the right choice for most questions. Set it only when an organization has enough projects that the full response is unwieldy, and say so in your answer, because a limited response names only the largest spenders."
         },
         "usage_types": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `[\"event_count_in_period\"]` or `[\"event_count_in_period\",\"recording_count_in_period\"]`. Omit for all usage types."
+            "description": "Usage type identifiers to filter by, e.g. `[\"event_count_in_period\"]` or `[\"event_count_in_period\",\"recording_count_in_period\"]`. Omit for all usage types.",
+            "items": {
+                "minLength": 1,
+                "type": "string"
+            },
+            "type": "array"
         }
     },
     "type": "object"
