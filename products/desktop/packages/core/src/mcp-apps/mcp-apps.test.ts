@@ -551,7 +551,7 @@ function connectProxyClient(
   client: ReturnType<typeof makeProxyClient>,
 ) {
   vi.spyOn(internals(service), "createConnection").mockImplementation(
-    async (c) => ({ name: c.name, client, transport: {} }),
+    async (c) => ({ name: c.name, client, transport: {}, config: c }),
   );
   return client;
 }
