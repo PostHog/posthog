@@ -474,6 +474,9 @@ describe('useTaxonomicFilter', () => {
             isExpanded: false,
             expand: jest.fn(),
             refetch: jest.fn(),
+            hasMore: false,
+            isLoadingMore: false,
+            loadMore: jest.fn(),
         }
         act(() => result.current.registerActiveList(() => fakeApi))
         act(() =>

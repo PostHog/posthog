@@ -10,6 +10,7 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { isCappedDefinitionCount } from 'lib/utils/definitionCount'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
@@ -155,6 +156,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     controlled: true,
                     currentPage: propertyDefinitions?.page ?? 1,
                     entryCount: propertyDefinitions?.count ?? 0,
+                    entryCountIsLowerBound: isCappedDefinitionCount(propertyDefinitions?.count ?? 0),
                     pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
                     onForward: propertyDefinitions.next
                         ? () => {

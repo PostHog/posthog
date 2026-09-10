@@ -15,6 +15,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { isCappedDefinitionCount } from 'lib/utils/definitionCount'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -228,6 +229,7 @@ export function EventDefinitionsTable(): JSX.Element {
                     controlled: true,
                     currentPage: eventDefinitions?.page ?? 1,
                     entryCount: eventDefinitions?.count ?? 0,
+                    entryCountIsLowerBound: isCappedDefinitionCount(eventDefinitions?.count ?? 0),
                     pageSize: EVENT_DEFINITIONS_PER_PAGE,
                     onForward: eventDefinitions.next
                         ? () => {

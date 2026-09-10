@@ -120,6 +120,23 @@ describe('useTaxonomicGroupsContext', () => {
         )
     })
 
+    it.each([
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.NumericalEventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+    ])('%s lists neither hidden nor restricted properties, like the legacy picker', (groupType) => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames: ['$pageview'] }), { wrapper })
+        const group = buildTaxonomicGroups(result.current).find((g) => g.type === groupType)
+        const endpoints = [group?.endpoint, group?.scopedEndpoint].filter((e): e is string => !!e)
+        expect(endpoints.length).toBeGreaterThan(0)
+        for (const endpoint of endpoints) {
+            const params = new URLSearchParams(endpoint.split('?')[1] ?? '')
+            expect(params.get('exclude_hidden')).toBe('true')
+            expect(params.get('exclude_restricted')).toBe('true')
+        }
+    })
+
     it('feeds buildTaxonomicGroups end-to-end and produces a non-empty groups array', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames: ['$pageview'] }), {
             wrapper,
