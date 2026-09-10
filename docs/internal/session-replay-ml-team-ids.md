@@ -1,32 +1,29 @@
-# ML mirror team ID compatibility
+# ML mirror identifiers
 
-The Parquet sink and image consumers accept raw team IDs as well as legacy team pseudonyms.
-The mirror and score exporter still produce team pseudonyms.
-This compatibility step does not change the active dataset.
+AI Research owns the ML replay datasets.
+The metadata and image consumers support versioned records with raw team IDs and legacy records with pseudonymous IDs.
 
-## Consumer formats
+## Block metadata
 
-Block metadata with `format_version: 2` must carry a positive decimal team ID string.
-The sink writes these records to `block-metadata/v2/` and their replay indexes to `block-metadata-replay-index/v2/`.
-Records without a version retain their legacy paths.
+Block metadata with `format_version: 2` requires a positive decimal string in `team_id`.
+The consumer preserves `session_id` and `distinct_id` as supplied by the producer.
+It writes version 2 records to `<metadata-prefix>/v2/` and their replay indexes to `<metadata-prefix>-replay-index/v2/`.
+Records without a format version use the legacy metadata prefix and replay index version 1.
 
-Inline image references can contain a raw team ID or a legacy 32-character hexadecimal pseudonym.
-Raw-team images use `scrubbed-images/v2/shards/` and `scrubbed-images/v2/index/`, with `team_id` in the index.
-Legacy images retain their existing paths and `pseudo_team` column.
-Mixed batches write separate shards and indexes before committing Kafka offsets.
-Global URL image references and paths stay unchanged.
+Select a dataset version explicitly when reading S3.
+A recursive scan of the metadata prefix can mix raw IDs and pseudonyms.
+
+## Image references
+
+Inline image references use `image:<teamId>:<hash>` with a raw team ID, or a 32-character hexadecimal team pseudonym for legacy data.
 The native anonymizer preserves both formats when re-scrubbing trusted mirrored data.
 
-## PR merge order
+| Format           | Shard prefix                | Index prefix               | Team column   |
+| ---------------- | --------------------------- | -------------------------- | ------------- |
+| Raw team ID      | `<image-prefix>/v2/shards/` | `<image-prefix>/v2/index/` | `team_id`     |
+| Legacy pseudonym | `<image-prefix>/shards/`    | `<image-prefix>/index/`    | `pseudo_team` |
 
-Each step is a separate PR.
-Wait for each deployment or infrastructure apply to complete before merging the next PR.
-AI Research owns this rollout.
+The image consumer separates the formats within mixed Kafka batches.
+It commits offsets only after all shard and index writes succeed.
 
-1. Add S3 permissions for the new dataset paths.
-2. Add consumer compatibility and verify the Parquet sink and image-scrub consumer deployment.
-3. Add the new ML replay prefix to the charts configuration. Producers at this stage ignore this setting.
-4. Switch the mirror and score exporter to raw team IDs and versioned paths.
-5. Switch Athena to the versioned datasets after verifying new data and preparing downstream readers.
-
-Keep compatible consumers during any producer rollback, including while dead-letter replays drain.
+URL image references use `imageurl:<hash>` and share a global namespace under `<image-prefix>/url/`.
