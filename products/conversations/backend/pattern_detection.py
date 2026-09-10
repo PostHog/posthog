@@ -12,7 +12,7 @@ import re
 import statistics
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -398,7 +398,7 @@ def _refresh_baselines(team: Team, *, now: datetime, sample_window_days: int) ->
     since = now - timedelta(days=sample_window_days)
     texts = load_ticket_texts(team, since=since, until=now)
     per_topic_hours: dict[str, dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
-    per_topic_days: dict[str, set[datetime]] = defaultdict(set)
+    per_topic_days: dict[str, set[date]] = defaultdict(set)
     for item in texts:
         hour = item.created_at.replace(minute=0, second=0, microsecond=0)
         for topic in topics_for(item.text):

@@ -385,6 +385,9 @@ rules:
                               |TeamConversationsTeamsConfig
                               |SigningSecret
                               |Ticket
+                              |TicketPattern
+                              |TicketPatternEvidence
+                              |TicketTopicBaseline
                               |TicketView
                               |TicketViewFavorite
                               |ZendeskImportJob
@@ -785,6 +788,9 @@ rules:
                         |TeamConversationsTeamsConfig
                         |SigningSecret
                         |Ticket
+                        |TicketPattern
+                        |TicketPatternEvidence
+                        |TicketTopicBaseline
                         |TicketView
                         |TicketViewFavorite
                         |ZendeskImportJob
