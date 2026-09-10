@@ -222,6 +222,30 @@ describe('scannerOverviewLogic', () => {
         })
     })
 
+    describe('leaving the overview mid-request', () => {
+        it('drops a stats failure that lands after the unmount instead of reading its store path', async () => {
+            let rejection: unknown
+            const capture = (error: unknown): void => {
+                rejection = error
+            }
+            process.on('unhandledRejection', capture)
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/:id/': { id: 'leaving', name: 'l', scanner_type: 'monitor' },
+                    '/api/projects/:team/vision/scanners/:id/observations/stats/': () => [500, {}],
+                },
+            })
+
+            const logic = scannerOverviewLogic({ scannerId: 'leaving' })
+            logic.mount()
+            logic.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            process.off('unhandledRejection', capture)
+
+            expect(rejection).toBeUndefined()
+        })
+    })
+
     describe('firstScanPending', () => {
         let freshLogic: ReturnType<typeof scannerOverviewLogic.build>
         let scannerBody: Record<string, unknown>

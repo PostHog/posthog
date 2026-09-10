@@ -566,6 +566,11 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
                     }
+                    // `breakpoint()` guards only the success path, so a request that rejects after the
+                    // user leaves would otherwise read a selector whose store path is already gone.
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
                     // Background retries behind the pending panel would otherwise stack a toast per interval.
                     if (!values.firstScanPending) {
                         lemonToast.error('Failed to load overview stats')
