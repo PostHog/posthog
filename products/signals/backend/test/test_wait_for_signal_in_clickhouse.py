@@ -159,13 +159,15 @@ async def test_gives_up_after_max_wait_and_records_timeout(require_visible: bool
         patch(f"{MODULE}.Team", _team_model_mock()),
         patch(f"{MODULE}.async_get_recently_seen_documents", side_effect=_store_returning(None)),
         patch(f"{MODULE}.execute_hogql_query_with_retry", AsyncMock(return_value=_ch_result(0))) as ch,
-        patch(f"{MODULE}.asyncio.sleep", AsyncMock()),
+        patch(f"{MODULE}.asyncio.sleep", AsyncMock()) as sleep,
         patch(f"{MODULE}.metrics.increment_ch_wait_timeout") as timeout_metric,
     ):
         with pytest.raises(TimeoutError, match="not yet visible") if require_visible else nullcontext():
             await _run(signals, max_wait_time_seconds=30, require_visible=require_visible)
 
     # A wait shorter than the grace period still checks ClickHouse once, on the final
-    # attempt, before giving up and recording the timeout.
+    # attempt, before giving up and recording the timeout. Giving up has to happen inside
+    # the wait it was given, so the final query is not followed by another poll interval.
     assert ch.await_count == 1
     timeout_metric.assert_called_once()
+    assert sum(call.args[0] for call in sleep.await_args_list) < 30

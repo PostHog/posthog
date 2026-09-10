@@ -115,7 +115,9 @@ class SignalImplementationFinalizerWorkflow:
                 mode=WaitForClickHouseMode.CH_CONFIRMED,
                 require_visible=True,
             ),
-            start_to_close_timeout=timedelta(hours=1),
+            # Headroom over the hour the activity polls for, so it can raise its own
+            # not-visible error instead of being cancelled one query short of it.
+            start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

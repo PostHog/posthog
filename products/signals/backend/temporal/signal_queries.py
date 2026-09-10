@@ -546,6 +546,11 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
                 metrics.increment_ch_wait_completion(input.mode.value, "clickhouse")
                 return
 
+        # The caller's activity timeout has to cover this whole loop, so sleeping after the
+        # final query would push the give-up past that budget and lose the timeout branch below.
+        if attempt == max_attempts - 1:
+            break
+
         # Sleep in chunks so we keep heartbeating during the poll interval
         remaining = WAIT_POLL_INTERVAL_SECONDS
         while remaining > 0:
