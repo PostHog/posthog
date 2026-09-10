@@ -1,6 +1,8 @@
 import io
 import os
+import json
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pytest
 from unittest.mock import patch
@@ -72,30 +74,64 @@ class TestPartitionParquet:
         assert table.schema.names == ["session_id", "team_id", "started_at", "surfacing_score"]
 
 
+_FORMAT_CASES = json.loads(
+    (
+        Path(__file__).resolve().parents[5]
+        / "nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format-cases.json"
+    ).read_text()
+)["cases"]
+
+
 @pytest.mark.asyncio
-async def test_exports_raw_ids_without_a_pseudonym_key() -> None:
-    started_at = datetime(2026, 7, 4, 12, 30, tzinfo=UTC)
+@pytest.mark.parametrize("mode", ["mixed", "raw_only", "legacy_only", "empty"])
+async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str) -> None:
+    cases = [
+        case
+        for case in _FORMAT_CASES
+        if mode == "mixed"
+        or (mode == "raw_only" and case["rawIdentifiers"])
+        or (mode == "legacy_only" and not case["rawIdentifiers"])
+    ]
+    started_at = datetime(2026, 9, 12, 12, 30, tzinfo=UTC)
+    rows = [(7, case["sessionId"], started_at, 0.75) for case in cases]
+    pages = [rows[i : i + 2] for i in range(0, len(rows), 2)]
+    if not rows or len(rows) % 2 == 0:
+        pages.append([])
+    environment = {"SESSION_RECORDING_ML_SCORE_EXPORT_S3_BUCKET": "ml-bucket"}
+    if any(not case["rawIdentifiers"] for case in cases):
+        environment["SESSION_RECORDING_ML_PSEUDONYM_SECRET"] = "test-secret"
     activity_environment = ActivityEnvironment()
     with (
-        patch.dict(os.environ, {"SESSION_RECORDING_ML_SCORE_EXPORT_S3_BUCKET": "ml-bucket"}, clear=True),
+        patch.dict(os.environ, environment, clear=True),
+        patch("posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize._SECRET", None),
+        patch("posthog.temporal.session_replay.surfacing_score_export_sweep.activities.EXPORT_PAGE_MAX_ROWS", 2),
         patch(
-            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities.sync_execute",
-            return_value=[(42, "session-1", started_at, 0.75)],
+            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities.sync_execute", side_effect=pages
         ),
         patch("posthog.temporal.session_replay.surfacing_score_export_sweep.activities.boto3_client") as client,
     ):
         partitions = await activity_environment.run(list_export_partitions_activity, ExportScoresSweepInputs())
         assert partitions.disabled_reason is None
         result = await activity_environment.run(
-            export_scores_partition_activity, ExportPartitionSpec(day="2026-07-04", chunk_id=0, of_chunks=1)
+            export_scores_partition_activity, ExportPartitionSpec(day="2026-09-12", chunk_id=0, of_chunks=1)
         )
 
-    assert result.rows == 1
-    assert client.call_count == 1
-    assert client.call_args.args == ("s3",)
-    upload = client.return_value.put_object.call_args.kwargs
-    assert upload["Bucket"] == "ml-bucket"
-    assert upload["Key"] == "score/v2/dt=2026-07-04/part-0000-of-0001.parquet"
-    assert pq.read_table(io.BytesIO(upload["Body"])).to_pylist() == [
-        {"team_id": "42", "session_id": "session-1", "started_at": started_at, "surfacing_score": 0.75}
-    ]
+    assert result.rows == len(rows)
+    assert all(call.args == ("s3",) for call in client.call_args_list)
+    uploads = client.return_value.put_object.call_args_list
+    assert len(uploads) == 2
+    for raw_identifiers, prefix in [(False, "score"), (True, "score/v2")]:
+        upload = next(
+            call.kwargs for call in uploads if call.kwargs["Key"] == f"{prefix}/dt=2026-09-12/part-0000-of-0001.parquet"
+        )
+        assert upload["Bucket"] == "ml-bucket"
+        assert pq.read_table(io.BytesIO(upload["Body"])).to_pylist() == [
+            {
+                "team_id": case["storedTeamId"],
+                "session_id": case["storedSessionId"],
+                "started_at": started_at,
+                "surfacing_score": 0.75,
+            }
+            for case in cases
+            if case["rawIdentifiers"] == raw_identifiers
+        ]

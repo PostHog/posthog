@@ -9,14 +9,17 @@ import { ML_BLOCK_METADATA_OUTPUT, MlBlockMetadataOutput } from '~/ingestion/pip
 import { toBlockMetadataRow } from './block-metadata-row'
 
 export class MlBlockMetadataSink extends KafkaMetadataSink<MlBlockMetadataOutput> {
-    constructor(outputs: IngestionOutputs<MlBlockMetadataOutput>) {
+    constructor(
+        outputs: IngestionOutputs<MlBlockMetadataOutput>,
+        private readonly pseudonymSecret: string | Buffer
+    ) {
         super(outputs, ML_BLOCK_METADATA_OUTPUT)
     }
 
     protected toRecords(blocks: SessionBlockMetadata[]): MetadataRecord[] {
         const records: MetadataRecord[] = []
         for (const block of blocks) {
-            const row = toBlockMetadataRow(block)
+            const row = toBlockMetadataRow(block, this.pseudonymSecret)
             if (row) {
                 // Keyed by the session ID so a recording's blocks land on one partition.
                 records.push({ key: row.session_id, value: row })

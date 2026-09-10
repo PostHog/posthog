@@ -10,3 +10,7 @@ export const PSEUDONYM_IMAGE_CONTENT_KEY = 'image-content-key'
 /** Namespace for the global URL-HMAC key, which hashes a remote image's URL rather than its bytes. */
 export const PSEUDONYM_IMAGE_URL_KEY = 'image-url-key'
 export const PSEUDONYM_IMAGE_URL_GLOBAL_VALUE = 'global-v1'
+
+export const PSEUDONYM_TEAM = 'team'
+export const PSEUDONYM_SESSION = 'session'
+export const PSEUDONYM_DISTINCT_ID = 'distinct_id'

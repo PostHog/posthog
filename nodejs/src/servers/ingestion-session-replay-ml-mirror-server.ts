@@ -32,6 +32,7 @@ import {
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
+import { SessionFormatFileStorage } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-format-file-storage'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
@@ -133,9 +134,22 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
 
         const pseudonymSecret = await resolvePseudonymKey(this.config)
 
-        // Anonymized blocks are written unencrypted, in a single prefix (no retention sharding).
+        // A session keeps its storage prefix across flushes and late arrivals.
         const fileStorage = s3Client
-            ? new S3SessionBatchFileStorage(s3Client, bucket, prefix, this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS)
+            ? new SessionFormatFileStorage(
+                  new S3SessionBatchFileStorage(
+                      s3Client,
+                      bucket,
+                      this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+                  ),
+                  new S3SessionBatchFileStorage(
+                      s3Client,
+                      bucket,
+                      prefix,
+                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+                  )
+              )
             : new BlackholeSessionBatchFileStorage()
 
         const allow = await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket))
@@ -149,7 +163,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
-        const metadataStore = new MlBlockMetadataSink(outputs)
+        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)
         const urlProducerEnabled =
             this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
             this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED

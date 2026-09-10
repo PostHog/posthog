@@ -29,19 +29,19 @@ describe('MlBlockMetadataSink', () => {
         outputs = { queueMessages: jest.fn().mockResolvedValue(undefined) } as unknown as jest.Mocked<
             IngestionOutputs<MlBlockMetadataOutput>
         >
-        sink = new MlBlockMetadataSink(outputs)
+        sink = new MlBlockMetadataSink(outputs, 'test-secret')
     })
 
     it('produces raw IDs to the ML topic, keyed by the session ID', async () => {
-        await sink.storeSessionBlocks([block('s1', 7)])
+        await sink.storeSessionBlocks([block('01a0901f-d380-7000-8000-000000000001', 7)])
 
         expect(outputs.queueMessages).toHaveBeenCalledTimes(1)
         const [output, messages] = outputs.queueMessages.mock.calls[0]
         expect(output).toBe(ML_BLOCK_METADATA_OUTPUT)
-        expect(messages[0].key).toBe('s1')
+        expect(messages[0].key).toBe('01a0901f-d380-7000-8000-000000000001')
 
         const row = parseJSON((messages[0].value as Buffer).toString())
-        expect(row.session_id).toBe('s1')
+        expect(row.session_id).toBe('01a0901f-d380-7000-8000-000000000001')
         expect(row.team_id).toBe('7')
         expect(row.distinct_id).toBe('user@example.com')
         expect(row.block_byte_end).toBe(9)
@@ -49,7 +49,7 @@ describe('MlBlockMetadataSink', () => {
 
     it('skips deletion and url-less markers', async () => {
         await sink.storeSessionBlocks([
-            block('s1', 1),
+            block('01a0901f-d380-7000-8000-000000000001', 1),
             block('s2', 1, { isDeleted: true }),
             block('s3', 1, { blockUrl: null }),
         ])
@@ -58,7 +58,7 @@ describe('MlBlockMetadataSink', () => {
     })
 
     it('still calls queueMessages for an all-skipped batch', async () => {
-        await sink.storeSessionBlocks([block('s1', 1, { isDeleted: true })])
+        await sink.storeSessionBlocks([block('01a0901f-d380-7000-8000-000000000001', 1, { isDeleted: true })])
         expect(outputs.queueMessages).toHaveBeenCalledWith(ML_BLOCK_METADATA_OUTPUT, [])
     })
 })

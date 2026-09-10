@@ -1,6 +1,6 @@
 """Static config for the surfacing-score export sweep: daily export of scored
 sessions from `session_replay_events` to the ML-account S3 bucket as
-dt-partitioned Parquet, keyed by the ML mirror's raw team and session IDs."""
+dt-partitioned Parquet, keyed by the ML mirror's session-selected identifier format."""
 
 from datetime import date, timedelta
 

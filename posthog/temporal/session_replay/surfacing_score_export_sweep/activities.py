@@ -1,6 +1,6 @@
 """Activities: plan the (day × hash bucket) fan-out, then per partition fetch → Parquet → S3 put.
 
-Team and session IDs remain raw so data preparation can join analytics events.
+Session start time selects raw identifiers or legacy HMAC pseudonyms.
 Training datasets must join these scores to opted-in mirror sessions.
 Object keys are deterministic, so retries and the re-export window overwrite;
 an empty partition still writes an empty object so deleted sessions drop out
@@ -20,6 +20,7 @@ from asgiref.sync import sync_to_async
 from boto3 import client as boto3_client
 from botocore.client import Config
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
@@ -31,10 +32,21 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
     EXPORT_PAGE_MAX_ROWS,
     REEXPORT_WINDOW_DAYS,
 )
+from posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize import (
+    PSEUDONYM_SESSION,
+    PSEUDONYM_TEAM,
+    PseudonymKeyFingerprintMismatchError,
+    PseudonymKeyNotConfiguredError,
+    pseudonymize,
+    resolve_pseudonym_key,
+)
 from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
     score_export_destination,
     score_export_object_key,
     upload_parquet,
+)
+from posthog.temporal.session_replay.surfacing_score_export_sweep.session_identifier_format import (
+    uses_raw_session_identifiers,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
     ExportPartitionResult,
@@ -118,15 +130,15 @@ def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor) -> list[_ScoredRow]:
     )
 
 
-def _page_table(rows: list[_ScoredRow]) -> pa.Table:
+def _page_table(rows: list[_ScoredRow], secret: bytes | None = None) -> pa.Table:
     records: list[dict[str, Any]] = []
     for team_id, session_id, started_at, score in rows:
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
         records.append(
             {
-                "session_id": session_id,
-                "team_id": str(team_id),
+                "session_id": pseudonymize(secret, PSEUDONYM_SESSION, session_id) if secret is not None else session_id,
+                "team_id": pseudonymize(secret, PSEUDONYM_TEAM, str(team_id)) if secret is not None else str(team_id),
                 "started_at": started_at,
                 "surfacing_score": float(score),
             }
@@ -153,37 +165,55 @@ def _upload(key: str, body: bytes) -> None:
 async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportPartitionResult:
     activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id})
 
-    sink = io.BytesIO()
-    writer = pq.ParquetWriter(sink, _PARQUET_SCHEMA, compression="snappy")
+    sinks = {False: io.BytesIO(), True: io.BytesIO()}
+    writers = {raw: pq.ParquetWriter(sink, _PARQUET_SCHEMA, compression="snappy") for raw, sink in sinks.items()}
     cursor = _FIRST_PAGE
     rows_total = 0
+    secret: bytes | None = None
     try:
         while True:
             rows = await sync_to_async(_fetch_page, thread_sensitive=False)(spec, cursor)
-            if rows:
-                table = await sync_to_async(_page_table, thread_sensitive=False)(rows)
-                await sync_to_async(writer.write_table, thread_sensitive=False)(table)
-                rows_total += len(rows)
-                cursor = (rows[-1][1], rows[-1][0])
+            legacy_rows = [row for row in rows if not uses_raw_session_identifiers(row[1])]
+            raw_rows = [row for row in rows if uses_raw_session_identifiers(row[1])]
+            if legacy_rows:
+                if secret is None:
+                    try:
+                        secret = await sync_to_async(resolve_pseudonym_key, thread_sensitive=False)()
+                    except (PseudonymKeyNotConfiguredError, PseudonymKeyFingerprintMismatchError) as error:
+                        raise ApplicationError(str(error), type=type(error).__name__, non_retryable=True) from error
+                table = await sync_to_async(_page_table, thread_sensitive=False)(legacy_rows, secret)
+                await sync_to_async(writers[False].write_table, thread_sensitive=False)(table)
+            if raw_rows:
+                table = await sync_to_async(_page_table, thread_sensitive=False)(raw_rows)
+                await sync_to_async(writers[True].write_table, thread_sensitive=False)(table)
+            rows_total += len(rows)
             if len(rows) < EXPORT_PAGE_MAX_ROWS:
                 break
+            cursor = (rows[-1][1], rows[-1][0])
             activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id, "rows": rows_total})
     finally:
-        writer.close()
-    body = sink.getvalue()
+        for writer in writers.values():
+            writer.close()
 
     activity.heartbeat({"phase": "upload", "day": spec.day, "chunk_id": spec.chunk_id, "rows": rows_total})
-    key = score_export_object_key(spec.day, spec.chunk_id, spec.of_chunks)
-    await sync_to_async(_upload, thread_sensitive=False)(key, body)
+    bytes_written = 0
+    for raw_identifiers, sink in sinks.items():
+        body = sink.getvalue()
+        key = score_export_object_key(spec.day, spec.chunk_id, spec.of_chunks, raw_identifiers=raw_identifiers)
+        await sync_to_async(_upload, thread_sensitive=False)(key, body)
+        bytes_written += len(body)
 
     logger.info(
         "surfacing_score_export_sweep.partition_done",
         day=spec.day,
         chunk_id=spec.chunk_id,
         rows=rows_total,
-        bytes=len(body),
-        key=key,
+        bytes=bytes_written,
     )
     return ExportPartitionResult(
-        day=spec.day, chunk_id=spec.chunk_id, rows=rows_total, bytes_written=len(body), key=key
+        day=spec.day,
+        chunk_id=spec.chunk_id,
+        rows=rows_total,
+        bytes_written=bytes_written,
+        key=score_export_object_key(spec.day, spec.chunk_id, spec.of_chunks),
     )

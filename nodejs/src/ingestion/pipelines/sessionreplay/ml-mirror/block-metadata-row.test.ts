@@ -6,9 +6,11 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { parseBlockUrl, toBlockMetadataRow } from './block-metadata-row'
+import { sessionStartTimestampFromUuidV7 } from './session-identifier-format'
+import cases from './session-identifier-format-cases.json'
 
 const block = (over: Partial<SessionBlockMetadata> = {}): SessionBlockMetadata => ({
-    ...createNoopBlockMetadata('sess-1', 7),
+    ...createNoopBlockMetadata('01a0901f-d380-7000-8000-000000000001', 7),
     distinctId: 'user@example.com',
     blockUrl: 's3://ml-bucket/session_recordings/key-abc?range=bytes=100-250',
     startDateTime: DateTime.fromMillis(1_000),
@@ -26,10 +28,8 @@ describe('ml-mirror block-metadata-row', () => {
         ['018bcfe5-6800-4000-8000-000000000001', undefined],
         ['018bcfe5-6800-7000-0000-000000000001', undefined],
         ['legacy-session', undefined],
-    ])('derives the session partition and preserves session ID %s', (sessionId, expected) => {
-        const result = toBlockMetadataRow(block({ sessionId: String(sessionId) }))!
-        expect(result.session_start_ts_ms).toBe(expected)
-        expect(result.session_id).toBe(sessionId)
+    ])('derives the session partition from %s', (sessionId, expected) => {
+        expect(sessionStartTimestampFromUuidV7(String(sessionId))).toBe(expected ?? null)
     })
 
     describe('parseBlockUrl', () => {
@@ -43,16 +43,25 @@ describe('ml-mirror block-metadata-row', () => {
     })
 
     describe('toBlockMetadataRow', () => {
-        it('preserves raw team, session, and distinct IDs', () => {
-            const row = toBlockMetadataRow(block())!
-            expect(row.team_id).toBe('7')
-            expect(row.format_version).toBe(2)
-            expect(row.session_id).toBe('sess-1')
-            expect(row.distinct_id).toBe('user@example.com')
+        it.each(cases.cases)('keeps $sessionId in one format across block timestamps', (entry) => {
+            for (const timestamp of [cases.cutoffMs - 1000, cases.cutoffMs + 1000]) {
+                const row = toBlockMetadataRow(
+                    block({
+                        sessionId: entry.sessionId,
+                        startDateTime: DateTime.fromMillis(timestamp),
+                        endDateTime: DateTime.fromMillis(timestamp + 1),
+                    }),
+                    'test-secret'
+                )!
+                expect(row.team_id).toBe(entry.storedTeamId)
+                expect(row.session_id).toBe(entry.storedSessionId)
+                expect(row.distinct_id).toBe(entry.storedDistinctId)
+                expect(row.format_version).toBe(entry.rawIdentifiers ? 2 : undefined)
+            }
         })
 
         it('maps block fields and the parsed byte range', () => {
-            const row = toBlockMetadataRow(block())!
+            const row = toBlockMetadataRow(block(), 'test-secret')!
             expect(row).toMatchObject({
                 block_s3_key: 's3://ml-bucket/session_recordings/key-abc',
                 block_byte_start: 100,
@@ -69,7 +78,7 @@ describe('ml-mirror block-metadata-row', () => {
             ['a deletion marker', block({ isDeleted: true })],
             ['a block with no url', block({ blockUrl: null })],
         ])('returns null for %s', (_label, b) => {
-            expect(toBlockMetadataRow(b)).toBeNull()
+            expect(toBlockMetadataRow(b, 'test-secret')).toBeNull()
         })
     })
 })

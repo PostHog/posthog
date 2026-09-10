@@ -1,4 +1,4 @@
-/** Resolves the root key for image hashes (KMS-wrapped in prod, plaintext env for local dev) and pins it against rotation. */
+/** Resolves the root key for legacy identifiers and image hashes (KMS-wrapped in prod, plaintext env for local dev) and pins it against rotation. */
 import { DecryptCommand, KMSClient } from '@aws-sdk/client-kms'
 import { createHmac } from 'crypto'
 
@@ -25,7 +25,7 @@ const kmsDecrypt: KeyDecryptor = async (ciphertextBase64, region) => {
 
 /**
  * Non-reversible, domain-separated fingerprint of the key. Safe to log/store: it identifies the key without
- * revealing it, so image references can stay stable.
+ * revealing it, so legacy identifiers and image references can stay stable.
  */
 export function pseudonymKeyFingerprint(secret: string | Buffer): string {
     return createHmac('sha256', secret).update('pseudonym-key-fingerprint:v1').digest('hex').slice(0, 16)
@@ -34,7 +34,7 @@ export function pseudonymKeyFingerprint(secret: string | Buffer): string {
 /**
  * Resolves the HMAC key: prefers the KMS-wrapped ciphertext (decrypted once, never persisted), else the plaintext
  * env secret (local dev). Fails closed when no key is configured, or when a pinned fingerprint doesn't match the
- * resolved key because a changed key would break image references and crawl-history cache joins.
+ * resolved key because a changed key would break legacy identifiers, image references, and crawl-history cache joins.
  */
 export async function resolvePseudonymKey(
     config: PseudonymKeyConfig,
@@ -62,7 +62,7 @@ export async function resolvePseudonymKey(
     if (expected && expected !== fingerprint) {
         throw new Error(
             `pseudonym key fingerprint mismatch (resolved ${fingerprint}, expected ${expected}) — refusing to start: ` +
-                'a rotated/incorrect key would break image references and crawl-history cache joins'
+                'a rotated/incorrect key would break legacy identifiers, image references, and crawl-history cache joins'
         )
     }
 

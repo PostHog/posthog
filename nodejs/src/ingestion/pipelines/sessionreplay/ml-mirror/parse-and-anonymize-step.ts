@@ -29,8 +29,10 @@ import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
     PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
     PSEUDONYM_IMAGE_URL_KEY,
+    PSEUDONYM_TEAM,
     pseudonymize,
 } from './pseudonymize'
+import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
@@ -122,14 +124,18 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         teamId: string
         contentKey?: string
     }
-    const teamKeysCache = new Map<number, TeamImageKeys>()
-    const teamKeysFor = (teamId: number): TeamImageKeys | undefined => {
+    const teamKeysCache = new Map<string, TeamImageKeys>()
+    const teamKeysFor = (teamId: number, sessionId: string): TeamImageKeys | undefined => {
         if (!imageCollection) {
             return undefined
         }
-        let keys = teamKeysCache.get(teamId)
+        const rawIdentifiers = usesRawSessionIdentifiers(sessionId)
+        const cacheKey = `${teamId}:${rawIdentifiers}`
+        let keys = teamKeysCache.get(cacheKey)
         if (!keys) {
-            const teamIdString = String(teamId)
+            const teamIdString = rawIdentifiers
+                ? String(teamId)
+                : pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_TEAM, String(teamId))
             const contentKey = pseudonymize(
                 imageCollection.pseudonymSecret,
                 PSEUDONYM_IMAGE_CONTENT_KEY,
@@ -145,7 +151,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
                 teamId: teamIdString,
                 contentKey: imageCollection.collectImages ? contentKey : undefined,
             }
-            teamKeysCache.set(teamId, keys)
+            teamKeysCache.set(cacheKey, keys)
         }
         return keys
     }
@@ -164,7 +170,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             contentEncoding ?? (isGzipped(message.value) ? 'gzip' : 'none')
         )
 
-        const teamKeys = teamKeysFor(input.team.teamId)
+        const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
         const t0 = performance.now()
         const callStartEpochMs = performance.timeOrigin + t0
         let result
