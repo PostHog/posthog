@@ -129,7 +129,7 @@ export function ScoutDetailHeader({
                         disabledReason={
                             running ? 'This scout is already running. Wait for the run to finish.' : undefined
                         }
-                        onClick={() => runScoutNow(config.id)}
+                        onClick={() => runScoutNow(config.id, 'scout_detail')}
                     >
                         {running ? 'Running' : 'Run now'}
                     </LemonButton>

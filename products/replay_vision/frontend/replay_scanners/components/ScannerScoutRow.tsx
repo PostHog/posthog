@@ -187,7 +187,7 @@ export function ScannerScoutRow({
                         type="secondary"
                         loading={manualRunScoutIds.includes(config.id)}
                         disabledReason={runDisabledReason}
-                        onClick={() => runScoutNow(config.id)}
+                        onClick={() => runScoutNow(config.id, 'replay_vision_scanner')}
                         data-attr="vision-scout-row-run-now"
                     >
                         Run now

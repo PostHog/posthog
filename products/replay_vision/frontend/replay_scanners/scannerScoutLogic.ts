@@ -155,8 +155,12 @@ export interface scannerScoutLogicActions {
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadScoutMetadata: () => any // scoutFleetLogic
     loadScoutRuns: (_?: void | undefined) => void // scoutFleetLogic
-    runScoutNow: (configId: string) => {
+    runScoutNow: (
+        configId: string,
+        surface?: import('products/signals/frontend/inbox/inboxAnalytics').ScoutSurface | undefined
+    ) => {
         configId: string
+        surface: import('products/signals/frontend/inbox/inboxAnalytics').ScoutSurface
     } // scoutFleetLogic
     updateScoutConfig: (
         configId: string,

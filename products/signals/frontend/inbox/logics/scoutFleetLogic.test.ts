@@ -750,19 +750,23 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.manualRunScoutIds.sort()).toEqual([BASE_CONFIG.id, OTHER.id])
         })
 
-        it('releases the scout and reports a refusal the endpoint returned', async () => {
+        // Replay Vision renders its own Run now buttons off this action, so a hardcoded surface would
+        // file their presses under the scout detail page.
+        it('releases the scout and reports a refusal against the surface it was pressed on', async () => {
             const capture = posthog.capture as jest.Mock
             capture.mockClear()
             mockSignalsScoutConfigRun.mockRejectedValue(new ApiError('already running', 409))
 
-            logic.actions.runScoutNow(BASE_CONFIG.id)
+            logic.actions.runScoutNow(BASE_CONFIG.id, 'replay_vision_scanner')
             await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
 
             expect(logic.values.manualRunScoutIds).toEqual([])
             expect(
                 capture.mock.calls.some(
                     ([, properties]) =>
-                        properties?.action_type === 'run_now_refused' && properties?.error_status === 409
+                        properties?.action_type === 'run_now_refused' &&
+                        properties?.error_status === 409 &&
+                        properties?.surface === 'replay_vision_scanner'
                 )
             ).toBe(true)
         })
