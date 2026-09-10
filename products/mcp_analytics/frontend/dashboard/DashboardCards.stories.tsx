@@ -248,6 +248,31 @@ export const ShareByModelNarrow: Story = {
     ),
 }
 
+export const ShareByModelLowCoverage: Story = {
+    render: withTheme((theme) => (
+        <ModelBarChart
+            rows={[
+                { model: 'Unknown', total_calls: 900 },
+                { model: 'example-model', total_calls: 70 },
+                { model: 'Other', total_calls: 30 },
+            ]}
+            theme={theme}
+        />
+    )),
+}
+
+export const ShareByModelFullCoverage: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[{ model: 'example-model', total_calls: 100 }]} theme={theme} />),
+}
+
+export const ShareByModelUnknownOnly: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[{ model: 'Unknown', total_calls: 100 }]} theme={theme} />),
+}
+
+export const ShareByModelEmpty: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[]} theme={theme} />),
+}
+
 export const ErrorRateByTool: Story = {
     render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
