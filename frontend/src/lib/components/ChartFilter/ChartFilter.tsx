@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGlobe, IconGraph, IconPieChart, IconRetentionHeatmap, IconTrends } from '@posthog/icons'
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import {
@@ -20,6 +20,12 @@ import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import type {
+    ChartDisplayIcon,
+    ChartDisplayOption,
+} from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
+import { getChartDisplayOptions } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
+
 function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
     return (
         <div className="flex flex-col gap-[2px]">
@@ -27,6 +33,49 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
             <span className="text-xs text-tertiary font-normal">{props.description}</span>
         </div>
     )
+}
+
+function chartDisplayIcon(icon: ChartDisplayIcon): JSX.Element {
+    switch (icon) {
+        case 'area':
+            return <IconAreaChart />
+        case 'bar':
+            return <IconGraph />
+        case 'cumulative':
+            return <IconCumulativeChart />
+        case 'donut':
+            return <IconDonutChart />
+        case 'line':
+            return <IconTrends />
+        case 'metric':
+            return <IconTrendingUp />
+        case 'number':
+            return <Icon123 />
+        case 'pie':
+            return <IconPieChart />
+        case 'table':
+            return <IconTableChart />
+        case 'worldMap':
+            return <IconGlobe />
+    }
+}
+
+function chartDisplayOptionToSelectOption(option: ChartDisplayOption): LemonSelectOption<ChartDisplayType> {
+    return {
+        value: option.display,
+        icon:
+            option.display === ChartDisplayType.ActionsBarValue ? (
+                <IconGraph className="rotate-90" />
+            ) : option.display === ChartDisplayType.CalendarHeatmap ? (
+                <IconRetentionHeatmap />
+            ) : (
+                chartDisplayIcon(option.icon)
+            ),
+        label: option.label,
+        tooltip: option.tooltip,
+        disabledReason: option.disabledReason,
+        labelInMenu: <ChartFilterOptionLabel label={option.label} description={option.description} />,
+    }
 }
 
 export function ChartFilter({
@@ -41,207 +90,18 @@ export function ChartFilter({
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { isTrends, isSingleSeriesOutput, formula, breakdownFilter, series } = useValues(
+    const { isTrends, isSingleSeriesOutput, formula, formulaNodes, formulas, breakdownFilter, series } = useValues(
         insightVizDataLogic(insightProps)
     )
-
-    const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
-    const singleSeriesOnlyDisabledReason = !isSingleSeriesOutput
-        ? 'This type currently only supports insights with one series, and this insight has multiple series.'
-        : undefined
-    const boxPlotDisabledReason =
-        trendsOnlyDisabledReason ||
-        (isBoxPlotMissingProperty(series as TrendsQuery['series'])
-            ? 'Select a numeric property to use a box plot.'
-            : undefined)
-
-    const options: LemonSelectOptions<ChartDisplayType> = [
-        {
-            title: 'Time series',
-            options: [
-                {
-                    value: ChartDisplayType.ActionsLineGraph,
-                    icon: <IconTrends />,
-                    label: 'Line chart',
-                    labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Line chart"
-                            description="Trends over time plotted as a continuous line."
-                        />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.ActionsAreaGraph,
-                    icon: <IconAreaChart />,
-                    label: 'Area chart',
-                    labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Area chart"
-                            description="Trends over time plotted as a shaded area."
-                        />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.ActionsUnstackedBar,
-                    icon: <IconGraph />,
-                    label: 'Bar chart',
-                    labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Bar chart"
-                            description="Trends over time as vertical bars side-by-side."
-                        />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.ActionsBar,
-                    icon: <IconGraph />,
-                    label: 'Stacked bar chart',
-                    labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Stacked bar chart"
-                            description="Trends over time as vertical bars."
-                        />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.BoxPlot,
-                    icon: <IconGraph />,
-                    label: 'Box plot',
-                    disabledReason: boxPlotDisabledReason,
-                    labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Box plot"
-                            description="Distribution of a property over time showing quartiles."
-                        />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.SlopeGraph,
-                    icon: <IconTrends />,
-                    label: 'Slope graph',
-                    disabledReason: trendsOnlyDisabledReason,
-                    labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Slope graph"
-                            description="Change from the start to the end of the range, one line per series."
-                        />
-                    ),
-                },
-            ],
-        },
-        {
-            title: 'Cumulative time series',
-            options: [
-                {
-                    value: ChartDisplayType.ActionsLineGraphCumulative,
-                    icon: <IconCumulativeChart />,
-                    label: 'Line chart (cumulative)',
-                    disabledReason: trendsOnlyDisabledReason,
-                    labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Line chart (cumulative)"
-                            description="Accumulating values over time as a continuous line."
-                        />
-                    ),
-                },
-            ],
-        },
-        {
-            title: 'Total value',
-            options: [
-                {
-                    value: ChartDisplayType.BoldNumber,
-                    icon: <Icon123 />,
-                    label: 'Number',
-                    labelInMenu: (
-                        <ChartFilterOptionLabel label="Number" description="A big number showing the total value." />
-                    ),
-                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
-                },
-                ...(featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
-                    ? [
-                          {
-                              value: ChartDisplayType.Metric,
-                              icon: <IconTrendingUp />,
-                              label: 'Metric',
-                              labelInMenu: (
-                                  <ChartFilterOptionLabel
-                                      label="Metric"
-                                      description="A headline value with a sparkline and period-over-period change."
-                                  />
-                              ),
-                              disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
-                          },
-                      ]
-                    : []),
-                {
-                    value: ChartDisplayType.ActionsPie,
-                    icon: <IconPieChart />,
-                    label: 'Pie chart',
-                    disabledReason: trendsOnlyDisabledReason,
-                    labelInMenu: (
-                        <ChartFilterOptionLabel label="Pie chart" description="Proportions of a whole as a pie." />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.ActionsDonut,
-                    icon: <IconDonutChart />,
-                    label: 'Donut chart',
-                    disabledReason: trendsOnlyDisabledReason,
-                    labelInMenu: (
-                        <ChartFilterOptionLabel label="Donut chart" description="Proportions of a whole as a ring." />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.ActionsBarValue,
-                    icon: <IconGraph className="rotate-90" />,
-                    label: 'Bar chart',
-                    disabledReason: trendsOnlyDisabledReason,
-                    labelInMenu: (
-                        <ChartFilterOptionLabel label="Bar chart" description="Total values as horizontal bars." />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.ActionsTable,
-                    icon: <IconTableChart />,
-                    label: 'Table',
-                    labelInMenu: <ChartFilterOptionLabel label="Table" description="Total values in a table view." />,
-                },
-            ],
-        },
-        {
-            title: 'Visualizations',
-            options: [
-                {
-                    value: ChartDisplayType.WorldMap,
-                    icon: <IconGlobe />,
-                    label: 'World map',
-                    tooltip: 'Visualize data by country.',
-                    disabledReason:
-                        trendsOnlyDisabledReason ||
-                        (formula
-                            ? "This type isn't available, because it doesn't support formulas."
-                            : !!breakdownFilter?.breakdown &&
-                                breakdownFilter.breakdown !== '$geoip_country_code' &&
-                                breakdownFilter.breakdown !== '$geoip_country_name'
-                              ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
-                              : undefined),
-                    labelInMenu: (
-                        <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.CalendarHeatmap,
-                    icon: <IconRetentionHeatmap />,
-                    label: 'Calendar heatmap',
-                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
-                    labelInMenu: (
-                        <ChartFilterOptionLabel label="Calendar heatmap" description="Values per day and hour." />
-                    ),
-                },
-            ],
-        },
-    ]
+    const options: LemonSelectOptions<ChartDisplayType> = getChartDisplayOptions({
+        isTrends,
+        hasSingleSeriesOutput: isSingleSeriesOutput,
+        hasTrendsFormula: !!formula || !!formulas?.length || !!formulaNodes?.length,
+        breakdown: breakdownFilter?.breakdown,
+        breakdowns: breakdownFilter?.breakdowns,
+        boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
+        hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
+    }).map((group) => ({ title: group.title, options: group.options.map(chartDisplayOptionToSelectOption) }))
 
     return (
         <LemonSelect

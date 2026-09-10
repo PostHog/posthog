@@ -28,7 +28,7 @@ import { RetentionDatePicker } from 'products/product_analytics/frontend/insight
 import { useInsightDisplayOptions } from './insightDisplayOptions'
 import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
 
-export function InsightDisplayConfig(): JSX.Element {
+export function InsightDisplayConfig({ hideChartFilter = false }: { hideChartFilter?: boolean }): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
 
     const {
@@ -156,7 +156,7 @@ export function InsightDisplayConfig(): JSX.Element {
                         </LemonDropdown>
                     </>
                 )}
-                {supportsDisplay && (
+                {supportsDisplay && !hideChartFilter && (
                     <ConfigFilter>
                         <ChartFilter />
                     </ConfigFilter>
