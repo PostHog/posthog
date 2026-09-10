@@ -73,22 +73,28 @@ _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER = "eval_reports_count_triggered"
 _ZERO_UUID = "00000000-0000-0000-0000-000000000000"
 _MAX_DISCOVERY_REFILL_ROUNDS = 12
 
-_REPORTABLE_OUTPUT_TYPES_BY_TARGET = {
+# Mirrors REPORTABLE_OUTPUT_TYPES_BY_TARGET, which owns the reportability contract. The
+# products import is deferred to activity call time, so these module-level SQL constants
+# cannot read the owner directly; TestReportabilityContract pins the two together.
+_REPORTABLE_TARGET_OUTPUT_TYPES: dict[str, tuple[str, ...]] = {
     "generation": ("boolean", "sentiment"),
     "trace": ("boolean",),
     "session": ("boolean",),
 }
 
+_REPORTABLE_TARGET_PREDICATES = "\n        OR ".join(
+    f"(evaluation.target = '{target}' AND evaluation.output_type = '{output_type}')"
+    for target, output_types in _REPORTABLE_TARGET_OUTPUT_TYPES.items()
+    for output_type in output_types
+)
 
-def _build_reportable_evaluation_sql() -> str:
-    clauses = []
-    for target, output_types in _REPORTABLE_OUTPUT_TYPES_BY_TARGET.items():
-        output_type_sql = ", ".join(repr(output_type) for output_type in output_types)
-        clauses.append(f"(evaluation.target = {target!r} AND evaluation.output_type IN ({output_type_sql}))")
-    return "evaluation.enabled = TRUE AND evaluation.deleted = FALSE AND (" + " OR ".join(clauses) + ")"
-
-
-_REPORTABLE_EVALUATION_SQL = _build_reportable_evaluation_sql()
+_REPORTABLE_EVALUATION_SQL = f"""
+    evaluation.enabled = TRUE
+    AND evaluation.deleted = FALSE
+    AND (
+        {_REPORTABLE_TARGET_PREDICATES}
+    )
+"""
 
 _SCHEDULED_REPORT_CANDIDATE_SQL = f"""
     WITH selected_teams AS (
