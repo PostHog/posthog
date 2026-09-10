@@ -296,12 +296,20 @@ class TeamSignalGroupingV2Workflow:
                 )
                 continue
 
-            # Carry in-flight keys into a fresh run before the entity workflow's run timeout.
-            if workflow.patched("signals-stage-handoffs-v1"):
+            # Carry in-flight keys into a fresh run before the entity workflow's run timeout. A run
+            # holding no keys has nothing to carry, so it waits without a timer and retires on that
+            # run timeout, rather than continuing as new every hour for as long as the team exists.
+            if workflow.patched("signals-stage-handoffs-v1") and self._pending_signal_keys:
                 try:
-                    await workflow.wait_condition(lambda: bool(self._batch_key_buffer), timeout=timedelta(hours=1))
+                    await workflow.wait_condition(
+                        lambda: bool(self._batch_key_buffer) or not self._pending_signal_keys,
+                        timeout=timedelta(hours=1),
+                    )
                 except TimeoutError:
                     self._continue_as_new(input)
+                if not self._batch_key_buffer:
+                    # Woken by the last key's release, with no batch to process.
+                    continue
             else:
                 await workflow.wait_condition(lambda: len(self._batch_key_buffer) > 0)
 
