@@ -49,6 +49,7 @@ from posthog.clickhouse.events_json import (
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
 )
 from posthog.clickhouse.property_groups import property_groups
+from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.
@@ -610,6 +611,11 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 # inline so the rows are unchanged. The bare column is index-eligible, so ClickHouse can skip granules.
 
 
+# A hint over a long IN list costs index analysis for every value and adds little pruning, since the bloom filter has
+# to keep every granule that could hold any of them.
+LOGS_BODY_IN_HINT_MAX_VALUES = 50
+
+
 def _call(name: str, args: list[ast.Expr]) -> ast.Call:
     return ast.Call(name=name, args=args)
 
@@ -790,6 +796,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         # table column, which is only printable when that table is in the current FROM. A property read that an earlier
         # transform moved behind a subquery (events predicate pushdown) must decline instead.
         self._tables_in_scope: list[set[int]] = []
+        # Depth of `indexHint(...)` calls above the node being visited. A hint is an optimizer directive only, so a
+        # comparison inside one must not grow a second, nested hint.
+        self._index_hint_depth = 0
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
@@ -886,6 +895,13 @@ class ClickHousePropertyResolver(CloningVisitor):
     # --- comparison / call rewrites ---
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
+        if node.name == "indexHint":
+            self._index_hint_depth += 1
+            try:
+                return super().visit_call(node)
+            finally:
+                self._index_hint_depth -= 1
+
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:
             return json_string_on_events_json
@@ -1102,7 +1118,8 @@ class ClickHousePropertyResolver(CloningVisitor):
         # rewritten comparison, so once one matches we must NOT also substitute the value. (session_id is left to the
         # printer — it optimizes a real column, not a property.)
         optimized = (
-            self._optimize_property_group_compare(node)
+            self._optimize_logs_body_compare(node)
+            or self._optimize_property_group_compare(node)
             or self._optimize_materialized_array_compare(node)
             or self._optimize_materialized_array_ilike(node)
             or self._optimize_materialized_array_multisearch(node)
@@ -1121,6 +1138,69 @@ class ClickHousePropertyResolver(CloningVisitor):
         # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
         # test. Left this way deliberately — tightening it would change query results.
         return super().visit_compare_operation(node)
+
+    # --- logs body: keep a constant comparison eligible for the lower(body) ngram index ---
+
+    def _optimize_logs_body_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """`body = 'x'` on the logs table, plus an `indexHint` that ClickHouse can match to `idx_body_ngram3`.
+
+        That skip index is built on `lower(body)`, so a comparison against the bare column reads every granule in the
+        sort-key range. The original comparison stays and decides the row set, so the query is still case-sensitive.
+        The hint is `lower(body) <op> lower(constant)`, which the original implies for `=`, `LIKE`, and `IN`, so it only
+        lets ClickHouse skip granules that hold no match. Negations get no hint because the ngram index cannot prune
+        them. Both `lower` calls run in ClickHouse: its `lower` is ASCII-only, and lowering the constant in Python would
+        fold non-ASCII letters the column side does not, which could skip a granule that holds a match.
+        """
+        if self._index_hint_depth > 0 or node.op not in (
+            ast.CompareOperationOp.Eq,
+            ast.CompareOperationOp.Like,
+            ast.CompareOperationOp.In,
+        ):
+            return None
+        column = self._logs_body_column(node.left)
+        other = node.right
+        if column is None and node.op == ast.CompareOperationOp.Eq:
+            # Equality is commutative, so `'x' = body` gets the same hint as `body = 'x'`.
+            column = self._logs_body_column(node.right)
+            other = node.left
+        if column is None:
+            return None
+
+        if node.op == ast.CompareOperationOp.In:
+            values = self._extract_string_constants(other)
+            if not values or len(values) > LOGS_BODY_IN_HINT_MAX_VALUES:
+                return None
+            lowered_values = ast.Tuple(exprs=[_lower(_const(value)) for value in values])
+            hint = ast.CompareOperation(op=node.op, left=_lower(column), right=lowered_values)
+        else:
+            constant = _string_pattern_constant(other)
+            if constant is None:
+                return None
+            hint = ast.CompareOperation(op=node.op, left=_lower(column), right=_lower(_const(constant.value)))
+
+        return _call("and", [super().visit_compare_operation(node), _call("indexHint", [hint])])
+
+    def _logs_body_column(self, expr: ast.Expr) -> ast.Field | None:
+        """The logs table's `body` column behind `body`, `message`, or `toString(...)` of either, or None."""
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
+            expr = expr.args[0]
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if not isinstance(expr, ast.Field) or not isinstance(expr.type, ast.FieldType):
+            return None
+        if not self._property_table_in_scope(expr.type):
+            return None
+        table_type = _unwrap_to_table_type(expr.type)
+        # Match on the table's workload, not on `to_printed_clickhouse`. Printing a warehouse table registers its
+        # credentials as query placeholders, so calling it here would shift every placeholder in the query.
+        if table_type is None or table_type.table.workload != Workload.LOGS:
+            return None
+        field = expr.type.resolve_database_field(self.context)
+        if not isinstance(field, DatabaseField) or field.name != "body":
+            return None
+        return cast(ast.Field, clone_expr(expr))
 
     # --- property operand detection ---
 

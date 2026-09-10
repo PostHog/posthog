@@ -13,7 +13,13 @@ import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
 
-export function AccountRelatedUsersExpansion({ externalId }: { externalId: string }): JSX.Element {
+export function AccountRelatedUsersExpansion({
+    externalId,
+    embedded = true,
+}: {
+    externalId: string
+    embedded?: boolean
+}): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
     const { membersResponse, membersResponseLoading, page, searchTerm } = useValues(logic)
     const { user } = useValues(userLogic)
@@ -96,7 +102,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             />
             <LemonTable<AccountOrganizationMember>
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={membersResponse?.results ?? []}
                 rowKey="id"
                 loading={membersResponseLoading}

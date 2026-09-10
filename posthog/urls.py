@@ -99,6 +99,7 @@ from .views import (
     preferences_page,
     preflight_check,
     render_query,
+    replay_player_frame,
     robots_txt,
     security_txt,
     stats,
@@ -513,6 +514,11 @@ urlpatterns = [
     # NOTE: We have _health, livez, and _readyz. _health is deprecated and
     # is only included for compatability with old installations. For new
     # operations livez and readyz should be used.
+    # Same-origin shell the session replay player mounts rrweb into. Unauthenticated because
+    # shared recordings render the player too; it carries no data of its own. The path ends in
+    # index.html so Storybook's static server, which does no directory-index resolution, serves the
+    # same file at the same URL.
+    path("replay_player_frame/index.html", replay_player_frame),
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
@@ -768,8 +774,8 @@ if settings.CLOUD_DEPLOYMENT == "EU":
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
     # that in production we expose these metrics on a separate port (8001), to ensure
-    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
-    # for details on the production metrics setup.
+    # external clients cannot see them. See bin/granian_metrics.py for details on the
+    # production metrics setup.
 
     # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)
     import os

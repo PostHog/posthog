@@ -361,6 +361,12 @@ def _should_stop_desc(
     return any(_is_older_than_cutoff(item.get(incremental_field), cutoff) for item in data if item)
 
 
+# GitHub answers 404 both for a repository that doesn't exist and for one the token can't see, so
+# the reason can't tell the two apart. The source layer matches this text to append the next step
+# once for the whole batch instead of repeating it per repository.
+REPOSITORY_NOT_ACCESSIBLE_REASON = "not found or not accessible"
+
+
 def validate_credentials(
     personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
 ) -> tuple[bool, str | None]:
@@ -392,7 +398,7 @@ def validate_credentials(
             return False, "Invalid personal access token"
 
         if response.status_code == 404:
-            return False, f"Repository '{repository}' not found or not accessible"
+            return False, f"Repository '{repository}' {REPOSITORY_NOT_ACCESSIBLE_REASON}"
 
         try:
             body = response.json()

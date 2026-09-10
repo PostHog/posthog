@@ -123,3 +123,6 @@ class SourceInputs:
     # True when extraction batches should be bounded by accumulated bytes rather than by the
     # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
     byte_bounded_extraction: bool = False
+    # Temporal's attempt number for this activity, starting at 1. A source can read a retry
+    # differently from a first run, because the first run has already shown what fails.
+    activity_attempt: int = 1

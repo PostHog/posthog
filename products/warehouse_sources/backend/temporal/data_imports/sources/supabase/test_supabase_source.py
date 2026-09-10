@@ -195,6 +195,29 @@ def test_vault_tables_are_never_sync_enabled_by_default():
     }
 
 
+@pytest.mark.parametrize(
+    "name,source_schema,expected_default",
+    [
+        ("realtime.messages_2020_01_01", "realtime", False),
+        # A single-schema source lists the table unqualified, so the schema and table fields
+        # are the only reliable signal.
+        ("messages_2020_01_01", "realtime", False),
+        # The partitioned parent and the rest of the schema keep their normal default.
+        ("realtime.messages", "realtime", True),
+        ("realtime.subscription", "realtime", True),
+        # A customer table that happens to share the prefix is not a Realtime partition.
+        ("public.messages_archive", "public", True),
+    ],
+)
+def test_dated_realtime_partitions_are_never_sync_enabled_by_default(name, source_schema, expected_default):
+    # Supabase drops each day's realtime.messages partition, so a partition enabled by auto-sync
+    # of newly discovered tables fails for good within days. The partitions stay listed for the
+    # same reason the vault tables do.
+    schemas = _get_schemas([_discovered_schema(name, source_schema)])
+
+    assert schemas[0].should_sync_default is expected_default
+
+
 def test_update_tracking_column_leads_the_incremental_candidates():
     # Discovery lists candidates in column ordinal order, and several surfaces default to the
     # first one — without ranking, a table like (priority, dateOfBirth, updated_at) gets a

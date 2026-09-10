@@ -212,7 +212,13 @@ class _PostgresQueueReplay:
         batch_index: int,
         delta_table_ref: Any = None,
         destination_id: str | None = None,
+        *,
+        is_first_attempt: bool = False,
     ) -> bool:
+        # `is_first_attempt` is accepted for signature-compatibility with the real
+        # `is_batch_already_processed` (which callers invoke with it as a keyword),
+        # but this in-memory replay tracks "already processed" purely by which keys
+        # it has already seen, so it doesn't need to branch on it.
         # Keyed by destination as well, mirroring the real check: a batch the warehouse has
         # taken is not yet done for a destination that has not.
         key = (run_uuid, batch_index, destination_id)
@@ -3388,7 +3394,7 @@ async def test_billing_limits_too_many_rows(team, postgres_config, postgres_conn
     await postgres_connection.commit()
 
     with (
-        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("ee.billing.billing_manager.http_session.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
         await sync_to_async(License.objects.create)(
@@ -3458,7 +3464,7 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
     await postgres_connection.commit()
 
     with (
-        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("ee.billing.billing_manager.http_session.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
         with freeze_time("2023-01-01"):

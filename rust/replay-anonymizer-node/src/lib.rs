@@ -12,8 +12,8 @@ use std::sync::RwLock;
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use posthog_replay_anonymizer::{
-    canonicalize, is_public_host, politeness_key, snapshot, AllowLists, FailKind, ImageCollection,
-    ImagePolicy, PhaseTimings, UrlCollection,
+    is_public_host, politeness_key, snapshot, try_canonicalize, AllowLists, FailKind,
+    ImageCollection, ImagePolicy, PhaseTimings, UrlCollection,
 };
 use serde::Deserialize;
 
@@ -242,21 +242,31 @@ fn is_public_host_ffi(mut cx: FunctionContext) -> JsResult<JsBoolean> {
     Ok(cx.boolean(is_public_host(&host)))
 }
 
-fn canonicalize_url_ffi(mut cx: FunctionContext) -> JsResult<JsValue> {
+/// The URL policy's verdict for one URL: its canonical forms, or under `decline` the label of the
+/// rule that refused it. The fetch lane reads the label so that it can drop a beacon job without
+/// rejecting the record that carries it.
+fn try_canonicalize_url_ffi(mut cx: FunctionContext) -> JsResult<JsObject> {
     let raw = cx.argument::<JsString>(0)?.value(&mut cx);
-    let Some(canonical) = canonicalize(&raw) else {
-        return Ok(cx.null().upcast());
-    };
     let result = cx.empty_object();
-    let fetch = cx.string(canonical.fetch);
-    result.set(&mut cx, "fetch", fetch)?;
-    let dedup = cx.string(canonical.dedup);
-    result.set(&mut cx, "dedup", dedup)?;
-    let host = cx.string(canonical.host);
-    result.set(&mut cx, "host", host)?;
-    let domain = cx.string(canonical.domain);
-    result.set(&mut cx, "domain", domain)?;
-    Ok(result.upcast())
+    match try_canonicalize(&raw) {
+        Ok(canonical) => {
+            let fetch = cx.string(canonical.fetch);
+            result.set(&mut cx, "fetch", fetch)?;
+            let dedup = cx.string(canonical.dedup);
+            result.set(&mut cx, "dedup", dedup)?;
+            let host = cx.string(canonical.host);
+            result.set(&mut cx, "host", host)?;
+            let domain = cx.string(canonical.domain);
+            result.set(&mut cx, "domain", domain)?;
+        }
+        Err(decline) => {
+            let label = cx.string(decline.label());
+            result.set(&mut cx, "decline", label)?;
+            let unwanted = cx.boolean(decline.is_unwanted());
+            result.set(&mut cx, "unwanted", unwanted)?;
+        }
+    }
+    Ok(result)
 }
 
 #[neon::main]
@@ -265,6 +275,6 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("anonymizeKafkaPayload", anonymize_kafka_payload_ffi)?;
     cx.export_function("politenessKey", politeness_key_ffi)?;
     cx.export_function("isPublicHost", is_public_host_ffi)?;
-    cx.export_function("canonicalizeUrl", canonicalize_url_ffi)?;
+    cx.export_function("tryCanonicalizeUrl", try_canonicalize_url_ffi)?;
     Ok(())
 }

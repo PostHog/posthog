@@ -84,10 +84,12 @@ import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
 import {
     EnhancedToolCall,
+    MESSAGE_TOO_LONG,
     MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
     getModeDisplayName,
+    messageLength,
 } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
@@ -1265,6 +1267,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const traceId = uuid()
             actions.setTraceId(traceId)
 
+            // How long the message was, never the message itself. A prompt that arrives truncated is
+            // otherwise invisible outside session recordings, because no send event records a length.
+            // Null content means resume/continue rather than a new message.
+            const promptLength = typeof streamData.content === 'string' ? messageLength(streamData.content) : undefined
+
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to runStreamLogic. The LangGraph EventSource loop below is never
             // entered for sandbox conversations.
@@ -1494,6 +1501,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         trace_id: traceId,
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
+                        prompt_length: promptLength,
                     })
                 }
 
@@ -1534,10 +1542,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 releaseException = false
                             }
 
-                            // Validation exception for the content length
+                            // Validation exception for the content length. The user is told what to do
+                            // and can retry, so this is an expected condition rather than a crash, and
+                            // it stays out of error tracking. `releaseException` is left alone so the
+                            // turn is still counted as a failure in telemetry.
                             if (e.data?.attr === 'content') {
-                                relevantErrorMessage.content =
-                                    'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                                relevantErrorMessage.content = MESSAGE_TOO_LONG
+                                reportException = false
                             } else if (e.detail) {
                                 relevantErrorMessage.content = e.detail
                             }
@@ -1605,6 +1616,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 : e instanceof ApiError
                                   ? 'api_error'
                                   : 'unknown_error',
+                            prompt_length: promptLength,
                         })
                         // Remove streaming messages and reload from server (source of truth)
                         actions.finalizeStreamingMessages()
@@ -1629,6 +1641,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         trace_id: traceId,
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
+                        prompt_length: promptLength,
                     })
                 }
                 actions.completeThreadGeneration()

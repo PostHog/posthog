@@ -124,7 +124,8 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
             ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
             ("message_dm_routes", "message", "handled_locally", 202, True),
             ("app_uninstalled_routes", "app_uninstalled", "handled_locally", 202, True),
-            ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
+            ("reaction_added_routes", "reaction_added", "handled_locally", 202, True),
+            ("non_handled_event_type_skips_routing", "emoji_changed", "handled_locally", 202, False),
         ]
     )
     @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
@@ -1683,7 +1684,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
         # the timeout on one access and calling on another leaves the request on the SDK
         # default. Nothing about the app's behavior changes when that happens, so only an
         # assertion on the client instance catches it.
-        from products.slack_app.backend.api import SLACK_FEEDBACK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
 
         built_clients: list[MagicMock] = []
 
@@ -1697,7 +1698,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
 
         assert posted is True
         assert len(built_clients) == 1
-        assert built_clients[0].timeout == SLACK_FEEDBACK_TIMEOUT_SECONDS
+        assert built_clients[0].timeout == SLACK_WEBHOOK_TIMEOUT_SECONDS
         built_clients[0].chat_postEphemeral.assert_called_once()
 
     def test_failed_delivery_is_reported_as_not_replied(self):

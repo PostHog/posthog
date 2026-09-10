@@ -63,7 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 from .credential import DataWarehouseCredential
-from .external_table_definitions import external_tables, get_hogql_column_name_mapping
+from .external_table_definitions import external_tables, get_hogql_column_name_mapping, resolve_external_table_fields
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -346,6 +346,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+        indexes = [
+            # The HogQL database build reads a team's live tables ordered by created_at DESC on
+            # every query. ~Q(deleted=True) compiles to the same SQL as .exclude(deleted=True),
+            # so the planner matches the partial predicate without proving implication.
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="dwtable_team_live_created",
+                condition=~models.Q(deleted=True),
+            )
+        ]
 
     def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
         if not internally_computed_url_pattern:
@@ -481,8 +491,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         except:
             return False
 
+    # chdb failures the ClickHouse fallback below handles on its own. Capturing them sends one
+    # exception per affected read to error tracking, where nothing is actionable, because the read
+    # still returns. The fallback keeps its own capture, so a genuine failure is still reported.
+    _SUPPRESSED_CHDB_ERROR_SUBSTRINGS = (
+        "unsupported deltalake type: timestamp_ntz",
+        # A source added a column mid-stream, so the parquet parts under one table disagree on
+        # column count. ClickHouse reads the same files fine; only chdb refuses the mixed set.
+        "reading from files with different schema is not possible",
+    )
+
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
-        return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
+        if not isinstance(err, RuntimeError):
+            return False
+        message = str(err).lower()
+        return any(substring in message for substring in self._SUPPRESSED_CHDB_ERROR_SUBSTRINGS)
 
     def set_columns(self, columns: dict[str, Any]) -> None:
         """Assign ``columns`` and record its order together.
@@ -961,7 +984,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         # Replace fields with any redefined fields if they exist
-        external_table_fields = external_tables.get(self.table_name_without_prefix())
+        external_table_fields = resolve_external_table_fields(self.table_name_without_prefix(), columns.keys())
         default_fields = external_tables.get("*", {})
         if external_table_fields is not None:
             fields = {**external_table_fields, **default_fields}

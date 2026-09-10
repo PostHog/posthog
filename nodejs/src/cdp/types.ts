@@ -520,6 +520,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'task_skills'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -535,6 +536,12 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     platform?: 'android' | 'ios'
+    /**
+     * Space-separated OAuth scopes. On an `integration` input these are the scopes the connection
+     * must grant, and a connection missing one gets an error banner. On any other input, paired
+     * with `integration_key`, they are the scopes only that field needs — a connection without them
+     * still works, so the field just says what it is missing. Neither is enforced at runtime.
+     */
     requiredScopes?: string
     /**
      * templating: true indicates the field supports templating. Alternatively

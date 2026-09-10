@@ -17,6 +17,7 @@ import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai.errors import APIError
 from parameterized import parameterized
+from posthoganalytics.exception_utils import exceptions_from_error_tuple
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import (
@@ -79,7 +80,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
-from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import (
+    _write_and_upload,
+    upload_video_to_gemini_activity,
+)
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_ADMISSION_BUSY_ERROR_TYPE,
@@ -172,7 +176,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -199,7 +203,7 @@ class TestCountInFlightAppliesActivity:
             name="sibling",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         other_team_scanner = _make_scanner()  # fresh org+team
         _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
@@ -563,7 +567,7 @@ class TestCreateObservationActivity:
     def test_warm_cache_admission_still_refuses_at_the_limit(self) -> None:
         # The cold path refuses via fresh aggregates (covered above); this pins the warm path: the
         # first admission's cached spend must refuse the second, not just the next refresh.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
             assert self._admit(scanner, "sess-warm-a").was_created
@@ -586,7 +590,7 @@ class TestCreateObservationActivity:
     def test_failed_insert_refunds_its_cached_admission(self) -> None:
         # The cached counter must stay transactional with the insert: an increment that survived a
         # rolled-back insert would make a cap that fits one observation refuse the retry forever.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
             with (
@@ -599,7 +603,7 @@ class TestCreateObservationActivity:
     def test_concurrent_admissions_cannot_exceed_scanner_credit_limit(self) -> None:
         # Two applies for different sessions race with a cap that fits exactly one observation. Without the
         # per-scanner lock both read a used=0 budget, both pass, and both reserve a PENDING row (overshoot).
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         barrier = threading.Barrier(2)
         created: dict[str, bool] = {}
@@ -748,14 +752,14 @@ class TestCreateObservationActivity:
     def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
         # The admission lock is per scanner row: two different capped scanners on one team must both
         # admit their own observation, with no cross-scanner budget bleed or lock coupling.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner_a = _make_scanner(credit_limit=credits)
         scanner_b = ReplayScanner.objects.create(
             team=scanner_a.team,
             name="capped-sibling",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
             credit_limit=credits,
         )
         barrier = threading.Barrier(2)
@@ -793,7 +797,7 @@ class TestCreateObservationActivity:
         # A Temporal retry whose first attempt committed the insert but lost the result must get its
         # row back: that row's own reservation fills the budget, so a plain refusal would strand it
         # PENDING forever while the workflow gives up.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         first_attempt = create_observation_activity(
             CreateObservationInputs(
@@ -913,7 +917,7 @@ class TestKnownFreeformTags:
             name="sibling",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "categorize", "tags": ["checkout"], "allow_freeform_tags": True},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self._succeeded(sibling, "s1", ["sibling_tag"])
         stale = self._succeeded(scanner, "s2", ["stale_tag"])
@@ -1204,6 +1208,113 @@ class TestObservationStateActivities:
         )
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 0
+
+    @pytest.mark.parametrize(
+        "activity_fn,inputs_cls,error_reason,expected_event,expected_kind",
+        [
+            (
+                mark_observation_failed_activity,
+                MarkObservationFailedInputs,
+                "provider_rejected:nope",
+                "replay_vision_scan_failed",
+                "provider_rejected",
+            ),
+            (
+                mark_observation_ineligible_activity,
+                MarkObservationIneligibleInputs,
+                "too_short:only 5s long",
+                "replay_vision_scan_ineligible",
+                "too_short",
+            ),
+        ],
+    )
+    def test_terminal_scan_telemetry_carries_kind_and_fires_once(
+        self, activity_fn, inputs_cls, error_reason: str, expected_event: str, expected_kind: str
+    ) -> None:
+        # Without these events `replay_vision_scan_completed` is a numerator with no denominator, so no
+        # failure rate exists. A retry must not inflate the denominator either.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        inputs = inputs_cls(observation_id=observation.id, error_reason=error_reason, scanner_type=ScannerType.MONITOR)
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            activity_fn(inputs)
+            activity_fn(inputs)  # retry: the transition is sticky, so no second event
+
+        capture.assert_called_once()
+        kwargs = capture.call_args.kwargs
+        assert kwargs["event"] == expected_event
+        assert kwargs["distinct_id"] == f"replay-vision:{observation.team_id}"
+        # Shared with the success event, so one scan can never count as both.
+        assert kwargs["uuid"] == str(observation.id)
+        properties = kwargs["properties"]
+        assert properties["kind"] == expected_kind
+        assert properties["scanner_type"] == "monitor"
+        assert properties["scanner_id"] == str(scanner.id)
+        assert properties["scanner_version"] == observation.scanner_snapshot["scanner_version"]
+        assert properties["organization_id"] == str(observation.team.organization_id)
+        # The message half of `error_reason` can quote session content, so it must not ride along.
+        assert error_reason.split(":", 1)[1] not in str(properties)
+        assert kwargs["groups"]["project"] == str(observation.team.uuid)
+
+    @pytest.mark.parametrize("status", [ObservationStatus.SUCCEEDED, ObservationStatus.FAILED])
+    def test_scan_telemetry_reports_the_version_that_produced_it(self, status: str) -> None:
+        # Reading the live scanner instead of the snapshot would retro-attribute every past scan to
+        # whatever config replaced it, which inverts the before/after comparison a prompt edit is
+        # judged on. The scanner here sits at version 1 while the snapshot says 7.
+        scanner = _make_scanner()
+        snapshot = {**_snapshot_for(scanner), "scanner_version": 7}
+        observation = _make_observation(
+            scanner, status=ObservationStatus.RUNNING, started_at=timezone.now(), scanner_snapshot=snapshot
+        )
+        assert scanner.scanner_version != 7
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            if status == ObservationStatus.SUCCEEDED:
+                mark_observation_succeeded_activity(
+                    MarkObservationSucceededInputs(
+                        observation_id=observation.id,
+                        scanner_result=ScannerResult(
+                            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9)
+                        ),
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                )
+            else:
+                mark_observation_failed_activity(
+                    MarkObservationFailedInputs(
+                        observation_id=observation.id,
+                        error_reason="internal_error:boom",
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                )
+
+        assert capture.call_args.kwargs["properties"]["scanner_version"] == 7
+
+    def test_terminal_scan_settles_even_when_telemetry_raises(self) -> None:
+        # The row is already settled when the capture runs, and the transition is sticky, so a telemetry
+        # outage must not fail the activity into a retry that can no longer do anything.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture",
+            side_effect=RuntimeError("analytics down"),
+        ):
+            mark_observation_failed_activity(
+                MarkObservationFailedInputs(
+                    observation_id=observation.id,
+                    error_reason="internal_error:boom",
+                    scanner_type=ScannerType.MONITOR,
+                )
+            )
+
+        observation.refresh_from_db()
+        assert observation.status == ObservationStatus.FAILED
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1580,6 +1691,46 @@ class TestFetchSessionEventsActivity:
         assert stored.metadata.duration_seconds == 300.0
         assert len(stored.events.rows) == 1
         assert stored.events.rows[0][1:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
+
+    @pytest.mark.asyncio
+    async def test_resolved_identity_reaches_both_the_payload_and_the_observation_row(self) -> None:
+        # The row's `recording_subject_email` and the prompt's identity block are fed by one resolution step.
+        # If it stops populating, the email silently goes NULL — breaking the pinned properties, the
+        # `recording_subject` filter, and the `order_by` — while every scan still succeeds.
+        scanner = await sync_to_async(_make_scanner)()
+        observation = await sync_to_async(_make_observation)(scanner)
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        end = dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": end, "duration": 300, "active_seconds": 200}
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [(["event", "timestamp", "$session_id"], [("$pageview", start, "sess-1")])],
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+                return_value=mock_obj,
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.fetch_session_events.fetch_session_person_properties",
+                return_value={"email": "rene@customer.example", "name": "Rene Diaz", "org__name": "Customer Co"},
+            ),
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation.id, team_id=scanner.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation.id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
+        assert stored is not None
+        assert stored.identity.person_email == "rene@customer.example"
+        assert stored.identity.person_name == "Rene Diaz"
+        assert stored.identity.person_organization == "Customer Co"
+
+        await sync_to_async(observation.refresh_from_db)()
+        assert observation.recording_subject_email == "rene@customer.example"
 
     @pytest.mark.asyncio
     async def test_fetches_a_single_page_with_the_configured_limit(self) -> None:
@@ -2354,6 +2505,68 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "leaf_message,non_retryable,expected_kind,expected_reason",
+    [
+        # A genuine transport blip (5xx, timeout, dropped connection) reaches the parent as a retryable
+        # BLOCK_LISTING_FAILED whose message carries the errno and pod address. It must land as retryable
+        # infra_transient with the errno and address dropped, so one outage can't mint a fresh error-tracking
+        # issue per variant.
+        (
+            "Failed to fetch block listing: connect ECONNREFUSED 10.0.0.5:6738",
+            False,
+            FailureKind.INFRA_TRANSIENT,
+            "infra_transient:rasterizer could not reach a PostHog dependency (BLOCK_LISTING_FAILED)",
+        ),
+        # A permanent 4xx (auth, bad request) or malformed listing reaches the parent as a non-retryable
+        # BLOCK_LISTING_FAILED. Retrying can't heal it, so it must keep the recording-level rasterization_failed
+        # label with its own message, not a false retry prompt that merges into the transient-outage issue.
+        (
+            "Failed to fetch block listing: 401 - unauthorized",
+            True,
+            FailureKind.RASTERIZATION_FAILED,
+            "rasterization_failed:Failed to fetch block listing: 401 - unauthorized",
+        ),
+    ],
+)
+async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_by_retryability(
+    leaf_message: str, non_retryable: bool, expected_kind: FailureKind, expected_reason: str
+) -> None:
+    new_observation_id = uuid.uuid4()
+    leaf = ApplicationError(leaf_message, type="BLOCK_LISTING_FAILED", non_retryable=non_retryable)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(_wrap_in_activity_error(leaf)),
+    )
+
+    with pytest.raises(ScannerFailureError) as exc_info:
+        await _run_workflow(_build_inputs(session_id="sess-blocklist"), mocks)
+
+    assert exc_info.value.kind is expected_kind
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_failed_activity in called
+    assert mark_observation_ineligible_activity not in called
+    assert mocks.activity_calls[-1][1].error_reason == expected_reason
+
+    if expected_kind is FailureKind.INFRA_TRANSIENT:
+        # `from None` keeps the volatile cause out of the chain error tracking serializes, so the outage
+        # groups by the stable message instead of the errno and pod address the leaf still carries.
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__suppress_context__ is True
+        # Prove it through the real capture serializer: the errno and pod address must not survive into
+        # `$exception_list`, or one outage still fragments into a fresh error-tracking issue per variant.
+        serialized = exceptions_from_error_tuple((type(exc_info.value), exc_info.value, exc_info.value.__traceback__))
+        captured = " ".join(str(item.get("value")) for item in serialized)
+        assert "ECONNREFUSED" not in captured
+        assert "10.0.0.5" not in captured
+
+
+@pytest.mark.asyncio
 async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_fails() -> None:
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
@@ -2536,20 +2749,16 @@ async def test_apply_scanner_workflow_propagates_workflow_id_to_create() -> None
     assert create_input.workflow_id == "wf-from-info"
 
 
-def _summarizer_output_with_facets() -> SummarizerOutput:
+def _summarizer_output() -> SummarizerOutput:
     return SummarizerOutput(
         title="Login attempt",
         summary="User tried to authenticate but the form failed twice.",
-        intent="Log in to the dashboard",
-        outcome="Reached the password reset page after failed attempts.",
-        friction_points=["invalid password error"],
-        keywords=["login", "authentication", "reset"],
         confidence=0.9,
     )
 
 
-def _summarizer_output_without_facets() -> SummarizerOutput:
-    return SummarizerOutput(title="Onboarding", summary="User walked through the demo.", confidence=0.9)
+def _summarizer_output_without_text() -> SummarizerOutput:
+    return SummarizerOutput(title="", summary="   ", confidence=0.9)
 
 
 def _classifier_output() -> ClassifierOutput:
@@ -2562,14 +2771,10 @@ def _classifier_output() -> ClassifierOutput:
 
 
 @pytest.mark.asyncio
-async def test_embed_observation_emits_one_request_per_nonempty_facet() -> None:
+async def test_embed_observation_emits_title_and_summary_as_one_document() -> None:
     out = SummarizerOutput(
         title="Investigation",
         summary="User browsed dashboards and clicked through several insights.",
-        intent="Investigate slow query response",
-        outcome="No issue reproduced — user closed the tab.",
-        friction_points=[],
-        keywords=["dashboard", "insight"],
         confidence=0.8,
     )
     scanner_id = uuid.uuid4()
@@ -2581,8 +2786,10 @@ async def test_embed_observation_emits_one_request_per_nonempty_facet() -> None:
     ) as mock_emit:
         await embed_observation_activity(inputs)
 
-    renderings = [call.kwargs["rendering"] for call in mock_emit.call_args_list]
-    assert renderings == ["intent", "outcome", "keywords"]
+    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["summary"]
+    assert mock_emit.call_args.kwargs["content"] == (
+        "Investigation\n\nUser browsed dashboards and clicked through several insights."
+    )
     for call in mock_emit.call_args_list:
         assert call.kwargs["team_id"] == 99
         assert call.kwargs["product"] == "replay-vision"
@@ -2640,7 +2847,7 @@ async def test_embed_observation_raises_propagates_failure() -> None:
         session_id="sess-x",
         observation_id=uuid.uuid4(),
         scanner_id=uuid.uuid4(),
-        model_output=_summarizer_output_with_facets(),
+        model_output=_summarizer_output(),
     )
     with patch(
         "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request",
@@ -2704,7 +2911,7 @@ async def test_embed_observation_raises_when_kafka_delivery_fails() -> None:
         session_id="sess-x",
         observation_id=uuid.uuid4(),
         scanner_id=uuid.uuid4(),
-        model_output=_summarizer_output_with_facets(),
+        model_output=_summarizer_output(),
     )
     failed_result = MagicMock()
     failed_result.get.side_effect = RuntimeError("broker timeout")
@@ -2742,9 +2949,9 @@ async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facets_present() -> None:
+async def test_apply_scanner_workflow_dispatches_summarizer_embedding() -> None:
     new_observation_id = uuid.uuid4()
-    model_output = _summarizer_output_with_facets()
+    model_output = _summarizer_output()
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -2776,7 +2983,7 @@ async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facet
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_skips_summarizer_embedding_when_no_facets() -> None:
+async def test_apply_scanner_workflow_skips_summarizer_embedding_when_summary_blank() -> None:
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
         activity_results={
@@ -2789,11 +2996,11 @@ async def test_apply_scanner_workflow_skips_summarizer_embedding_when_no_facets(
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_without_facets()),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_without_text()),
         },
     )
 
-    await _run_workflow(_build_inputs(session_id="sess-nofacets"), mocks)
+    await _run_workflow(_build_inputs(session_id="sess-blank"), mocks)
 
     called = {fn for fn, _ in mocks.activity_calls}
     assert embed_observation_activity not in called
@@ -2910,6 +3117,28 @@ class TestClassifyGeminiError:
         # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
         # and for the transient kinds it would burn the retry budget before failing anyway.
         assert classify_gemini_error(ValueError("bad arg")) is None
+
+
+class TestUploadFinalizeFailures:
+    @parameterized.expand(
+        [
+            ("missing_file_key", KeyError("file")),
+            ("empty_body", TypeError("string indices must be integers, not 'str'")),
+            ("status_not_final", ValueError("Failed to upload file: Upload status is not finalized.")),
+            ("chunks_not_final", ValueError("All content has been uploaded, but the upload status is not finalized.")),
+            (
+                "no_upload_url",
+                KeyError("Failed to create file. Upload URL did not returned from the create file request."),
+            ),
+        ]
+    )
+    def test_maps_sdk_upload_failures_to_provider_transient(self, _label: str, error: Exception) -> None:
+        raw_client = MagicMock()
+        raw_client.files.upload.side_effect = error
+        with pytest.raises(ScannerFailureError) as exc_info:
+            _write_and_upload(raw_client, b"mp4", "video/mp4", "wf-1")
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.message == "The AI provider did not finish the video upload"
 
 
 class TestGeminiErrorRedaction:

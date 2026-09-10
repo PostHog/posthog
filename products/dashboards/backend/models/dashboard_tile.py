@@ -269,12 +269,17 @@ class DashboardTile(models.Model):
     def sort_tiles_by_layout(
         tiles: list["DashboardTile"] | QuerySet["DashboardTile"], layout_size: str = "sm"
     ) -> list["DashboardTile"]:
-        """Sort tiles by their layout position (y, then x)."""
+        """Sort tiles by their layout position (y, then x), then by id.
+
+        Tiles without a layout all fall back to the same position, so without the id
+        tiebreak their order would be whatever the database happened to return.
+        """
         return sorted(
             tiles,
             key=lambda tile: (
                 tile.layouts.get(layout_size, {}).get("y", 100),
                 tile.layouts.get(layout_size, {}).get("x", 100),
+                tile.pk or 0,
             ),
         )
 

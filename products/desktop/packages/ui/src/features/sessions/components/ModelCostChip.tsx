@@ -1,28 +1,24 @@
 import {
   formatModelRates,
   MODEL_COST_BASELINE_NAME,
-  modelCostInfo,
+  type ModelCostInfo,
 } from "@posthog/core/billing/modelPricing";
 
 /** The exact rates behind a multiplier, for the chip's title. */
-export function modelCostTitle(modelId: string): string | undefined {
-  const cost = modelCostInfo(modelId);
-  if (!cost) return undefined;
+export function modelCostTitle(cost: ModelCostInfo): string {
   return `Cost per token vs ${MODEL_COST_BASELINE_NAME} · ${formatModelRates(cost.price)}`;
 }
 
 /**
- * Per-token cost multiplier chip for model picker rows. Renders nothing for
- * unpriced models so a chip is never wrong. Presentational so the row's
- * accessible name stays the model name; the title carries the exact rates.
+ * Per-token cost multiplier chip for priced model picker rows. Presentational
+ * so the row's accessible name stays the model name; the title carries the
+ * exact rates.
  */
-export function ModelCostChip({ modelId }: { modelId: string }) {
-  const cost = modelCostInfo(modelId);
-  if (!cost) return null;
+export function ModelCostChip({ cost }: { cost: ModelCostInfo }) {
   return (
     <span
       className="ml-auto pl-3 font-normal text-[10px] text-muted-foreground/80 tabular-nums"
-      title={modelCostTitle(modelId)}
+      title={modelCostTitle(cost)}
       aria-hidden="true"
     >
       {cost.multiplierLabel}
