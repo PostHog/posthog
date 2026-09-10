@@ -7,7 +7,7 @@ use tracing::{error, warn};
 
 use crate::{
     app_context::AppContext, generate_embedding, metrics_utils::RequestLabels,
-    organization::apply_ai_opt_in,
+    organization::apply_ai_opt_in, CL100K_ENCODER,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,14 +85,75 @@ pub async fn handle_ad_hoc_request(
 pub fn check_would_truncate(content: &str, model: &EmbeddingModel) -> bool {
     match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-            let encoder = tiktoken_rs::cl100k_base().expect("We can construct the encoder");
-            let tokens: Vec<_> = encoder
-                .encode_with_special_tokens(content)
-                .into_iter()
-                .take(model.model_input_window())
-                .collect();
-            let token_count = tokens.len();
+            // Count every token: capping the count at the input window first would make the
+            // comparison below unsatisfiable.
+            let token_count = CL100K_ENCODER.encode_with_special_tokens(content).len();
             token_count > model.model_input_window()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Build text of an exact token length by decoding that many tokens off a longer
+    // stream. Repeated whole words keep every cut on a token boundary, so the result
+    // re-encodes to the same count.
+    fn content_with_tokens(count: usize) -> String {
+        let encoder = &*CL100K_ENCODER;
+        let stream = "word ".repeat(count + 16);
+        let tokens: Vec<_> = encoder
+            .encode_with_special_tokens(&stream)
+            .into_iter()
+            .take(count)
+            .collect();
+        let content = encoder.decode(tokens).expect("fixture decodes cleanly");
+        assert_eq!(
+            encoder.encode_with_special_tokens(&content).len(),
+            count,
+            "fixture should hold exactly {count} tokens"
+        );
+        content
+    }
+
+    #[test]
+    fn short_content_does_not_truncate() {
+        assert!(!check_would_truncate(
+            "hello world",
+            &EmbeddingModel::OpenAITextEmbeddingSmall
+        ));
+    }
+
+    #[test]
+    fn content_over_the_input_window_truncates() {
+        // The check used to take() the input window's worth of tokens before comparing the
+        // count against that same window, so it could never report a truncation.
+        for model in [
+            EmbeddingModel::OpenAITextEmbeddingSmall,
+            EmbeddingModel::OpenAITextEmbeddingLarge,
+        ] {
+            let content = content_with_tokens(model.model_input_window() + 1);
+            assert!(
+                check_would_truncate(&content, &model),
+                "{model:?} should truncate one token past its input window"
+            );
+        }
+    }
+
+    #[test]
+    fn content_at_the_input_window_does_not_truncate() {
+        // generate_embedding_text only drops tokens beyond the window, so content sitting
+        // exactly on it survives intact.
+        for model in [
+            EmbeddingModel::OpenAITextEmbeddingSmall,
+            EmbeddingModel::OpenAITextEmbeddingLarge,
+        ] {
+            let content = content_with_tokens(model.model_input_window());
+            assert!(
+                !check_would_truncate(&content, &model),
+                "{model:?} should not truncate content exactly at its input window"
+            );
         }
     }
 }
