@@ -595,6 +595,10 @@ SPECTACULAR_SETTINGS = {
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
+            # class carries them. The lists are derived from those literals.
+            "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
+            "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             #
             # The same choice set is declared in more than one product. A shared Choices
@@ -1238,6 +1242,32 @@ WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20"
 # is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
 WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
+# Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
+# "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that
+# posture's floor in wizard_gateway_token, not to the flat settings above, whose
+# cap is wider than every tier. Per-program caps, JSON {program id: cap}, replace a
+# posture's cap_usd for that program up to its max_cap_usd. Both parsed
+# defensively like AI_GATEWAY_TEAM_TIER_OVERRIDES: a malformed value must not
+# take boot down.
+# The _INVALID flags separate "operator configured nothing" from "operator
+# configured something unreadable", which the empty dict cannot express. Each
+# mint counts the second case so a malformed value is alertable, not just logged.
+WIZARD_GATEWAY_TIERS_INVALID = False
+WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = False
+try:
+    WIZARD_GATEWAY_TIERS = json.loads(get_from_env("WIZARD_GATEWAY_TIERS", "{}"))
+except ValueError:
+    # Empty means every posture keeps its in-code floor, which is the tighter
+    # reading. Logged because the operator meant to configure something.
+    logger.warning("WIZARD_GATEWAY_TIERS is not JSON, falling back to the in-code tier floors")
+    WIZARD_GATEWAY_TIERS = {}
+    WIZARD_GATEWAY_TIERS_INVALID = True
+try:
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = json.loads(get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM", "{}"))
+except ValueError:
+    logger.warning("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM is not JSON, falling back to no per-program caps")
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an

@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconGraph, IconLifecycle, IconPieChart, IconScatter, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
-import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Icon123, IconAreaChart, IconHeatmap, IconTableChart, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
 
@@ -21,7 +23,7 @@ const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
     [ChartDisplayType.Metric]: 'Metric',
     [ChartDisplayType.ActionsPie]: 'Pie chart',
     [ChartDisplayType.ActionsDonut]: 'Donut chart',
-    [ChartDisplayType.ActionsBarValue]: 'Value chart',
+    [ChartDisplayType.ActionsBarValue]: 'Horizontal bar chart',
     [ChartDisplayType.ActionsTable]: 'Table',
     [ChartDisplayType.WorldMap]: 'World map',
     [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
@@ -46,7 +48,8 @@ export function getTableDisplayOptions(
     columns: Column[],
     numericalColumns: Column[],
     autoVisualizationType: ChartDisplayType,
-    disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined
+    disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined,
+    metricInsightEnabled = false
 ): LemonSelectOptions<ChartDisplayType> {
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
     const canDisplayScatterPlot = numericalColumns.length > 1
@@ -88,10 +91,30 @@ export function getTableDisplayOptions(
                         ? 'Requires at least two columns, including one numeric column'
                         : undefined,
                 },
+                ...(metricInsightEnabled
+                    ? [
+                          {
+                              value: ChartDisplayType.Metric,
+                              icon: <IconTrendingUp />,
+                              label: 'Metric',
+                              disabledReason:
+                                  numericalColumns.length === 0 ? 'Requires at least one numeric column' : undefined,
+                          },
+                      ]
+                    : []),
                 {
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
+                },
+                {
+                    value: ChartDisplayType.ActionsBarValue,
+                    icon: <IconGraph className="rotate-90" />,
+                    label: 'Horizontal bar chart',
+                    disabledReason:
+                        numericalColumns.length === 0 || columns.every((column) => column.type.isNumerical)
+                            ? 'Requires a category column and a numeric column'
+                            : undefined,
                 },
                 {
                     value: ChartDisplayType.ActionsStackedBar,
@@ -165,6 +188,7 @@ export const TableDisplay = ({
 }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
     const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <LemonSelect
@@ -175,7 +199,13 @@ export const TableDisplay = ({
             loading={loading}
             onChange={setVisualizationType}
             optionTooltipPlacement="left"
-            options={getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, disabledReasonFor)}
+            options={getTableDisplayOptions(
+                columns,
+                numericalColumns,
+                autoVisualizationType,
+                disabledReasonFor,
+                !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
+            )}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             size="small"
             value={visualizationType}

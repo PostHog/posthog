@@ -266,6 +266,7 @@ from posthog.schema_enums import (
     StickinessOperator as StickinessOperator,
     Style as Style,
     SubscriptionDropoffMode as SubscriptionDropoffMode,
+    Summary as Summary,
     SurveyMatchType as SurveyMatchType,
     SurveyPosition as SurveyPosition,
     SurveyQuestionBranchingType as SurveyQuestionBranchingType,
@@ -1721,6 +1722,13 @@ class IntegrationFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    includeNonIntegrated: bool | None = Field(
+        default=None,
+        description=(
+            "Keep rows that no integration reports cost for, such as organic, email or"
+            " an unmapped source. Defaults to true."
+        ),
+    )
     integrationSourceIds: list[str] | None = Field(
         default=None,
         description=("Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"),
@@ -2269,6 +2277,43 @@ class MaxProductInfo(BaseModel):
     usage_limit: float | None = None
 
 
+class MetricChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeDecreaseColor: str | None = Field(
+        default=None,
+        description="Change pill color when the series went down. Defaults to red.",
+    )
+    changeIncreaseColor: str | None = Field(
+        default=None,
+        description="Change pill color when the series went up. Defaults to green.",
+    )
+    colorByDirection: bool | None = Field(
+        default=False,
+        description="Color the sparkline by whether the series went up or down.",
+    )
+    lineDecreaseColor: str | None = Field(
+        default=None,
+        description="Sparkline color when the series went down. Defaults to red.",
+    )
+    lineIncreaseColor: str | None = Field(
+        default=None,
+        description="Sparkline color when the series went up. Defaults to green.",
+    )
+    showChange: bool | None = Field(
+        default=True,
+        description=("Show the change pill comparing the first point to the latest point."),
+    )
+    summary: Summary | None = Field(
+        default=Summary.LATEST,
+        description=(
+            "Which value the resting headline shows: the latest point, the total, or"
+            " the average of the returned points."
+        ),
+    )
+
+
 class MetricsAlertConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2487,18 +2532,6 @@ class PathsV2StepSource(BaseModel):
             " naming property, the event itself is the path item."
         ),
     )
-
-
-class PersistedFolder(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    id: str
-    path: str
-    protocol: str
-    type: str
-    updated_at: str
 
 
 class PersonType(BaseModel):
@@ -3730,11 +3763,14 @@ class AssistantFunnelsFilter(BaseModel):
     funnelVizType: FunnelVizType | None = Field(
         default=FunnelVizType.STEPS,
         description=(
-            "Defines the type of visualization to use. The `steps` option is"
-            " recommended. `steps` - shows a step-by-step funnel. Perfect to show a"
-            " conversion rate of a sequence of events (default). `time_to_convert` -"
-            " shows a histogram of the time it took to complete the funnel. `trends` -"
-            " shows trends of the conversion rate of the whole sequence over time."
+            "Defines the type of visualization to use. `steps` - one bar per step with"
+            " the conversion between them (default). Use for \"what's the conversion"
+            ' rate" and "where do users drop off". `trends` - the conversion rate of'
+            " the whole sequence as a time series. Use whenever the question is about"
+            ' change over time ("is conversion improving", "conversion per week",'
+            ' "since we shipped X"); a `steps` chart cannot show that.'
+            " `time_to_convert` - a histogram of how long users took to complete the"
+            " funnel."
         ),
     )
     funnelWindowInterval: int | None = Field(
@@ -4495,14 +4531,21 @@ class AssistantTrendsFilter(BaseModel):
             " line chart; most common option, as it shows change over time."
             " `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series"
             " area chart. `ActionsLineGraphCumulative` - cumulative time-series line"
-            " chart; good for cumulative metrics. `BoldNumber` - total value single"
-            " large number. Use when user explicitly asks for a single output number."
-            " You CANNOT use this with breakdown or if the insight has more than one"
-            " series. `Metric` - single large number with a period-over-period change"
-            " pill and a sparkline. Like `BoldNumber` but trend-aware; configure it"
-            " with the `metric*` fields below. Single series, no breakdown."
-            " `ActionsBarValue` - total value (NOT time-series) bar chart; good for"
-            " categorical data. `ActionsPie` - total value pie chart; good for"
+            " chart; good for cumulative metrics. `Metric` - single large number with a"
+            " change pill and a sparkline. Use for a period summary or an explicit"
+            ' current-versus-previous-period comparison ("how many X in the last 30'
+            ' days", "what\'s our conversion rate this month", "how does this month'
+            ' compare to last"). Do not use for a question about change over time, a'
+            " cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect"
+            " each interval. Set `compareFilter.compare` to `true` to compare the"
+            " current period with the previous period. Without it, the pill compares"
+            " the first interval with the last interval. Configure the display with the"
+            " `metric*` fields below. Single series, no breakdown. `BoldNumber` -"
+            " single large number with no change or sparkline. Use instead of `Metric`"
+            " only when a trend is meaningless, such as an all-time total or a fixed"
+            " ratio. You CANNOT use this with breakdown or if the insight has more than"
+            " one series. `ActionsBarValue` - total value (NOT time-series) bar chart;"
+            " good for categorical data. `ActionsPie` - total value pie chart; good for"
             " visualizing proportions. `ActionsTable` - total value table; good when"
             " using breakdown to list users or other entities. `WorldMap` - total value"
             " world map; use when breaking down by country name using property"
@@ -15541,6 +15584,7 @@ class ChartSettings(BaseModel):
             " type: right for pie, top for the rest."
         ),
     )
+    metric: MetricChartSettings | None = None
     pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
