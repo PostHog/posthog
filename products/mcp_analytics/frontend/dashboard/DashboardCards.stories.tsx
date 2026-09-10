@@ -68,8 +68,12 @@ const HARNESS_ROWS: HarnessRow[] = [
 const MODEL_ROWS: ModelRow[] = [
     { model: 'claude-sonnet-5', total_calls: 4200 },
     { model: 'gpt-5.6-sol', total_calls: 3100 },
+    { model: 'claude-opus-4', total_calls: 2200 },
     { model: 'Unknown', total_calls: 1400 },
+    { model: 'gemini-2.5-pro', total_calls: 900 },
+    { model: 'gpt-4o', total_calls: 750 },
     { model: 'Other', total_calls: 580 },
+    { model: 'grok-3', total_calls: 320 },
 ]
 
 const NOTABLE_SESSIONS: NotableSession[] = [

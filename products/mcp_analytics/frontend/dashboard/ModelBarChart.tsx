@@ -16,6 +16,7 @@ import { type ModelRow } from '../mcpDashboardOverviewLogic'
 import { Card } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
+import { modelColor } from './modelColors'
 
 function ModelBarLabels({ rows, totalCalls }: { rows: ModelRow[]; totalCalls: number }): JSX.Element {
     const { scales } = useChartLayout()
@@ -69,7 +70,7 @@ export function ModelBarChart({ rows, theme }: { rows: ModelRow[]; theme: ChartT
                 data: sortedRows.map((row) => row.total_calls),
                 bars: sortedRows.map((row) => ({
                     label: row.model,
-                    color: row.model === 'Unknown' ? theme.axisColor : theme.colors[0],
+                    color: modelColor(theme, row.model),
                     meta: { ...row, share: totalCalls > 0 ? (row.total_calls / totalCalls) * 100 : 0 },
                 })),
             },
