@@ -16,11 +16,15 @@ _UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 @dataclass
 class ApolloEndpointConfig:
     name: str
-    # Search path under /api/v1 (search endpoints are POSTs with JSON bodies).
+    # Path under /api/v1 (search endpoints are POSTs with JSON bodies, lookups are GETs).
     path: str
     # Key the rows live under in the response body.
     data_key: str
     primary_key: str = "id"
+    method: str = "POST"
+    # The stage lookups return their whole set in one response, with no page params
+    # and no pagination object to walk.
+    paginated: bool = True
     # Apollo has no server-side timestamp filter; incremental streams sort
     # descending on this field and stop at the persisted high-water mark
     # (the same CDC emulation Fivetran uses on CONTACT/ACCOUNT).
@@ -50,6 +54,33 @@ APOLLO_ENDPOINTS: dict[str, ApolloEndpointConfig] = {
         name="opportunities",
         path="/opportunities/search",
         data_key="opportunities",
+    ),
+    "users": ApolloEndpointConfig(
+        name="users",
+        path="/users/search",
+        data_key="users",
+        method="GET",
+    ),
+    "contact_stages": ApolloEndpointConfig(
+        name="contact_stages",
+        path="/contact_stages",
+        data_key="contact_stages",
+        method="GET",
+        paginated=False,
+    ),
+    "account_stages": ApolloEndpointConfig(
+        name="account_stages",
+        path="/account_stages",
+        data_key="account_stages",
+        method="GET",
+        paginated=False,
+    ),
+    "opportunity_stages": ApolloEndpointConfig(
+        name="opportunity_stages",
+        path="/opportunity_stages",
+        data_key="opportunity_stages",
+        method="GET",
+        paginated=False,
     ),
 }
 
