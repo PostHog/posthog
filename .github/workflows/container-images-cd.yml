@@ -13,9 +13,17 @@ on:
     push:
         branches:
             - master
-        paths-ignore:
-            - 'rust/**'
-            - 'livestream/**'
+        # `paths` with negations, because GitHub refuses `paths` and `paths-ignore`
+        # on the same trigger. Later patterns win, so the last line puts back the one
+        # desktop package that stays in the image build context (see .dockerignore) —
+        # every other desktop path is stripped from the context, so a change there
+        # cannot alter the image, and a build plus its deploy fan-out is pure cost.
+        paths:
+            - '**'
+            - '!rust/**'
+            - '!livestream/**'
+            - '!products/desktop/**'
+            - 'products/desktop/packages/agent-shadow/**'
     # Break-glass: a manual dispatch must run from master. The ECR publish role
     # (AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
     # refs/heads/master, so a dispatch from any other branch is denied at
