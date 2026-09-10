@@ -120,7 +120,13 @@ class LanguageServiceClient:
 
     def autocomplete(self, team_id: int, user_id: int, query: str, position: int) -> LanguageServiceResult:
         return self._request(
-            "POST", team_id, user_id, "autocomplete", "complete", {"query": query, "position": position}, 1
+            "POST",
+            team_id,
+            user_id,
+            "autocomplete",
+            "complete",
+            {"query": query, "position": position, "positionEncoding": "utf-16"},
+            1,
         )
 
     def validate(self, team_id: int, user_id: int, query: str) -> LanguageServiceResult:
