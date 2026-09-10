@@ -1217,6 +1217,9 @@ class HogFunctionViewSet(
         configuration = serializer.validated_data["configuration"]
         # Remove the team from the config
         configuration.pop("team")
+        # A test run has nothing to race on, and the guard validates into a `datetime` that
+        # `requests.post(json=...)` cannot serialize, so keeping it would 500 the request.
+        configuration.pop("base_updated_at", None)
 
         res = create_hog_invocation_test(
             team_id=self.team_id,
