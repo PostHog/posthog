@@ -82,18 +82,29 @@ _REPORTABLE_EVALUATION_SQL = """
 """
 
 _SCHEDULED_REPORT_CANDIDATE_SQL = f"""
-    WITH selected_teams(team_id, team_order) AS (
-        SELECT * FROM unnest(%s::bigint[]) WITH ORDINALITY
+    WITH selected_teams AS (
+        SELECT team_id, item_cursor, team_order
+        FROM unnest(%s::bigint[], %s::uuid[]) WITH ORDINALITY
+            AS selected(team_id, item_cursor, team_order)
     ),
     bounded_candidates AS (
         SELECT
             selected_teams.team_id,
             selected_teams.team_order,
             candidate.id,
-            candidate.next_delivery_date
+            candidate.next_delivery_date,
+            candidate.team_rank
         FROM selected_teams
         CROSS JOIN LATERAL (
-            SELECT report.id, report.next_delivery_date
+            SELECT
+                report.id,
+                report.next_delivery_date,
+                ROW_NUMBER() OVER (
+                    ORDER BY
+                        (report.id <= selected_teams.item_cursor),
+                        report.next_delivery_date,
+                        report.id
+                ) AS team_rank
             FROM llm_analytics_evaluationreport AS report
             INNER JOIN llm_analytics_evaluation AS evaluation ON evaluation.id = report.evaluation_id
             WHERE report.team_id = selected_teams.team_id
@@ -102,25 +113,13 @@ _SCHEDULED_REPORT_CANDIDATE_SQL = f"""
               AND report.frequency = 'scheduled'
               AND report.next_delivery_date <= %s
               AND {_REPORTABLE_EVALUATION_SQL}
-            ORDER BY report.next_delivery_date, report.id
+            ORDER BY team_rank
             LIMIT %s
         ) AS candidate
-    ),
-    ranked_candidates AS (
-        SELECT
-            id,
-            team_id,
-            next_delivery_date,
-            team_order,
-            ROW_NUMBER() OVER (
-                PARTITION BY team_id
-                ORDER BY next_delivery_date, id
-            ) AS team_rank
-        FROM bounded_candidates
     )
     SELECT id, team_id
-    FROM ranked_candidates
-    ORDER BY team_rank, next_delivery_date, team_order, id
+    FROM bounded_candidates
+    ORDER BY team_rank, team_order, next_delivery_date, id
     LIMIT %s
 """
 
@@ -208,6 +207,7 @@ async def fetch_due_eval_reports_activity(
             candidate_sql=_SCHEDULED_REPORT_CANDIDATE_SQL,
             candidate_sql_params=[now_with_buffer],
             oldest_due_at=oldest_due_at,
+            rotate_item_cursor=True,
         )
 
     candidates = await get_report_candidates()
@@ -434,6 +434,8 @@ def _fetch_eval_report_candidate_page(
             )
             selected_team_ids.extend(teams_before_cursor[:remaining_team_slots])
             deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
+        elif team_cursor:
+            deferred_teams = deferred_teams or reports.filter(team_id__lte=team_cursor).exists()
 
         if not selected_team_ids:
             return _EvalReportCandidatePage([], 0, oldest_due_at, team_discovery_cursor)
@@ -487,13 +489,6 @@ def _load_eval_report_item_cursor_states(
     team_ids: Sequence[int],
 ) -> dict[int, TemporalSchedulerState]:
     scheduler_by_team = {team_id: _item_cursor_scheduler(scheduler, team_id) for team_id in team_ids}
-    TemporalSchedulerState.objects.bulk_create(
-        [
-            TemporalSchedulerState(scheduler=item_scheduler, region=region)
-            for item_scheduler in scheduler_by_team.values()
-        ],
-        ignore_conflicts=True,
-    )
     states_by_scheduler = {
         state.scheduler: state
         for state in TemporalSchedulerState.objects.select_for_update().filter(
@@ -501,6 +496,21 @@ def _load_eval_report_item_cursor_states(
             region=region,
         )
     }
+    missing_schedulers = set(scheduler_by_team.values()) - states_by_scheduler.keys()
+    if missing_schedulers:
+        TemporalSchedulerState.objects.bulk_create(
+            [TemporalSchedulerState(scheduler=item_scheduler, region=region) for item_scheduler in missing_schedulers],
+            ignore_conflicts=True,
+        )
+        states_by_scheduler.update(
+            {
+                state.scheduler: state
+                for state in TemporalSchedulerState.objects.select_for_update().filter(
+                    scheduler__in=missing_schedulers,
+                    region=region,
+                )
+            }
+        )
     return {team_id: states_by_scheduler[item_scheduler] for team_id, item_scheduler in scheduler_by_team.items()}
 
 
@@ -555,17 +565,23 @@ def _advance_eval_report_cursors(
                 return False
             return True
 
-        state.discovery_cursor = next_team_cursor
-        state.save(update_fields=["discovery_cursor", "updated_at"])
+        if state.discovery_cursor != next_team_cursor:
+            state.discovery_cursor = next_team_cursor
+            state.save(update_fields=["discovery_cursor", "updated_at"])
         if item_states:
             updated_at = dt.datetime.now(tz=dt.UTC)
+            changed_item_states: list[TemporalSchedulerState] = []
             for team_id, report_id in last_report_id_by_team.items():
-                item_states[team_id].discovery_cursor = report_id
-                item_states[team_id].updated_at = updated_at
-            TemporalSchedulerState.objects.bulk_update(
-                list(item_states.values()),
-                ["discovery_cursor", "updated_at"],
-            )
+                item_state = item_states[team_id]
+                if item_state.discovery_cursor != report_id:
+                    item_state.discovery_cursor = report_id
+                    item_state.updated_at = updated_at
+                    changed_item_states.append(item_state)
+            if changed_item_states:
+                TemporalSchedulerState.objects.bulk_update(
+                    changed_item_states,
+                    ["discovery_cursor", "updated_at"],
+                )
 
     return True
 
@@ -576,7 +592,7 @@ async def ack_eval_report_cursors_activity(inputs: AckEvalReportCursorsInput) ->
 
     if inputs.trigger_type == "scheduled":
         scheduler = _SCHEDULED_EVAL_REPORTS_SCHEDULER
-        rotate_item_cursor = False
+        rotate_item_cursor = True
     elif inputs.trigger_type == "count_triggered":
         scheduler = _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER
         rotate_item_cursor = True

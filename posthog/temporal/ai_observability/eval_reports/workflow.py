@@ -128,15 +128,17 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
         # fetch results produced by a pre-batching worker mid-deploy) decode
         # report_id_groups as None and keep their per-report command sequence.
         uses_batched_checks = result.report_id_groups is not None
+        windowed_dispatch = False
         if uses_batched_checks:
+            windowed_dispatch = temporalio.workflow.patched("eval-report-count-windowed-dispatch-2026-09")
             report_ids = await _check_count_triggered_eval_report_candidates_batched(
                 result.report_id_groups or [],
-                dispatch_due_reports=True,
+                dispatch_due_reports=windowed_dispatch,
             )
         else:
             report_ids = await _check_count_triggered_eval_report_candidates(result.report_ids)
 
-        if report_ids and not uses_batched_checks:
+        if report_ids and (not uses_batched_checks or not windowed_dispatch):
             await _dispatch_report_workflows(
                 "count_triggered_eval_report",
                 "eval-report-count",

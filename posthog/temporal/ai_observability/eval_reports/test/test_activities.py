@@ -17,8 +17,10 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
+from posthog.models.temporal_scheduler import TemporalSchedulerState
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+    _SCHEDULED_REPORT_CANDIDATE_SQL,
     _advance_eval_report_cursors,
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
@@ -737,6 +739,78 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertEqual(first_page.rows, [(str(reports_by_team[ordered_team_ids[0]].id), ordered_team_ids[0])])
         self.assertEqual(second_page.rows, [(str(reports_by_team[ordered_team_ids[1]].id), ordered_team_ids[1])])
 
+    def test_bounded_candidate_page_counts_wrap_side_team_as_deferred(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        third_team = Team.objects.create(organization=self.organization, name="third")
+        for report_team in (self.team, other_team, third_team):
+            self._create_report(team=report_team)
+        reports = (
+            EvaluationReport.objects.deliverable()
+            .filter(frequency=EvaluationReport.Frequency.EVERY_N, trigger_threshold__isnull=False)
+            .order_by()
+        )
+        scheduler = "test_eval_reports_wrap_side_backlog"
+        TemporalSchedulerState.objects.create(scheduler=scheduler, region="test", discovery_cursor=str(self.team.id))
+
+        page = _fetch_eval_report_candidate_page(
+            reports,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=2,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+
+        self.assertEqual(len(page.rows), 2)
+        self.assertEqual(page.items_lower_bound, 3)
+
+    def test_scheduled_candidate_ring_moves_past_a_report_that_stays_due(self):
+        poison = self._create_report(
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+            next_delivery_date=timezone.now() - dt.timedelta(hours=2),
+        )
+        later = self._create_report(
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+            next_delivery_date=timezone.now() - dt.timedelta(hours=1),
+        )
+        reports = EvaluationReport.objects.deliverable().filter(
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            next_delivery_date__lte=timezone.now(),
+        )
+        scheduler = "test_scheduled_eval_report_item_rotation"
+        first_page = _fetch_eval_report_candidate_page(
+            reports,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=1,
+            candidate_sql=_SCHEDULED_REPORT_CANDIDATE_SQL,
+            candidate_sql_params=[timezone.now()],
+            rotate_item_cursor=True,
+        )
+        _advance_eval_report_cursors(
+            first_page,
+            first_page.rows,
+            scheduler=scheduler,
+            region="test",
+            rotate_item_cursor=True,
+        )
+        second_page = _fetch_eval_report_candidate_page(
+            reports,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=1,
+            candidate_sql=_SCHEDULED_REPORT_CANDIDATE_SQL,
+            candidate_sql_params=[timezone.now()],
+            rotate_item_cursor=True,
+        )
+
+        self.assertEqual(first_page.rows[0][0], str(poison.id))
+        self.assertEqual(second_page.rows[0][0], str(later.id))
+
     def test_bounded_candidate_page_rotates_within_one_noisy_tenant(self):
         reports = [self._create_report() for _ in range(5)]
         queryset = (
@@ -926,6 +1000,58 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertEqual(len(reports), 2)
         self.assertTrue(first_ack)
         self.assertTrue(retry_ack)
+
+    def test_cursor_acknowledgement_does_not_rewrite_unchanged_item_state(self):
+        reports = [self._create_report() for _ in range(2)]
+        queryset = (
+            EvaluationReport.objects.deliverable()
+            .filter(frequency=EvaluationReport.Frequency.EVERY_N, trigger_threshold__isnull=False)
+            .order_by()
+        )
+        scheduler = "test_eval_reports_unchanged_item_ack"
+        first_page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=2,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+        self.assertTrue(
+            _advance_eval_report_cursors(
+                first_page,
+                first_page.rows,
+                scheduler=scheduler,
+                region="test",
+                rotate_item_cursor=True,
+            )
+        )
+        item_state = TemporalSchedulerState.objects.get(
+            scheduler=f"{scheduler}_items:{self.team.id}",
+            region="test",
+        )
+        updated_at = item_state.updated_at
+        second_page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=2,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+
+        self.assertTrue(
+            _advance_eval_report_cursors(
+                second_page,
+                second_page.rows,
+                scheduler=scheduler,
+                region="test",
+                rotate_item_cursor=True,
+            )
+        )
+        item_state.refresh_from_db()
+        self.assertEqual(len(reports), 2)
+        self.assertEqual(item_state.updated_at, updated_at)
 
     def test_check_report_returns_due_when_threshold_is_crossed(self):
         report = self._create_report(trigger_threshold=100)
