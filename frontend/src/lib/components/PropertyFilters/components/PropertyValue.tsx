@@ -273,16 +273,17 @@ export function PropertyValue({
         return [...suggestedOptions, ...otherOptions]
     }, [propertyOptions?.values, initialSuggestedValues, staticValues])
 
-    // The suggestions are the values the property really holds, so they answer two questions that
-    // the raw user input cannot: whether a chosen value is a real value, and whether a comma is
-    // part of a value instead of a separator between values.
     const availableValues = useMemo(
         () => new Set(displayOptions.map((option) => toString(option.name))),
         [displayOptions]
     )
+    // Read the accumulated suggestions rather than the live options, because a search response
+    // replaces the options and would turn comma-separated entry back on part-way through typing.
     const someValueContainsComma = useMemo(
-        () => Array.from(availableValues).some((availableValue) => availableValue.includes(',')),
-        [availableValues]
+        () =>
+            (staticValues ?? []).some((option) => toString(option.name).includes(',')) ||
+            initialSuggestedValues.orderedKeys.some((key) => key.includes(',')),
+        [staticValues, initialSuggestedValues]
     )
 
     const onSearchTextChange = (newInput: string): void => {
@@ -436,8 +437,9 @@ export function PropertyValue({
     }
 
     // Comma-separated entry cuts the input in two at each comma, which makes a value that contains a
-    // comma impossible to type. The suggestions show when that applies. User agent strings always
-    // contain commas, so they stay in the list for the moment before the suggestions arrive.
+    // comma impossible to type. The suggested values show when that applies. The user agent keys
+    // stay for the two cases the suggestions miss: before the first response arrives, and a user
+    // agent value such as `curl/8.1.2` that holds no comma.
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
     const disableCommaSplitting = isUserAgentProperty || someValueContainsComma
 
@@ -498,13 +500,18 @@ export function PropertyValue({
                 }
                 onChange={(nextVal) => {
                     // A leading or trailing space is invisible in the value snack, so a pasted ID that
-                    // keeps one breaks the filter with no sign of why. Trim it away, with two
+                    // keeps one breaks the filter with no sign of why. Trim it away, with three
                     // exceptions. A regex operator can use the space as part of the pattern (for
                     // example `^ foo`). A value that the suggestions hold with that same space is a
-                    // real property value, and the filter must keep the space to match it.
+                    // real property value. An already committed value keeps what it was saved with,
+                    // because this callback receives every selected value on each edit.
                     const committedVal = isOperatorRegex(operator)
                         ? nextVal
-                        : nextVal.map((v) => (typeof v === 'string' && !availableValues.has(v) ? v.trim() : v))
+                        : nextVal.map((v) =>
+                              typeof v === 'string' && !availableValues.has(v) && !formattedValues.includes(v)
+                                  ? v.trim()
+                                  : v
+                          )
                     const newValues = committedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
                         const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))

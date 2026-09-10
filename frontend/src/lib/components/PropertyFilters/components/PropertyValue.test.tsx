@@ -229,6 +229,57 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('still splits typed input at a comma when no suggested value contains one', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    staticValues={[{ name: 'Chrome' }, { name: 'Firefox' }]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Acme,')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Acme'])
+        })
+    })
+
+    it('keeps the space on an already committed value when a second value is added', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={['Hedgebox Inc ']}
+                    staticValues={null}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.paste('Acme')
+        await user.keyboard('{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Hedgebox Inc ', 'Acme'])
+        })
+    })
+
     it('allows text when a polymorphic property overrides a globally inferred numeric type', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/current_value': {
