@@ -269,6 +269,42 @@ class TestRecalculationActivities(BaseTest):
         # fails the run non-retryably instead of proceeding to calc activities on a dead run.
         assert returned is None
 
+    @parameterized.expand(
+        [
+            # The workflow's finish write can carry either terminal status; neither may touch a tombstone.
+            ("workflow_finishes_completed", "completed"),
+            ("backstop_stamps_failed", "failed"),
+        ]
+    )
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_completed_does_not_revive_a_force_failed_run(self, name: str, finish_status: str):
+        # The staleness sweep force-fails a run with completed_at left NULL, and its workflow cancel is
+        # best-effort. If the workflow survives to its finish write, the tombstone must win: without the
+        # status guard the write matches on completed_at IS NULL and either flips the tombstone to
+        # COMPLETED (becoming the "latest terminal run" the API serves) or stamps completed_at, turning
+        # an invisible tombstone into a displayable failed run.
+        recalc = self._recalc(self._experiment(flag_key=f"progress-finish-force-failed-{name}"))
+        pinned_query_to = timezone.now()
+        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            completed_at=None,
+            query_to=pinned_query_to,
+            started_at=timezone.now(),
+        )
+
+        returned = _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status=finish_status,
+                mark_completed=True,
+            )
+        )
+
+        assert returned is None
+        recalc.refresh_from_db()
+        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
+        assert recalc.completed_at is None
+
     @freeze_time("2026-06-23T05:00:00Z")
     def test_mark_started_returns_none_when_force_failed_after_query_to_pinned(self):
         # mark_started ran first and pinned query_to (run went IN_PROGRESS), then an admin force-failed it.
