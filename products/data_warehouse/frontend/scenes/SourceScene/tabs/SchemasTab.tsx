@@ -504,6 +504,25 @@ function ManagedSchemaTable({
                         return <span className="text-muted">—</span>
                     },
                 },
+                {
+                    title: (
+                        <span className="flex items-center gap-1">
+                            Rows synced
+                            <Tooltip title="Rows every sync of this table moved, summed over all runs. The data warehouse bills this number. It differs from the row count on merge and full refresh syncs, which rewrite rows the table already holds.">
+                                <IconInfo className="text-secondary" />
+                            </Tooltip>
+                        </span>
+                    ),
+                    key: 'rows_synced_total',
+                    align: 'right',
+                    sorter: (a, b) => (a.rows_synced_total ?? 0) - (b.rows_synced_total ?? 0),
+                    render: (_, schema) =>
+                        schema.rows_synced_total == null ? (
+                            <span className="text-muted">—</span>
+                        ) : (
+                            schema.rows_synced_total.toLocaleString()
+                        ),
+                },
                 ...(showMetrics
                     ? [
                           {

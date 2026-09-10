@@ -3076,6 +3076,7 @@ class TestExternalDataSource(APIBaseTest):
                     "status": schema.status,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
+                    "rows_synced_total": None,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "description": schema.description,
@@ -3092,6 +3093,28 @@ class TestExternalDataSource(APIBaseTest):
                 }
             ],
         )
+
+    def test_source_schemas_carry_rows_synced_total(self):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        for rows, job_status in ((100, ExternalDataJob.Status.COMPLETED), (50, ExternalDataJob.Status.FAILED)):
+            ExternalDataJob.objects.create(
+                team=self.team, pipeline=source, schema=schema, status=job_status, rows_synced=rows
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        assert response.json()["schemas"][0]["rows_synced_total"] == 150
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.pk}")
+        assert response.status_code == 200
+        assert response.json()["rows_synced_total"] == 150
+
+        # The sources list embeds every schema of every source, so it does not pay for the sum.
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        assert response.status_code == 200
+        listed = next(item for item in response.json()["results"] if item["id"] == str(source.pk))
+        assert listed["schemas"][0]["rows_synced_total"] is None
 
     @parameterized.expand(
         [

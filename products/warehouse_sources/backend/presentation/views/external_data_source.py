@@ -177,6 +177,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     ExternalDataSchemaSerializer,
     RowFiltersField,
     SimpleExternalDataSchemaSerializer,
+    annotate_rows_synced_total,
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
@@ -2206,14 +2207,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 # `_active_schemas`), so the schema table is scanned once.
                 Prefetch(
                     "schemas",
-                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
-                    .exclude(deleted=True)
-                    .select_related(*schema_select)
-                    .order_by("name"),
+                    queryset=self._schemas_prefetch_queryset(schema_select),
                 ),
             )
             .order_by(self.ordering)
         )
+
+    def _schemas_prefetch_queryset(self, schema_select: list[str]) -> QuerySet[ExternalDataSchema]:
+        queryset = (
+            ExternalDataSchema.objects.filter(team_id=self.team_id)
+            .exclude(deleted=True)
+            .select_related(*schema_select)
+            .order_by("name")
+        )
+        # The list embeds every schema of every source, so the per-schema job sum stays off that path.
+        if self.action == "list":
+            return queryset
+        return annotate_rows_synced_total(queryset)
 
     def _resolve_stored_credential(self, source_type: str, payload: dict) -> ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.

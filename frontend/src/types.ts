@@ -6654,6 +6654,8 @@ export interface ExternalDataSourceSyncSchema {
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    /** Rows every sync of this schema moved, summed over all runs. The data warehouse bills this number. */
+    rows_synced_total?: number | null
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     sync_time_of_day: string | null

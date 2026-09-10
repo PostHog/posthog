@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any, Optional, cast
 
 from django.db import transaction
+from django.db.models import BigIntegerField, OuterRef, QuerySet, Subquery, Sum
 
 import structlog
 import temporalio
@@ -282,10 +283,29 @@ def schema_display_status(schema: ExternalDataSchema) -> str | None:
     return schema.status
 
 
+ROWS_SYNCED_TOTAL_HELP = (
+    "Rows every sync of this schema moved, summed over all of its runs. The data warehouse bills this "
+    "quantity. It differs from the table's row count on merge and full-refresh syncs, which rewrite rows the "
+    "table already holds, so the two cannot be reconciled against each other."
+)
+
+
+def annotate_rows_synced_total(queryset: QuerySet[ExternalDataSchema]) -> QuerySet[ExternalDataSchema]:
+    jobs = (
+        ExternalDataJob.objects.filter(schema_id=OuterRef("pk"))
+        .order_by()
+        .values("schema_id")
+        .annotate(total=Sum("rows_synced"))
+        .values("total")[:1]
+    )
+    return queryset.annotate(rows_synced_total=Subquery(jobs, output_field=BigIntegerField()))
+
+
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
     table = serializers.SerializerMethodField(read_only=True)
+    rows_synced_total = serializers.SerializerMethodField(read_only=True, help_text=ROWS_SYNCED_TOTAL_HELP)
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     sync_type = serializers.ChoiceField(
@@ -415,6 +435,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "name",
             "label",
             "table",
+            "rows_synced_total",
             "should_sync",
             "last_synced_at",
             "latest_error",
@@ -444,6 +465,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "name",
             "label",
             "table",
+            "rows_synced_total",
             "last_synced_at",
             "latest_error",
             "status",
@@ -599,6 +621,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_rows_synced_total(self, schema: ExternalDataSchema) -> int | None:
+        return getattr(schema, "rows_synced_total", None)
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
@@ -1398,6 +1424,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(
         read_only=True, help_text="The synced warehouse table (id, name, row_count), or null if not yet synced."
     )
+    rows_synced_total = serializers.SerializerMethodField(read_only=True, help_text=ROWS_SYNCED_TOTAL_HELP)
     status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this schema.")
 
     class Meta:
@@ -1412,8 +1439,13 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "last_synced_at",
             "latest_error",
             "table",
+            "rows_synced_total",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_rows_synced_total(self, schema: ExternalDataSchema) -> int | None:
+        return getattr(schema, "rows_synced_total", None)
 
     @extend_schema_field(
         {
@@ -1513,7 +1545,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # `table__external_data_source` is read on every schema serialization (SimpleTableSerializer
         # derives the dotted HogQL name from it), and `source` by `get_api_version_deprecation` for
         # any schema carrying a version override — join both for all actions to avoid per-row queries.
-        queryset = (
+        queryset = annotate_rows_synced_total(
             queryset.exclude(deleted=True)
             .prefetch_related("created_by")
             .select_related("source", "table__external_data_source")
