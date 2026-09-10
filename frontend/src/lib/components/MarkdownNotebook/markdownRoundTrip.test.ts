@@ -407,11 +407,20 @@ describe('markdown round trip', () => {
             expect(getNodeText(result.nodes[0])).toEqual(codeText)
         })
 
-        it.each([[null], [undefined]])('serializes a code node whose text is %p as an empty block', (value) => {
-            const node = { id: '', type: 'code', language: 'js', text: value } as unknown as NotebookBlockNode
+        it.each([[null], [undefined]])(
+            'serializes a code node whose text is %p as an empty block, without its anchors',
+            (value) => {
+                const node = {
+                    id: '',
+                    type: 'code',
+                    language: 'js',
+                    text: value,
+                    refs: [{ id: 'abc123', start: 0, end: 5 }],
+                } as unknown as NotebookBlockNode
 
-            expect(serializeNode(node)).toEqual('```js\n\n```')
-        })
+                expect(serializeNode(node)).toEqual('```js\n\n```')
+            }
+        )
     })
 
     describe('code block comment anchors', () => {

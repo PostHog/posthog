@@ -272,7 +272,7 @@ function serializeNodeUncached(node: NotebookBlockNode): string {
         const text = typeof node.text === 'string' ? node.text : ''
         // The fence must be longer than any backtick run in the content, so the content can't close it
         const fence = getCodeBlockFence(text)
-        return `${fence}${serializeCodeBlockInfo(node)}\n${text}\n${fence}`
+        return `${fence}${serializeCodeBlockInfo(node, text)}\n${text}\n${fence}`
     }
     if (node.type === 'component' && node.errors?.length && node.raw) {
         // Props that failed to parse exist only in `raw` — re-emitting from `props` would
@@ -1012,10 +1012,10 @@ function serializeTableSeparatorCell(alignment: NotebookTableAlignment | undefin
 /** A comment anchor in a fence info string: `ref=<id>:<start>-<end>`. */
 const CODE_BLOCK_REF_TOKEN_REGEX = /^ref=([A-Za-z0-9_-]+):(\d+)-(\d+)$/
 
-function serializeCodeBlockInfo(node: NotebookCodeBlockNode): string {
+function serializeCodeBlockInfo(node: NotebookCodeBlockNode, text: string): string {
     const refTokens = (node.refs ?? [])
-        .filter((ref) => ref.start >= 0 && ref.start < node.text.length && ref.end > ref.start)
-        .map((ref) => `ref=${ref.id}:${ref.start}-${Math.min(ref.end, node.text.length)}`)
+        .filter((ref) => ref.start >= 0 && ref.start < text.length && ref.end > ref.start)
+        .map((ref) => `ref=${ref.id}:${ref.start}-${Math.min(ref.end, text.length)}`)
     return [node.language ?? '', ...refTokens].filter(Boolean).join(' ')
 }
 
