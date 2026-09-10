@@ -171,6 +171,7 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
+from products.workflows.backend.services.email_sending_tier import SesTenantState
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
@@ -2629,7 +2630,7 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
 
 
 class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
-    """Cheap suspension-only read for the persistent scene-wide banner — no reputation computation."""
+    """Cheap read for the persistent scene-wide banners: suspension state and the sending allowance."""
 
     email_sending_suspended = serializers.BooleanField(
         read_only=True,
@@ -2644,6 +2645,21 @@ class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
         read_only=True,
         allow_blank=True,
         help_text="Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended.",
+    )
+    email_sending_provider_suspended = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True while the email provider has paused this project's sending. Workflow emails are dropped "
+            "rather than queued until it is lifted."
+        ),
+    )
+    sending_allowance = EmailSendingAllowanceSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "The project's sending tier, what it allows, and how much of it has been used, so the scene can "
+            "warn when a cap is reached; null when the caller lacks project-wide workflow access."
+        ),
     )
 
 
@@ -5312,16 +5328,31 @@ class HogFlowViewSet(
     )
     def email_sending_suspension(self, request: Request, **kwargs) -> Response:
         """
-        Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
-        with no reputation computation. Every project member sees this — a suspension stops
-        everyone's email, so hiding it would leave silent send failures unexplained.
+        Cheap read for the scene-wide email banners: a single-row `TeamWorkflowsConfig` lookup plus
+        the briefly cached sending allowance, with no reputation computation. Every project member
+        sees the suspension — it stops everyone's email, so hiding it would leave silent send
+        failures unexplained. The allowance keeps the reputation endpoint's project-wide gate,
+        because it pools every workflow's sending.
         """
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
         suspension = (
             TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
-            .values("email_sending_suspended_at", "email_sending_suspension_reason")
+            .values("email_sending_suspended_at", "email_sending_suspension_reason", "ses_tenant_sending_status")
             .first()
         )
         suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+
+        # The suspension notice is the one message this endpoint must always deliver, and it comes
+        # from Postgres. The allowance costs two ClickHouse aggregations, so it fails on its own and
+        # returns null, which the scene already reads as "no cap to warn about".
+        allowance = None
+        if self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            try:
+                allowance = _team_email_sending_allowance(self.team_id)
+            except Exception:
+                logger.exception("Failed to load the email sending allowance", team_id=self.team_id)
+
         return Response(
             EmailSendingSuspensionStatusSerializer(
                 {
@@ -5330,6 +5361,12 @@ class HogFlowViewSet(
                     "email_sending_suspension_reason": (
                         suspension["email_sending_suspension_reason"] if suspension and suspended_at is not None else ""
                     ),
+                    # The worker blocks sends on this column too, and it drops them instead of
+                    # rescheduling, so the scene needs both causes to know that sending is off.
+                    "email_sending_provider_suspended": SesTenantState(
+                        sending_status=suspension["ses_tenant_sending_status"] if suspension else ""
+                    ).is_paused,
+                    "sending_allowance": allowance,
                 }
             ).data
         )

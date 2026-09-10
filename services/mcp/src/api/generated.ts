@@ -31093,7 +31093,7 @@ export namespace Schemas {
     }
 
     /**
-     * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
+     * Cheap read for the persistent scene-wide banners: suspension state and the sending allowance.
      */
     export interface EmailSendingSuspensionStatus {
       /** True while workflow email sending is suspended for this project to protect deliverability. */
@@ -31105,6 +31105,10 @@ export namespace Schemas {
       readonly email_sending_suspended_at: string | null;
       /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
       readonly email_sending_suspension_reason: string;
+      /** True while the email provider has paused this project's sending. Workflow emails are dropped rather than queued until it is lifted. */
+      readonly email_sending_provider_suspended: boolean;
+      /** The project's sending tier, what it allows, and how much of it has been used, so the scene can warn when a cap is reached; null when the caller lacks project-wide workflow access. */
+      readonly sending_allowance: EmailSendingAllowance | null;
     }
 
     /**
