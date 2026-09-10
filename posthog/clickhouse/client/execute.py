@@ -265,7 +265,6 @@ def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QueryS
     progress = query_info.progress
     return QuerySummary(
         rows=int(progress.rows or 0),
-        bytes=int(progress.bytes or 0),
         elapsed_ns=int(progress.elapsed_ns or 0),
     )
 
