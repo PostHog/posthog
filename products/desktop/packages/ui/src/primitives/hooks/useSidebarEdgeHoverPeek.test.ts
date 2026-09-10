@@ -3,8 +3,10 @@ import {
   PEEK_REVEAL_THRESHOLD,
   shouldCloseOnExit,
   shouldRevealOnEdge,
+  useSidebarEdgeHoverPeek,
 } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
-import { describe, expect, it } from "vitest";
+import { renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 describe("shouldRevealOnEdge", () => {
   const threshold = PEEK_REVEAL_THRESHOLD;
@@ -37,5 +39,33 @@ describe("shouldCloseOnExit", () => {
     ["wide panel closes past its boundary", 400 + margin + 1, 400, true],
   ])("%s", (_name, pointer, width, expected) => {
     expect(shouldCloseOnExit({ pointer, width, margin })).toBe(expected);
+  });
+});
+
+describe("useSidebarEdgeHoverPeek", () => {
+  const moveTo = (clientX: number): void => {
+    document.dispatchEvent(new MouseEvent("mousemove", { clientX }));
+  };
+
+  it.each([
+    ["reveals while enabled", true, 1],
+    ["stays closed while disabled", false, 0],
+  ])("%s", (_name, enabled, calls) => {
+    const onReveal = vi.fn();
+    renderHook(() =>
+      useSidebarEdgeHoverPeek({
+        enabled,
+        peeked: false,
+        side: "left",
+        width: 240,
+        onReveal,
+        onClose: vi.fn(),
+      }),
+    );
+
+    moveTo(400);
+    moveTo(2);
+
+    expect(onReveal).toHaveBeenCalledTimes(calls);
   });
 });

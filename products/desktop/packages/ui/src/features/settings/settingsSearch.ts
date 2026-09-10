@@ -35,6 +35,11 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   },
   {
     category: "general",
+    label: "Reveal the sidebar on hover",
+    keywords: ["sidebar", "peek", "hover", "edge", "collapsed"],
+  },
+  {
+    category: "general",
     label: "Start in",
     keywords: ["plan mode", "initial task mode", "new tasks"],
   },

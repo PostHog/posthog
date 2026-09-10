@@ -138,6 +138,7 @@ export function GeneralSettings() {
     defaultCloudMessagingMode,
     defaultReasoningEffort,
     diffOpenMode,
+    revealSidebarOnHover,
     sendMessagesWith,
     setAutoConvertLongText,
     setDefaultInitialTaskMode,
@@ -145,6 +146,7 @@ export function GeneralSettings() {
     setDefaultCloudMessagingMode,
     setDefaultReasoningEffort,
     setDiffOpenMode,
+    setRevealSidebarOnHover,
     setSendMessagesWith,
   } = useSettingsStore();
 
@@ -158,6 +160,18 @@ export function GeneralSettings() {
       setTheme(value);
     },
     [theme, setTheme],
+  );
+
+  const handleRevealSidebarOnHoverChange = useCallback(
+    (checked: boolean) => {
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "reveal_sidebar_on_hover",
+        new_value: checked,
+        old_value: !checked,
+      });
+      setRevealSidebarOnHover(checked);
+    },
+    [setRevealSidebarOnHover],
   );
 
   const handleAutoConvertLongTextChange = useCallback(
@@ -267,6 +281,18 @@ export function GeneralSettings() {
             </SettingsCardRow>
           </SettingsCard>
         )}
+        <SettingsCard>
+          <SettingsCardRow
+            label="Reveal the sidebar on hover"
+            description="Slide the collapsed sidebar out when the pointer reaches the left edge. Turn this off to open it only with the toggle or ⌘B."
+          >
+            <Switch
+              size="sm"
+              checked={revealSidebarOnHover}
+              onCheckedChange={handleRevealSidebarOnHoverChange}
+            />
+          </SettingsCardRow>
+        </SettingsCard>
       </SettingsSection>
 
       <SettingsSection
