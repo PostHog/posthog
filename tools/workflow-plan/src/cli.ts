@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 import { loadWorkflow, planWorkflow } from './plan.ts'
-import { renderPlanTable, renderSteps } from './render.ts'
+import { type RowStripe, renderPlanTable, renderSteps } from './render.ts'
 import { defaultScenarios } from './scenarios.ts'
 
 const USAGE = `Usage: hogli ci:plan <workflow.yml | workflow name> [--steps <job-id>]
@@ -24,6 +24,17 @@ function resolveWorkflowPath(argument: string): string {
     }
     const byName = path.join(WORKFLOWS_DIR, argument.endsWith('.yml') ? argument : `${argument}.yml`)
     return existsSync(byName) ? byName : fromInvocation
+}
+
+// COLORFGBG is "<fg>;<bg>"; ANSI background 7 or 15 means the terminal is light.
+const LIGHT_TERMINAL = /;(7|15)$/
+
+function rowStripe(): RowStripe | undefined {
+    if (!process.stdout.isTTY || process.env['NO_COLOR']) {
+        return undefined
+    }
+    const background = LIGHT_TERMINAL.test(process.env['COLORFGBG'] ?? '') ? '\x1b[48;5;254m' : '\x1b[48;5;236m'
+    return (line) => `${background}${line}\x1b[0m`
 }
 
 function print(text: string): void {
@@ -46,7 +57,10 @@ function main(argv: string[]): number {
         scenario,
         plan: planWorkflow(workflow, scenario),
     }))
-    print(`\n${values.steps ? renderSteps(scenarioPlans, values.steps) : renderPlanTable(scenarioPlans)}`)
+    const stripe = rowStripe()
+    print(
+        `\n${values.steps ? renderSteps(scenarioPlans, values.steps, stripe) : renderPlanTable(scenarioPlans, stripe)}`
+    )
     const blocking = scenarioPlans.some(({ plan }) => plan.errors.some((error) => error.where !== 'matrix'))
     return blocking ? 1 : 0
 }

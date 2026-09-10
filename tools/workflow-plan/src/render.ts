@@ -10,6 +10,9 @@ interface Column {
     cells: string[]
 }
 
+/** Decorates every second data row, for example with a background color. */
+export type RowStripe = (line: string) => string
+
 const MARKS: Record<Outcome, string> = {
     success: '▶',
     failure: '✗',
@@ -34,26 +37,31 @@ function center(text: string, width: number): string {
     return text.padStart(text.length + left).padEnd(width)
 }
 
-function renderGrid(cornerLabel: string, rowLabels: string[], columns: Column[]): string[] {
+function renderGrid(cornerLabel: string, rowLabels: string[], columns: Column[], stripe?: RowStripe): string[] {
     const labelWidth = Math.max(cornerLabel.length, ...rowLabels.map((label) => label.length))
     const widths = columns.map(({ name, cells }) => Math.max(name.length, ...cells.map((cell) => cell.length)))
     const row = (label: string, cells: string[]): string =>
-        `${label.padEnd(labelWidth)} ${cells.map((cell, index) => center(cell, widths[index]!)).join(' ')}`.trimEnd()
+        `${label.padEnd(labelWidth)} ${cells.map((cell, index) => center(cell, widths[index]!)).join(' ')}`
+    const decorate = (line: string, rowIndex: number): string =>
+        stripe && rowIndex % 2 === 1 ? stripe(line) : line.trimEnd()
     return [
         row(
             cornerLabel,
             columns.map(({ name }) => name)
-        ),
+        ).trimEnd(),
         ...rowLabels.map((label, rowIndex) =>
-            row(
-                label,
-                columns.map(({ cells }) => cells[rowIndex]!)
+            decorate(
+                row(
+                    label,
+                    columns.map(({ cells }) => cells[rowIndex]!)
+                ),
+                rowIndex
             )
         ),
     ]
 }
 
-export function renderPlanTable(scenarioPlans: ScenarioPlan[]): string {
+export function renderPlanTable(scenarioPlans: ScenarioPlan[], stripe?: RowStripe): string {
     const first = scenarioPlans[0]
     if (!first) {
         return ''
@@ -69,7 +77,7 @@ export function renderPlanTable(scenarioPlans: ScenarioPlan[]): string {
             return job.matrixCells === 0 ? `${MARKS[job.result]}${EMPTY_MATRIX_SUFFIX}` : MARKS[job.result]
         }),
     }))
-    const lines = [...renderGrid('job', jobIds, columns), '', LEGEND]
+    const lines = [...renderGrid('job', jobIds, columns, stripe), '', LEGEND]
     const errors = scenarioPlans.flatMap(({ scenario, plan }) =>
         plan.errors.map(
             (error) =>
@@ -82,7 +90,7 @@ export function renderPlanTable(scenarioPlans: ScenarioPlan[]): string {
     return lines.join('\n')
 }
 
-export function renderSteps(scenarioPlans: ScenarioPlan[], jobId: string): string {
+export function renderSteps(scenarioPlans: ScenarioPlan[], jobId: string, stripe?: RowStripe): string {
     const first = scenarioPlans[0]
     const job = first?.plan.jobs[jobId]
     if (!first || !job) {
@@ -95,5 +103,5 @@ export function renderSteps(scenarioPlans: ScenarioPlan[], jobId: string): strin
             plan.jobs[jobId]?.steps[stepIndex]?.runs ? MARKS.success : MARKS.skipped
         ),
     }))
-    return [...renderGrid('step', labels, columns), '', LEGEND].join('\n')
+    return [...renderGrid('step', labels, columns, stripe), '', LEGEND].join('\n')
 }
