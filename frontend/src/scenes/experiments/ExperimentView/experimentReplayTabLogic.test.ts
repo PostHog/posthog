@@ -473,6 +473,46 @@ describe('experimentReplayTabLogic', () => {
         failed.unmount()
     })
 
+    it('shows the settling scope on the control while the checks hold the playlist', async () => {
+        // The query holds at all sessions until the checks confirm. Rendering that on the control
+        // would select "All sessions" on every tab open and snap over a few hundred milliseconds
+        // later, so the control shows the scope the tab is going to settle on for as long as the
+        // hold lasts, and matches the query the moment it ends.
+        let resolveCheck!: (response: InSessionExposureResponse) => void
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => (resolveCheck = resolve))
+        )
+        const pending = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 56 } as Experiment })
+        pending.mount()
+
+        expect(pending.values.playlistHeldForChecks).toBe(true)
+        expect(pending.values.displayedExposureScope).toBe('in_session')
+        expect(pending.values.effectiveExposureScope).toBe('all_exposed')
+
+        resolveCheck(IN_SESSION_AVAILABLE)
+        await expectLogic(pending).toFinishAllListeners()
+        expect(pending.values.playlistHeldForChecks).toBe(false)
+        expect(pending.values.displayedExposureScope).toBe('in_session')
+        expect(pending.values.effectiveExposureScope).toBe('in_session')
+        pending.unmount()
+    })
+
+    it('moves the control to all sessions once the verdict lands unavailable', async () => {
+        // The one move that is a correction rather than flicker: past the hold the control must
+        // never claim a scope the query is not running on.
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
+            available: false,
+            unavailable_reason: "This experiment's exposures are recorded outside the browser.",
+        })
+        const unavailable = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 57 } as Experiment })
+        unavailable.mount()
+        await expectLogic(unavailable).toFinishAllListeners()
+
+        expect(unavailable.values.displayedExposureScope).toBe('all_exposed')
+        expect(unavailable.values.effectiveExposureScope).toBe('all_exposed')
+        unavailable.unmount()
+    })
+
     it('reports a scope change once per actual change, with the surface it came from', async () => {
         // The opt-out rate counts viewers who leave the default scope, so a repeated set of the
         // same scope must not inflate it, and the empty state's way back must not read as an
