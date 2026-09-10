@@ -295,6 +295,7 @@ rules:
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
+                              |ProactivePreparedArtifact
                               |ProactiveRecommendation
                               |ProactiveRecommendationRun
                               |ProactiveSubscriptionConfig
@@ -696,6 +697,7 @@ rules:
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
+                        |ProactivePreparedArtifact
                         |ProactiveRecommendation
                         |ProactiveRecommendationRun
                         |ProactiveSubscriptionConfig

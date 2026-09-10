@@ -205,6 +205,13 @@ def read_recommendation_appendix(*, team_id: int, delivery_id: UUID) -> Recommen
     )
 
 
+def completed_recommendation_run_id(*, team_id: int, delivery_id: UUID) -> UUID | None:
+    run = ProactiveRecommendationRun.objects.for_team(team_id).filter(delivery_id=delivery_id).first()
+    if run is None or run.status != ProactiveRecommendationRun.Status.COMPLETED:
+        return None
+    return run.id
+
+
 def finalize_recommendation_run(
     *, team_id: int, run_id: UUID, result: RecommendationResult | None = None, failure_code: str | None = None
 ) -> RecommendationAppendixDTO:

@@ -6,6 +6,9 @@ from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 PULSE_PROACTIVE_ENABLED: bool = get_from_env("PULSE_PROACTIVE_ENABLED", False, type_cast=str_to_bool)
 PULSE_PUBLIC_RESEARCH_ENABLED: bool = get_from_env("PULSE_PUBLIC_RESEARCH_ENABLED", False, type_cast=str_to_bool)
+PULSE_ARTIFACT_PREPARATION_ENABLED: bool = get_from_env(
+    "PULSE_ARTIFACT_PREPARATION_ENABLED", False, type_cast=str_to_bool
+)
 # Public repositories are ineligible for staged automation unless explicitly approved.
 # Keep the default empty so deployments opt in repository-by-repository.
 PULSE_PUBLIC_REPOSITORY_ALLOWLIST: tuple[str, ...] = tuple(get_list(os.getenv("PULSE_PUBLIC_REPOSITORY_ALLOWLIST", "")))

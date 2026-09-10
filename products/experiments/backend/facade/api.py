@@ -5,15 +5,37 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
-from rest_framework.exceptions import ValidationError
+from django.db import IntegrityError, transaction
+from django.db.models import Q
+
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.feature_flags.backend.models.feature_flag import FeatureFlag as FeatureFlagModel
 
-from .contracts import CreateExperimentInput, Experiment
+from .contracts import CreateExperimentInput, Experiment, PulseExperimentDraftInput, PulseExperimentDraftResult
+
+_PULSE_DRAFT_PARAMETERS_KEY = "pulse_draft"
+_PULSE_DRAFT_STATE = "draft"
+_PULSE_EXPERIMENT_NAME_MAX_LENGTH = 400
+_PULSE_TARGET_MAX_LENGTH = 300
+_PULSE_DIRECTION_MAX_LENGTH = 50
+_PULSE_EXPECTED_MOVEMENT_MAX_LENGTH = 1_000
+_PULSE_DRAFT_VARIANTS = [
+    {"key": "control", "name": "Control group", "rollout_percentage": 50},
+    {"key": "test", "name": "Test variant", "rollout_percentage": 50},
+]
+_PULSE_DRAFT_FLAG_FILTERS: dict[str, object] = {
+    "aggregation_group_type_index": None,
+    "groups": [{"properties": [], "rollout_percentage": 0, "aggregation_group_type_index": None}],
+    "holdout": None,
+    "multivariate": {"variants": _PULSE_DRAFT_VARIANTS},
+}
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -87,6 +109,151 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
 
     # Convert model to DTO
     return _experiment_model_to_dto(experiment_model)
+
+
+def create_pulse_experiment_draft(input: PulseExperimentDraftInput) -> PulseExperimentDraftResult:
+    """Create or exactly replay one inert experiment draft for a durable Pulse artifact."""
+    _validate_pulse_draft_input(input)
+    team, actor = _resolve_pulse_draft_actor(input)
+    feature_flag_key = _pulse_feature_flag_key(input.artifact_id.hex)
+
+    try:
+        with transaction.atomic():
+            return _create_or_replay_pulse_experiment_draft(
+                team=team,
+                actor=actor,
+                feature_flag_key=feature_flag_key,
+                input=input,
+            )
+    except IntegrityError as err:
+        with transaction.atomic():
+            replay = _replay_pulse_experiment_draft(team=team, feature_flag_key=feature_flag_key, input=input)
+            if replay is not None:
+                return replay
+        raise ValueError("Pulse experiment draft key collides with another resource.") from err
+
+
+def _create_or_replay_pulse_experiment_draft(
+    *, team: Team, actor: User, feature_flag_key: str, input: PulseExperimentDraftInput
+) -> PulseExperimentDraftResult:
+    replay = _replay_pulse_experiment_draft(team=team, feature_flag_key=feature_flag_key, input=input)
+    if replay is not None:
+        return replay
+
+    if (
+        FeatureFlagModel.objects_including_soft_deleted.filter(team_id=team.id)
+        .filter(Q(key=feature_flag_key) | Q(key__startswith=f"{feature_flag_key}:deleted:"))
+        .exists()
+    ):
+        raise ValueError("Pulse experiment draft key collides with another resource.")
+
+    experiment = ExperimentService(team=team, user=actor).create_experiment(
+        name=input.title,
+        description=_pulse_hypothesis(input),
+        feature_flag_key=feature_flag_key,
+        parameters={_PULSE_DRAFT_PARAMETERS_KEY: _pulse_provenance(input)},
+        feature_flag_config={
+            "filters": _PULSE_DRAFT_FLAG_FILTERS,
+            "ensure_experience_continuity": False,
+        },
+        metrics=[],
+        metrics_secondary=[],
+        secondary_metrics=[],
+        start_date=None,
+        end_date=None,
+        archived=False,
+        deleted=False,
+    )
+    result = _replay_pulse_experiment_draft(team=team, feature_flag_key=feature_flag_key, input=input)
+    if result is None or result.experiment_id != experiment.id:
+        raise ValueError("created Pulse experiment draft does not match its durable claim")
+    return result
+
+
+def _replay_pulse_experiment_draft(
+    *, team: Team, feature_flag_key: str, input: PulseExperimentDraftInput
+) -> PulseExperimentDraftResult | None:
+    experiment = (
+        ExperimentModel.objects.select_related("feature_flag")
+        .select_for_update()
+        .filter(team_id=team.id, feature_flag__key=feature_flag_key)
+        .first()
+    )
+    if experiment is None:
+        return None
+    if not _matches_pulse_experiment_draft(experiment=experiment, input=input, feature_flag_key=feature_flag_key):
+        raise ValueError("Pulse experiment draft does not match its durable claim")
+    return PulseExperimentDraftResult(
+        experiment_id=experiment.id,
+        feature_flag_id=experiment.feature_flag_id,
+        url=f"/project/{team.id}/experiments/{experiment.id}",
+    )
+
+
+def _matches_pulse_experiment_draft(
+    *, experiment: ExperimentModel, input: PulseExperimentDraftInput, feature_flag_key: str
+) -> bool:
+    flag = experiment.feature_flag
+    return (
+        experiment.team_id == input.team_id
+        and experiment.name == input.title
+        and experiment.description == _pulse_hypothesis(input)
+        and experiment.parameters == {_PULSE_DRAFT_PARAMETERS_KEY: _pulse_provenance(input)}
+        and experiment.archived is False
+        and experiment.deleted is False
+        and experiment.start_date is None
+        and experiment.metrics == []
+        and experiment.metrics_secondary == []
+        and experiment.secondary_metrics == []
+        and flag.key == feature_flag_key
+        and flag.active is False
+        and flag.archived is False
+        and flag.deleted is False
+        and flag.ensure_experience_continuity is False
+        and flag.filters == _PULSE_DRAFT_FLAG_FILTERS
+        and flag.variants == _PULSE_DRAFT_VARIANTS
+    )
+
+
+def _resolve_pulse_draft_actor(input: PulseExperimentDraftInput) -> tuple[Team, User]:
+    team = Team.objects.filter(id=input.team_id).first()
+    actor = User.objects.filter(id=input.actor_id).first()
+    if team is None or actor is None or not actor.is_active:
+        raise PermissionDenied("Pulse experiment draft access is no longer available.")
+    access = UserAccessControl(user=actor, team=team)
+    if not (
+        access.has_project_access
+        and access.check_access_level_for_resource("experiment", "editor")
+        and access.check_access_level_for_resource("feature_flag", "editor")
+    ):
+        raise PermissionDenied("Pulse experiment draft access is no longer available.")
+    return team, actor
+
+
+def _validate_pulse_draft_input(input: PulseExperimentDraftInput) -> None:
+    bounded_text = (
+        (input.title, _PULSE_EXPERIMENT_NAME_MAX_LENGTH),
+        (input.target, _PULSE_TARGET_MAX_LENGTH),
+        (input.metric_direction, _PULSE_DIRECTION_MAX_LENGTH),
+        (input.expected_metric_movement, _PULSE_EXPECTED_MOVEMENT_MAX_LENGTH),
+    )
+    if any(not isinstance(value, str) or not value.strip() or len(value) > maximum for value, maximum in bounded_text):
+        raise ValueError("Pulse experiment draft input is invalid.")
+
+
+def _pulse_feature_flag_key(artifact_hex: str) -> str:
+    return f"pulse-experiment-{artifact_hex}"
+
+
+def _pulse_provenance(input: PulseExperimentDraftInput) -> dict[str, int | str]:
+    return {"artifact_id": str(input.artifact_id), "state": _PULSE_DRAFT_STATE, "team_id": input.team_id}
+
+
+def _pulse_hypothesis(input: PulseExperimentDraftInput) -> str:
+    return (
+        f"Hypothesis: For {input.target}, the expected metric movement is "
+        f"{input.metric_direction}: {input.expected_metric_movement}."
+    )
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

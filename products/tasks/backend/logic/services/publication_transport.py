@@ -82,6 +82,9 @@ class DraftPullRequest:
     url: str
 
 
+PullRequestState = Literal["open", "merged", "closed"]
+
+
 @frozen
 class ServerGitHubPublicationClient:
     installation_id: str
@@ -204,6 +207,70 @@ def _validate_input(publication: PublicationTransportInput) -> None:
         ):
             raise ValueError("Publication operation path is invalid")
         paths.add(operation.path)
+
+
+def _validate_pull_request_read_input(publication: PublicationTransportInput) -> None:
+    if (
+        not _REPOSITORY.fullmatch(publication.repository)
+        or not _SERVER_BRANCH.fullmatch(publication.head_branch)
+        or not re.fullmatch(r"[A-Za-z0-9._/-]+", publication.base_branch)
+        or publication.base_branch.startswith("/")
+        or publication.base_branch.endswith("/")
+        or ".." in publication.base_branch
+        or "//" in publication.base_branch
+    ):
+        raise ValueError("Publication repository or branch is invalid")
+
+
+def read_draft_pull_request_state(
+    client: GitHubPublicationClient,
+    publication: PublicationTransportInput,
+    *,
+    pr_number: int,
+    expected_pr_url: str,
+    expected_commit_sha: str,
+) -> PullRequestState:
+    """Read one protected draft PR, rejecting every identity mismatch."""
+    _validate_pull_request_read_input(publication)
+    if type(pr_number) is not int or pr_number <= 0 or not expected_pr_url or not _SHA.fullmatch(expected_commit_sha):
+        raise ValueError("Protected pull request identity is invalid")
+    response = _request(client, "GET", f"/repos/{publication.repository}/pulls/{pr_number}")
+    payload = _payload(response)
+    if _status(response) not in {None, 200} or not isinstance(payload, dict):
+        raise PublicationTransportError("GitHub returned an invalid protected pull request")
+    base = payload.get("base")
+    head = payload.get("head")
+    base_repo = base.get("repo") if isinstance(base, dict) else None
+    head_repo = head.get("repo") if isinstance(head, dict) else None
+    number = payload.get("number")
+    url = payload.get("html_url")
+    state = payload.get("state")
+    merged = payload.get("merged")
+    if (
+        type(number) is not int
+        or number != pr_number
+        or not isinstance(url, str)
+        or url != expected_pr_url
+        or not isinstance(base, dict)
+        or base.get("ref") != publication.base_branch
+        or not isinstance(base_repo, dict)
+        or not isinstance(base_repo.get("full_name"), str)
+        or base_repo["full_name"].casefold() != publication.repository.casefold()
+        or not isinstance(head, dict)
+        or head.get("ref") != publication.head_branch
+        or head.get("sha") != expected_commit_sha
+        or not isinstance(head_repo, dict)
+        or not isinstance(head_repo.get("full_name"), str)
+        or head_repo["full_name"].casefold() != publication.repository.casefold()
+    ):
+        raise PublicationTransportError("GitHub returned a mismatched protected pull request")
+    if state == "open" and merged is False:
+        return "open"
+    if state == "closed" and merged is True:
+        return "merged"
+    if state == "closed" and merged is False:
+        return "closed"
+    raise PublicationTransportError("GitHub returned an invalid protected pull request state")
 
 
 def _current_base(client: GitHubPublicationClient, publication: PublicationTransportInput) -> str:

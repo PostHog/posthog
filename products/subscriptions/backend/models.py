@@ -59,3 +59,39 @@ class ProactiveRecommendation(TeamScopedRootMixin, UUIDModel):
     class Meta(TeamScopedRootMixin.Meta):
         constraints = [models.UniqueConstraint(fields=["run", "semantic_key"], name="proactive_recommendation_run_key")]
         indexes = [models.Index(fields=["team", "semantic_key", "created_at"])]
+
+
+class ProactivePreparedArtifact(TeamScopedRootMixin, UUIDModel):
+    class Kind(models.TextChoices):
+        DRAFT_PR = "draft_pr", "Draft pull request"
+        EXPERIMENT_DRAFT = "experiment_draft", "Experiment draft"
+
+    class Status(models.TextChoices):
+        PREPARING = "preparing", "Preparing"
+        PREPARED = "prepared", "Prepared"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    run = models.OneToOneField(ProactiveRecommendationRun, on_delete=models.CASCADE, related_name="prepared_artifact")
+    recommendation = models.OneToOneField(
+        ProactiveRecommendation, on_delete=models.CASCADE, related_name="prepared_artifact"
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PREPARING)
+    artifact_config_hash = models.CharField(max_length=64)
+    input_hash = models.CharField(max_length=64)
+    task_publication_id = models.UUIDField(null=True, blank=True)
+    staged_run_id = models.UUIDField(null=True, blank=True)
+    experiment_id = models.IntegerField(null=True, blank=True)
+    feature_flag_id = models.IntegerField(null=True, blank=True)
+    prior_artifact = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="subsequent_artifacts"
+    )
+    url = models.URLField(max_length=2_000, null=True, blank=True)
+    failure_code = models.CharField(max_length=128, null=True, blank=True)
+    prepared_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        indexes = [models.Index(fields=["team", "status", "created_at"])]

@@ -77,6 +77,10 @@ from products.exports.backend.temporal.subscriptions.types import (
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
 )
+from products.subscriptions.backend.facade.temporal import (
+    PREPARE_PROACTIVE_ARTIFACT_WORKFLOW_NAME,
+    ProactiveArtifactPreparationInput,
+)
 
 
 class SubscriptionFailureStage(StrEnum):
@@ -725,9 +729,10 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 final_status = DeliveryStatus.SKIPPED
                 return
 
+            recommendation_run_id: uuid.UUID | None = None
             if temporalio.workflow.patched("ai-subscription-proactive-enrichment-v1"):
                 try:
-                    await temporalio.workflow.execute_activity(
+                    recommendation_run_id = await temporalio.workflow.execute_activity(
                         enrich_ai_subscription_report,
                         GenerateAIReportInputs(subscription_id=inputs.subscription_id, delivery_id=delivery_id),
                         start_to_close_timeout=dt.timedelta(minutes=12),
@@ -762,6 +767,22 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
+
+            if recommendation_run_id is not None:
+                try:
+                    await temporalio.workflow.start_child_workflow(
+                        PREPARE_PROACTIVE_ARTIFACT_WORKFLOW_NAME,
+                        ProactiveArtifactPreparationInput(team_id=inputs.team_id, run_id=recommendation_run_id),
+                        id=f"pulse-artifact-preparation-{recommendation_run_id}",
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    )
+                except WorkflowAlreadyStartedError:
+                    pass
+                except Exception as artifact_error:
+                    temporalio.workflow.logger.warning(
+                        "proactive_artifact_preparation_start_failed",
+                        extra={"run_id": str(recommendation_run_id), "error": str(artifact_error)},
+                    )
 
             # A report whose every generated query failed computed no metrics, so it records FAILED with
             # the failure detail the delivery history surfaces on hover (see delivered_status). The report

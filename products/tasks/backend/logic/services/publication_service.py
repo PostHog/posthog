@@ -15,6 +15,7 @@ from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 
 from products.tasks.backend.facade.draft_publication import (
+    DraftPublicationLifecycleResult,
     DraftPublicationRequest,
     DraftPublicationResult,
     InvalidDraftPublicationError,
@@ -35,6 +36,7 @@ from products.tasks.backend.logic.services.publication_transport import (
     create_draft_pull_request,
     create_server_branch,
     create_server_commit,
+    read_draft_pull_request_state,
     reconcile_draft_pull_request,
     reconcile_server_branch,
 )
@@ -178,6 +180,90 @@ def get_publication(*, team_id: int, caller_id: UUID, publication_id: UUID) -> D
     except TaskDraftPublication.DoesNotExist as err:
         raise InvalidDraftPublicationError("Draft publication is not bound to this team and caller") from err
     return _result(publication)
+
+
+def get_publication_lifecycle(
+    *, team_id: int, caller_id: UUID, publication_id: UUID
+) -> DraftPublicationLifecycleResult:
+    """Read a publication without mutating its local lifecycle or GitHub resource."""
+    try:
+        publication = TaskDraftPublication.objects.for_team(team_id).get(id=publication_id, caller_id=caller_id)
+    except TaskDraftPublication.DoesNotExist as err:
+        raise InvalidDraftPublicationError("Draft publication is not bound to this team and caller") from err
+
+    local_status = cast(Literal["pending", "published", "unknown", "blocked", "revoked"], publication.status)
+    if local_status == "pending":
+        return DraftPublicationLifecycleResult(
+            publication_id=publication.id,
+            local_status=local_status,
+            remote_state="pending",
+            pr_number=publication.pr_number,
+            pr_url=publication.pr_url,
+        )
+    if local_status != "published":
+        return DraftPublicationLifecycleResult(
+            publication_id=publication.id,
+            local_status=local_status,
+            remote_state="unknown",
+            pr_number=publication.pr_number,
+            pr_url=publication.pr_url,
+        )
+    if (
+        publication.pr_number is None
+        or publication.pr_url is None
+        or publication.github_commit_sha is None
+        or not publication.repository
+        or not publication.base_branch
+        or not publication.head_branch
+    ):
+        return _unknown_lifecycle(publication, local_status)
+    try:
+        token = _get_github_token(publication.github_integration_id)
+        if not token:
+            return _unknown_lifecycle(publication, local_status)
+        transport_input = PublicationTransportInput(
+            repository=publication.repository,
+            base_sha=publication.base_sha,
+            base_branch=publication.base_branch,
+            head_branch=publication.head_branch,
+            commit_message=publication.commit_message,
+            commit_author_name=_COMMIT_AUTHOR_NAME,
+            commit_author_email=_COMMIT_AUTHOR_EMAIL,
+            commit_timestamp=int(publication.created_at.timestamp()),
+            expected_base_tree_sha=publication.base_sha,
+            expected_head_tree_sha=publication.base_sha,
+            operations=(),
+            title=publication.pr_title,
+            body=publication.pr_body,
+        )
+        remote_state = read_draft_pull_request_state(
+            ServerGitHubPublicationClient(installation_id=publication.github_installation_id, token=token),
+            transport_input,
+            pr_number=publication.pr_number,
+            expected_pr_url=publication.pr_url,
+            expected_commit_sha=publication.github_commit_sha,
+        )
+    except Exception:
+        return _unknown_lifecycle(publication, local_status)
+    return DraftPublicationLifecycleResult(
+        publication_id=publication.id,
+        local_status=local_status,
+        remote_state=remote_state,
+        pr_number=publication.pr_number,
+        pr_url=publication.pr_url,
+    )
+
+
+def _unknown_lifecycle(
+    publication: TaskDraftPublication, local_status: Literal["published"]
+) -> DraftPublicationLifecycleResult:
+    return DraftPublicationLifecycleResult(
+        publication_id=publication.id,
+        local_status=local_status,
+        remote_state="unknown",
+        pr_number=publication.pr_number,
+        pr_url=publication.pr_url,
+    )
 
 
 def revoke_publication(*, team_id: int, caller_id: UUID, publication_id: UUID) -> bool:

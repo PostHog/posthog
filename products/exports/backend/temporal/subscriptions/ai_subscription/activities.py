@@ -63,6 +63,7 @@ from products.subscriptions.backend.facade.contracts import RecommendationContex
 from products.subscriptions.backend.facade.proactive import (
     RecommendationAppendixDTO,
     claim_recommendation_run,
+    completed_recommendation_run_id,
     finalize_recommendation_run,
     get_proactive_config,
     read_recommendation_appendix,
@@ -415,7 +416,7 @@ def _recommendation_contexts(subscription: Subscription) -> tuple[Recommendation
 
 
 @temporalio.activity.defn
-async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
+async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> uuid.UUID | None:
     """Best-effort Pulse adapter. Its failures never prevent the saved report from shipping."""
     subscription = await database_sync_to_async(
         Subscription.objects.select_related("created_by", "team", "team__organization").get,
@@ -431,13 +432,13 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
         or not isinstance(prompt, str)
         or not prompt
     ):
-        return
+        return None
     actor_id = subscription.created_by.id
     actor_distinct_id = subscription.created_by.distinct_id
     if not actor_distinct_id:
-        return
+        return None
     if not settings.PULSE_PROACTIVE_ENABLED or not await _actor_has_project_access(subscription):
-        return
+        return None
     alpha_enabled = await sync_to_async(posthoganalytics.feature_enabled, thread_sensitive=False)(
         SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
         actor_distinct_id,
@@ -445,12 +446,12 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
         send_feature_flag_events=False,
     )
     if not alpha_enabled:
-        return
+        return None
     config = await database_sync_to_async(get_proactive_config, thread_sensitive=False)(
         team_id=subscription.team_id, subscription_id=subscription.id
     )
     if not config.enabled:
-        return
+        return None
     appendix = (snapshot or {}).get(AI_REPORT_RECOMMENDATIONS_KEY)
     base_report = report.removesuffix(f"\n\n{appendix}") if isinstance(appendix, str) else report
     existing = await database_sync_to_async(read_recommendation_appendix, thread_sensitive=False)(
@@ -458,7 +459,9 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
     )
     if existing is not None:
         await _append_recommendations(inputs.delivery_id, existing)
-        return
+        return await database_sync_to_async(completed_recommendation_run_id, thread_sensitive=False)(
+            team_id=subscription.team_id, delivery_id=inputs.delivery_id
+        )
     frozen_payload = (snapshot or {}).get(AI_REPORT_RECOMMENDATION_INPUT_KEY)
     if not isinstance(frozen_payload, dict):
         contexts = await _recommendation_contexts(subscription)
@@ -476,15 +479,15 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
         )
     frozen = _parse_frozen_recommendation_input(frozen_payload, base_report)
     if frozen is None:
-        return
+        return None
     current_public_web_research = config.allow_public_web_research and settings.PULSE_PUBLIC_RESEARCH_ENABLED
     if frozen.public_web_research and not current_public_web_research:
-        return
+        return None
     try:
         if await sync_to_async(is_team_over_ai_credit_budget, thread_sensitive=False)(subscription.team.api_token):
-            return
+            return None
     except Exception:
-        return
+        return None
     try:
         repository = await database_sync_to_async(resolve_draft_repository_binding, thread_sensitive=False)(
             team_id=subscription.team_id,
@@ -516,8 +519,12 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
             poll_interval_seconds=_PULSE_POLL_INTERVAL_SECONDS,
         )
         await _append_recommendations(inputs.delivery_id, appendix)
+        return await database_sync_to_async(completed_recommendation_run_id, thread_sensitive=False)(
+            team_id=subscription.team_id, delivery_id=inputs.delivery_id
+        )
     except Exception:
         LOGGER.exception("proactive recommendation enrichment failed", delivery_id=str(inputs.delivery_id))
+        return None
 
 
 def _capture_ai_credit_event(
