@@ -74,7 +74,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert logic.search_knowledge(self.team.id, "refunds") == []
 
         searchable_text = "\n".join(
-            [source.name, document.title, document.content, *(chunk.content for chunk in chunks)]
+            [source.name, document.stable_id, document.title, document.content, *(chunk.content for chunk in chunks)]
         )
         assert str(input.ticket_id) not in searchable_text
         assert str(input.resolution_comment_id) not in searchable_text

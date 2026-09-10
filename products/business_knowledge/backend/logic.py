@@ -524,10 +524,13 @@ def _generated_document_stable_id(
     document_input: CreateGeneratedKnowledgeDocument,
     validated_input: _ValidatedGeneratedDocumentInput,
 ) -> str:
-    return (
+    # stable_id is readable by anyone with business_knowledge:read (system table), so it must not
+    # carry the raw ticket or comment ids; those need ticket:read and live in metadata only.
+    identity = (
         f"{GENERATED_KNOWLEDGE_ORIGIN}:{validated_input.provider}:"
         f"{document_input.ticket_id}:{document_input.resolution_comment_id}:{validated_input.analysis_version}"
     )
+    return f"{GENERATED_KNOWLEDGE_ORIGIN}:{sha256_of(identity)}"
 
 
 def _validate_existing_generated_document(
