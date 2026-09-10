@@ -67,12 +67,15 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gladly authentication failed. Please check your agent email and API token.",
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
-            # Raised by `_report_rows` when a report header is missing the columns the stream is
-            # keyed on. Gladly returns the same body for that window on a retry, so stop and tell
-            # the customer rather than replaying it.
+            # Raised by `_report_rows` when a CSV report lacks a keyed column. The same window returns
+            # the same header on a retry, so neither the sync nor the incremental-field picker can
+            # fix it. The copy names Gladly first and PostHog support as the fallback for the
+            # renamed-column case, where the report exists.
             "Gladly report is missing required columns": (
-                "Gladly returned a report without the columns this table syncs on, so there was no "
-                "data to sync. Re-enable the sync to try again, and contact support if it keeps happening."
+                "Gladly returned data that doesn't match the report this table needs, so there was "
+                "no data to sync. This usually means Gladly could not build the report for your "
+                "account. Ask Gladly support to check the report is available for your account. If "
+                "Gladly confirms it is, contact PostHog support."
             ),
         }
 
@@ -84,7 +87,16 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         # regenerates the report and re-streams it; the resumable window state means only the
         # in-flight window is redone, deduped on merge, so this is self-recovering rather than a
         # tracked-exception-worthy failure.
-        return {"Read timed out"}
+        return {"Read timed out", "Gladly returned no report"}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Gladly returned no report": (
+                "Gladly returned an error instead of the report this table syncs from, so this run "
+                "did not finish. This is usually a short problem in Gladly's report generation. The "
+                "sync will run again on its next schedule."
+            ),
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

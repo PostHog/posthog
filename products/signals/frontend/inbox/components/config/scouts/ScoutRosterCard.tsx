@@ -7,16 +7,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import {
-    nextRunAt,
-    SCOUT_GROUP_LABEL,
-    scoutCadenceLabel,
-    ScoutRosterRow,
-    scoutSubtitle,
-} from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
@@ -64,7 +59,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-semibold leading-snug">
-                            {prettifyScoutSkillName(config.skill_name)}
+                            {scoutDisplayName(config)}
                         </span>
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
                         {config.auto_pause_exempt && group === 'watching' && (
@@ -82,7 +77,9 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                     <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-none text-tertiary select-none">
                         <span>{SCOUT_GROUP_LABEL[group]}</span>
                         <MetaSeparator />
-                        <span>{scoutCadenceLabel(config)}</span>
+                        <span>
+                            <ScoutCadenceLabel config={config} />
+                        </span>
                         {hasNextRun && (
                             <>
                                 <MetaSeparator />

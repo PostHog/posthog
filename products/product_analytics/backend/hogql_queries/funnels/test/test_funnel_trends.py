@@ -44,6 +44,9 @@ FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
+_TRENDS_COUNT_KEYS = ("reached_from_step_count", "reached_to_step_count")
+
+
 class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
@@ -303,6 +306,46 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
+
+    def test_summarized_results_include_conversion_counts(self):
+        journeys_for(
+            {
+                "user_converted": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 7, 11)},
+                ],
+                "user_dropped_off": [{"event": "step one", "timestamp": datetime(2021, 6, 7, 12)}],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-06-07 00:00:00",
+                date_to="2021-06-08 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=1,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(1, len(results))
+        self.assertEqual([50.0, 0.0], results[0]["data"])
+        self.assertEqual([2, 0], results[0]["reached_from_step_count"])
+        self.assertEqual([1, 0], results[0]["reached_to_step_count"])
 
     # minute, hour, day, week, month
     def test_hour_interval(self):
@@ -1830,6 +1873,57 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         # user_three is not in the cohort and converts on day 3
         assert not_in_cohort_result["data"] == [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
+    def test_funnel_trend_cohort_breakdown_with_all_users(self):
+        _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
+        _create_person(distinct_ids=["user_two"], team=self.team, properties={"$browser": "Safari"})
+
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2)},
+                ],
+            },
+            self.team,
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown=[cohort.pk, "all"],
+                breakdown_type="cohort",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        breakdown_values = {r["breakdown_value"] for r in results}
+        assert breakdown_values == {"test_cohort", "all users"}
+
     def test_funnel_trend_cohort_breakdown_empty_not_in_cohort(self):
         _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
         _create_person(distinct_ids=["user_two"], team=self.team, properties={"key": "value"})
@@ -3342,6 +3436,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         # First Touchpoint (just "one")
         results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+
+        # Attribution is what this test covers, and the per-period counts have their own test.
+        results = [{key: value for key, value in result.items() if key not in _TRENDS_COUNT_KEYS} for result in results]
 
         self.assertEqual(
             [

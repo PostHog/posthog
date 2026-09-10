@@ -523,6 +523,32 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
             expect(logic.values.isBuffering).toBe(false)
         })
+
+        it('re-seeks a deep link only when the linked time changes or the same URL is pushed again', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: 5 })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart']).toFinishAllListeners()
+
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            logic.actions.setCurrentTimestamp(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 5000)
+        })
     })
 
     describe('seek renderability clamping', () => {

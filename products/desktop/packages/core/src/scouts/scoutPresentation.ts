@@ -6,10 +6,6 @@ import type {
   ScoutRun,
 } from "@posthog/api-client/posthog-client";
 
-// Single source of truth lives in `@posthog/shared` so `buildScoutDeeplink`
-// (which cannot import core) and the UI share one slug implementation.
-export { scoutSkillNameFromSlug, scoutSkillSlug } from "@posthog/shared";
-
 export type ScoutOrigin = "canonical" | "custom";
 
 /**
@@ -286,6 +282,26 @@ export function prettifyScoutSkillName(skillName: string): string {
     .trim();
   if (!cleaned) return skillName;
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+/**
+ * Resolve a scout route value against the team's configs.
+ *
+ * The route carries the full skill name. Older links carry the name with the
+ * `signals-scout-` prefix stripped, so a value that matches no config falls
+ * back to the prefixed config of that name.
+ */
+export function resolveScoutRouteName(
+  routeValue: string,
+  configs: readonly Pick<ScoutConfig, "skill_name">[] | undefined,
+): string {
+  if (!configs) return routeValue;
+  if (configs.some((config) => config.skill_name === routeValue))
+    return routeValue;
+  const prefixed = `signals-scout-${routeValue}`;
+  return configs.some((config) => config.skill_name === prefixed)
+    ? prefixed
+    : routeValue;
 }
 
 /** Skill name → author of the backing `signals-scout-*` skill's latest version. */
