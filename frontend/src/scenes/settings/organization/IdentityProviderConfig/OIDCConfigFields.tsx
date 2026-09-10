@@ -19,7 +19,7 @@ export function OIDCConfigFields({
         <div className="space-y-4">
             <p>
                 Create an OpenID Connect application in your identity provider. Use the authorization code flow with
-                PKCE (S256). Add this redirect URL to the application.
+                PKCE (S256), and sign ID tokens with RS256. Add this redirect URL to the application.
             </p>
             <LemonField label="Redirect URL" name="_oidc_redirect_url">
                 <CopyToClipboardInline>{`${siteUrl}/complete/oidc/`}</CopyToClipboardInline>
