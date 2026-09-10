@@ -69,4 +69,19 @@ describe('dataQualityScheduleLogic', () => {
         expect(logic.values.schedule?.enabled).toBe(false)
         expect(logic.values.scheduleError).toBeNull()
     })
+    it('refetches persisted state when an edit response is lost', async () => {
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        ;(dataCatalogMetricsChecksSchedulePartialUpdate as jest.Mock).mockRejectedValue(new Error('Connection lost'))
+        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock).mockResolvedValue({
+            ...SCHEDULE,
+            enabled: false,
+            next_run_at: null,
+        })
+        logic.actions.updateSchedule({ enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.schedule?.enabled).toBe(false)
+        expect(logic.values.scheduleError).toBeTruthy()
+        expect(logic.values.scheduleLoading).toBe(false)
+    })
 })

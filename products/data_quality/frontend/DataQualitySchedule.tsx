@@ -27,13 +27,19 @@ export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.E
                 <LemonSwitch
                     checked={schedule.enabled}
                     onChange={(enabled) => updateSchedule({ enabled })}
-                    disabled={scheduleLoading}
+                    disabled={scheduleLoading || !!scheduleError}
                     label="Run automatically"
                     data-attr="data-quality-schedule-enabled"
                 />
                 <LemonSelect
                     value={schedule.interval}
-                    disabledReason={scheduleLoading ? 'Saving schedule' : undefined}
+                    disabledReason={
+                        scheduleLoading
+                            ? 'Saving schedule'
+                            : scheduleError
+                              ? 'Reload the schedule to try again'
+                              : undefined
+                    }
                     onChange={(interval) => updateSchedule({ interval })}
                     size="small"
                     data-attr="data-quality-schedule-interval"
@@ -48,7 +54,8 @@ export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.E
                 {scheduleLoading ? (
                     <Spinner />
                 ) : (
-                    schedule.enabled && (
+                    schedule.enabled &&
+                    schedule.next_run_at && (
                         <span className="text-secondary text-sm">
                             Next run <TZLabel time={schedule.next_run_at} />
                         </span>
@@ -56,7 +63,12 @@ export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.E
                 )}
             </div>
             {scheduleError && (
-                <LemonBanner type="error">Could not save the schedule. Try changing it again.</LemonBanner>
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Reload', onClick: loadSchedule, loading: scheduleLoading }}
+                >
+                    Could not confirm the schedule update. Reload it before trying again.
+                </LemonBanner>
             )}
         </div>
     )

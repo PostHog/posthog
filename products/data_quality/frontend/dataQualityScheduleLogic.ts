@@ -67,18 +67,33 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
     props({} as DataQualityScheduleLogicProps),
     key((props) => props.metricId),
     path((key) => ['products', 'data_quality', 'frontend', 'dataQualityScheduleLogic', key]),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         schedule: [
             null as DataQualityCheckScheduleApi | null,
             {
                 loadSchedule: async () =>
                     api.dataCatalogMetricsChecksScheduleRetrieve(String(ApiConfig.getCurrentTeamId()), props.metricId),
-                updateSchedule: async (patch: PatchedDataQualityCheckScheduleUpdateApi) =>
-                    api.dataCatalogMetricsChecksSchedulePartialUpdate(
-                        String(ApiConfig.getCurrentTeamId()),
-                        props.metricId,
-                        patch
-                    ),
+                updateSchedule: async (patch: PatchedDataQualityCheckScheduleUpdateApi) => {
+                    try {
+                        return await api.dataCatalogMetricsChecksSchedulePartialUpdate(
+                            String(ApiConfig.getCurrentTeamId()),
+                            props.metricId,
+                            patch
+                        )
+                    } catch (error) {
+                        try {
+                            actions.loadScheduleSuccess(
+                                await api.dataCatalogMetricsChecksScheduleRetrieve(
+                                    String(ApiConfig.getCurrentTeamId()),
+                                    props.metricId
+                                )
+                            )
+                        } catch {
+                            // The edit can have committed even when neither response reaches us.
+                        }
+                        throw error
+                    }
+                },
             },
         ],
     })),
