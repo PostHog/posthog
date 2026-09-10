@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 from django.test import override_settings
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer
+from parameterized import parameterized
 from rest_framework import serializers, status
 from rest_framework.response import Response
 
@@ -281,8 +282,14 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["custom_response"] == "anything goes"
 
+    @parameterized.expand(
+        [
+            ("single", False, {"anything": True}),
+            ("many", True, [{"anything": True}]),
+        ]
+    )
     @override_settings(DEBUG=True)
-    def test_polymorphic_proxy_response_bypasses_validation(self):
+    def test_polymorphic_proxy_response_bypasses_validation(self, _name, many, payload):
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
             responses={
@@ -291,12 +298,13 @@ class TestValidatedRequestDecorator(APIBaseTest):
                         component_name="Either",
                         serializers=[EventCaptureResponseSerializer],
                         resource_type_field_name=None,
+                        many=many,
                     )
                 ),
             },
         )
         def mock_endpoint(view_self, request):
-            return Response({"anything": True}, status=status.HTTP_200_OK)
+            return Response(payload, status=status.HTTP_200_OK)
 
         mock_request = Mock()
         mock_request._full_data = {}
@@ -305,7 +313,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         response = mock_endpoint(Mock(), mock_request)
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.data == {"anything": True}
+        assert response.data == payload
 
     def test_non_response_object_logs_warning(self):
         """Non-Response object return, should log warning and return result"""

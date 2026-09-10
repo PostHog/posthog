@@ -219,7 +219,11 @@ def validated_request(
                     return result
                 response_serializer = response_config.response
                 # A PolymorphicProxySerializer only describes the schema; it cannot validate data.
-                if response_serializer is None or isinstance(response_serializer, PolymorphicProxySerializer):
+                # `many=True` wraps one in a plain ListSerializer, so the child needs the same check.
+                declares_polymorphic_proxy = isinstance(response_serializer, PolymorphicProxySerializer) or isinstance(
+                    getattr(response_serializer, "child", None), PolymorphicProxySerializer
+                )
+                if response_serializer is None or declares_polymorphic_proxy:
                     return result
 
                 context: dict[str, Any] = getattr(self, "get_serializer_context", lambda: {})()
