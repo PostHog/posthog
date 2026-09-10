@@ -190,7 +190,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
         self.assertEqual(response.cookies["ph_last_login_method"].value, "oidc")
         social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
-        self.assertEqual(social_auth.uid, f"{self.config.id}:example-user")
+        self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
 
     def test_oidc_redirect_uses_pkce_and_tenant_client(self):
@@ -243,8 +243,22 @@ class TestOIDCAuthentication(APILicensedTest):
         }
         with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
             response = self.backend.user_data("example-access-token")
-        self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.id}:example-user")
+        self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(self.backend.extra_data(None, "uid", response, {}), {})
+
+    def test_oidc_get_user_id_normalizes_issuer_url(self):
+        self.backend.identity_provider_config = self.config
+        self.config.oidc_issuer_url = "https://idp.example.com/"
+
+        self.assertEqual(self.backend.get_user_id({}, {"sub": "example-user"}), "https://idp.example.com:example-user")
+
+    def test_oidc_get_user_id_rejects_identifiers_longer_than_255_characters(self):
+        self.backend.identity_provider_config = self.config
+        issuer = self.config.oidc_issuer_url.rstrip("/")
+        subject = "s" * (256 - len(f"{issuer}:"))
+
+        with self.assertRaises(AuthFailed):
+            self.backend.get_user_id({}, {"sub": subject})
 
     def test_oidc_rejects_userinfo_for_another_subject(self):
         self.backend.id_token = cast(Any, {"sub": "example-user"})

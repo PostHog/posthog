@@ -157,7 +157,11 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         return userinfo
 
     def get_user_id(self, details: dict[str, Any], response: dict[str, Any]) -> str:
-        return f"{self.identity_provider_config.id}:{response['sub']}"
+        issuer = self.identity_provider_config.oidc_issuer_url.rstrip("/")
+        user_id = f"{issuer}:{response['sub']}"
+        if len(user_id) > 255:
+            raise AuthFailed(self, "The OIDC user identifier is too long.")
+        return user_id
 
     def extra_data(
         self, user: Any, uid: str, response: dict[str, Any], details: dict[str, Any], *args: Any, **kwargs: Any
