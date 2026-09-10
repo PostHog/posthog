@@ -25,6 +25,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
 │                             AccountsOverviewTilesButton + AccountsColumnConfigurator on the right
 ├── AccountsOverviewTiles     metric tiles across the filtered set
 └── AccountsTable             the DataTable; keyed row renderers; controlled row expansion
+    └── passes a memoized DataTable context, so unrelated state updates keep memoized table rows intact
     └── AccountNotebooksExpansion   expanded row: sidebar (Useful links + active-relationships summary) + LemonTabs(Notes/Users/Relationships/Feature requests/Usage/Spend/Opportunities/Conversations/Meetings/Event stream)
         ├── (notes)         paginated/searchable/sortable LemonTable + "New note" button  (accountNotebooksLogic, keyed by accountId)
         ├── (users)         AccountRelatedUsersExpansion             (accountRelatedUsersLogic, keyed by externalId; staff get a compact, region-aware admin link)
@@ -149,6 +150,7 @@ Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemove
 `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` changes account links from inline row expansion to `CustomerAnalyticsAccountScene` at `/customer_analytics/accounts/:accountId`.
 The keyed scene logic loads the account through `accountsRetrieve` when it mounts, including direct navigation between account routes.
 The scene renders the account logo in `SceneTitleSection`.
+Authenticated human viewers heartbeat `accountsPresenceCreate` immediately on mount and resume, then every 30 seconds. The Redis roster and each viewer profile expire after 90 seconds, collapses tabs per user, and returns only other viewers. `AccountPresence` renders up to five initial-only avatars before the detail actions. Presence failures clear the roster without affecting account loading or capturing analytics.
 `AccountSidebar` holds editable tags and the account property configuration. It sits flush with the scene's left edge and uses only a right border.
 Tag edits save through `accountsPartialUpdate` and update optimistically. Only the latest save can replace or reload the account.
 Pinned property preferences belong to the current user and project, never to an account. `accountSidebarConfigLogic({ projectId })` owns their load, draft, cancel, reorder, and save lifecycle through generated API functions. Keep that logic keyed by project so switching projects cannot briefly expose another project's preferences.
@@ -322,6 +324,7 @@ The seed command does not create communication data. For the Email threads tab, 
 - **kea, not hooks** — business logic lives in the logics above; components are thin views. The one DOM concession is the `data-account-id` anchor for scroll. Resources needing cleanup (the scroll poll) go through `cache.disposables`, never a bare `setTimeout` + `beforeUnmount`.
 - **Guard network triggers against double-submission** — role assignment disables its control while saving (`isRoleSaving`); follow the same pattern for any new mutation.
 - **Capture exceptions** — wrap API calls and report failures with `posthog.captureException(error, { scope: '...' })` plus a `lemonToast`.
+- **Presence is best effort** — keep it account-scoped, human-only, Redis-backed, and separate from account loading. Do not capture heartbeat analytics or send email to avatar components.
 - **Tests & stories** — logics have `*.test.ts` siblings (`accountsLogic.test.ts`, etc.); `AccountsTab.stories.tsx` covers the rendered table. Add coverage alongside new behavior.
 
 ## Analytics events

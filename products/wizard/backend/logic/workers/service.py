@@ -350,6 +350,7 @@ def _build_sandbox_config(request: WizardWorkerProvisionRequest, wizard_token: s
         "POSTHOG_API_URL": settings.SANDBOX_API_URL or settings.SITE_URL,
         "POSTHOG_PROJECT_ID": str(request.team_id),
         "POSTHOG_WIZARD_API_KEY": wizard_token,
+        "POSTHOG_TASK_RUN_ID": str(request.run_id),
         "POSTHOG_HANDOFF_OUTPUT_PATH": wizard_handoff_output_path(request.run_id),
     }
     if settings.DEBUG and settings.SANDBOX_MCP_URL:
