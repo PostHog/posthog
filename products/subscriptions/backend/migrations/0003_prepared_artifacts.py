@@ -72,7 +72,12 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "team",
-                    models.ForeignKey(db_constraint=False, on_delete=models.deletion.CASCADE, to="posthog.team"),
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
+                    ),
                 ),
             ],
             options={

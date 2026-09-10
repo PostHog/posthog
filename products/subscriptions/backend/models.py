@@ -71,7 +71,7 @@ class ProactivePreparedArtifact(TeamScopedRootMixin, UUIDModel):
         PREPARED = "prepared", "Prepared"
         FAILED = "failed", "Failed"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     run = models.OneToOneField(ProactiveRecommendationRun, on_delete=models.CASCADE, related_name="prepared_artifact")
