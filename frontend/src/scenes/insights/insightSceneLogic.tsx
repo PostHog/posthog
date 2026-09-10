@@ -164,6 +164,7 @@ export interface insightSceneLogicValues {
     isNewSubscription: boolean
     itemId: number | null
     maxContext: MaxContextInput[]
+    pendingDrillDownUpgrade: boolean
     projectTreeRef: ProjectTreeRef
     sceneSource: InsightSceneSource | null
     sidePanelContext: SidePanelSceneContext | null
@@ -228,6 +229,9 @@ export interface insightSceneLogicActions {
     }
     upgradeQuery: (query: Node) => {
         query: Node<Record<string, any>>
+    }
+    upgradeQuerySettled: () => {
+        value: true
     }
 }
 
@@ -374,6 +378,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }),
         setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
         upgradeQuery: (query: Node) => ({ query }),
+        upgradeQuerySettled: true,
     }),
     reducers({
         insightId: [
@@ -464,6 +469,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
+        pendingDrillDownUpgrade: [
+            false,
+            {
+                upgradeQuery: (_, { query }) => isDrillDownTable(query),
+                upgradeQuerySettled: () => false,
+            },
+        ],
     }),
     selectors({
         insightQuerySelector: [
@@ -746,7 +758,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    listeners(({ sharedListeners, values }) => ({
+    listeners(({ actions, sharedListeners, values }) => ({
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: [
             sharedListeners.reloadInsightLogic,
@@ -768,46 +780,50 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
         upgradeQuery: async ({ query }) => {
-            // Capture the target insight before the await — a navigation while the upgrade request
-            // is in flight remounts insightLogicRef/insightDataLogicRef for the new insight, and
-            // applying the old URL's query to them would leak it onto the wrong insight.
-            const insightIdAtStart = values.insightId
-            const insightLogicRefAtStart = values.insightLogicRef
-            const insightDataLogicRefAtStart = values.insightDataLogicRef
+            try {
+                // Capture the target insight before the await — a navigation while the upgrade request
+                // is in flight remounts insightLogicRef/insightDataLogicRef for the new insight, and
+                // applying the old URL's query to them would leak it onto the wrong insight.
+                const insightIdAtStart = values.insightId
+                const insightLogicRefAtStart = values.insightLogicRef
+                const insightDataLogicRefAtStart = values.insightDataLogicRef
 
-            let upgradedQuery: Node | null = null
+                let upgradedQuery: Node | null = null
 
-            if (!checkLatestVersionsOnQuery(query)) {
-                const response = await api.schema.queryUpgrade({ query })
-                upgradedQuery = response.query
-            } else {
-                upgradedQuery = query
-            }
+                if (!checkLatestVersionsOnQuery(query)) {
+                    const response = await api.schema.queryUpgrade({ query })
+                    upgradedQuery = response.query
+                } else {
+                    upgradedQuery = query
+                }
 
-            upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
+                upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
 
-            if (
-                values.insightId !== insightIdAtStart ||
-                values.insightLogicRef !== insightLogicRefAtStart ||
-                values.insightDataLogicRef !== insightDataLogicRefAtStart
-            ) {
-                return
-            }
+                if (
+                    values.insightId !== insightIdAtStart ||
+                    values.insightLogicRef !== insightLogicRefAtStart ||
+                    values.insightDataLogicRef !== insightDataLogicRefAtStart
+                ) {
+                    return
+                }
 
-            if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
-                values.insightLogicRef?.logic.actions.setInsight(
-                    {
-                        ...createEmptyInsight('new'),
-                        ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                        query: upgradedQuery ? withDefaultProductAnalyticsTags(upgradedQuery) : upgradedQuery,
-                    },
-                    {
-                        fromPersistentApi: false,
-                        overrideQuery: true,
-                    }
-                )
-            } else {
-                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery, true)
+                if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
+                    values.insightLogicRef?.logic.actions.setInsight(
+                        {
+                            ...createEmptyInsight('new'),
+                            ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
+                            query: upgradedQuery ? withDefaultProductAnalyticsTags(upgradedQuery) : upgradedQuery,
+                        },
+                        {
+                            fromPersistentApi: false,
+                            overrideQuery: true,
+                        }
+                    )
+                } else {
+                    values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery, true)
+                }
+            } finally {
+                actions.upgradeQuerySettled()
             }
         },
     })),
@@ -838,6 +854,20 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             let insightId = String(shortId) as InsightShortId
             if (insightId === 'new') {
                 insightId = 'new' as InsightShortId
+            }
+
+            // A navigation that stays on this page and names neither a query nor a type is a URL
+            // write from elsewhere in the app rather than a person asking for a blank insight. The
+            // previous location is meaningless on the mount replay, where it holds the current one,
+            // so only compare a real previous. Read the raw type rather than `queryFromUrl`, which
+            // stays null for a type the enum does not recognize.
+            const straySamePageWrite = !q && !insightType && !initial && previousPathname === pathname
+
+            // A drill-down still being upgraded is not on screen yet, so the guard further down
+            // cannot see it. Worse, continuing here rebuilds the insight logics, which makes the
+            // resolved upgrade discard its own result. A stray write carries nothing to apply.
+            if (insightId === 'new' && straySamePageWrite && values.pendingDrillDownUpgrade) {
+                return
             }
 
             const currentScene = sceneLogic.findMounted()?.values
@@ -935,15 +965,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new' || insightId.startsWith('new-')) {
                     // A drill-down exists only in the `#q=` hash, so the scene holds the last copy
-                    // once the hash is gone. A navigation that stays on this page and names neither
-                    // a query nor a type is a URL write from elsewhere in the app rather than a
-                    // person asking for a blank insight. Building the stock trends query for it
-                    // would throw the drill-down away. The previous location is meaningless on the
-                    // mount replay, where it holds the current one, so only compare a real previous.
-                    // Read the raw type rather than `queryFromUrl`, which stays null for a type the
-                    // enum does not recognize.
-                    const straySamePageWrite = !q && !insightType && !initial && previousPathname === pathname
-                    if (straySamePageWrite && !queryFromUrl && isDrillDownTable(values.insightQuery)) {
+                    // once the hash is gone. Building the stock trends query over a stray write
+                    // would throw that copy away.
+                    if (straySamePageWrite && isDrillDownTable(values.insightQuery)) {
                         return
                     }
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)

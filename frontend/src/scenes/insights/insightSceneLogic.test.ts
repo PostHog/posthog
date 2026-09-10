@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
+import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
@@ -261,6 +262,51 @@ describe('insightSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(expectedKind)
+    })
+
+    it('keeps a drill-down whose upgrade is still in flight', async () => {
+        // A real drill-down nests the insight's own query, and a stale nested version makes
+        // `upgradeQuery` call the API. The table is not on screen during that request, so the scene
+        // has nothing to recognize, and continuing rebuilds the logics the resolved upgrade checks
+        // before it applies its result.
+        const staleDrillDown = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+                source: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: { kind: NodeKind.FunnelsQuery, version: 1, series: [] },
+                },
+            },
+        }
+        const upgraded = JSON.parse(JSON.stringify(staleDrillDown))
+        upgraded.source.source.source.version = LATEST_VERSIONS[NodeKind.FunnelsQuery]
+
+        let releaseUpgrade: () => void = () => {}
+        const upgradeHeld = new Promise<void>((resolve) => {
+            releaseUpgrade = resolve
+        })
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/upgrade/': async () => {
+                    await upgradeHeld
+                    return [200, { query: upgraded }]
+                },
+            },
+        })
+
+        router.actions.push(urls.insightNew({ query: staleDrillDown as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['upgradeQuery'])
+
+        router.actions.push(urls.insightNew())
+
+        releaseUpgrade()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(NodeKind.DataTableNode)
     })
 
     it('keeps a drill-down through repeated stray writes to the same page', async () => {
