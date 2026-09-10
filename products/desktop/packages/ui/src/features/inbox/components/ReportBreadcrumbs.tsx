@@ -41,11 +41,15 @@ export function ReportBreadcrumbs({
   );
 
   return (
-    <div className="flex min-w-0 items-center gap-0.5">
+    <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
       {crumbs.map((crumb, index) => (
         <div
           key={`${index}-${crumb.label}`}
-          className="flex min-w-0 items-center gap-0.5"
+          className={
+            index === crumbs.length - 1
+              ? "flex min-w-0 items-center gap-0.5"
+              : "flex shrink-0 items-center gap-0.5"
+          }
         >
           {index > 0 && <BreadcrumbSeparator />}
           <BreadcrumbSegment

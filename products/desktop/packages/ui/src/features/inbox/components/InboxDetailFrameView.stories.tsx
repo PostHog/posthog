@@ -7,6 +7,7 @@ import {
   GitPullRequestIcon,
   MagnifyingGlassIcon,
   PlusIcon,
+  ReceiptIcon,
   TerminalIcon,
   UsersThreeIcon,
   XIcon,
@@ -34,7 +35,7 @@ const signals = [
 ];
 
 const pageAt = (width: number) => (Story: () => ReactNode) => (
-  <div className="min-h-[760px] bg-gray-1" style={{ width }}>
+  <div className="min-h-[760px] w-full bg-gray-1" style={{ maxWidth: width }}>
     <Story />
   </div>
 );
@@ -46,8 +47,6 @@ const meta: Meta<typeof InboxDetailFrameView> = {
   decorators: [pageAt(1360)],
   args: {
     report,
-    backTo: "/inbox/reports",
-    backLabel: "Back to reports",
     fallbackTitle: "Untitled report",
     primaryAction: (
       <>
@@ -65,14 +64,13 @@ const meta: Meta<typeof InboxDetailFrameView> = {
         </Button>
       </>
     ),
-    showMetadata: false,
+    showMetadata: true,
     summarySection: { Icon: FileTextIcon, title: "Report summary" },
     evidenceSection: { Icon: MagnifyingGlassIcon, title: "Evidence" },
     evidenceCount: signals.length,
     evidenceContent: <SignalsList signals={signals} />,
-    runRepository: "PostHog/posthog",
     belowSummary: (
-      <div className="flex select-none flex-col gap-3 rounded-lg border border-(--amber-6) bg-(--amber-2) p-4">
+      <div className="flex flex-col gap-3 border-border border-t pt-4">
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[15px] text-gray-12">
             Needs your decision
@@ -87,16 +85,11 @@ const meta: Meta<typeof InboxDetailFrameView> = {
             <GitPullRequestIcon />
             Implement
           </Button>
-          <Button type="button" variant="outline">
-            <ChatCircleIcon />
-            Ask about it
-          </Button>
-          <Button type="button" variant="outline">
-            <EyeSlashIcon />
-            Dismiss…
-          </Button>
         </div>
       </div>
+    ),
+    footer: (
+      <p className="m-0 text-[13px] text-gray-11">Was this report useful?</p>
     ),
     children: (
       <>
@@ -209,5 +202,38 @@ export const LongTitle: Story = {
 };
 
 export const Narrow: Story = {
-  decorators: [pageAt(720)],
+  decorators: [pageAt(520)],
+};
+
+export const WithPullRequest: Story = {
+  args: {
+    report: inboxStoryReport({
+      implementation_pr_url: "https://github.com/example/project/pull/42",
+    }),
+    primaryAction: (
+      <>
+        <Button variant="outline" size="sm">
+          <ChatCircleIcon />
+          Chat
+        </Button>
+        <Button variant="outline" size="sm">
+          Open PR
+        </Button>
+        <Button variant="outline" size="sm">
+          <EyeSlashIcon />
+          Dismiss
+        </Button>
+        <Button variant="outline" size="sm">
+          <ReceiptIcon />
+          Refund
+        </Button>
+      </>
+    ),
+    summarySection: { Icon: FileTextIcon, title: "Summary" },
+    secondaryTab: {
+      label: "Changed code",
+      content: <p>Changed files appear here.</p>,
+    },
+    belowSummary: null,
+  },
 };

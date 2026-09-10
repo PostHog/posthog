@@ -412,7 +412,9 @@ export function ReportVerdictBanner({
     </Button>
   );
 
-  const actionsRow = showActions ? (
+  const showPrimaryActions =
+    showActions && (!initialEngagementOnly || shouldComposeImplementation);
+  const actionsRow = showPrimaryActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
       {triageActions && canResolveReport(report) && (
         <Button
@@ -533,7 +535,7 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       ) : null}
-      {!triageActions && (
+      {!triageActions && !initialEngagementOnly && (
         <Popover
           open={askOpen}
           onOpenChange={(next) => {
@@ -616,7 +618,7 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       )}
-      {!triageActions && dismissButton}
+      {!triageActions && !initialEngagementOnly && dismissButton}
     </div>
   ) : null;
 
@@ -638,8 +640,10 @@ export function ReportVerdictBanner({
   return (
     <div
       className={cn(
-        "flex select-none flex-col gap-3 rounded-lg border p-4",
-        TONE_CLASS[verdict.tone],
+        "flex flex-col gap-3",
+        initialEngagementOnly
+          ? "border-border border-t pt-4"
+          : cn("select-none rounded-lg border p-4", TONE_CLASS[verdict.tone]),
       )}
     >
       <div className="flex flex-col gap-1">

@@ -40,18 +40,32 @@ const report: SignalReport = {
 };
 
 describe("InboxDetailFrame", () => {
-  it("shows the conventional commit tag beside the report title", () => {
+  it("keeps report context quiet and feedback after the supporting sections", () => {
     render(
       <InboxDetailFrame
-        report={report}
+        report={{ ...report, priority: "P2", is_suggested_reviewer: true }}
         fallbackTitle="Untitled report"
         summarySection={{ Icon: FileTextIcon, title: "Summary" }}
         evidenceSection={null}
         showDismiss={false}
-      />,
+        footer={<div>Was this report useful?</div>}
+      >
+        <section>Reviewers</section>
+      </InboxDetailFrame>,
     );
 
     expect(screen.getByText("feat(dashboards)")).toBeInTheDocument();
     expect(screen.getByText("Add compact legend controls")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Summary" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("For you")).not.toBeInTheDocument();
+    expect(screen.queryByText("P2")).not.toBeInTheDocument();
+    expect(
+      screen
+        .getByText("Reviewers")
+        .compareDocumentPosition(screen.getByText("Was this report useful?")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

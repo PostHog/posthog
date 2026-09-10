@@ -11,6 +11,13 @@ import { canResolveReport } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -18,9 +25,6 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Textarea,
   Tooltip,
   TooltipContent,
@@ -29,7 +33,6 @@ import {
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
-import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
@@ -39,7 +42,6 @@ import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundRepor
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useCallback, useState } from "react";
 
@@ -110,16 +112,70 @@ export function ReportDetailActions({
   const [canvasDirection, setCanvasDirection] = useState("");
 
   const handleCreateCanvas = useCallback(() => {
+    if (isCreatingCanvas || awaitingChannel) return;
     const trimmed = canvasDirection.trim();
     fireAction("create_canvas", { has_feedback: trimmed.length > 0 });
     setCanvasDirection("");
     setCanvasOpen(false);
     void createCanvasReport(trimmed || undefined);
-  }, [canvasDirection, createCanvasReport, fireAction]);
+  }, [
+    canvasDirection,
+    createCanvasReport,
+    fireAction,
+    isCreatingCanvas,
+    awaitingChannel,
+  ]);
 
-  // Read-only conveniences plus Refund. These are the only occasional actions,
-  // and the read-only ones stay even on a resolved report; Refund is a mutation,
-  // so it's gated out below.
+  const canvasDialog = canvasActionEnabled && !isResolved && (
+    <Dialog
+      open={canvasOpen}
+      onOpenChange={(next) => {
+        setCanvasOpen(next);
+        if (!next) setCanvasDirection("");
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Visualize on a canvas</DialogTitle>
+          <DialogDescription>
+            What should the canvas focus on? The agent builds it from this
+            report's evidence and live data.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <Textarea
+            aria-label="What the canvas should focus on"
+            autoFocus
+            placeholder="Focus on… (optional)"
+            rows={3}
+            value={canvasDirection}
+            onChange={(event) => setCanvasDirection(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                handleCreateCanvas();
+              }
+            }}
+          />
+        </DialogBody>
+        <DialogFooter>
+          <span className="mr-auto text-[12px] text-gray-10">
+            {isMac ? "⌘↵" : "Ctrl+↵"} to create
+          </span>
+          <Button
+            type="button"
+            variant="primary"
+            loading={isCreatingCanvas}
+            disabled={isCreatingCanvas || awaitingChannel}
+            onClick={handleCreateCanvas}
+          >
+            Create canvas
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   const overflowMenu = (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -159,7 +215,16 @@ export function ReportDetailActions({
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        {refund.canRefund && !isResolved && (
+        {canvasActionEnabled && !isResolved && (
+          <DropdownMenuItem
+            disabled={isCreatingCanvas || awaitingChannel}
+            onClick={() => setCanvasOpen(true)}
+          >
+            <ShapesIcon />
+            Visualize on a canvas…
+          </DropdownMenuItem>
+        )}
+        {placement === "standalone" && refund.canRefund && !isResolved && (
           <DropdownMenuItem
             disabled={refund.disabledReason !== null}
             onClick={() => setRefundOpen(true)}
@@ -180,7 +245,7 @@ export function ReportDetailActions({
         onClick={() => openExternalUrl(safePrUrl)}
       >
         <ArrowSquareOutIcon size={14} />
-        Open PR in GitHub
+        Open PR
       </Button>
     ) : (
       <Button
@@ -198,8 +263,8 @@ export function ReportDetailActions({
   if (placement === "header") {
     return (
       <>
-        {githubButton}
         <ReportChatToggle report={report} />
+        {githubButton}
         {canResolveReport(report) && (
           <Button
             type="button"
@@ -226,20 +291,8 @@ export function ReportDetailActions({
             Dismiss
           </Button>
         )}
-        <InboxReportCopyLinkMenu
-          report={report}
-          trigger={
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              aria-label="Copy link"
-              title="Copy link"
-            >
-              <LinkIcon size={13} />
-            </Button>
-          }
-        />
+        {overflowMenu}
+        {canvasDialog}
         {refund.canRefund && (
           <Tooltip>
             <TooltipTrigger
@@ -247,7 +300,7 @@ export function ReportDetailActions({
                 <Button
                   type="button"
                   variant="outline"
-                  size="icon-sm"
+                  size="sm"
                   aria-label="Refund"
                   disabled={refund.disabledReason !== null}
                   onClick={() => setRefundOpen(true)}
@@ -255,6 +308,7 @@ export function ReportDetailActions({
               }
             >
               <ReceiptIcon />
+              Refund
             </TooltipTrigger>
             <TooltipContent>
               {refund.disabledReason ?? "Refund this PR and archive the report"}
@@ -295,68 +349,18 @@ export function ReportDetailActions({
       {githubButton}
 
       {canvasActionEnabled && (
-        <Popover
-          open={canvasOpen}
-          onOpenChange={(next) => {
-            setCanvasOpen(next);
-            if (!next) setCanvasDirection("");
-          }}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isCreatingCanvas || awaitingChannel}
+          onClick={() => setCanvasOpen(true)}
         >
-          <PopoverTrigger
-            render={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={isCreatingCanvas || awaitingChannel}
-                title="Have the agent build a canvas from this report"
-              >
-                {isCreatingCanvas ? <Spinner /> : <ShapesIcon size={16} />}
-                Visualize on a canvas
-              </Button>
-            }
-          />
-          <PopoverContent
-            align="end"
-            side="bottom"
-            sideOffset={6}
-            className="flex w-[420px] flex-col gap-2 p-3"
-          >
-            <span className="text-[13px] text-gray-11">
-              What should the canvas focus on? The agent builds it from this
-              report's evidence and live data.
-            </span>
-            <Textarea
-              aria-label="What the canvas should focus on"
-              autoFocus
-              placeholder="Focus on… (optional)"
-              rows={3}
-              value={canvasDirection}
-              onChange={(event) => setCanvasDirection(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  handleCreateCanvas();
-                }
-              }}
-            />
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[12px] text-gray-10">
-                {isMac ? "⌘↵" : "Ctrl+↵"} to create
-              </span>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                disabled={isCreatingCanvas || awaitingChannel}
-                onClick={handleCreateCanvas}
-              >
-                Create canvas
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
+          <ShapesIcon />
+          Visualize on a canvas
+        </Button>
       )}
+      {canvasDialog}
 
       {placement === "standalone" && overflowMenu}
 

@@ -231,9 +231,9 @@ describe("ReportVerdictBanner", () => {
     expect(openDismissDialog).toHaveBeenCalledTimes(2);
   });
 
-  it("starts a discussion with optional direction and hides the actions after creation", async () => {
+  it("starts a discussion with optional direction from the full action panel", async () => {
     const user = userEvent.setup();
-    render(<ReportVerdictBanner report={report} initialEngagementOnly />);
+    render(<ReportVerdictBanner report={report} />);
 
     const askButton = screen.getByText("Ask about it");
     expect(askButton.closest(".select-none")).not.toBeNull();
@@ -252,7 +252,7 @@ describe("ReportVerdictBanner", () => {
 
     act(() => onDiscussionCreated?.(discussionTask.task));
 
-    expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
+    expect(screen.getByText("Ask about it")).toBeInTheDocument();
     expect(setQueryData).toHaveBeenCalled();
     expect(
       useReportChatPanelStore.getState().startedTaskIdByReport[report.id],

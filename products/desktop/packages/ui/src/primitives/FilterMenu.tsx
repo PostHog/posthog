@@ -1,6 +1,12 @@
 import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import {
   Button,
+  Combobox,
+  ComboboxCollection,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
   cn,
   DropdownMenuCheckboxItem,
   DropdownMenuItem,
@@ -12,11 +18,12 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@posthog/quill";
-import type { ReactElement, ReactNode } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 
 export interface FilterOption<Value extends string> {
   value: Value;
   label: string;
+  searchLabel?: string;
   icon?: ReactNode;
 }
 
@@ -113,6 +120,7 @@ export function FilterRadioSubMenu<Value extends string>({
   defaultValue,
   valueLabel,
   onChange,
+  searchPlaceholder,
 }: {
   label: string;
   options: readonly FilterOption<Value>[];
@@ -121,9 +129,68 @@ export function FilterRadioSubMenu<Value extends string>({
   /** Overrides the option's own label, for a value the list cannot name. */
   valueLabel?: string;
   onChange: (value: Value) => void;
+  searchPlaceholder?: string;
 }): ReactElement {
+  const [open, setOpen] = useState(false);
   const selected =
     valueLabel ?? options.find((option) => option.value === value)?.label ?? "";
+
+  if (searchPlaceholder) {
+    return (
+      <DropdownMenuSub open={open} onOpenChange={setOpen}>
+        <FilterSubMenuTrigger
+          label={label}
+          value={selected}
+          active={value !== defaultValue}
+        />
+        <DropdownMenuSubContent className="w-64 [&>div]:overflow-hidden [&>div]:p-0">
+          <Combobox<FilterOption<Value>>
+            autoHighlight
+            items={options}
+            value={options.find((option) => option.value === value) ?? null}
+            itemToStringLabel={(option) =>
+              `${option.label} ${option.searchLabel ?? ""}`
+            }
+            itemToStringValue={(option) => option.value}
+            onValueChange={(option) => {
+              if (option) {
+                onChange(option.value);
+                setOpen(false);
+              }
+            }}
+          >
+            <div className="p-1">
+              <ComboboxInput
+                autoFocus
+                showTrigger={false}
+                placeholder={searchPlaceholder}
+                aria-label={searchPlaceholder}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              />
+            </div>
+            <ComboboxList className="group/combobox-list max-h-72 border-border border-t">
+              <ComboboxCollection>
+                {(option: FilterOption<Value>) => (
+                  <ComboboxItem
+                    key={option.value}
+                    value={option}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {option.icon}
+                    {option.label}
+                  </ComboboxItem>
+                )}
+              </ComboboxCollection>
+              <ComboboxEmpty className="group-data-empty/combobox-list:flex">
+                No matches. Try another search.
+              </ComboboxEmpty>
+            </ComboboxList>
+          </Combobox>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    );
+  }
 
   return (
     <FilterSubMenu

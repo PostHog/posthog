@@ -73,6 +73,47 @@ export function ReportDetailContent({
   report: SignalReport;
   headerTrailingAction?: ReactNode;
 }) {
+  return (
+    <ReportChatLayout report={report}>
+      <InboxDetailFrame
+        report={report}
+        fallbackTitle="Untitled report"
+        primaryAction={
+          <>
+            <ReportDetailActions report={report} placement="header" />
+            {headerTrailingAction}
+          </>
+        }
+        belowSummary={
+          <>
+            <ReportVerdictBanner
+              key={report.id}
+              report={report}
+              initialEngagementOnly
+            />
+            <ReportTrackerIssueLink report={report} />
+          </>
+        }
+        summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+        footer={<ReportFeedbackFooter report={report} />}
+        evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+        showDismiss={false}
+      >
+        <ReportReviewersSection report={report} />
+        <ReportRunsSection report={report} />
+        <ReportActivitySection reportId={report.id} />
+      </InboxDetailFrame>
+    </ReportChatLayout>
+  );
+}
+
+export function ReportChatLayout({
+  report,
+  children,
+}: {
+  report: SignalReport;
+  children: ReactNode;
+}): React.JSX.Element {
   const chatOpen = useReportChatPanelStore((s) => s.open);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
   const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
@@ -95,35 +136,7 @@ export function ReportDetailContent({
   return (
     <div className="flex h-full min-h-0">
       <div ref={contentRef} className="min-w-0 flex-1 overflow-y-auto">
-        <InboxDetailFrame
-          report={report}
-          fallbackTitle="Untitled report"
-          primaryAction={
-            <>
-              <ReportDetailActions report={report} placement="header" />
-              {headerTrailingAction}
-            </>
-          }
-          belowSummary={
-            <>
-              <ReportVerdictBanner
-                key={report.id}
-                report={report}
-                initialEngagementOnly
-              />
-              <ReportTrackerIssueLink report={report} />
-            </>
-          }
-          summarySection={{ Icon: FileTextIcon, title: "Report summary" }}
-          footer={<ReportFeedbackFooter report={report} />}
-          evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-          showDismiss={false}
-          showMetadata={false}
-        >
-          <ReportReviewersSection report={report} />
-          <ReportRunsSection report={report} />
-          <ReportActivitySection reportId={report.id} />
-        </InboxDetailFrame>
+        {children}
       </div>
       <AskAboutSelection containerRef={contentRef} onAsk={handleAsk} />
       {chatOpen && <ReportChatSidebar report={report} />}

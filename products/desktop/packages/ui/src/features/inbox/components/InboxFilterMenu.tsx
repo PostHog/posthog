@@ -108,6 +108,7 @@ function InboxFilterMenuContent({
     ...teammateOptions.map((teammate) => ({
       value: teammateInboxScope(teammate.uuid),
       label: getSuggestedReviewerDisplayName(teammate),
+      searchLabel: teammate.email,
     })),
   ];
 
@@ -150,6 +151,7 @@ function InboxFilterMenuContent({
       />
       <FilterRadioSubMenu
         label="Scope"
+        searchPlaceholder="Search users…"
         options={scopeOptions}
         value={scope}
         defaultValue={INBOX_SCOPE_FOR_YOU}

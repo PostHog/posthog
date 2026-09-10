@@ -3,30 +3,16 @@ import {
   humanizeReportTitle,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@posthog/quill";
+import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
-import {
-  InboxMetaRow,
-  InboxMetaSeparator,
-  InboxMetaText,
-} from "@posthog/ui/features/inbox/components/InboxMetaRow";
-import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
+import { InboxMetaRow } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { ReportBreadcrumbs } from "@posthog/ui/features/inbox/components/ReportBreadcrumbs";
 import { ReportDetailCloseButton } from "@posthog/ui/features/inbox/components/ReportDetailCloseButton";
 import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import { ReportSummaryDocument } from "@posthog/ui/features/inbox/components/ReportSummaryDocument";
 import { RightColumnSection } from "@posthog/ui/features/inbox/components/RightColumnSection";
-import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
 import { SignalReportStatusBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportStatusBadge";
-import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
@@ -50,7 +36,6 @@ export interface InboxDetailFrameViewProps {
   } | null;
   evidenceCount: number;
   evidenceContent?: ReactNode;
-  runRepository?: string | null;
   aboveEvidence?: ReactNode;
   secondaryTab?: { label: ReactNode; content: ReactNode };
   dismissButton?: ReactNode;
@@ -73,7 +58,6 @@ export function InboxDetailFrameView({
   evidenceSection,
   evidenceCount,
   evidenceContent,
-  runRepository,
   aboveEvidence,
   secondaryTab,
   dismissButton,
@@ -83,7 +67,6 @@ export function InboxDetailFrameView({
 }: InboxDetailFrameViewProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState("overview");
   const ownsChrome = useReportPage() !== null;
-  const hasSource = hasKnownSourceProduct(report.source_products);
   const EvidenceIcon = evidenceSection?.Icon;
   const hasEvidence =
     evidenceSection != null && EvidenceIcon != null && evidenceCount > 0;
@@ -104,48 +87,10 @@ export function InboxDetailFrameView({
   const reportMeta = (
     <>
       {metaPrefix}
-      {evidenceCount > 0 && (
-        <>
-          <InboxMetaText className="tabular-nums">
-            {evidenceCount} signal{evidenceCount === 1 ? "" : "s"}
-          </InboxMetaText>
-          <InboxMetaSeparator />
-        </>
-      )}
       <RelativeTimestamp
         timestamp={report.updated_at ?? report.created_at}
         className="text-[13px]"
       />
-      {hasSource && (
-        <>
-          <InboxMetaSeparator />
-          <InboxMetaSourceStack
-            sourceProducts={report.source_products}
-            labelPrefix="Agent · "
-          />
-        </>
-      )}
-      {report.priority && (
-        <>
-          <InboxMetaSeparator />
-          <InboxMetaText>{report.priority}</InboxMetaText>
-        </>
-      )}
-      {runRepository && (
-        <>
-          <InboxMetaSeparator />
-          <Tooltip>
-            <TooltipTrigger
-              render={<InboxMetaText mono className="cursor-help" />}
-            >
-              {runRepository}
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              Agent runs for this report work in this repository
-            </TooltipContent>
-          </Tooltip>
-        </>
-      )}
       {metaSuffix}
     </>
   );
@@ -212,17 +157,7 @@ export function InboxDetailFrameView({
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
-            ) : (
-              <div className="mb-5 flex items-center gap-2.5 border-(--gray-5) border-b pb-3">
-                <span className="font-bold text-[14px] text-gray-12">
-                  {summarySection.title}
-                </span>
-                <span className="flex-1" />
-                <span className="text-[12px] text-gray-10">
-                  Generated <RelativeTimestamp timestamp={report.created_at} />
-                </span>
-              </div>
-            )}
+            ) : null}
 
             {secondaryTab && activeTab === "secondary" ? (
               <div className="flex min-w-0 flex-col gap-5 p-4">
@@ -242,7 +177,6 @@ export function InboxDetailFrameView({
                       {report.status !== "ready" && (
                         <SignalReportStatusBadge status={report.status} />
                       )}
-                      {report.is_suggested_reviewer && <ForYouBadge />}
                       <InboxMetaRow>{reportMeta}</InboxMetaRow>
                     </div>
                   )}
@@ -250,7 +184,6 @@ export function InboxDetailFrameView({
                 {aboveSummary}
                 <ReportSummaryDocument report={report} />
                 {belowSummary}
-                {footer && <div className="mt-auto">{footer}</div>}
               </div>
             )}
           </main>
@@ -260,6 +193,7 @@ export function InboxDetailFrameView({
                 Icon={EvidenceIcon}
                 title={evidenceSection.title}
                 collapsible
+                defaultCollapsed
                 rightSlot={
                   <span className="cursor-default select-none text-[12px] text-gray-10 tabular-nums">
                     {evidenceCount} signal{evidenceCount === 1 ? "" : "s"}
@@ -273,6 +207,9 @@ export function InboxDetailFrameView({
             {children}
           </aside>
         </div>
+        {footer && (!secondaryTab || activeTab === "overview") && (
+          <div className="mx-4 mt-4 border-border border-t py-4">{footer}</div>
+        )}
         {dismissDialog}
       </div>
     </div>
