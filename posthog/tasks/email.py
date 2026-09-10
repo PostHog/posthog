@@ -831,7 +831,7 @@ def send_workflow_email_sending_paused(
         campaign_key=f"workflow_email_sending_paused_{hog_flow_id}_{paused_at}",
         # No urgency prefix in the subject, for the same deliverability reason as the project-wide
         # suspension email above.
-        subject=f"Email sending is paused for '{workflow_label}' in project '{team}'",
+        subject=f"Email sending is paused for '{workflow_label}' in project '{single_line(str(team))}'",
         template_name="workflow_email_sending_paused",
         template_context={
             "team": team,
@@ -866,7 +866,7 @@ def send_workflow_email_sending_warning(
     message = EmailMessage(
         campaign_key=f"workflow_email_sending_warning_{hog_flow_id}_{warned_at}",
         # No urgency prefix in the subject, for the same deliverability reason as the emails above.
-        subject=f"Email from '{workflow_label}' in project '{team}' needs attention",
+        subject=f"Email from '{workflow_label}' in project '{single_line(str(team))}' needs attention",
         template_name="workflow_email_sending_warning",
         template_context={
             "team": team,
