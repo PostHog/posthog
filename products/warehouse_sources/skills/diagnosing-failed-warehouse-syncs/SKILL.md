@@ -88,20 +88,20 @@ almost certainly stuck, even though the status isn't `Failed`.
 
 Map the `latest_error` string to a root cause. Common patterns:
 
-| Error substring                                              | Root cause                                                 | Fix                                                                                   |
-| ------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `authentication failed`, `401`, `invalid credentials`        | Credentials expired or rotated                             | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
-| `403`, `Forbidden` on some tables only                       | Source gates the endpoint on the account plan or key scope | User asks the source to enable the endpoint, then re-enable the sync                  |
-| `403`, `Forbidden` on every table                            | Credentials expired, rotated, or scoped too narrowly       | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
-| `Could not establish session to SSH gateway`                 | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                                      |
-| `Primary key required for incremental syncs`                 | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`                           |
-| `primary keys for this table are not unique`                 | Declared PK columns aren't actually unique                 | Pick different PK columns via `partial-update`                                        |
-| `Integration matching query does not exist`                  | Source's saved integration was deleted                     | Recreate the source                                                                   |
-| `column "X" does not exist`, `does not have a column named`  | Schema drift — incremental field or tracked column removed | Use `incremental-fields-create` to re-detect, then `partial-update`                   |
-| `relation "..." does not exist`                              | Source table was dropped/renamed                           | Remove schema or rename source-side                                                   |
-| `SSL`, `connection refused`, `timeout`, `unreachable`        | Network / firewall / host reachability                     | User side — check host/port/allowlist                                                 |
-| `replication slot`, `publication`, `wal_level`               | CDC prerequisites broken                                   | Run `check-cdc-prerequisites-create`; may need slot recreate                          |
-| `Schema exceeds row limit`, `billing`                        | Billing limit                                              | Upgrade plan or disable the schema                                                    |
+| Error substring                                             | Root cause                                                 | Fix                                                                                   |
+| ----------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `authentication failed`, `401`, `invalid credentials`       | Credentials expired or rotated                             | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
+| `403`, `Forbidden` on some tables only                      | Source gates the endpoint on the account plan or key scope | User asks the source to enable the endpoint, then re-enable the sync                  |
+| `403`, `Forbidden` on every table                           | Credentials expired, rotated, or scoped too narrowly       | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
+| `Could not establish session to SSH gateway`                | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                                      |
+| `Primary key required for incremental syncs`                | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`                           |
+| `primary keys for this table are not unique`                | Declared PK columns aren't actually unique                 | Pick different PK columns via `partial-update`                                        |
+| `Integration matching query does not exist`                 | Source's saved integration was deleted                     | Recreate the source                                                                   |
+| `column "X" does not exist`, `does not have a column named` | Schema drift — incremental field or tracked column removed | Use `incremental-fields-create` to re-detect, then `partial-update`                   |
+| `relation "..." does not exist`                             | Source table was dropped/renamed                           | Remove schema or rename source-side                                                   |
+| `SSL`, `connection refused`, `timeout`, `unreachable`       | Network / firewall / host reachability                     | User side — check host/port/allowlist                                                 |
+| `replication slot`, `publication`, `wal_level`              | CDC prerequisites broken                                   | Run `check-cdc-prerequisites-create`; may need slot recreate                          |
+| `Schema exceeds row limit`, `billing`                       | Billing limit                                              | Upgrade plan or disable the schema                                                    |
 
 If `latest_error` is null but the schema is `Failed`, retrieve the schema directly — the error may only be populated
 on the detail view.
