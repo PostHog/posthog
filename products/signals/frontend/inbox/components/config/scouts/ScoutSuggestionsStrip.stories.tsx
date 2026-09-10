@@ -35,8 +35,13 @@ function StripState({
         logic.actions.showStrip()
         logic.actions.setCollapsed(collapsed)
         if (refreshing) {
-            logic.actions.requestRefresh('strip')
+            logic.actions.startRefreshPolling({
+                startedAt: Date.now(),
+                baselineGeneratedAt: null,
+                baselineStatus: null,
+            })
         }
+        return () => logic.actions.refreshFinished()
     }, [logic, collapsed, refreshing])
     return <>{children}</>
 }
