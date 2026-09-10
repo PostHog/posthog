@@ -802,8 +802,11 @@ def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry
     assert wire["derive/x.py"]["slack"] == "#team-nonreg"
 
 
-def test_json_entrypoint_rejects_a_repo_root_that_is_not_a_directory(registry_repo: Path) -> None:
-    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo / "nope"), "reg/x.py")
+@pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])
+def test_json_entrypoint_rejects_a_repo_root_that_is_not_a_directory(registry_repo: Path, root: str) -> None:
+    # An empty root is the unset "$VAR" case: Path("") is Path("."), which would
+    # otherwise resolve against the working directory rather than fail.
+    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo / root) if root else "", "reg/x.py")
 
     assert result.returncode == 2
     assert "--repo-root" in result.stderr

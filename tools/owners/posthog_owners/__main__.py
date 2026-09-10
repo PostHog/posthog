@@ -36,18 +36,20 @@ def main() -> None:
     parser.add_argument("--purpose", choices=["slack", "notifications"], default=DEFAULT_PURPOSE)
     parser.add_argument(
         "--repo-root",
-        type=Path,
         default=None,
         help="Directory holding the ownership files; default: the enclosing git worktree",
     )
     parser.add_argument("paths", nargs="*")
     ns = parser.parse_args()
-    # A root that is not a directory reads as a repo with no ownership files, so every path answers unowned.
-    if ns.repo_root is not None and not ns.repo_root.is_dir():
-        parser.error(f"--repo-root {ns.repo_root} is not a directory")
+    # A root that is not a directory reads as a repo with no ownership files, so every path
+    # answers unowned. An empty value is Path("."), which an unset "$VAR" would resolve
+    # against the working directory instead of failing, so reject it before the conversion.
+    if ns.repo_root is not None and not (ns.repo_root and Path(ns.repo_root).is_dir()):
+        parser.error(f"--repo-root {ns.repo_root!r} is not a directory")
+    repo_root = Path(ns.repo_root) if ns.repo_root is not None else None
     paths = ns.paths or read_stdin_paths()
 
-    resolver = OwnersResolver(repo_root=ns.repo_root, purpose=cast("Purpose", ns.purpose))
+    resolver = OwnersResolver(repo_root=repo_root, purpose=cast("Purpose", ns.purpose))
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in paths}
     json.dump(result, sys.stdout)
 
