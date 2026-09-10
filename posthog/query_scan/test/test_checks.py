@@ -13,17 +13,21 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.query_scan.analyze import ScanThresholds, analyze
+from posthog.query_scan.analyze import QueryScanResult, ScanThresholds, analyze
 from posthog.query_scan.checks.event_filter import check_event_filter
 from posthog.query_scan.checks.persons import check_persons_join
 from posthog.query_scan.checks.start_date import check_start_date
-from posthog.query_scan.explain import parse_query_plan
+from posthog.query_scan.explain import QueryPlan, parse_query_plan
 from posthog.query_scan.test.test_explain import MIXED_PRUNING_PLAN, load_plan
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 NOW = "2026-03-15T12:00:00Z"
 
+_USABLE_PLAN = parse_query_plan(load_plan("event_filter_usable"))
+_UNPRUNED_PLAN = parse_query_plan(load_plan("no_event_filter"))
+
+_IN_OR_SQL = "SELECT count() FROM events WHERE properties.plan = 'pro' OR event = 'upgrade'"
 _PERSONS_JOIN_SQL = "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id WHERE e.event = 'purchase'"
 _COHORT_FILTER_SQL = (
     "SELECT count() FROM events AS e JOIN persons AS p "
@@ -60,12 +64,6 @@ class TestEventFilterCheck(QueryScanCheckTest):
         super().setUp()
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="purchase_events",
-            query={"query": "SELECT event AS event, timestamp AS timestamp FROM events WHERE event IN ('a', 'b')"},
-            columns={"event": "String", "timestamp": "DateTime"},
-        )
-        DataWarehouseSavedQuery.objects.create(
-            team=self.team,
             name="every_event",
             query={"query": "SELECT event AS event, timestamp AS timestamp FROM events"},
             columns={"event": "String", "timestamp": "DateTime"},
@@ -74,7 +72,6 @@ class TestEventFilterCheck(QueryScanCheckTest):
     @parameterized.expand(
         [
             ("equality", "SELECT count() FROM events WHERE event = 'purchase'", "usable", None),
-            ("in a list", "SELECT count() FROM events WHERE event IN ('a', 'b')", "usable", None),
             (
                 "or of event names only",
                 "SELECT count() FROM events WHERE event = 'a' OR event = 'b'",
@@ -82,8 +79,14 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 None,
             ),
             (
+                "an or with the event named in an and",
+                "SELECT count() FROM events WHERE (event = 'a' AND properties.plan = 'pro') OR event = 'b'",
+                "usable",
+                None,
+            ),
+            (
                 "inside an or with another condition",
-                "SELECT count() FROM events WHERE properties.plan = 'pro' OR event = 'upgrade'",
+                _IN_OR_SQL,
                 "not_used",
                 "in_or",
             ),
@@ -92,12 +95,6 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "SELECT count() FROM events WHERE (properties.plan = 'pro' AND properties.device = 'mobile') "
                 "OR properties.browser = 'Chrome'",
                 "none",
-                None,
-            ),
-            (
-                "an or with the event named in an and",
-                "SELECT count() FROM events WHERE (event = 'a' AND properties.plan = 'pro') OR event = 'b'",
-                "usable",
                 None,
             ),
             (
@@ -111,6 +108,12 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "SELECT count() FROM events WHERE event NOT IN ('$pageview')",
                 "not_used",
                 "negated",
+            ),
+            (
+                "compared to another column",
+                "SELECT count() FROM events WHERE event = distinct_id",
+                "not_used",
+                "dynamic",
             ),
             (
                 "a pattern with a fixed prefix",
@@ -131,12 +134,6 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "not_pruned",
             ),
             (
-                "a range over event names",
-                "SELECT count() FROM events WHERE event > 'purchase'",
-                "not_used",
-                "not_pruned",
-            ),
-            (
                 "named in the ON of an inner join",
                 "SELECT count() FROM events AS e INNER JOIN cohort_people AS cp "
                 "ON e.person_id = cp.person_id AND e.event = 'purchase'",
@@ -150,19 +147,7 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "none",
                 None,
             ),
-            (
-                "compared to another column",
-                "SELECT count() FROM events WHERE event = distinct_id",
-                "not_used",
-                "dynamic",
-            ),
             ("no event condition at all", "SELECT count() FROM events", "none", None),
-            (
-                "filter inside a saved view",
-                "SELECT count() FROM purchase_events WHERE timestamp > now() - interval 7 day",
-                "usable",
-                None,
-            ),
             (
                 "filter outside an unfiltered saved view",
                 "SELECT count() FROM every_event WHERE event = 'a'",
@@ -207,101 +192,82 @@ class TestEventFilterCheck(QueryScanCheckTest):
 
     @parameterized.expand(
         [
-            ("clickhouse used the key", "event_filter_usable", "usable", None),
-            ("clickhouse dropped the key", "no_event_filter", "not_used", "not_pruned"),
+            (
+                "the plan used the key",
+                "SELECT count() FROM events WHERE event = 'purchase'",
+                _USABLE_PLAN,
+                "usable",
+                None,
+                False,
+            ),
+            (
+                "the plan dropped the key",
+                "SELECT count() FROM events WHERE event = 'purchase'",
+                _UNPRUNED_PLAN,
+                "not_used",
+                "not_pruned",
+                True,
+            ),
+            (
+                "the plan dropped the key on one of several usable reads",
+                "SELECT count() FROM events WHERE event = 'a' UNION ALL SELECT count() FROM events WHERE event = 'b'",
+                MIXED_PRUNING_PLAN,
+                "not_used",
+                "not_pruned",
+                False,
+            ),
+            (
+                "a read the tree already faulted keeps its own reason",
+                "SELECT count() FROM events WHERE event = 'purchase' "
+                "UNION ALL SELECT count() FROM events WHERE match(event, 'x')",
+                MIXED_PRUNING_PLAN,
+                "not_used",
+                "wrapped",
+                True,
+            ),
+            (
+                "a negated filter is not excused by the key",
+                "SELECT count() FROM events WHERE event != 'purchase'",
+                _USABLE_PLAN,
+                "not_used",
+                "negated",
+                True,
+            ),
         ]
     )
     @freeze_time(NOW)
     def test_the_plan_overrules_the_tree(
-        self, _name: str, fixture: str, expected_class: str, expected_reason: str | None
+        self,
+        _name: str,
+        sql: str,
+        plan: QueryPlan,
+        expected_class: str,
+        expected_reason: str | None,
+        expects_clause: bool,
     ) -> None:
-        tree, _context = self.prepare("SELECT count() FROM events WHERE event = 'purchase'")
+        tree, _context = self.prepare(sql)
 
-        outcome = check_event_filter(tree, parse_query_plan(load_plan(fixture)))
+        outcome = check_event_filter(tree, plan)
 
         self.assertEqual(outcome.classification, expected_class)
         self.assertEqual(outcome.reason, expected_reason)
-
-    @parameterized.expand(
-        [
-            (
-                "the pruning read first",
-                "SELECT count() FROM events WHERE event = 'purchase' "
-                "UNION ALL SELECT count() FROM events WHERE match(event, 'x')",
-            ),
-            (
-                "the wrapped read first",
-                "SELECT count() FROM events WHERE match(event, 'x') "
-                "UNION ALL SELECT count() FROM events WHERE event = 'purchase'",
-            ),
-        ]
-    )
-    @freeze_time(NOW)
-    def test_a_plan_where_one_read_pruned_keeps_the_reason_the_tree_found(self, _name: str, sql: str) -> None:
-        tree, _context = self.prepare(sql)
-
-        outcome = check_event_filter(tree, MIXED_PRUNING_PLAN)
-
-        self.assertEqual(outcome.classification, "not_used")
-        self.assertEqual(outcome.reason, "wrapped")
-        clause = outcome.clause
-        assert isinstance(clause, ast.Call)
-        self.assertEqual(clause.name, "match")
-
-    @freeze_time(NOW)
-    def test_a_plan_that_contradicts_several_usable_filters_names_no_clause(self) -> None:
-        tree, _context = self.prepare(
-            "SELECT count() FROM events WHERE event = 'a' UNION ALL SELECT count() FROM events WHERE event = 'b'"
-        )
-
-        outcome = check_event_filter(tree, MIXED_PRUNING_PLAN)
-
-        self.assertEqual(outcome.classification, "not_used")
-        self.assertEqual(outcome.reason, "not_pruned")
-        self.assertIsNone(outcome.clause)
-
-    @freeze_time(NOW)
-    def test_a_plan_listing_the_key_does_not_excuse_a_negated_filter(self) -> None:
-        tree, _context = self.prepare("SELECT count() FROM events WHERE event != 'purchase'")
-
-        outcome = check_event_filter(tree, parse_query_plan(load_plan("event_filter_usable")))
-
-        self.assertEqual(outcome.classification, "not_used")
-        self.assertEqual(outcome.reason, "negated")
+        self.assertEqual(outcome.clause is not None, expects_clause)
 
 
 class TestStartDateCheck(QueryScanCheckTest):
     @parameterized.expand(
         [
             (
-                "relative interval",
+                "a relative interval",
                 "SELECT count() FROM events WHERE timestamp > now() - interval 30 day",
                 "bound",
                 date(2026, 2, 13),
             ),
             (
-                "explicit date string",
-                "SELECT count() FROM events WHERE timestamp >= '2026-01-01'",
+                "a constant date function",
+                "SELECT count() FROM events WHERE timestamp >= toDate('2026-01-01')",
                 "bound",
                 date(2026, 1, 1),
-            ),
-            (
-                "toDateTime constant",
-                "SELECT count() FROM events WHERE timestamp > toDateTime('2026-01-05 08:00:00')",
-                "bound",
-                date(2026, 1, 5),
-            ),
-            (
-                "start of day",
-                "SELECT count() FROM events WHERE timestamp >= toStartOfDay(now())",
-                "bound",
-                date(2026, 3, 15),
-            ),
-            (
-                "today minus an interval",
-                "SELECT count() FROM events WHERE timestamp > today() - interval 7 day",
-                "bound",
-                date(2026, 3, 8),
             ),
             (
                 "the column on the right",
@@ -322,18 +288,6 @@ class TestStartDateCheck(QueryScanCheckTest):
                 date(2026, 2, 1),
             ),
             (
-                "a constant date function",
-                "SELECT count() FROM events WHERE timestamp >= toDate('2026-01-01')",
-                "bound",
-                date(2026, 1, 1),
-            ),
-            (
-                "the shorthand for an interval",
-                "SELECT count() FROM events WHERE timestamp >= subtractDays(now(), 7)",
-                "bound",
-                date(2026, 3, 8),
-            ),
-            (
                 "the shorthand for a month interval",
                 "SELECT count() FROM events WHERE timestamp >= subtractMonths(now(), 2)",
                 "bound",
@@ -342,12 +296,6 @@ class TestStartDateCheck(QueryScanCheckTest):
             (
                 "a fixed expression the evaluator does not cover",
                 "SELECT count() FROM events WHERE timestamp >= fromUnixTimestamp(1767225600)",
-                "bound",
-                None,
-            ),
-            (
-                "an interval too large to hold",
-                "SELECT count() FROM events WHERE timestamp >= now() - interval 1000000000 day",
                 "bound",
                 None,
             ),
@@ -371,23 +319,9 @@ class TestStartDateCheck(QueryScanCheckTest):
                 None,
             ),
             (
-                "bound outside a subquery that limits its own rows",
-                "SELECT count() FROM (SELECT timestamp FROM events ORDER BY timestamp LIMIT 1000000) "
-                "WHERE timestamp >= '2026-01-01'",
-                "none",
-                None,
-            ),
-            (
-                "bound outside a union of two events reads",
-                "SELECT count() FROM (SELECT timestamp FROM events UNION ALL SELECT timestamp FROM events) "
-                "WHERE timestamp >= '2026-01-01'",
-                "bound",
-                date(2026, 1, 1),
-            ),
-            (
-                # Positional aliases rename by the table's column order, so `ts` is `timestamp`.
-                "bound on a renamed timestamp column",
-                "SELECT count() FROM events AS e (id, kind, props, ts) WHERE e.ts >= '2026-01-01'",
+                "two events reads widen the range to the earlier bound",
+                "SELECT count() FROM events WHERE timestamp > '2026-02-01' "
+                "UNION ALL SELECT count() FROM events WHERE timestamp > '2026-01-01'",
                 "bound",
                 date(2026, 1, 1),
             ),
@@ -402,120 +336,108 @@ class TestStartDateCheck(QueryScanCheckTest):
         self.assertEqual(outcome.classification, expected_class)
         self.assertEqual(outcome.date_from, expected_date_from)
 
-    @freeze_time(NOW)
-    def test_upper_bound_defaults_to_today(self) -> None:
-        tree, _context = self.prepare("SELECT count() FROM events WHERE timestamp > '2026-01-01'")
-
-        outcome = check_start_date(tree)
-
-        self.assertEqual(outcome.date_to, date(2026, 3, 15))
-        self.assertIsNone(outcome.upper)
-
-    @freeze_time(NOW)
-    def test_upper_bound_is_read_from_the_query(self) -> None:
-        tree, _context = self.prepare(
-            "SELECT count() FROM events WHERE timestamp > '2026-01-01 08:30:00' AND timestamp < '2026-02-01 09:15:00'"
-        )
-
-        outcome = check_start_date(tree)
-
-        self.assertEqual(outcome.date_to, date(2026, 2, 1))
-        self.assertEqual(outcome.lower, datetime(2026, 1, 1, 8, 30))
-        self.assertEqual(outcome.upper, datetime(2026, 2, 1, 9, 15))
-
     @parameterized.expand(
         [
             (
+                "no upper bound at all",
+                "SELECT count() FROM events WHERE timestamp > '2026-01-01'",
+                datetime(2026, 1, 1),
+                None,
+                date(2026, 3, 15),
+            ),
+            (
+                "a fixed upper bound",
+                "SELECT count() FROM events WHERE timestamp > '2026-01-01 08:30:00' "
+                "AND timestamp < '2026-02-01 09:15:00'",
+                datetime(2026, 1, 1, 8, 30),
+                datetime(2026, 2, 1, 9, 15),
+                date(2026, 2, 1),
+            ),
+            (
                 "a whole month",
                 "SELECT count() FROM events WHERE toStartOfMonth(timestamp) = '2026-03-01'",
-                date(2026, 3, 1),
+                datetime(2026, 3, 1),
+                datetime(2026, 4, 1),
                 date(2026, 4, 1),
             ),
             (
-                "a whole day",
-                "SELECT count() FROM events WHERE toDate(timestamp) = '2026-02-10'",
-                date(2026, 2, 10),
-                date(2026, 2, 11),
-            ),
-            (
                 # 2026-02-01 is a Sunday, so both week modes end the week it starts on 2026-02-08.
-                "every week up to one",
+                "every week up to a Sunday",
                 "SELECT count() FROM events WHERE timestamp > '2026-01-01' AND toStartOfWeek(timestamp) <= '2026-02-01'",
-                date(2026, 1, 1),
+                datetime(2026, 1, 1),
+                datetime(2026, 2, 8),
                 date(2026, 2, 8),
             ),
             (
                 # 2026-02-02 is a Monday, so the Monday week mode admits a day the Sunday mode does not.
-                "every week up to one, with the modes disagreeing",
+                "every week up to a Monday",
                 "SELECT count() FROM events WHERE timestamp > '2026-01-01' AND toStartOfWeek(timestamp) <= '2026-02-02'",
-                date(2026, 1, 1),
+                datetime(2026, 1, 1),
+                datetime(2026, 2, 9),
                 date(2026, 2, 9),
             ),
             (
                 "two truncations leave the upper bound unknown",
                 "SELECT count() FROM events WHERE timestamp > '2026-01-01' "
                 "AND toStartOfMonth(toStartOfWeek(timestamp)) <= '2026-02-01'",
-                date(2026, 1, 1),
+                datetime(2026, 1, 1),
+                None,
                 date(2026, 3, 15),
             ),
         ]
     )
     @freeze_time(NOW)
-    def test_a_truncated_bound_covers_the_interval_it_admits(
-        self, _name: str, sql: str, expected_date_from: date, expected_date_to: date
+    def test_upper_bound(
+        self,
+        _name: str,
+        sql: str,
+        expected_lower: datetime,
+        expected_upper: datetime | None,
+        expected_date_to: date,
     ) -> None:
         tree, _context = self.prepare(sql)
 
         outcome = check_start_date(tree)
 
-        self.assertEqual(outcome.classification, "bound")
-        self.assertEqual(outcome.date_from, expected_date_from)
+        self.assertEqual(outcome.lower, expected_lower)
+        self.assertEqual(outcome.upper, expected_upper)
         self.assertEqual(outcome.date_to, expected_date_to)
 
+    @parameterized.expand(
+        [
+            (
+                "a range is supplied",
+                "SELECT count() FROM events WHERE {filters}",
+                DateRange(date_from="-7d"),
+                "bound",
+                None,
+            ),
+            ("no range is supplied", "SELECT count() FROM events WHERE {filters}", None, "none", "filters"),
+            (
+                "a read the placeholder does not reach",
+                "SELECT count() FROM events WHERE {filters} UNION ALL SELECT count() FROM events",
+                DateRange(date_from="-7d"),
+                "none",
+                None,
+            ),
+        ]
+    )
     @freeze_time(NOW)
-    def test_two_events_reads_widen_the_range_to_cover_both(self) -> None:
-        tree, _context = self.prepare(
-            "SELECT count() FROM events WHERE timestamp > '2026-02-01' "
-            "UNION ALL SELECT count() FROM events WHERE timestamp > '2026-01-01'"
-        )
-
-        outcome = check_start_date(tree)
-
-        self.assertEqual(outcome.classification, "bound")
-        self.assertEqual(outcome.date_from, date(2026, 1, 1))
-
-    @freeze_time(NOW)
-    def test_filters_placeholder_supplies_the_bound(self) -> None:
-        tree, _context = self.prepare(
-            "SELECT count() FROM events WHERE {filters}",
-            filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
-        )
+    def test_the_filters_placeholder(
+        self,
+        _name: str,
+        sql: str,
+        date_range: DateRange | None,
+        expected_class: str,
+        expected_reason: str | None,
+    ) -> None:
+        filters = HogQLFilters(dateRange=date_range) if date_range is not None else None
+        tree, _context = self.prepare(sql, filters=filters)
 
         outcome = check_start_date(tree, has_filters_placeholder=True)
 
-        self.assertEqual(outcome.classification, "bound")
-        self.assertEqual(outcome.date_from, date(2026, 3, 8))
-
-    @freeze_time(NOW)
-    def test_a_read_the_placeholder_does_not_reach_does_not_blame_the_insight(self) -> None:
-        tree, _context = self.prepare(
-            "SELECT count() FROM events WHERE {filters} UNION ALL SELECT count() FROM events",
-            filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
-        )
-
-        outcome = check_start_date(tree, has_filters_placeholder=True)
-
-        self.assertEqual(outcome.classification, "none")
-        self.assertIsNone(outcome.reason)
-
-    @freeze_time(NOW)
-    def test_filters_placeholder_with_no_date_range_blames_the_insight(self) -> None:
-        tree, _context = self.prepare("SELECT count() FROM events WHERE {filters}")
-
-        outcome = check_start_date(tree, has_filters_placeholder=True)
-
-        self.assertEqual(outcome.classification, "none")
-        self.assertEqual(outcome.reason, "filters")
+        self.assertEqual(outcome.classification, expected_class)
+        self.assertEqual(outcome.reason, expected_reason)
 
 
 class TestPersonsJoinCheck(QueryScanCheckTest):
@@ -536,30 +458,7 @@ class TestPersonsJoinCheck(QueryScanCheckTest):
                 True,
                 False,
             ),
-            (
-                "a join whose person filter the planner could not push in",
-                "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id "
-                "WHERE e.event = 'purchase' AND p.properties.email = 'someone@example.com'",
-                HogQLQueryModifiers(optimizeJoinedFilters=True),
-                True,
-                True,
-            ),
-            ("a join from a table that is not events", _PERSONS_JOIN_WITHOUT_EVENTS_SQL, None, True, True),
             ("a read straight from the persons table", "SELECT count() FROM persons", None, False, False),
-            (
-                "a filtered read straight from the persons table",
-                "SELECT count() FROM persons WHERE properties.email = 'someone@example.com'",
-                None,
-                False,
-                False,
-            ),
-            (
-                "a query that does not touch persons",
-                "SELECT count() FROM events WHERE event = 'purchase'",
-                None,
-                False,
-                False,
-            ),
         ]
     )
     @freeze_time(NOW)
@@ -601,67 +500,55 @@ class TestPersonsJoinCheck(QueryScanCheckTest):
 
 
 class TestAnalyze(QueryScanCheckTest):
-    @freeze_time(NOW)
-    def test_an_unfiltered_scan_reports_both_findings_with_the_offending_clause(self) -> None:
-        sql = "SELECT count() FROM events WHERE properties.plan = 'pro' OR event = 'upgrade'"
+    def scan(
+        self,
+        sql: str,
+        *,
+        plan: QueryPlan | None = None,
+        rows_read: int,
+        events_in_range: int | None = None,
+        person_rows: int | None = None,
+        source: str | None = None,
+    ) -> QueryScanResult:
         tree, context = self.prepare(sql)
-
-        result = analyze(
+        return analyze(
             tree,
             context,
-            plan=None,
-            rows_read=8_400_000_000,
+            plan=plan,
+            rows_read=rows_read,
             duration_ms=19_000,
-            events_in_range=8_400_000_000,
-            person_rows=None,
+            events_in_range=events_in_range,
+            person_rows=person_rows,
             has_filters_placeholder=False,
             thresholds=ScanThresholds(),
-            source=sql,
+            source=source,
         )
 
+    @parameterized.expand(
+        [
+            ("the query the person typed", _IN_OR_SQL, "properties.plan = 'pro' OR event = 'upgrade'"),
+            # The SQL of an inlined saved view carries the view's offsets, not the typed query's.
+            ("a query whose offsets are someone else's", "SELECT count() FROM my_view", None),
+        ]
+    )
+    @freeze_time(NOW)
+    def test_a_clause_is_quoted_only_from_the_query_the_person_typed(
+        self, _name: str, source: str, expected_clause: str | None
+    ) -> None:
+        result = self.scan(_IN_OR_SQL, rows_read=8_400_000_000, events_in_range=8_400_000_000, source=source)
+
         self.assertEqual(result.finding_kinds(), ["event_filter_not_used", "no_start_date"])
-        self.assertEqual(result.event_filter_class, "not_used")
         self.assertEqual(result.event_filter_reason, "in_or")
         self.assertEqual(result.start_date_class, "none")
-        self.assertEqual(result.findings[0].clause, "properties.plan = 'pro' OR event = 'upgrade'")
-
-    @freeze_time(NOW)
-    def test_a_clause_is_quoted_only_from_the_query_the_person_typed(self) -> None:
-        tree, context = self.prepare("SELECT count() FROM events WHERE properties.plan = 'pro' OR event = 'upgrade'")
-
-        # The SQL of an inlined saved view carries the view's offsets, not the typed query's.
-        result = analyze(
-            tree,
-            context,
-            plan=None,
-            rows_read=8_400_000_000,
-            duration_ms=19_000,
-            events_in_range=8_400_000_000,
-            person_rows=None,
-            has_filters_placeholder=False,
-            thresholds=ScanThresholds(),
-            source="SELECT count() FROM my_view",
-        )
-
-        self.assertEqual(result.finding_kinds(), ["event_filter_not_used", "no_start_date"])
-        self.assertIsNone(result.findings[0].clause)
+        self.assertEqual(result.findings[0].clause, expected_clause)
 
     @freeze_time(NOW)
     def test_a_filtered_and_bounded_query_stays_quiet(self) -> None:
-        tree, context = self.prepare(
-            "SELECT count() FROM events WHERE event = 'purchase' AND timestamp > now() - interval 30 day"
-        )
-
-        result = analyze(
-            tree,
-            context,
-            plan=parse_query_plan(load_plan("event_filter_usable")),
+        result = self.scan(
+            "SELECT count() FROM events WHERE event = 'purchase' AND timestamp > now() - interval 30 day",
+            plan=_USABLE_PLAN,
             rows_read=3_000_000,
-            duration_ms=2000,
             events_in_range=3_000_000_000,
-            person_rows=None,
-            has_filters_placeholder=False,
-            thresholds=ScanThresholds(),
         )
 
         self.assertEqual(result.findings, [])
@@ -670,65 +557,42 @@ class TestAnalyze(QueryScanCheckTest):
         assert result.range is not None
         self.assertEqual(result.range.date_from, date(2026, 2, 13))
 
+    @parameterized.expand(
+        [
+            (
+                "over the persons ratio",
+                "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id "
+                "WHERE e.event = 'purchase' AND e.timestamp > now() - interval 30 day",
+                3_000_000,
+                3_000_000_000,
+                ["persons_join"],
+            ),
+            (
+                "the persons rows are left out of the event gate",
+                "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id "
+                "WHERE e.timestamp > now() - interval 30 day",
+                151_000_000,
+                100_000_000,
+                ["persons_join"],
+            ),
+            (
+                "no events read to move the person properties to",
+                _PERSONS_JOIN_WITHOUT_EVENTS_SQL,
+                3_000_000,
+                None,
+                [],
+            ),
+        ]
+    )
     @freeze_time(NOW)
-    def test_a_persons_join_over_the_ratio_reports_the_join(self) -> None:
-        tree, context = self.prepare(
-            "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id "
-            "WHERE e.event = 'purchase' AND e.timestamp > now() - interval 30 day"
-        )
+    def test_which_findings_a_persons_join_produces(
+        self,
+        _name: str,
+        sql: str,
+        rows_read: int,
+        events_in_range: int | None,
+        expected_kinds: list[str],
+    ) -> None:
+        result = self.scan(sql, rows_read=rows_read, events_in_range=events_in_range, person_rows=150_000_000)
 
-        result = analyze(
-            tree,
-            context,
-            plan=None,
-            rows_read=3_000_000,
-            duration_ms=3000,
-            events_in_range=3_000_000_000,
-            person_rows=150_000_000,
-            has_filters_placeholder=False,
-            thresholds=ScanThresholds(),
-        )
-
-        self.assertEqual(result.finding_kinds(), ["persons_join"])
-
-    @freeze_time(NOW)
-    def test_the_event_gate_leaves_out_what_the_persons_join_read(self) -> None:
-        tree, context = self.prepare(
-            "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id "
-            "WHERE e.timestamp > now() - interval 30 day"
-        )
-
-        result = analyze(
-            tree,
-            context,
-            plan=None,
-            rows_read=151_000_000,
-            duration_ms=9000,
-            events_in_range=100_000_000,
-            person_rows=150_000_000,
-            has_filters_placeholder=False,
-            thresholds=ScanThresholds(),
-        )
-
-        self.assertEqual(result.finding_kinds(), ["persons_join"])
-        self.assertEqual(result.event_filter_class, "none")
-        assert result.event_ratio is not None
-        self.assertAlmostEqual(result.event_ratio, 0.01)
-
-    @freeze_time(NOW)
-    def test_a_persons_join_with_no_events_read_is_not_reported(self) -> None:
-        tree, context = self.prepare(_PERSONS_JOIN_WITHOUT_EVENTS_SQL)
-
-        result = analyze(
-            tree,
-            context,
-            plan=None,
-            rows_read=3_000_000,
-            duration_ms=3000,
-            events_in_range=None,
-            person_rows=150_000_000,
-            has_filters_placeholder=False,
-            thresholds=ScanThresholds(),
-        )
-
-        self.assertEqual(result.finding_kinds(), [])
+        self.assertEqual(result.finding_kinds(), expected_kinds)

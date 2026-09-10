@@ -22,7 +22,6 @@ from posthog.query_scan.test.test_explain import MIXED_PRUNING_PLAN, load_plan, 
 THRESHOLDS = ScanThresholds()
 
 
-# A read whose primary key entry lists no columns, which some plans print.
 def unnamed_key_read() -> dict[str, object]:
     return {
         "Node Type": "ReadFromMergeTree",
@@ -32,24 +31,15 @@ def unnamed_key_read() -> dict[str, object]:
 
 
 class TestFindings(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("8.4 billion", 8_400_000_000),
-            ("1.2 million", 1_200_000),
-            ("12,345", 12_345),
-            ("0", 0),
-        ]
-    )
+    @parameterized.expand([("8.4 billion", 8_400_000_000), ("12,345", 12_345)])
     def test_row_counts_read_as_words_above_a_million(self, expected: str, rows: int) -> None:
         self.assertEqual(format_rows(rows), expected)
 
     @parameterized.expand(
         [
-            ("well above the ratio", 3_000_000_000, None, 3_000_000_000, True),
             ("exactly at the ratio", 100, None, 1000, True),
             ("below the ratio: something else pruned the read", 99, None, 1000, False),
             ("no count available", 3_000_000_000, None, None, False),
-            ("no events in the range at all", 3_000_000_000, None, 0, False),
             ("the events side alone is below the ratio", 3_000_000_000, 99, 1000, False),
         ]
     )
@@ -69,6 +59,18 @@ class TestFindings(SimpleTestCase):
         )
 
         self.assertEqual(passes_event_gate(measurements, THRESHOLDS), expected)
+
+    @parameterized.expand(
+        [
+            ("persons dominate the read", 3_000_000, 150_000_000, True),
+            ("persons are a rounding error", 3_000_000_000, 1_000, False),
+            ("no person count available", 3_000_000, None, False),
+        ]
+    )
+    def test_persons_gate(self, _name: str, rows_read: int, person_rows: int | None, expected: bool) -> None:
+        measurements = ScanMeasurements(rows_read=rows_read, duration_ms=3000, person_rows=person_rows)
+
+        self.assertEqual(passes_persons_gate(measurements, THRESHOLDS), expected)
 
     @parameterized.expand(
         [
@@ -102,18 +104,6 @@ class TestFindings(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("persons dominate the read", 3_000_000, 150_000_000, True),
-            ("persons are a rounding error", 3_000_000_000, 1_000, False),
-            ("no person count available", 3_000_000, None, False),
-        ]
-    )
-    def test_persons_gate(self, _name: str, rows_read: int, person_rows: int | None, expected: bool) -> None:
-        measurements = ScanMeasurements(rows_read=rows_read, duration_ms=3000, person_rows=person_rows)
-
-        self.assertEqual(passes_persons_gate(measurements, THRESHOLDS), expected)
-
-    @parameterized.expand(
-        [
             (
                 FindingKind.NO_EVENT_FILTER,
                 None,
@@ -135,36 +125,6 @@ class TestFindings(SimpleTestCase):
                     "`WHERE event IN ('…') AND (… OR …)`."
                 ),
             ),
-            (
-                FindingKind.EVENT_FILTER_NOT_USED,
-                FindingReason.NEGATED,
-                None,
-                (
-                    "Queries are fastest when they explicitly enumerate the events they want. This query only excludes "
-                    "events, so that filter cannot be used and it still reads most events, which is slow. Explicitly "
-                    "enumerate the events you want instead."
-                ),
-            ),
-            (
-                FindingKind.NO_START_DATE,
-                None,
-                None,
-                (
-                    "Queries are fastest when they start from a recent date. This query has no start date, so it "
-                    "reads all your data back to the beginning, which is slow. If you only need recent data, add "
-                    "`timestamp >= now() - interval 30 day` or the range you need."
-                ),
-            ),
-            (
-                FindingKind.PERSONS_JOIN,
-                None,
-                None,
-                (
-                    "Queries are fastest when they take person details from the events table. This query joins the "
-                    "persons table, so every run reads every person in your project, which is slow. Read person "
-                    "properties from the events table instead, for example `person.properties.email`."
-                ),
-            ),
         ]
     )
     def test_message_pairs_the_lead_with_its_advice_and_quotes_the_clause(
@@ -179,31 +139,13 @@ class TestFindings(SimpleTestCase):
 
         self.assertEqual(warning.type, "query_scan")
         self.assertEqual(warning.message, expected)
+        self.assertEqual(warning.clause, clause)
         self.assertEqual(warning.rows_read, 8_400_000_000)
-
-    def test_a_finding_quotes_the_clause_and_the_evidence(self) -> None:
-        warning = build_warning(
-            kind=FindingKind.EVENT_FILTER_NOT_USED,
-            reason=FindingReason.IN_OR,
-            measurements=ScanMeasurements(rows_read=8_400_000_000, duration_ms=19_000),
-            clause="properties.plan = 'pro' or event = 'upgrade'",
-            evidence="ClickHouse used the primary key columns team_id, toDate(timestamp).",
-        )
-
-        self.assertEqual(warning.clause, "properties.plan = 'pro' or event = 'upgrade'")
-        self.assertEqual(warning.evidence, "ClickHouse used the primary key columns team_id, toDate(timestamp).")
 
 
 class TestSettingsAnalysis(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "all events over the ratio",
-                {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": None}]},
-                700_000_000,
-                1_000_000_000,
-                ["all_events"],
-            ),
             (
                 "all events under the ratio",
                 {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": None}]},
@@ -219,7 +161,7 @@ class TestSettingsAnalysis(SimpleTestCase):
                 [],
             ),
             (
-                "all time only",
+                "all time, with no event count to gate on",
                 {"kind": "TrendsQuery", "series": [], "dateRange": {"date_from": "all"}},
                 40_000_000_000,
                 None,

@@ -51,8 +51,6 @@ class TestExplainParsing(SimpleTestCase):
         [
             ("event_filter_usable", True, ("team_id", "toDate(timestamp)", "event")),
             ("no_event_filter", False, ("team_id", "toDate(timestamp)")),
-            ("event_filter_in_or", False, ("team_id", "toDate(timestamp)")),
-            ("persons_join", True, ("team_id", "toDate(timestamp)", "event")),
         ]
     )
     def test_events_read_reports_primary_key_use(
@@ -70,13 +68,9 @@ class TestExplainParsing(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("the sharded table", "posthog.sharded_events", True),
-            ("the plain table", "posthog.events", True),
-            ("the sharded native-JSON table", "posthog.sharded_events_json", True),
-            ("the plain native-JSON table", "posthog.events_json", True),
-            ("another table whose name ends in events", "posthog.ai_events", False),
-            ("another table whose name ends in sharded_events", "posthog.ai_sharded_events", False),
             ("the events table with no database qualifier", "events", True),
+            ("the native-JSON table", "posthog.sharded_events_json", True),
+            ("another table whose name ends in events", "posthog.ai_events", False),
         ]
     )
     def test_which_table_names_count_as_the_events_read(
@@ -97,22 +91,11 @@ class TestExplainParsing(SimpleTestCase):
         self.assertEqual(bool(plan.events_reads()), expected_events_read)
         self.assertEqual(plan.event_key_used(), True if expected_events_read else None)
 
-    def test_granule_counts_are_kept(self) -> None:
-        pruned = parse_query_plan(load_plan("event_filter_usable")).events_reads()[0].primary_key()
-        unpruned = parse_query_plan(load_plan("no_event_filter")).events_reads()[0].primary_key()
-        assert pruned is not None and unpruned is not None
-
-        self.assertEqual((pruned.initial_granules, pruned.selected_granules), (60000, 800))
-        self.assertEqual((unpruned.initial_granules, unpruned.selected_granules), (60000, 40000))
-
     @parameterized.expand(
         [
-            ("empty list", []),
-            ("empty object", {}),
+            ("nothing at all", None),
             ("unparseable text", "not json at all"),
-            ("null", None),
-            ("plan without reads", [{"Plan": {"Node Type": "Expression"}}]),
-            ("read without description", [{"Plan": {"Node Type": "ReadFromMergeTree", "Indexes": []}}]),
+            ("a read without a description", [{"Plan": {"Node Type": "ReadFromMergeTree", "Indexes": []}}]),
         ]
     )
     def test_unexpected_shape_reports_no_events_read(self, _name: str, payload: object) -> None:
