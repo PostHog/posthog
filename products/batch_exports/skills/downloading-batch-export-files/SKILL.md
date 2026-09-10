@@ -95,6 +95,9 @@ When `Completed`, the `files` array contains file UUIDs.
 For single-file exports it usually contains one UUID.
 For split exports, download every UUID unless the user asked for a specific part.
 
+A `Completed` response also carries `records_completed`, the number of rows the run exported.
+Report it to the user, because file downloads are billed per row and the count is otherwise only visible by opening every file.
+
 ### 4. Optionally, cancel a running export
 
 If required by the user, a running export can be cancelled by calling `posthog:file-download-batch-exports-cancel-create` with the returned `id`.
