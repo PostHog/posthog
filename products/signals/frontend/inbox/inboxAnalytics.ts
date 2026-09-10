@@ -97,6 +97,7 @@ export type InboxReportActionType =
     | 'discuss'
     | 'restore'
     | 'create_pr'
+    | 'copy_implementation_prompt'
     | 'refund'
     | 'open_pr'
     | 'view_diff'
@@ -644,12 +645,16 @@ export function captureInboxSettingsChanged(params: {
     success: boolean
     /** Whether the setting governs the whole team or just the person changing it. */
     scope: 'team' | 'user'
+    /** Which kind of target a Slack notification setting points at. The target itself names the
+     * customer's own channel or teammate, so only its kind travels. */
+    targetKind?: 'direct_message' | 'channel' | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.SETTINGS_CHANGED, {
         setting: params.setting,
         ...settingValueProperties('new_value', params.newValue),
         success: params.success,
         setting_scope: params.scope,
+        ...(params.targetKind === undefined ? {} : { target_kind: params.targetKind }),
     })
 }
 
@@ -815,7 +820,10 @@ export type ScoutSuggestionSurface = 'strip' | 'empty_state'
 export type ScoutSuggestionKind = 'canonical' | 'custom'
 
 /** What the person did with a suggestion card, beyond creating or dismissing it. */
-export type ScoutSuggestionClickTarget = 'expand' | 'collapse' | 'turn_on' | 'create' | 'refine_with_ai'
+export type ScoutSuggestionClickTarget = 'turn_on' | 'create' | 'refine_with_ai'
+
+/** What the person pressed to reach that target: the action row's button, or the card body. */
+export type ScoutSuggestionClickVia = 'button' | 'card'
 
 /** How a suggestion became a scout: the create API in place, or a chat the person drove. */
 export type ScoutSuggestionCreatedVia = 'api' | 'chat'
@@ -844,17 +852,19 @@ export function captureScoutSuggestionsShown(params: {
     })
 }
 
-/** A suggestion card was expanded, collapsed, or had one of its actions pressed. */
+/** One of a suggestion card's actions was pressed. `via` separates the card body from the button. */
 export function captureScoutSuggestionClicked(params: {
     kind: ScoutSuggestionKind
     skillName: string
     target: ScoutSuggestionClickTarget
+    via: ScoutSuggestionClickVia
     surface: ScoutSuggestionSurface
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED, {
         suggestion_kind: params.kind,
         skill_name: params.skillName,
         click_target: params.target,
+        via: params.via,
         surface: params.surface,
     })
 }

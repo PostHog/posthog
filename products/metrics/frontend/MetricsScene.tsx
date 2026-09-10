@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -22,7 +23,7 @@ import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogi
 import { MetricsViewer } from './components/MetricsViewer'
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
-import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
+import { DEFAULT_ACTIVE_TAB, MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
 export const METRICS_LOGIC_KEY = 'metrics'
 
@@ -55,6 +56,13 @@ export function MetricsScene(): JSX.Element {
 const MetricsSceneContent = (): JSX.Element => {
     const { activeTab } = useValues(metricsSceneLogic)
     const { setActiveTab } = useActions(metricsSceneLogic)
+    // Fundamentals checks the viewer's own reductions against the raw samples, so it is
+    // built for the people who work on the viewer rather than for the teams on the alpha.
+    const fundamentalsEnabled = useFeatureFlag('METRICS_FUNDAMENTALS')
+    const visibleTabs = fundamentalsEnabled ? TABS : TABS.filter((tab) => tab.key !== 'fundamentals')
+    // A guessed ?activeTab=fundamentals must not render the tab either, so fall back to the
+    // default tab instead of leaving the scene with no visible content.
+    const effectiveTab = activeTab === 'fundamentals' && !fundamentalsEnabled ? DEFAULT_ACTIVE_TAB : activeTab
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Viewer
@@ -106,23 +114,23 @@ const MetricsSceneContent = (): JSX.Element => {
                 Metrics is in alpha. Please share feedback on how to improve the product.
             </LemonBanner>
             <LemonTabs<MetricsSceneActiveTab>
-                activeKey={activeTab}
+                activeKey={effectiveTab}
                 onChange={(tab) => {
                     if (!tabDisabledReasons[tab]) {
                         setActiveTab(tab)
                     }
                 }}
-                tabs={TABS.map((tab) => ({
+                tabs={visibleTabs.map((tab) => ({
                     ...tab,
                     disabledReason: tabDisabledReasons[tab.key] ?? undefined,
                 }))}
                 sceneInset
             />
             <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                {activeTab === 'overview' && <MetricsOverview />}
-                {activeTab === 'viewer' && <MetricsViewer />}
-                {activeTab === 'sql' && <MetricsSqlEditor />}
-                {activeTab === 'fundamentals' && <MetricsFundamentals />}
+                {effectiveTab === 'overview' && <MetricsOverview />}
+                {effectiveTab === 'viewer' && <MetricsViewer />}
+                {effectiveTab === 'sql' && <MetricsSqlEditor />}
+                {effectiveTab === 'fundamentals' && <MetricsFundamentals />}
             </div>
         </>
     )

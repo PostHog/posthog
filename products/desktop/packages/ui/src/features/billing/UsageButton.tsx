@@ -16,6 +16,7 @@ import {
   ANALYTICS_EVENTS,
   type UpgradePromptClickedSurface,
 } from "@posthog/shared/analytics-events";
+import { settingsSourceHref } from "@posthog/ui/router/reportNavigation";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { track } from "../../shell/analytics";
@@ -122,6 +123,7 @@ export function UsageButton() {
               <Link
                 to="/settings/$category"
                 params={{ category: "plan-usage" }}
+                search={{ from: settingsSourceHref() }}
                 onClick={handleTriggerClick}
               />
             }

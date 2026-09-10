@@ -185,7 +185,7 @@ export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 export { movingAverageKey } from './charts/utils/derived-series'
 
 // Timeseries utils
-export { createXAxisTickCallback } from './utils/dates'
+export { createTooltipDateFormatter, createXAxisTickCallback } from './utils/dates'
 export type { TimeInterval } from './utils/dates'
 export { buildYTickFormatter } from './utils/y-formatters'
 export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'

@@ -16,6 +16,7 @@ import { MlBlockMetadataSink } from './ml-block-metadata-sink'
 import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 
 const SECRET = 'roundtrip-secret'
+const SESSION_A = '018bcfe5-6800-7000-8000-000000000001'
 
 const block = (sessionId: string, teamId: number, distinctId: string): SessionBlockMetadata => ({
     ...createNoopBlockMetadata(sessionId, teamId),
@@ -28,6 +29,32 @@ const block = (sessionId: string, teamId: number, distinctId: string): SessionBl
     clickCount: 1,
     urls: ['https://example.com/[redacted]'],
     snapshotSource: 'web',
+    replayIndexEntries: [
+        {
+            kind: 'page',
+            windowId: 'w1',
+            eventTimestamp: 1_700_000_000_001.5,
+            eventIndex: 0,
+            url: 'https://example.com/[redacted]',
+        },
+        { kind: 'full_snapshot', windowId: 'w1', eventTimestamp: 1_700_000_000_001.5, eventIndex: 1 },
+        {
+            kind: 'json_ld',
+            windowId: 'w1',
+            eventTimestamp: 1_700_000_000_001.5,
+            eventIndex: 2,
+            fullSnapshotTimestamp: 1_700_000_000_001.5,
+            rootTypes: ['Product'],
+        },
+        {
+            kind: 'page',
+            windowId: 'w1',
+            eventTimestamp: 1_700_000_000_001.5,
+            eventIndex: 2,
+            url: 'https://example.com/[redacted]',
+        },
+        { kind: 'json_ld', windowId: 'w1', eventTimestamp: 1_700_000_000_001.5, eventIndex: 3, rootTypes: ['Article'] },
+    ],
 })
 
 async function readRows(body: PutObjectCommandInput['Body']): Promise<Record<string, any>[]> {
@@ -56,7 +83,7 @@ describe('ML metadata producer → sink round-trip', () => {
         } as unknown as IngestionOutputs<MlBlockMetadataOutput>
 
         await new MlBlockMetadataSink(outputs, SECRET).storeSessionBlocks([
-            block('sess-A', 1, 'person-1'),
+            block(SESSION_A, 1, 'person-1'),
             block('sess-B', 2, 'person-2'),
         ])
         expect(produced).toHaveLength(2)
@@ -79,17 +106,35 @@ describe('ML metadata producer → sink round-trip', () => {
         await batcher.handleBatch(messages, 0)
         await batcher.flush(1) // force the window out
 
-        expect(puts).toHaveLength(1)
-        const rows = await readRows(puts[0].Body)
+        expect(puts).toHaveLength(4)
+        const labelPut = puts.find((put) => put.Key!.includes('kind=json_ld'))!
+        expect(labelPut.Key).toContain('session_start_date=2023-11-14')
+        const labels = await readRows(labelPut.Body)
+        expect(labels).toHaveLength(2)
+        expect(labels[1].url ?? null).toBeNull()
+        expect(labels[0]).toMatchObject({
+            session_id: pseudonymize(SECRET, PSEUDONYM_SESSION, SESSION_A),
+            window_id: 'w1',
+            event_index: 2,
+            full_snapshot_ts_ms: 1_700_000_000_001.5,
+            root_types: ['Product'],
+            url: 'https://example.com/[redacted]',
+        })
+        const snapshots = await readRows(puts.find((put) => put.Key!.includes('kind=full_snapshot'))!.Body)
+        expect(snapshots[0]).toMatchObject({ event_index: 1, url: 'https://example.com/[redacted]' })
+        const pages = await readRows(puts.find((put) => put.Key!.includes('kind=page'))!.Body)
+        expect(pages).toHaveLength(1)
+        expect(pages[0].event_index).toBe(0)
+        const rows = await readRows(puts.find((put) => put.Key!.startsWith('block-metadata/dt='))!.Body)
         expect(rows).toHaveLength(2)
 
         const bySession = new Map(rows.map((r) => [r.session_id, r]))
-        const a = bySession.get(pseudonymize(SECRET, PSEUDONYM_SESSION, 'sess-A'))!
+        const a = bySession.get(pseudonymize(SECRET, PSEUDONYM_SESSION, SESSION_A))!
         expect(a).toBeDefined()
         expect(a.team_id).toBe(pseudonymize(SECRET, PSEUDONYM_TEAM, '1'))
         expect(a.distinct_id).toBe(pseudonymize(SECRET, PSEUDONYM_DISTINCT_ID, 'person-1'))
         // Raw ids never survive the trip (BigInt-safe stringify, since INT64 fields read back as bigint).
-        expect(a.session_id).not.toBe('sess-A')
+        expect(a.session_id).not.toBe(SESSION_A)
         const serialized = JSON.stringify(a, (_key, value) => (typeof value === 'bigint' ? value.toString() : value))
         expect(serialized).not.toContain('person-1')
         // Real block fields round-trip through JSON → Parquet → read.

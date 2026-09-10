@@ -23,6 +23,7 @@ import {
     isNotebookPropValue,
     normalizeInlineMarks,
     normalizeInlineNodes,
+    seedNodeFingerprint,
 } from './utils'
 
 type BlockParseResult = {
@@ -1379,7 +1380,29 @@ function makeComponentFallbackParagraph(raw: string): NotebookTextBlockNode {
     }
 }
 
+// Parsing a component tag JSON-decodes its props and fingerprinting re-encodes them, so for a
+// cell that stores a result envelope both costs track the stored result, not the code. Every
+// document parse re-reads every tag, so an unchanged tag (identical raw source) reuses the
+// previously parsed node and its fingerprint. Prop objects are shared between the copies; that
+// is safe because parsed props are never mutated in place (edits build new props objects).
+// Evicted oldest-first under a total size budget, since one tag can carry large cached results.
+const COMPONENT_TAG_CACHE_MAX_ENTRIES = 512
+const COMPONENT_TAG_CACHE_MAX_TOTAL_CHARS = 16_000_000
+const componentTagCache = new Map<string, { node: NotebookComponentBlockNode; fingerprint: string }>()
+let componentTagCacheTotalChars = 0
+
 function parseComponentTag(raw: string): { node: NotebookComponentBlockNode | null; error?: NotebookParseError } {
+    const cached = componentTagCache.get(raw)
+    if (cached) {
+        componentTagCache.delete(raw)
+        componentTagCache.set(raw, cached)
+        // A shallow copy per use: the parse assigns each occurrence its own id, and the cached
+        // template must not see that (or any later startsGroup flag).
+        const node = { ...cached.node }
+        seedNodeFingerprint(node, cached.fingerprint)
+        return { node }
+    }
+
     const match = raw.match(/^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:\/>|>[\s\S]*<\/\1>)$/)
     if (!match) {
         return {
@@ -1393,16 +1416,28 @@ function parseComponentTag(raw: string): { node: NotebookComponentBlockNode | nu
     }
 
     const propParseResult = parseComponentProps(match[2] ?? '')
-    return {
-        node: {
-            id: '',
-            type: 'component',
-            tagName: match[1],
-            props: propParseResult.props,
-            raw,
-            errors: propParseResult.errors.length ? propParseResult.errors : undefined,
-        },
+    const node: NotebookComponentBlockNode = {
+        id: '',
+        type: 'component',
+        tagName: match[1],
+        props: propParseResult.props,
+        raw,
+        errors: propParseResult.errors.length ? propParseResult.errors : undefined,
     }
+    componentTagCache.set(raw, { node: { ...node }, fingerprint: getNodeFingerprint(node) })
+    componentTagCacheTotalChars += raw.length
+    while (
+        componentTagCache.size > COMPONENT_TAG_CACHE_MAX_ENTRIES ||
+        componentTagCacheTotalChars > COMPONENT_TAG_CACHE_MAX_TOTAL_CHARS
+    ) {
+        const oldestRaw = componentTagCache.keys().next().value
+        if (oldestRaw === undefined) {
+            break
+        }
+        componentTagCache.delete(oldestRaw)
+        componentTagCacheTotalChars -= oldestRaw.length
+    }
+    return { node }
 }
 
 function parseComponentProps(source: string): PropParseResult {
@@ -1640,6 +1675,11 @@ function getOrderedComponentPropEntries(props: NotebookComponentProps): [string,
     ]
 }
 
+// The whole tag re-serializes when any prop changes, so a big unchanged value (the result
+// envelope of a cell whose code is being typed into) would re-encode on every keystroke.
+// Keyed by object identity, which is safe because prop values are never mutated in place.
+const serializedPropObjectCache = new WeakMap<object, string>()
+
 function serializePropValue(value: NotebookPropValue): string {
     if (typeof value === 'string') {
         return JSON.stringify(value)
@@ -1647,7 +1687,13 @@ function serializePropValue(value: NotebookPropValue): string {
     if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
         return `{${String(value)}}`
     }
-    return `{${JSON.stringify(value)}}`
+    const cachedValue = serializedPropObjectCache.get(value)
+    if (cachedValue !== undefined) {
+        return cachedValue
+    }
+    const serialized = `{${JSON.stringify(value)}}`
+    serializedPropObjectCache.set(value, serialized)
+    return serialized
 }
 
 function serializeImageNode(node: NotebookComponentBlockNode): string {
