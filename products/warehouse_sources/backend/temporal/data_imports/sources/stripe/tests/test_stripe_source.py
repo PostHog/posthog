@@ -1593,12 +1593,23 @@ class TestRepinWebhookApiVersion:
         client.webhook_endpoints.create.return_value = SimpleNamespace(id="we_new", secret="whsec_new")
         return client
 
-    def test_replacement_is_pinned_and_keeps_the_old_endpoint(self):
+    @parameterized.expand(
+        [
+            ("subscription is copied", ["invoice.paid", "customer.created"], ["invoice.paid", "customer.created"]),
+            # An endpoint with nothing enabled must not come back subscribed to every Stripe event.
+            ("nothing enabled stays empty", [], []),
+        ]
+    )
+    def test_replacement_is_pinned_and_keeps_the_old_endpoint(
+        self, _name: str, enabled_events: list[str], expected_events: list[str]
+    ):
         # Stripe takes api_version on create only, so the endpoint has to be replaced. The old
         # endpoint must survive this call: its deliveries are the only ones that verify until the
         # caller stores the new signing secret.
         with patch.object(stripe_module, "StripeClient") as mock_client_cls:
-            client = self._client(mock_client_cls, self._endpoint(None))
+            endpoint = self._endpoint(None)
+            endpoint.enabled_events = enabled_events
+            client = self._client(mock_client_cls, endpoint)
 
             repin = stripe_module.create_pinned_webhook_replacement(
                 api_key="sk_test_123",
@@ -1610,7 +1621,7 @@ class TestRepinWebhookApiVersion:
         params = client.webhook_endpoints.create.call_args.kwargs["params"]
         assert params["api_version"] == STRIPE_API_VERSION_ACACIA
         assert params["url"] == self._URL
-        assert params["enabled_events"] == ["invoice.paid", "customer.created"]
+        assert params["enabled_events"] == expected_events
         client.webhook_endpoints.delete.assert_not_called()
 
         assert repin.status == "replaced"

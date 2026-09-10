@@ -1793,7 +1793,11 @@ def create_pinned_webhook_replacement(
             params={
                 "url": webhook_url,
                 # Carry the live subscription over, including any event the user added by hand.
-                "enabled_events": endpoint.enabled_events or _all_known_webhook_events(),  # type: ignore
+                # Only a missing list falls back, because an empty one that fell back would
+                # subscribe the replacement to every event the user had turned off.
+                "enabled_events": (  # type: ignore
+                    endpoint.enabled_events if endpoint.enabled_events is not None else _all_known_webhook_events()
+                ),
                 "description": endpoint.description or "PostHog data warehouse webhook",
                 "api_version": api_version,  # type: ignore[typeddict-item]
             }
