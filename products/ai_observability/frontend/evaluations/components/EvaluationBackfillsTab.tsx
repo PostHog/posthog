@@ -227,7 +227,7 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                         )} skipped`}
                     >
                         <div className="min-w-24">
-                            <span className="whitespace-nowrap">
+                            <span className="whitespace-nowrap" translate="no">
                                 {handled.toLocaleString('en-US')} / {backfill.total_count.toLocaleString('en-US')}
                             </span>
                             <LemonProgress
