@@ -353,9 +353,9 @@ tools:
             the returned files, then publish the complete project with canvas-publish-create, passing the
             `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten.
             Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds
-            the React component. `canvas.progressive_fragments_enabled` decides whether to publish the layout first
-            and the fragments after (true) or everything at once (false); see the building-canvases skill. Do not
-            decide from the request.
+            the React component. `canvas.progressive_fragments_enabled` decides whether to publish the layout first and
+            the fragments after (true) or everything at once (false); see the building-canvases skill. Do not decide
+            from the request.
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.
