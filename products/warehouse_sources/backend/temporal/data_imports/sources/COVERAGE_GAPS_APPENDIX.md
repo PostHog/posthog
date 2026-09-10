@@ -252,14 +252,14 @@ Note: Single /query endpoint parameterized by `function=`; the docs page exposes
 
 ## AmazonAds — **thin**
 
-Today (3): `profiles`, `sp_ad_groups`, `sp_campaigns`
+Today (7): `profiles`, `sp_ad_groups`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_product_ads`, `sp_targets`
 
 Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json>
 
-- [ ] `POST /reporting/reports then GET /reporting/reports/{reportId}` — async reporting v3 - impressions, clicks, spend, sales, ACOS; without it none of the synced entities have any performance metrics (high)
-- [ ] `POST /sp/productAds/list` — the ad (ASIN) level under the ad groups already synced (high)
-- [ ] `POST /sp/keywords/list` — keyword-level bids and state, the main optimization object (high)
-- [ ] `POST /sp/targets/list` — product and category targeting expressions with bids (high)
+- [x] `POST /reporting/reports then GET /reporting/reports/{reportId}` — async reporting v3 - impressions, clicks, spend, sales, ACOS; without it none of the synced entities have any performance metrics (high)
+- [x] `POST /sp/productAds/list` — the ad (ASIN) level under the ad groups already synced (high)
+- [x] `POST /sp/keywords/list` — keyword-level bids and state, the main optimization object (high)
+- [x] `POST /sp/targets/list` — product and category targeting expressions with bids (high)
 - [ ] `POST /portfolios/list` — lookup resolving the portfolioId carried on the campaigns already synced (high)
 - [ ] `POST /sb/... campaigns, ad groups, ads and targets (AmazonAdsAPISBMerged_prod_3p.json)` — Sponsored Brands entities are entirely absent, so spend coverage is partial (high)
 - [ ] `POST /sd/... campaigns, ad groups, product ads and targets (AmazonAdsAPISDMerged_prod_3p.json)` — Sponsored Display entities are entirely absent (high)
@@ -269,7 +269,7 @@ Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/Sponso
 - [ ] `POST /adsAccounts/list` — advertising account lookup above profiles, for multi-account rollups (medium)
 - [ ] `GET /invoices and POST /invoiceSummaries/list (Advertising Billing API)` — billed spend reconciliation against reported spend (medium)
 
-Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real spec index is https://d3a0d0y2hgofx6.cloudfront.net/en-us/toc2.json, which links ~130 OpenAPI documents. I also read OfflineReport_prod_3p.json, Portfolios_prod_3p.json, AmazonAdsAPIExports_prod_3p.json, Changehistory_prod_3p.json, AdvertisingBilling_prod_3p.json and AdvertisingAccounts_prod_3p.json. Note the source code already flags reporting as a known follow-up. Nearly all list endpoints are POST /.../list rather than GET.
+Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real spec index is https://d3a0d0y2hgofx6.cloudfront.net/en-us/toc2.json, which links ~130 OpenAPI documents. I also read OfflineReport_prod_3p.json, Portfolios_prod_3p.json, AmazonAdsAPIExports_prod_3p.json, Changehistory_prod_3p.json, AdvertisingBilling_prod_3p.json and AdvertisingAccounts_prod_3p.json. Nearly all list endpoints are POST /.../list rather than GET.
 
 ## Amplitude — gaps
 
