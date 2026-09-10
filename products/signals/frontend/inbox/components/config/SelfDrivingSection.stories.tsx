@@ -59,7 +59,7 @@ function Card({
                 slack_notification_min_priority: null,
                 github_assign_on_pull_request: githubAssign,
             },
-            '/api/environments/:team_id/integrations/': { results: integrations },
+            '/api/projects/:team_id/integrations/': { results: integrations },
         },
     })
     // Mimic the agents rail (`w-80` aside + the column's `px-4 py-3`) so the card lays out as in the scene.

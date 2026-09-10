@@ -9,6 +9,7 @@ recorded as a failure on the report instead, so the team can see the gap and fix
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -42,6 +43,11 @@ TRACKER_TARGET_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     Integration.IntegrationKind.LINEAR.value: ("team_id",),
     Integration.IntegrationKind.JIRA.value: ("project_key",),
 }
+
+# A GitHub repository name is interpolated into the issues path, so anything holding a path or
+# query character could steer an authenticated write to another endpoint. GitHub itself allows
+# only these characters in an owner or repository name.
+GITHUB_REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$")
 
 # Hidden in the rendered description, so re-running the cross-link never appends a second block.
 PR_BODY_MARKER_PREFIX = "posthog-self-driving-tracker-issue"
@@ -80,6 +86,16 @@ def tracker_issue_target_for_team(team_id: int) -> TrackerIssueTarget | None:
     return TrackerIssueTarget(integration=integration, config=config)
 
 
+def validated_github_repository(repository: str) -> str:
+    """The configured repository, or a validation error before any authenticated call goes out."""
+    name = str(repository).strip()
+    if not GITHUB_REPOSITORY_PATTERN.match(name):
+        raise DRFValidationError(
+            f"'{repository}' is not a GitHub repository name. Use 'repository' or 'organization/repository'."
+        )
+    return name
+
+
 def _issue_body(*, summary: str, report_url: str, repository: str) -> str:
     return (
         f"{summary}\n\n"
@@ -94,7 +110,11 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
     label = target.label
 
     if kind == Integration.IntegrationKind.GITHUB:
-        config: dict[str, Any] = {"repository": target.config["repository"], "title": title, "body": body}
+        config: dict[str, Any] = {
+            "repository": validated_github_repository(target.config["repository"]),
+            "title": title,
+            "body": body,
+        }
         if label:
             config["labels"] = [label]
         github = GitHubIntegration(target.integration)

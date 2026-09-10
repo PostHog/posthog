@@ -39,7 +39,7 @@ from .models import (
 )
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
-from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference
+from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, validated_github_repository
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -398,6 +398,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"issue_tracking_config": f"Missing required fields for {integration.kind}: {', '.join(missing)}."}
             )
+        # The repository reaches a GitHub path, so a name it cannot hold fails here rather than on
+        # every run.
+        if integration.kind == Integration.IntegrationKind.GITHUB:
+            try:
+                validated_github_repository(config["repository"])
+            except serializers.ValidationError as error:
+                raise serializers.ValidationError({"issue_tracking_config": error.detail})
         return attrs
 
     def validate_autostart_base_branches(self, value: dict) -> dict:

@@ -127,6 +127,16 @@ class TestClosePrWhenReportDismissed(BaseTest):
 
         mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, completed=True)
 
+    def test_deleting_a_report_enqueues_a_tracker_close(self):
+        # A deleted report never returns to the inbox, so its tracker issue would otherwise stay
+        # open with nothing left to answer it.
+        report = self._create_report()
+
+        with patch("products.signals.backend.receivers.close_report_tracker_issue") as mock_task:
+            self._save_transition(report, SignalReport.Status.DELETED)
+
+        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, completed=False)
+
     def test_pr_closed_webhook_does_not_enqueue_for_any_linked_report(self):
         reports = [self._create_report(), self._create_report()]
         for report in reports:

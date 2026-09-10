@@ -930,28 +930,28 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     while (hasNext) {
                         const res = await integrationsList(String(values.currentProjectId), { limit: 100, offset })
                         for (const integration of res.results) {
-                            const kind = integration.kind
-                            if (isKeyOf(kind, ICONS)) {
-                                integrations.push({
-                                    ...integration,
-                                    kind,
-                                    config: integration.config ?? {},
-                                    created_by: integration.created_by
-                                        ? {
-                                              id: integration.created_by.id,
-                                              uuid: integration.created_by.uuid,
-                                              distinct_id: integration.created_by.distinct_id ?? '',
-                                              first_name: integration.created_by.first_name ?? '',
-                                              last_name: integration.created_by.last_name,
-                                              email: integration.created_by.email,
-                                              is_email_verified: integration.created_by.is_email_verified,
-                                              role_at_organization: integration.created_by.role_at_organization,
-                                          }
-                                        : integration.created_by,
-                                    // TODO: Make the icons endpoint independent of hog functions
-                                    icon_url: ICONS[kind],
-                                })
-                            }
+                            // The API serves kinds this union does not name yet, and consumers such as
+                            // PosthogConnect read them, so every result is kept and only the icon is optional.
+                            const kind = integration.kind as IntegrationKind
+                            integrations.push({
+                                ...integration,
+                                kind,
+                                config: integration.config ?? {},
+                                created_by: integration.created_by
+                                    ? {
+                                          id: integration.created_by.id,
+                                          uuid: integration.created_by.uuid,
+                                          distinct_id: integration.created_by.distinct_id ?? '',
+                                          first_name: integration.created_by.first_name ?? '',
+                                          last_name: integration.created_by.last_name,
+                                          email: integration.created_by.email,
+                                          is_email_verified: integration.created_by.is_email_verified,
+                                          role_at_organization: integration.created_by.role_at_organization,
+                                      }
+                                    : integration.created_by,
+                                // TODO: Make the icons endpoint independent of hog functions
+                                icon_url: ICONS[kind],
+                            })
                         }
                         offset += res.results.length
                         hasNext = !!res.next && res.results.length > 0

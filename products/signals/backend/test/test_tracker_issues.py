@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -44,7 +45,7 @@ TRACKER_TARGETS = {
     "jira": {"project_key": "ENG"},
 }
 
-CREATED_CONTEXTS = {
+CREATED_CONTEXTS: dict[str, dict[str, Any]] = {
     "github": {"repository": "web", "number": 12},
     "gitlab": {"issue_id": 34},
     "linear": {"id": "ENG-123"},
@@ -66,7 +67,7 @@ EXPECTED_URLS = {
 }
 
 
-def _connect_tracker(team, kind: str) -> Integration:
+def _connect_tracker(team, kind: str, config: dict[str, Any] | None = None) -> Integration:
     integration = Integration.objects.create(
         team=team,
         kind=kind,
@@ -76,7 +77,10 @@ def _connect_tracker(team, kind: str) -> Integration:
     )
     SignalTeamConfig.objects.update_or_create(
         team=team,
-        defaults={"issue_tracking_integration": integration, "issue_tracking_config": TRACKER_TARGETS[kind]},
+        defaults={
+            "issue_tracking_integration": integration,
+            "issue_tracking_config": config if config is not None else TRACKER_TARGETS[kind],
+        },
     )
     return integration
 
@@ -279,6 +283,39 @@ def test_close_tracker_issue_task_retries_pending_or_failed_provider_close(team,
                 kwargs={"report_id": str(report.id), "team_id": team.id, "completed": False},
                 throw=True,
             )
+
+
+@pytest.mark.django_db
+def test_create_tracker_issue_refuses_a_repository_that_holds_a_path(team):
+    # The repository name reaches a GitHub path, so a value carrying path or query characters could
+    # point an authenticated write at another endpoint.
+    _connect_tracker(team, "github", config={"repository": "web/issues/1/comments?x="})
+    report = _make_report(team)
+
+    with patch.object(GitHubIntegration, "create_issue") as create_issue:
+        tracker = create_tracker_issue_for_report(team_id=team.id, report_id=str(report.id), repository="acme/web")
+
+    create_issue.assert_not_called()
+    assert tracker is not None
+    assert tracker.status == SignalReportTrackerIssue.Status.FAILED
+
+
+@pytest.mark.django_db
+def test_serializer_rejects_a_repository_that_holds_a_path(team):
+    integration = Integration.objects.create(
+        team=team, kind="github", integration_id="github-1", config=INTEGRATION_CONFIGS["github"]
+    )
+    serializer = SignalTeamConfigSerializer(
+        data={
+            "issue_tracking_integration": integration.id,
+            "issue_tracking_config": {"repository": "web/issues/1/comments?x="},
+        },
+        partial=True,
+        context={"team_id": team.id},
+    )
+
+    assert not serializer.is_valid()
+    assert "issue_tracking_config" in serializer.errors
 
 
 @pytest.mark.django_db

@@ -1192,7 +1192,7 @@ The create never raises. A provider failure is stored on the row as `status=fail
 
 Once the pull request exists, `link_report_tracker_issues` (scheduled from the task-run PR sync receiver) appends the reference to the pull request body, behind an HTML-comment marker so the append happens once. GitHub gets `Closes #n`; the other providers get the issue link. A Linear issue also gets the pull request as an attachment, best effort, because the scope for it may not be granted.
 
-Dismissing a report closes its tracker issue, through the same `close_dismissed_report_pr` task that closes the pull request. A failed run keeps its issue open: the report stays in the inbox, so the work item is still real.
+An irreversible end closes the tracker issue: a resolve asked for through the state API, a merged pull request (closed as done), or a deleted report. A suppressed or snoozed report keeps its issue open, because both come back, and so does a failed run, because its report stays in the inbox and the work item is still real.
 
 **Fleet steering in the task description** (`load_report_steering` in `backend/report_steering.py`).
 

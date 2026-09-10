@@ -140,8 +140,13 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
                 retry_needed
                 or SignalReportTrackerIssue.objects.for_team(team_id)
                 .filter(
+                    # PENDING counts too: a fast run can report its pull request while the
+                    # provider call is still in flight, and that issue still needs the reference.
                     report_id=report_id,
-                    status=SignalReportTrackerIssue.Status.CREATED,
+                    status__in=(
+                        SignalReportTrackerIssue.Status.CREATED,
+                        SignalReportTrackerIssue.Status.PENDING,
+                    ),
                     pr_linked_at__isnull=True,
                 )
                 .exists()
