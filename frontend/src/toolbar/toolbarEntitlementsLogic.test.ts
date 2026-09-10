@@ -131,6 +131,33 @@ describe('toolbarEntitlementsLogic', () => {
         jest.restoreAllMocks()
     })
 
+    it('disables an open heatmap when the rollout flag arrives after the menu opened', async () => {
+        let onFeatureFlags: (() => void) | undefined
+        jest.spyOn(toolbarPosthogJS, 'onFeatureFlags').mockImplementation((callback: any) => {
+            onFeatureFlags = callback
+            return () => {}
+        })
+        // The internal posthog instance bootstraps with no flags, so the gate reads as off
+        // until its own /flags response lands.
+        const getFeatureFlag = jest.spyOn(toolbarPosthogJS, 'getFeatureFlag').mockReturnValue(undefined)
+        logic.actions.loadEntitlementsSuccess({ toolbar_heatmaps: false })
+        const toolbar = toolbarLogic()
+        toolbar.mount()
+        const heatmap = heatmapToolbarMenuLogic()
+
+        toolbar.actions.setVisibleMenu('heatmap')
+        expect(heatmap.values.heatmapEnabled).toBe(true)
+
+        getFeatureFlag.mockReturnValue(true)
+        await expectLogic(toolbar, () => {
+            onFeatureFlags?.()
+        }).toFinishAllListeners()
+
+        expect(heatmap.values.heatmapEnabled).toBe(false)
+        toolbar.unmount()
+        jest.restoreAllMocks()
+    })
+
     it.each([true, false])('gates unmounted entitlement logic only when rollout is %s', (rolloutEnabled) => {
         initKeaTests()
         jest.spyOn(toolbarPosthogJS, 'getFeatureFlag').mockReturnValue(rolloutEnabled)

@@ -10,7 +10,7 @@ When the `toolbar-paid-heatmaps` rollout flag is enabled, toolbar heatmaps requi
 The toolbar button follows the same rule: it carries the lock badge only for an explicit `false`, and while the check is pending or failed its tooltip says that instead of asking for a subscription.
 That prompt also offers a recheck, so a user who upgrades in the billing tab unlocks the tool without reloading the page they are working on.
 
-Opening the heatmap menu while access is loading does not enable heatmaps. A confirmed entitlement enables the open menu; refreshing or losing that entitlement disables heatmaps. When the rollout flag is disabled, the toolbar retains its existing behavior.
+Opening the heatmap menu while access is loading does not enable heatmaps. A confirmed entitlement enables the open menu; refreshing or losing that entitlement disables heatmaps. A rollout flag that arrives after the menu opened reconciles the open heatmap the same way, so the page overlays cannot stay painted under the plan panel. When the rollout flag is disabled, the toolbar retains its existing behavior.
 
 This is a toolbar UI gate. The rollout flag does not add entitlement enforcement to the heatmap data endpoints.
 

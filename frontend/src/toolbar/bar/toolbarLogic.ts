@@ -260,6 +260,9 @@ export interface toolbarLogicActions {
     startGracefulExit: () => {
         value: true
     }
+    syncHeatmapGate: () => {
+        value: true
+    }
     syncWithHedgehog: () => {
         value: true
     }
@@ -413,6 +416,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setHedgehogModeEnabled: (hedgehogModeEnabled: boolean) => ({ hedgehogModeEnabled }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         syncWithHedgehog: true,
+        syncHeatmapGate: true,
         openHedgehogOptions: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
@@ -783,15 +787,21 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         },
         [toolbarEntitlementsLogic.actionTypes.loadEntitlementsSuccess]: () => {
-            if (values.visibleMenu === 'heatmap') {
-                const gated = isToolbarFeatureGated(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')
-                if (gated) {
-                    actions.disableHeatmap()
-                } else {
-                    actions.enableHeatmap()
-                }
-                values.getHedgehogActor()?.setOnFire(gated ? 0 : 1)
+            actions.syncHeatmapGate()
+        },
+        // Both halves of the gate move on their own: the entitlement arrives as an action, the
+        // rollout flag as a posthog-js callback. An open heatmap has to follow either one.
+        syncHeatmapGate: () => {
+            if (values.visibleMenu !== 'heatmap') {
+                return
             }
+            const gated = isToolbarFeatureGated(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')
+            if (gated) {
+                actions.disableHeatmap()
+            } else {
+                actions.enableHeatmap()
+            }
+            values.getHedgehogActor()?.setOnFire(gated ? 0 : 1)
         },
         setOAuthTokens: () => {
             if (values.minimized) {
@@ -1001,6 +1011,11 @@ export const toolbarLogic = kea<toolbarLogicType>([
         } catch {
             actions.setCspBlocksNewFunction(true)
         }
+
+        cache.disposables.add(
+            () => toolbarPosthogJS.onFeatureFlags(() => actions.syncHeatmapGate()),
+            'heatmapGateFlags'
+        )
 
         // Add window event listeners using disposables
         cache.disposables.add(() => {
