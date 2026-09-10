@@ -1056,6 +1056,9 @@ export interface surveyLogicActions {
                             string,
                             {
                                 backButtonText?: string | undefined
+                                introScreenButtonText?: string | undefined
+                                introScreenDescription?: string | undefined
+                                introScreenHeader?: string | undefined
                                 name?: string | undefined
                                 submitButtonText?: string | undefined
                                 thankYouMessageCloseButtonText?: string | undefined
@@ -1112,6 +1115,9 @@ export interface surveyLogicActions {
                             string,
                             {
                                 backButtonText?: string | undefined
+                                introScreenButtonText?: string | undefined
+                                introScreenDescription?: string | undefined
+                                introScreenHeader?: string | undefined
                                 name?: string | undefined
                                 submitButtonText?: string | undefined
                                 thankYouMessageCloseButtonText?: string | undefined
