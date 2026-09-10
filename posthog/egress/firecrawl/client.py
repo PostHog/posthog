@@ -278,7 +278,9 @@ def search_public_web(
     results: list[FirecrawlSearchResult] = []
     for value in web_results[:MAX_PUBLIC_RESEARCH_RESULTS]:
         item = _as_mapping(value)
-        raw_url = _as_str(item.get("url")) if item else None
+        if item is None:
+            continue
+        raw_url = _as_str(item.get("url"))
         if raw_url is None:
             continue
         try:

@@ -1,10 +1,9 @@
-"""Private bounded public-web research for proactive subscription analysis."""
+"""Business rules for bounded public-web subscription research."""
 
 from __future__ import annotations
 
 import hashlib
 
-from posthog.dataclasses import frozen
 from posthog.egress.firecrawl import (
     FirecrawlEgressBudgetExhausted,
     FirecrawlNotConfigured,
@@ -14,24 +13,12 @@ from posthog.egress.firecrawl import (
     search_public_web,
 )
 
+from products.subscriptions.backend.facade.contracts import PublicResearchCitation, PublicResearchResult
+
 _MAX_QUERY_CHARS = 500
 _MAX_CITATIONS = 3
 _MAX_TITLE_CHARS = 300
 _MAX_EXCERPT_CHARS = 2_000
-
-
-@frozen
-class PublicResearchCitation:
-    id: str
-    url: str
-    title: str
-    excerpt: str
-
-
-@frozen
-class PublicResearchResult:
-    citations: tuple[PublicResearchCitation, ...]
-    degradation: str | None = None
 
 
 def run_public_research(query: str) -> PublicResearchResult:

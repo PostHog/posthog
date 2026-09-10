@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from posthog.egress.firecrawl import FirecrawlNotConfigured
 
-from products.subscriptions.backend.facade.research import run_public_research
+from products.subscriptions.backend.facade.api import run_public_research
 
 
 def test_run_public_research_returns_only_three_bounded_citations(monkeypatch) -> None:
@@ -19,11 +19,11 @@ def test_run_public_research_returns_only_three_bounded_citations(monkeypatch) -
             self.markdown = "Useful evidence."
 
     monkeypatch.setattr(
-        "products.subscriptions.backend.facade.research.search_public_web",
+        "products.subscriptions.backend.logic.research.search_public_web",
         lambda *_, **__: tuple(SearchResult(f"https://example.com/{index}") for index in range(4)),
     )
     monkeypatch.setattr(
-        "products.subscriptions.backend.facade.research.scrape_public_url",
+        "products.subscriptions.backend.logic.research.scrape_public_url",
         lambda url, **_: Scrape(url),
     )
 
@@ -42,7 +42,7 @@ def test_run_public_research_degrades_when_firecrawl_is_not_configured(monkeypat
     def unavailable(*_, **__):
         raise FirecrawlNotConfigured("missing")
 
-    monkeypatch.setattr("products.subscriptions.backend.facade.research.search_public_web", unavailable)
+    monkeypatch.setattr("products.subscriptions.backend.logic.research.search_public_web", unavailable)
 
     result = run_public_research("Why did checkout conversion fall?")
 

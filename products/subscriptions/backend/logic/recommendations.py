@@ -1,15 +1,23 @@
-"""Typed, bounded contracts for proactive subscription recommendations."""
+"""Business rules for generating bounded proactive subscription recommendations."""
 
 from __future__ import annotations
 
 import re
 import hashlib
 from collections.abc import Mapping
-from typing import Literal
-from uuid import UUID
+from typing import Literal, cast
 
-from posthog.dataclasses import frozen
-
+from products.subscriptions.backend.facade.contracts import (
+    Recommendation,
+    RecommendationCitation,
+    RecommendationDegradation,
+    RecommendationEffort,
+    RecommendationGenerationHandle,
+    RecommendationGenerationInput,
+    RecommendationGenerationState,
+    RecommendationKind,
+    RecommendationResult,
+)
 from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
 from products.tasks.backend.facade.staged_execution import (
     PULSE_ANALYSIS_DISABLED_TOOLS,
@@ -17,85 +25,9 @@ from products.tasks.backend.facade.staged_execution import (
     CreatedStagedTask,
     CreateStagedTaskInput,
     StagedCapabilityManifest,
-    StagedRepositoryBinding,
     create_staged_task,
     read_staged_task_result,
 )
-
-RecommendationKind = Literal["product_change", "experiment", "instrumentation", "investigation"]
-RecommendationEffort = Literal["small", "medium", "large"]
-RecommendationStatus = Literal["pending", "completed", "failed"]
-
-
-@frozen
-class RecommendationContext:
-    id: str
-    content: str
-
-
-@frozen
-class RecommendationCitation:
-    id: str
-    title: str
-    url: str | None = None
-
-
-@frozen
-class Recommendation:
-    kind: RecommendationKind
-    title: str
-    rationale: str
-    target: str
-    why_now: str
-    confidence: float
-    effort: RecommendationEffort
-    metric_name: str
-    metric_direction: str
-    expected_metric_movement: str
-    citation_ids: tuple[str, ...]
-    semantic_key: str
-
-
-@frozen
-class RecommendationDegradation:
-    code: str
-    detail: str | None = None
-
-
-@frozen
-class RecommendationResult:
-    recommendations: tuple[Recommendation, ...]
-    citations: tuple[RecommendationCitation, ...]
-    degradations: tuple[RecommendationDegradation, ...] = ()
-
-
-@frozen
-class RecommendationGenerationInput:
-    team_id: int
-    subscription_id: int
-    delivery_id: UUID
-    actor_id: int
-    idempotency_key: str
-    report_markdown: str
-    prompt: str
-    contexts: tuple[RecommendationContext, ...]
-    public_web_research: bool
-    repository: StagedRepositoryBinding | None = None
-
-
-@frozen
-class RecommendationGenerationHandle:
-    staged_run_id: UUID
-    task_id: UUID
-    analysis_run_id: UUID
-
-
-@frozen
-class RecommendationGenerationState:
-    status: RecommendationStatus
-    result: RecommendationResult | None = None
-    failure_code: str | None = None
-
 
 _RECOMMENDATION_KINDS = {"product_change", "experiment", "instrumentation", "investigation"}
 _RECOMMENDATION_EFFORTS = {"small", "medium", "large"}
@@ -200,7 +132,7 @@ def start_recommendation_generation(input: RecommendationGenerationInput) -> Rec
                 phase="analysis",
                 mcp_scope_preset="pulse_analysis" if input.public_web_research else "pulse_analysis_no_research",
                 disabled_tools=PULSE_ANALYSIS_DISABLED_TOOLS,
-                network_egress=PULSE_ANALYSIS_NETWORK_EGRESS,
+                network_egress=cast(Literal["inherit", "posthog_mcp_only"], PULSE_ANALYSIS_NETWORK_EGRESS),
             ),
             repository=input.repository,
             output_schema=_RECOMMENDATION_OUTPUT_SCHEMA,
@@ -416,13 +348,13 @@ def _parse_recommendation(raw_recommendation: object) -> Recommendation:
     metric_name = _required_text(raw_recommendation, "metric_name")
     metric_direction = _required_text(raw_recommendation, "metric_direction")
     return Recommendation(
-        kind=kind,
+        kind=cast(RecommendationKind, kind),
         title=_required_text(raw_recommendation, "title"),
         rationale=_required_text(raw_recommendation, "rationale"),
         target=target,
         why_now=_required_text(raw_recommendation, "why_now"),
         confidence=float(confidence),
-        effort=effort,
+        effort=cast(RecommendationEffort, effort),
         metric_name=metric_name,
         metric_direction=metric_direction,
         expected_metric_movement=_required_text(raw_recommendation, "expected_metric_movement"),

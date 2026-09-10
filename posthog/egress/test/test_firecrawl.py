@@ -114,12 +114,16 @@ class TestFirecrawlEgress(SimpleTestCase):
         assert result.credits_used == 1
 
     def test_scrape_prefers_the_provider_final_url_for_redirect_validation(self) -> None:
+        scrape_data = _SUCCESSFUL_SCRAPE["data"]
+        assert isinstance(scrape_data, dict)
+        scrape_metadata = scrape_data["metadata"]
+        assert isinstance(scrape_metadata, dict)
         payload = {
             **_SUCCESSFUL_SCRAPE,
             "data": {
-                **_SUCCESSFUL_SCRAPE["data"],
+                **scrape_data,
                 "metadata": {
-                    **_SUCCESSFUL_SCRAPE["data"]["metadata"],
+                    **scrape_metadata,
                     "sourceURL": "https://example.com/requested",
                     "url": "https://example.com/final",
                 },

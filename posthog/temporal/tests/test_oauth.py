@@ -59,17 +59,30 @@ class TestResolveScopes(SimpleTestCase):
     def test_pulse_analysis_preset_is_server_marked_and_read_only(self) -> None:
         result = resolve_scopes("pulse_analysis")
 
-        assert PULSE_ANALYSIS_INTERNAL_SCOPE in result
-        assert PULSE_RESEARCH_INTERNAL_SCOPE in result
-        assert "task:write" in result
-        assert not (set(result) & (set(MCP_WRITE_SCOPES) - {"task:write"}))
+        assert set(result) == {
+            "event_definition:read",
+            "insight:read",
+            "internal_run:read",
+            "llm_gateway:read",
+            "property_definition:read",
+            "query:read",
+            PULSE_ANALYSIS_INTERNAL_SCOPE,
+            PULSE_RESEARCH_INTERNAL_SCOPE,
+        }
         assert not has_write_scopes("pulse_analysis")
 
     def test_pulse_analysis_without_research_omits_its_tool_scope(self) -> None:
         result = resolve_scopes("pulse_analysis_no_research")
 
-        assert PULSE_ANALYSIS_INTERNAL_SCOPE in result
-        assert PULSE_RESEARCH_INTERNAL_SCOPE not in result
+        assert set(result) == {
+            "event_definition:read",
+            "insight:read",
+            "internal_run:read",
+            "llm_gateway:read",
+            "property_definition:read",
+            "query:read",
+            PULSE_ANALYSIS_INTERNAL_SCOPE,
+        }
         assert not has_write_scopes("pulse_analysis_no_research")
 
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:

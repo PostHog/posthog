@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+from django.conf import settings
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -14,7 +16,8 @@ from posthog.oauth_provenance import get_oauth_access_token
 from posthog.permissions import APIScopePermission
 from posthog.temporal.oauth import PULSE_RESEARCH_INTERNAL_SCOPE
 
-from products.subscriptions.backend.facade.research import PublicResearchResult, run_public_research
+from products.subscriptions.backend.facade.api import run_public_research
+from products.subscriptions.backend.facade.contracts import PublicResearchResult
 from products.subscriptions.backend.presentation.serializers import (
     PulseResearchRequestSerializer,
     PulseResearchResponseSerializer,
@@ -34,6 +37,9 @@ class PulseResearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=PulseResearchRequestSerializer, responses={200: PulseResearchResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=[PULSE_RESEARCH_INTERNAL_SCOPE])
     def search(self, request: Request, team_id: int) -> Response:
+        if not settings.PULSE_PROACTIVE_ENABLED or not settings.PULSE_PUBLIC_RESEARCH_ENABLED:
+            raise PermissionDenied("Pulse public research is disabled.")
+
         access_token = get_oauth_access_token(request)
         scopes = set((getattr(access_token, "scope", "") or "").split())
         if PULSE_RESEARCH_INTERNAL_SCOPE not in scopes or getattr(access_token, "sandbox_task_id", None) is None:

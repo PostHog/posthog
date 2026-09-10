@@ -4,14 +4,16 @@ from uuid import uuid4
 
 import pytest
 
-from products.subscriptions.backend.facade.recommendations import (
+from products.subscriptions.backend.facade.api import (
+    parse_recommendation_result,
+    read_recommendation_generation,
+    start_recommendation_generation,
+)
+from products.subscriptions.backend.facade.contracts import (
     RecommendationCitation,
     RecommendationContext,
     RecommendationDegradation,
     RecommendationGenerationInput,
-    parse_recommendation_result,
-    read_recommendation_generation,
-    start_recommendation_generation,
 )
 from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
 from products.tasks.backend.facade.staged_execution import StagedTaskResult
@@ -93,7 +95,7 @@ def test_start_recommendation_generation_uses_the_fixed_pulse_analysis_posture(m
         captured_input = input
         return type("Created", (), {"staged_run_id": uuid4(), "task_id": uuid4(), "analysis_run_id": uuid4()})()
 
-    monkeypatch.setattr("products.subscriptions.backend.facade.recommendations.create_staged_task", create)
+    monkeypatch.setattr("products.subscriptions.backend.logic.recommendations.create_staged_task", create)
     delivery_id = uuid4()
 
     handle = start_recommendation_generation(
@@ -111,6 +113,7 @@ def test_start_recommendation_generation_uses_the_fixed_pulse_analysis_posture(m
     )
 
     assert handle.staged_run_id
+    assert captured_input is not None
     assert captured_input.caller_id == delivery_id
     assert captured_input.origin_product == "pulse_subscription"
     assert captured_input.analysis_manifest.mcp_scope_preset == "pulse_analysis"
@@ -129,7 +132,7 @@ def test_start_recommendation_generation_omits_the_research_tool_when_opted_out(
         captured_input = input
         return type("Created", (), {"staged_run_id": uuid4(), "task_id": uuid4(), "analysis_run_id": uuid4()})()
 
-    monkeypatch.setattr("products.subscriptions.backend.facade.recommendations.create_staged_task", create)
+    monkeypatch.setattr("products.subscriptions.backend.logic.recommendations.create_staged_task", create)
 
     start_recommendation_generation(
         RecommendationGenerationInput(
@@ -145,6 +148,7 @@ def test_start_recommendation_generation_omits_the_research_tool_when_opted_out(
         )
     )
 
+    assert captured_input is not None
     assert captured_input.analysis_manifest.mcp_scope_preset == "pulse_analysis_no_research"
 
 
@@ -176,7 +180,7 @@ def test_start_recommendation_generation_rejects_ambiguous_context_evidence(
 
 def test_read_recommendation_generation_accepts_only_bound_completed_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "products.subscriptions.backend.facade.recommendations.read_staged_task_result",
+        "products.subscriptions.backend.logic.recommendations.read_staged_task_result",
         lambda **_: StagedTaskResult(
             status="completed",
             output={"recommendations": [_recommendation(citation_ids=["mcp:call-1"])]},
@@ -215,7 +219,7 @@ def test_read_recommendation_generation_accepts_only_bound_completed_evidence(mo
 
 def test_read_recommendation_generation_uses_completed_research_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "products.subscriptions.backend.facade.recommendations.read_staged_task_result",
+        "products.subscriptions.backend.logic.recommendations.read_staged_task_result",
         lambda **_: StagedTaskResult(
             status="completed",
             output={"recommendations": [], "degradations": [{"code": "not_configured"}]},
@@ -258,7 +262,7 @@ def test_read_recommendation_generation_accepts_only_completed_research_web_cita
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "products.subscriptions.backend.facade.recommendations.read_staged_task_result",
+        "products.subscriptions.backend.logic.recommendations.read_staged_task_result",
         lambda **_: StagedTaskResult(
             status="completed",
             output={
