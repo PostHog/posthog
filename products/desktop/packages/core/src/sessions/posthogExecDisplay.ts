@@ -19,8 +19,8 @@ export function isPostHogExecTool(toolName: string): boolean {
 export function getPostHogExecDisplay(
   toolInput: unknown,
 ): PostHogExecDisplay | null {
-  if (!toolInput || typeof toolInput !== "object") return null;
-  const input = toolInput as { command?: unknown; input?: unknown };
+  const input = readExecToolInput(toolInput);
+  if (!input) return null;
   if (typeof input.command !== "string") return null;
   const match = input.command.match(POSTHOG_VERB_RE);
   if (!match) return null;
@@ -58,6 +58,35 @@ export function getPostHogExecDisplay(
       };
     }
   }
+}
+
+/**
+ * Accept the exec arguments directly (`{command, input}`) or wrapped in the
+ * desktop Pi harness's `mcp` proxy tool (`{tool: "exec", args: "<json>"}`),
+ * where the real arguments arrive as a JSON-encoded string.
+ */
+function readExecToolInput(
+  toolInput: unknown,
+): { command?: unknown; input?: unknown } | null {
+  if (!toolInput || typeof toolInput !== "object") return null;
+  const candidate = toolInput as {
+    command?: unknown;
+    input?: unknown;
+    tool?: unknown;
+    args?: unknown;
+  };
+  if (typeof candidate.command === "string") return candidate;
+  if (candidate.tool === "exec" && typeof candidate.args === "string") {
+    try {
+      const parsed: unknown = JSON.parse(candidate.args);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as { command?: unknown; input?: unknown };
+      }
+    } catch {
+      // Not valid JSON: the caller's args cannot hold an exec command.
+    }
+  }
+  return null;
 }
 
 function readExplicitInput(value: unknown): string | undefined {
