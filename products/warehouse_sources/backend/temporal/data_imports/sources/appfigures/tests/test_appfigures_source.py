@@ -22,11 +22,13 @@ class TestAppfiguresSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
 
-    def test_products_is_full_refresh_reports_and_reviews_incremental(self):
+    def test_catalog_and_lookup_tables_are_full_refresh_dated_tables_incremental(self):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["products"].supports_incremental is False
-        assert schemas["products"].incremental_fields == []
-        for name in ("reviews", "sales_report", "revenue_report"):
+        # The product catalog and the /data lookups have no server-side date filter to drive.
+        for name in ("products", "stores", "categories", "countries"):
+            assert schemas[name].supports_incremental is False
+            assert schemas[name].incremental_fields == []
+        for name in ("reviews", "sales_report", "revenue_report", "subscriptions_report", "ratings_report", "ranks"):
             assert schemas[name].supports_incremental is True
             assert [f["field"] for f in schemas[name].incremental_fields] == ["date"]
 
@@ -61,13 +63,22 @@ class TestAppfiguresSource:
             ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
             assert ok is expected_ok
 
-    def test_validate_credentials_probes_schema_specific_path(self):
+    @pytest.mark.parametrize(
+        "schema_name,expected_path",
+        [
+            ("reviews", "/reviews"),
+            # /ranks takes product ids in its path, so it can't be requested as-is. It shares the
+            # `public:read` grant with reviews, so reviews is what gets probed.
+            ("ranks", "/reviews"),
+        ],
+    )
+    def test_validate_credentials_probes_schema_specific_path(self, schema_name: str, expected_path: str):
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.source.check_credentials",
             return_value=200,
         ) as probe:
-            self.source.validate_credentials(self.config, self.team_id, schema_name="reviews")
-            probe.assert_called_once_with("pat_test", "/reviews")
+            self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+            probe.assert_called_once_with("pat_test", expected_path)
 
     def test_validate_credentials_defaults_to_products_path(self):
         with mock.patch(

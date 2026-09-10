@@ -59,6 +59,46 @@ const DEFAULT_STOP_TIMEOUT_MS = 30_000;
 const DEFAULT_STREAM_WINDOW_MS = 5 * 60 * 1_000;
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function omitToolAppData(
+  event: Record<string, unknown>,
+): Record<string, unknown> {
+  const notification = asRecord(event.notification);
+  const params = asRecord(notification?.params);
+  const update = asRecord(params?.update);
+  const rawOutput = asRecord(update?.rawOutput);
+  const meta = asRecord(rawOutput?._meta);
+  const appDataKey = "com.posthog.mcp/app_data";
+  if (
+    notification?.method !== "session/update" ||
+    !params ||
+    !update ||
+    !["tool_call", "tool_call_update"].includes(String(update.sessionUpdate)) ||
+    !rawOutput ||
+    !meta ||
+    !(appDataKey in meta)
+  ) {
+    return event;
+  }
+  const trimmedMeta = { ...meta };
+  delete trimmedMeta[appDataKey];
+  return {
+    ...event,
+    notification: {
+      ...notification,
+      params: {
+        ...params,
+        update: { ...update, rawOutput: { ...rawOutput, _meta: trimmedMeta } },
+      },
+    },
+  };
+}
+
 export class TaskRunEventStreamSender {
   private readonly ingestUrl: string;
   private readonly maxBufferedEvents: number;
@@ -123,13 +163,14 @@ export class TaskRunEventStreamSender {
   enqueue(event: Record<string, unknown>): void {
     if (this.stopped) return;
 
-    if (!this.canAcceptEvent(event)) {
+    const acceptedEvent = this.prepareEvent(event);
+    if (!acceptedEvent) {
       return;
     }
 
     const envelope: EventEnvelope = {
       seq: ++this.sequence,
-      event,
+      event: acceptedEvent,
     };
     this.bufferedEvents.push(envelope);
     this.scheduleFlush();
@@ -673,17 +714,29 @@ export class TaskRunEventStreamSender {
     }
   }
 
-  private canAcceptEvent(event: Record<string, unknown>): boolean {
-    const eventBytes = Buffer.byteLength(
+  private prepareEvent(
+    event: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    let eventBytes = Buffer.byteLength(
       this.serializeEnvelope({ seq: this.sequence + 1, event }),
       "utf8",
     );
+    if (eventBytes > this.maxEventBytes) {
+      const trimmedEvent = omitToolAppData(event);
+      if (trimmedEvent !== event) {
+        event = trimmedEvent;
+        eventBytes = Buffer.byteLength(
+          this.serializeEnvelope({ seq: this.sequence + 1, event }),
+          "utf8",
+        );
+      }
+    }
     if (eventBytes > this.maxEventBytes) {
       this.config.logger.warn("Dropped oversized task run event", {
         eventBytes,
         maxEventBytes: this.maxEventBytes,
       });
-      return false;
+      return null;
     }
 
     if (this.bufferedEvents.length >= this.maxBufferedEvents) {
@@ -700,7 +753,7 @@ export class TaskRunEventStreamSender {
           },
         );
       }
-      return false;
+      return null;
     }
 
     if (this.droppedBeforeSequenceCount > 0) {
@@ -710,7 +763,7 @@ export class TaskRunEventStreamSender {
       this.droppedBeforeSequenceCount = 0;
     }
 
-    return true;
+    return event;
   }
 
   private serializeEnvelope(envelope: EventEnvelope): string {
