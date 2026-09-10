@@ -1,4 +1,4 @@
-import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTypeType } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionType, HogFunctionTypeType } from '~/types'
 
 export type HogFunctionDeliveryType = 'batch' | 'realtime'
 
@@ -21,6 +21,25 @@ export function legacyPluginTemplateId(pluginUrl: string | undefined): string | 
     }
     const pluginId = pluginUrl.replace('inline://', '').replace('https://github.com/PostHog/', '')
     return `plugin-${PLUGIN_ID_OVERRIDES[pluginId] ?? pluginId}`
+}
+
+/**
+ * Drops a plugin config that a migrated legacy destination replaces, matching how the consumer picks
+ * between them. Only an enabled migrated row supersedes: disable it and the plugin config runs again,
+ * so it has to reappear rather than keep running out of sight.
+ */
+export function withoutSupersededPluginConfigs(
+    hogFunctions: HogFunctionType[],
+    manualFunctions: HogFunctionType[]
+): HogFunctionType[] {
+    const supersededTemplateIds = new Set(
+        hogFunctions
+            // The list serializer omits template_id and exposes the template's id instead
+            .filter((f) => f.type === 'legacy_destination' && f.enabled)
+            .map((f) => f.template_id ?? f.template?.id)
+            .filter(Boolean)
+    )
+    return manualFunctions.filter((f) => !supersededTemplateIds.has(f.template_id))
 }
 
 export function humanizeHogFunctionType(type: HogFunctionTypeType, plural: boolean = false): string {

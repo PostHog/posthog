@@ -1,6 +1,11 @@
-import { CyclotronJobInputSchemaType } from '~/types'
+import { CyclotronJobInputSchemaType, HogFunctionType } from '~/types'
 
-import { getHogFunctionDeliveryType, legacyPluginTemplateId, redactSecretHogFunctionInputs } from './hog-function-utils'
+import {
+    getHogFunctionDeliveryType,
+    legacyPluginTemplateId,
+    redactSecretHogFunctionInputs,
+    withoutSupersededPluginConfigs,
+} from './hog-function-utils'
 
 // The diff-builder test covers schema-marked secrets end to end; this covers the entry-marked branch
 // (a saved secret carries `secret: true` on the input entry itself, with no schema flag needed).
@@ -40,5 +45,29 @@ describe('legacyPluginTemplateId', () => {
         [undefined, undefined],
     ])('maps %s to %s', (url, expected) => {
         expect(legacyPluginTemplateId(url)).toBe(expected)
+    })
+})
+
+describe('withoutSupersededPluginConfigs', () => {
+    const pluginConfig = { id: 'plugin-1', template_id: 'plugin-customerio-plugin' } as HogFunctionType
+    const migrated = (enabled: boolean): HogFunctionType =>
+        ({
+            id: 'hf-1',
+            type: 'legacy_destination',
+            template_id: 'plugin-customerio-plugin',
+            enabled,
+        }) as HogFunctionType
+
+    it('hides a plugin config an enabled migrated destination replaces', () => {
+        expect(withoutSupersededPluginConfigs([migrated(true)], [pluginConfig])).toEqual([])
+    })
+
+    it('keeps the plugin config when the migrated destination is disabled, because it runs again', () => {
+        expect(withoutSupersededPluginConfigs([migrated(false)], [pluginConfig])).toEqual([pluginConfig])
+    })
+
+    it('keeps a plugin config no migrated destination covers', () => {
+        const other = { id: 'plugin-2', template_id: 'plugin-hubspot-plugin' } as HogFunctionType
+        expect(withoutSupersededPluginConfigs([migrated(true)], [other])).toEqual([other])
     })
 })

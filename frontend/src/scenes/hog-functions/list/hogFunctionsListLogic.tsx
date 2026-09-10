@@ -16,7 +16,11 @@ import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { AvailableFeature } from '../../../types'
-import { HogFunctionDeliveryType, getHogFunctionDeliveryType } from '../hog-function-utils'
+import {
+    HogFunctionDeliveryType,
+    getHogFunctionDeliveryType,
+    withoutSupersededPluginConfigs,
+} from '../hog-function-utils'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 const EMPTY_MANUAL_FUNCTIONS: HogFunctionType[] = []
@@ -326,17 +330,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 manualFunctions: HogFunctionType[]
             ): HogFunctionType[] => {
                 const search = filters.search?.trim().toLowerCase()
-                // A migrated legacy_destination supersedes the plugin config it came from, and only
-                // the hog function runs. The plugin config stays enabled as the rollback, so drop it
-                // here rather than listing a row that does nothing.
-                // The list serializer omits template_id and exposes the template's id instead
-                const supersededTemplateIds = new Set(
-                    hogFunctions
-                        .filter((f) => f.type === 'legacy_destination')
-                        .map((f) => f.template_id ?? f.template?.id)
-                        .filter(Boolean)
-                )
-                const liveManual = manualFunctions.filter((f) => !supersededTemplateIds.has(f.template_id))
+                const liveManual = withoutSupersededPluginConfigs(hogFunctions, manualFunctions)
                 const filteredManual = search
                     ? liveManual.filter(
                           (f) => f.name?.toLowerCase().includes(search) || f.description?.toLowerCase().includes(search)
