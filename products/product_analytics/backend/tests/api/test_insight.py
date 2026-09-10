@@ -143,6 +143,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "query")
 
+    def test_updating_an_insight_to_remove_its_query_is_rejected(self) -> None:
+        # An explicit null used to be written, which erased the stored definition.
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Query insight",
+            query=default_pageview_query(),
+        )
+        stored_query = Insight.objects.get(pk=insight.pk).query
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}/", {"query": None})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "query")
+        self.assertEqual(Insight.objects.get(pk=insight.pk).query, stored_query)
+
     def test_creating_query_insight_is_allowed(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",
