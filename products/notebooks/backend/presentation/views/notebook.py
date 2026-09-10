@@ -70,6 +70,17 @@ from products.notebooks.backend.facade.compute_pricing import (
     get_compute_rates,
 )
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.notebook_run import (
+    NotebookRunAlreadyRunning,
+    NotebookRunInput,
+    NotebookRunNothingToRun,
+    finish_notebook_run,
+    get_notebook_run,
+    interrupt_notebook_run,
+    notebook_run_status,
+    start_notebook_run,
+    start_notebook_run_workflow,
+)
 from products.notebooks.backend.facade.sql_v2 import (
     NodeRunDispatchFailed,
     NodeRunInvalid,
@@ -95,15 +106,6 @@ from products.notebooks.backend.facade.widgets import (
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun, NotebookRun
-from products.notebooks.backend.notebook_run import (
-    NotebookRunAlreadyRunning,
-    NotebookRunNothingToRun,
-    finish_notebook_run,
-    get_notebook_run,
-    interrupt_notebook_run,
-    notebook_run_status,
-    start_notebook_run,
-)
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
     WidgetErrorSerializer,
@@ -157,7 +159,6 @@ from products.notebooks.backend.sql_v2_state import (
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import build_notebook_variables
-from products.notebooks.backend.temporal.notebook_run import NotebookRunInput, start_notebook_run_workflow
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
