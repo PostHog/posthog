@@ -2137,12 +2137,21 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     """
     deleted = clear_workspace_profile_cache(slack_team_id)
     logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
-    # Each region captures against its own rows, so a dual-owned workspace reports the
-    # uninstall once per region; `was_proxied` lets analysis separate the mirrored copy.
-    for uninstalled in Integration.objects.filter(
-        kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-    ).select_related("team", "team__organization"):
-        capture_slack_event(uninstalled, "slack app uninstalled", was_proxied=was_proxied(request))
+    # A workspace linked to several projects matches several rows, but the uninstall is
+    # one act: capture once per region so plain event counts stay honest, with
+    # `linked_project_count` carrying how many links it severed.
+    linked_integrations = list(
+        Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id)
+        .select_related("team", "team__organization")
+        .order_by("id")
+    )
+    if linked_integrations:
+        capture_slack_event(
+            linked_integrations[0],
+            "slack app uninstalled",
+            was_proxied=was_proxied(request),
+            linked_project_count=len(linked_integrations),
+        )
     if not was_proxied(request) and cross_region_routing_enabled():
         _proxy_event_to_region(request, other_region_domain(request.get_host()))
     return ROUTE_HANDLED_LOCALLY
@@ -3358,15 +3367,26 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
     """Drop the message the replier declined. Nothing is persisted — the choice
     covers this one message, not the thread."""
     context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
     if context_token:
         cache.delete(_picker_context_cache_key(context_token))
     _delete_ephemeral_via_response_url(payload.get("response_url", ""))
+    # Only a live untagged-followup context names the integration that raised the prompt,
+    # so resolving it there matches the confirm path's attribution instead of an
+    # arbitrary row of a multi-project workspace.
+    if not context or context.get("kind") != UNTAGGED_FOLLOWUP_CONTEXT_KIND:
+        return HttpResponse(status=200)
     slack_team_id = payload.get("team", {}).get("id", "")
+    integration_id = context.get("integration_id")
     dismissing_integration = (
-        Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id)
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
         .select_related("team", "team__organization")
         .first()
-        if slack_team_id
+        if integration_id and slack_team_id
         else None
     )
     if dismissing_integration is not None:

@@ -78,13 +78,24 @@ def _settings_redirect(*, error: str | None = None) -> HttpResponseRedirect:
     return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?{urlencode(param)}")
 
 
-def _link_failed(integration: Integration, reason: str, *, slack_user_id: str | None = None) -> HttpResponseRedirect:
+def _link_failed(
+    integration: Integration,
+    reason: str,
+    *,
+    slack_user_id: str | None = None,
+    posthog_user: User | None = None,
+) -> HttpResponseRedirect:
     """Report a link attempt that got far enough to name a workspace, then bounce to settings.
 
     Failures before the workspace lookup stay uncaptured — there is no integration to
-    attribute them to.
+    attribute them to. ``posthog_user`` keys the failure to the same distinct id a later
+    success would use, so one person's linking funnel doesn't split across ids; pass it
+    only once the state's session check has proven the requester initiated the flow,
+    because before that ``request.user`` may be a victim of a forwarded callback URL.
     """
-    capture_slack_event(integration, "slack app user link failed", slack_user_id=slack_user_id, reason=reason)
+    capture_slack_event(
+        integration, "slack app user link failed", slack_user_id=slack_user_id, posthog_user=posthog_user, reason=reason
+    )
     return _settings_redirect(error=reason)
 
 
@@ -230,7 +241,9 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
             posthog_team_id=workspace_integration.team_id,
             organization_id=workspace_integration.team.organization_id,
         )
-        return _link_failed(workspace_integration, "org_mismatch", slack_user_id=identity.slack_user_id)
+        return _link_failed(
+            workspace_integration, "org_mismatch", slack_user_id=identity.slack_user_id, posthog_user=posthog_user
+        )
 
     user_slack_integration_from_identity(
         posthog_user,
