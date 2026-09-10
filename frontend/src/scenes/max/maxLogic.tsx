@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import { IconBook } from '@posthog/icons'
 
 import api from 'lib/api'
+import { isUnactionableRequestFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -843,6 +844,11 @@ export const maxLogic = kea<maxLogicType>([
                     return
                 }
 
+                // Polled in the background while the chat catches up, so a failure nobody can act
+                // on would toast once per tick.
+                if (isUnactionableRequestFailure(err)) {
+                    return
+                }
                 lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
             }
 

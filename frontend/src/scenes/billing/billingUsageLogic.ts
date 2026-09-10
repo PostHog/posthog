@@ -117,6 +117,12 @@ export interface BillingUsageLogicProps {
     dateFrom?: string
     dateTo?: string
     syncWithUrl?: boolean // Default false - only intended on usage and spend pages
+    /**
+     * Load billing data as background material rather than as a page. A failure then contributes
+     * nothing and raises nothing: no error state, no toast, and no rethrow. Set it where there is
+     * no page to render guidance in and nobody asked for the request.
+     */
+    quiet?: boolean
 }
 
 /**
@@ -470,7 +476,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         resetFilters: true,
         setBillingUsageError: (error: BillingUsageError | null) => ({ error }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         teamIdOptions: [
             [] as number[],
             {
@@ -527,6 +533,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         // Past what it can hold it refuses with guidance, which the catch below shows.
                         return await api.get(`api/billing/usage/?${toParams(params)}`)
                     } catch (error) {
+                        if (props.quiet) {
+                            return null
+                        }
                         const billingUsageError = getBillingUsageError(error)
                         const isActionable =
                             !!billingUsageError && ACTIONABLE_BILLING_ERROR_CODES.includes(billingUsageError.code)

@@ -81,6 +81,21 @@ export function isScopeNotFoundError(error: unknown): boolean {
     return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
 }
 
+/**
+ * A failure that tells the person nothing they can act on: the browser never completed the
+ * request, a gateway could not reach the backend, or the scope in the URL no longer resolves.
+ *
+ * Made for a background fetch - one the person did not ask for, on a surface that already has an
+ * empty state. Such a fetch should stay quiet for these and toast only what is left. A fetch the
+ * person started keeps toasting, because there the silence would look like the action did nothing.
+ */
+export function isUnactionableRequestFailure(error: unknown): boolean {
+    if (error instanceof NetworkError) {
+        return true
+    }
+    return isTransientGatewayStatus((error as { status?: number } | null)?.status) || isScopeNotFoundError(error)
+}
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',

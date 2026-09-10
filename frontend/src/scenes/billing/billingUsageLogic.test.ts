@@ -184,6 +184,30 @@ describe('billingUsageLogic loader', () => {
         })
         expect(toastErrorSpy).not.toHaveBeenCalled()
     })
+
+    it('stays quiet on failure when it loads as background context', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [200, billingJson],
+                '/api/billing/usage/': () => [500, { detail: 'A server error occurred.' }],
+            },
+        })
+
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+        logic = billingUsageLogic({ dashboardItemId: 'background', quiet: true })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadBillingUsageSuccess'])
+            .toNotHaveDispatchedActions(['loadBillingUsageFailure'])
+            .toFinishAllListeners()
+
+        expect(logic.values.billingUsageResponse).toBeNull()
+        expect(logic.values.billingUsageError).toBeNull()
+        expect(toastErrorSpy).not.toHaveBeenCalled()
+    })
 })
 
 describe('billingUsageLogic series toggling', () => {

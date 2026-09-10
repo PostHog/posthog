@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
@@ -293,6 +294,45 @@ describe('billing spend load triggers', () => {
         expect(logic.values.dateFrom).toEqual('yStart')
         expect(logic.values.dateTo).toBeNull()
         expect(endDates[endDates.length - 1]).toEqual(dayjs().subtract(1, 'day').format('YYYY-MM-DD'))
+    })
+})
+
+describe('billingSpendLogic background context', () => {
+    let logic: ReturnType<typeof billingSpendLogic.build>
+    let toastErrorSpy: jest.SpyInstance
+
+    beforeEach(() => {
+        initKeaTests()
+        toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        toastErrorSpy.mockRestore()
+    })
+
+    it('stays quiet on failure when it loads as background context', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [200, billingJson],
+                '/api/billing/spend/': () => [500, { detail: 'A server error occurred.' }],
+            },
+        })
+
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+        logic = billingSpendLogic({ dashboardItemId: 'background', quiet: true })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadBillingSpendSuccess'])
+            .toNotHaveDispatchedActions(['loadBillingSpendFailure'])
+            .toFinishAllListeners()
+
+        expect(logic.values.billingSpendResponse).toBeNull()
+        expect(logic.values.billingSpendError).toBeNull()
+        expect(toastErrorSpy).not.toHaveBeenCalled()
     })
 })
 
