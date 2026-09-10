@@ -107,6 +107,31 @@ describe('notebookRunLogic', () => {
         operations.unmount()
     })
 
+    it('rides out a transient status failure without dropping the run', async () => {
+        // The backend keeps running whether or not one poll lands, so a blip must not leave
+        // the UI stuck on Stop with the notebook held.
+        jest.mocked(notebooksRunsRetrieve).mockResolvedValueOnce(
+            runStatus('running', [cell('s1', 'running', 'cell-1')])
+        )
+        logic = notebookRunLogic({ shortId: SHORT_ID })
+        logic.mount()
+        const operations = notebookOperationsLogic({ shortId: SHORT_ID })
+        operations.mount()
+        await expectLogic(logic, () => logic!.actions.startRun()).toDispatchActions(['setRun'])
+
+        jest.mocked(notebooksRunsRetrieve).mockRejectedValueOnce(new Error('network blip'))
+        await expectLogic(logic, () => logic!.actions.pollRun()).toFinishAllListeners()
+
+        expect(logic.values.isRunning).toBe(true)
+        expect(operations.values.isBusy).toBe(true)
+
+        jest.mocked(notebooksRunsRetrieve).mockResolvedValueOnce(runStatus('done', [cell('s1', 'done', 'cell-1')]))
+        await expectLogic(logic, () => logic!.actions.pollRun()).toDispatchActions(['runFinished'])
+        expect(operations.values.isBusy).toBe(false)
+
+        operations.unmount()
+    })
+
     it('reports a failed run against the cell that stopped it', async () => {
         jest.mocked(notebooksRunsRetrieve).mockResolvedValueOnce(
             runStatus('failed', [cell('s1', 'failed', 'cell-1'), cell('p1', null, null)], {
