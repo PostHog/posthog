@@ -20,20 +20,18 @@ owns everything around the scripts: materializing the leak-free feature matrices
 (via labeling.py), serialization to parquet, sandbox lifecycle, and emitting. The
 bundle never receives credentials or network egress.
 
-The framework<->bundle interchange is parquet (typed, columnar, compressed) — the
-sandbox image ships pyarrow, so the 23k+-row feature matrices move far faster and
-smaller than CSV. This is a contract change: bundles authored against the old CSV
-contract will fail loudly here (parquet read of a CSV path errors) and must be
-re-trained.
+The framework<->bundle interchange is parquet, which is typed, columnar, and compressed.
+The sandbox image ships pyarrow, so the feature matrices move faster and smaller than CSV.
+This is a contract change: bundles authored against the old CSV contract fail loudly here,
+because a parquet read of a CSV path errors, and must be re-trained.
 
 Everything the scripts produce is untrusted. Script stdout goes to a file and only a
 bounded tail comes back; every file readback is size-gated before it leaves the sandbox;
 metrics and scores are validated before anything is persisted or emitted.
 
-Failure is loud: any materialization or sandbox error raises, the sandbox is
-destroyed, and the caller fails the run. There is deliberately no stub fallback
-(unlike the legacy path) — a silent zero-information champion would poison the
-realized-AUC gold-standard gate.
+Failure is loud: any materialization or sandbox error raises, the sandbox is destroyed,
+and the caller fails the run. Unlike the legacy path, there is deliberately no stub fallback,
+because a silent zero-information champion would poison the realized-AUC gold-standard gate.
 """
 
 from __future__ import annotations
@@ -105,7 +103,6 @@ _LABEL_COL = "__label"
 _FOLD_COL = "__fold"
 _HOLDOUT_FOLD = 0  # fold 0 is the holdout slice; folds 1..N-1 are training
 
-# Sandbox layout + execution.
 _WORKDIR = "/tmp/workspace/autoresearch"
 _SANDBOX_PYTHON = "python3"  # NOTEBOOK_BASE puts its venv first on PATH
 _TRAIN_TIMEOUT_S = 300
@@ -113,12 +110,8 @@ _PREDICT_TIMEOUT_S = 120
 # A sandbox that outlives its command is a worker that died mid-run. The TTL is the
 # backstop that reclaims it: long enough for uploads, the command, and readback.
 _SANDBOX_TTL_S = 20 * 60
-# Bundle scripts communicate only through files written into the workspace; the
-# framework reads them back via cat. Sentinels bracket the readback so any stray
-# shell output can't corrupt the parse. Nothing is parsed from script stdout.
-# HogQL applies a low default row limit (100) when a query has no LIMIT. Without an
-# explicit bound the train/holdout/score matrices would be silently capped at 100 rows —
-# a tiny, high-variance sample. Mirror inference.FEATURE_QUERY_LIMIT and bound explicitly.
+# Without an explicit bound HogQL caps a query at its default of 100 rows, which would
+# shrink the train, holdout, and score matrices to a tiny sample. Mirrors FEATURE_QUERY_LIMIT.
 _MATERIALIZE_ROW_LIMIT = 50_000
 _OUTPUT_JSON = "data/output.json"
 _SCORES_PARQUET = "data/scores.parquet"
@@ -175,7 +168,7 @@ def fit_champion_model(
 ) -> dict[str, Any]:
     """
     Train run: fit the champion against the LABELED training population and persist
-    the resulting ``model.pkl`` under ``prefix``. Idempotent — overwrites any prior fit.
+    the resulting ``model.pkl`` under ``prefix``. Idempotent: it overwrites any prior fit.
 
     ``predict.py`` runs once against the holdout features before the model is persisted,
     so a bundle whose two scripts disagree fails here rather than on the first cadence.
@@ -221,7 +214,7 @@ def score_via_sandbox(
     """
     Predict run: score the inference population with the champion's persisted model.
 
-    Pure inference — loads ``model.pkl`` and runs only ``predict.py`` against the
+    Pure inference: it loads ``model.pkl`` and runs only ``predict.py`` against the
     inference population (cutoff now(), no labels, no holdout). A missing model fails
     the run: fitting stays at training completion, so a cadence never becomes a
     five-minute fit that races other cadences for the same pickle.
@@ -387,7 +380,7 @@ def _materialize_score_data(
     Predict run materialization: the bundle's feature SQL against the inference anchors
     (cutoff_ts = now() per user, or a backdated instant when ``cutoff_ts`` is given for a
     historical backfill). One row per eligible scoring user with the agent's feature
-    columns — no labels, no fold. Touches only the inference population.
+    columns, with no labels and no fold. Touches only the inference population.
     """
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     score_sql, score_values = build_inference_features_sql(
@@ -418,8 +411,6 @@ def _materialize_rows(
     *, team: Team, sql: str, values: dict[str, Any], user: User | None = None
 ) -> list[dict[str, Any]]:
     """Run a HogQL query and return rows as dicts, coercing person_id (distinct_id) to str."""
-    # Bound explicitly — without a LIMIT, HogQL caps results at 100, silently shrinking
-    # the training/holdout/score matrices to a tiny sample.
     bounded_sql = sql.rstrip().rstrip(";") + f"\nLIMIT {_MATERIALIZE_ROW_LIMIT}"
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
@@ -437,9 +428,9 @@ def _materialize_rows(
     if not result.rows or not result.columns:
         return []
     rows = result.as_dicts()
-    # A result that fills the bound is almost certainly truncated — completing anyway
-    # would advance last_scored_at while silently skipping the users past the cap.
-    # Pagination for larger populations is follow-up work; until then, fail loudly.
+    # A result that fills the bound is almost certainly truncated, and completing anyway
+    # would advance last_scored_at while skipping the users past the cap. Pagination is
+    # follow-up work; until then, fail loudly.
     if result.has_more or len(rows) >= _MATERIALIZE_ROW_LIMIT:
         raise SandboxInferenceError(
             f"Materialization hit the {_MATERIALIZE_ROW_LIMIT}-row limit; "
@@ -700,7 +691,7 @@ def _check_scores_footer(parquet: pq.ParquetFile, *, expected_rows: int) -> None
 
 
 def _probability(did: str, p_y: Any) -> float:
-    # predict.py is agent-authored and untrusted — a NaN, inf, or out-of-range
+    # predict.py is agent-authored and untrusted, so a NaN, inf, or out-of-range
     # probability would flow straight into emitted prediction events.
     try:
         score = float(p_y)
@@ -782,8 +773,8 @@ def _between_sentinels(stdout: str) -> str:
 
 
 def _join_scores(*, score_rows: list[dict[str, Any]], scores: dict[str, float]) -> list[dict[str, Any]]:
-    """Join predict.py's scores back onto the input rows. Every input row must be scored —
-    a silently skipped user would never be scored again once last_scored_at advances.
+    """Join predict.py's scores back onto the input rows. Every input row must be scored,
+    because a silently skipped user would never be scored again once last_scored_at advances.
     The probability keeps its full precision; rounding is the emitter's call, and
     rounding here would tie distinct predictions before online validation ranks them."""
     scored: list[dict[str, Any]] = []
