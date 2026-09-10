@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+import { AccessControlLevel } from '~/types'
 
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic, HogFlowEditorMode } from '../hogFlowEditorLogic'
@@ -18,6 +19,7 @@ const PANEL_WORKFLOW: HogFlow = {
     ...NEW_WORKFLOW,
     id: LOGIC_PROPS.id!,
     name: 'Configuration panel examples',
+    user_access_level: AccessControlLevel.Admin,
     variables: [
         { type: 'string', key: 'account_owner', label: 'Account owner', default: '' },
         { type: 'number', key: 'trial_days', label: 'Trial days', default: 14 },

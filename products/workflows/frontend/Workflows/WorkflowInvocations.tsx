@@ -4,6 +4,7 @@ import { HogInvocations } from 'scenes/hog-functions/invocations/HogInvocations'
 
 import { renderWorkflowLogMessage } from './logs/log-utils'
 import { WorkflowBatchInvocations } from './WorkflowBatchInvocations'
+import { WorkflowDraftBanner } from './WorkflowDraftBanner'
 import { workflowLogic } from './workflowLogic'
 
 /**
@@ -22,15 +23,18 @@ import { workflowLogic } from './workflowLogic'
 export function WorkflowInvocations({ id }: { id: string }): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
 
-    if (workflow?.trigger?.type === 'batch') {
-        return <WorkflowBatchInvocations id={id} />
-    }
-
     return (
-        <HogInvocations
-            id={id}
-            functionKind="hog_flow"
-            renderLogMessage={workflow ? (m) => renderWorkflowLogMessage(workflow, m) : undefined}
-        />
+        <div className="flex flex-col gap-2">
+            <WorkflowDraftBanner message="This workflow is a draft, so it does not run. No runs appear here until you enable it." />
+            {workflow?.trigger?.type === 'batch' ? (
+                <WorkflowBatchInvocations id={id} />
+            ) : (
+                <HogInvocations
+                    id={id}
+                    functionKind="hog_flow"
+                    renderLogMessage={workflow ? (m) => renderWorkflowLogMessage(workflow, m) : undefined}
+                />
+            )}
+        </div>
     )
 }

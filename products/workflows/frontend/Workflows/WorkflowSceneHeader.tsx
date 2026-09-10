@@ -207,7 +207,9 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     userAccessLevel={workflowUserAccessLevel ?? undefined}
                                 >
                                     <LemonButton
-                                        type={displayStatus === 'active' ? 'primary' : 'secondary'}
+                                        // A saved draft looks finished but never runs, so Enable
+                                        // takes the primary emphasis once nothing is left to save.
+                                        type={displayStatus === 'draft' && hasUnsavedChanges ? 'secondary' : 'primary'}
                                         // Stays clickable when steps have errors: the attempt is what
                                         // reveals the per-field messages, and saveWorkflowPartial
                                         // guards the actual enable with a toast.
@@ -217,7 +219,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             })
                                         }
                                         size="small"
-                                        disabledReason={hasUnsavedChanges ? 'Save changes first' : undefined}
+                                        disabledReason={hasUnsavedChanges ? 'Save your changes first' : undefined}
                                         className="transition-colors duration-300 ease-in-out"
                                         data-attr="workflow-launch"
                                     >
