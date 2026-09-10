@@ -336,9 +336,6 @@ export function renderColumn(
         if (isEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
-            const resultRow = record as any[]
-            const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
-            displayProps.eventTimestamp = eventRecord?.timestamp
         }
 
         if (isPersonsNode(query.source) && personRecord.distinct_ids) {
@@ -362,6 +359,8 @@ export function renderColumn(
     } else if (key === 'person_display_name') {
         // Hide the popover on people list only
         const noPopover = isActorsQuery(query.source)
+        const eventsSelect = isEventsQuery(query.source) ? query.source.select : null
+        const eventRecord = eventsSelect?.includes('*') ? (record as any[])[eventsSelect.indexOf('*')] : null
         const displayProps: PersonDisplayProps = {
             withIcon: true,
             // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
@@ -369,6 +368,7 @@ export function renderColumn(
             person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
             displayName: value.display_name,
             noPopover,
+            eventTimestamp: eventRecord?.timestamp,
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
