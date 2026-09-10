@@ -29,8 +29,8 @@ def plan_read(keys: list[str], selected_granules: int) -> dict[str, object]:
     }
 
 
-# Two events reads where only the first pruned on `event`. Built here rather than as a fixture:
-# what matters is the disagreement between the reads, not the shape of real EXPLAIN output.
+# Two events reads where only the first pruned on `event`. Built here rather than as a fixture,
+# because what matters is the disagreement between the reads, not the shape of real EXPLAIN output.
 MIXED_PRUNING_PLAN = parse_query_plan(
     [
         {

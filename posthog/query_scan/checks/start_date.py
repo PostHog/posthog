@@ -1,15 +1,13 @@
 """Find the timestamp bounds a query puts on the events table, and evaluate them to dates.
 
-Two things come out of this. The classification says whether ClickHouse can skip data with
-the lower bound, which is what the ``no_start_date`` finding reports. The evaluated range is
-the denominator for the event ratio: the job counts the project's events between those dates
-and compares that to the rows the query read.
+The classification says whether ClickHouse can skip data with the lower bound, which is what the
+``no_start_date`` finding reports. The evaluated range is the denominator for the event ratio: the
+job counts the project's events between those dates and compares that to the rows the query read.
 
-Nothing on master evaluates an expression like ``now() - interval 30 day`` to a date, so the
-evaluator here is new. It stays deliberately small: it covers the forms that appear in a
-date filter and returns ``None`` for everything else, and a ``None`` only widens the range.
-A form the evaluator does not cover is still a start date, so it is kept apart from a bound
-that reads another column, which is the one ClickHouse cannot skip data with.
+HogQL has no evaluator that turns a form like ``now() - interval 30 day`` into a date, so this
+module carries a small one. It returns ``None`` for anything it does not cover, which only widens
+the range. A form it cannot evaluate is still a start date, so it stays apart from a bound that
+reads another column, which is the one ClickHouse cannot skip data with.
 """
 
 from datetime import UTC, date, datetime, timedelta
@@ -74,8 +72,7 @@ _INTERVAL_UNITS_AS_RELATIVE = {
     "toIntervalYear": 12,
 }
 
-# ``subtractDays(now(), 7)`` is ClickHouse's shorthand for ``now() - interval 7 day``, so each
-# one maps to the sign it applies and the interval function that builds the amount.
+# ``subtractDays(now(), 7)`` is ClickHouse's shorthand for ``now() - interval 7 day``.
 _SHIFT_FUNCTIONS: dict[str, tuple[int, str]] = {
     f"{prefix}{unit}s": (sign, f"toInterval{unit}")
     for prefix, sign in (("add", 1), ("subtract", -1))
@@ -102,9 +99,12 @@ class StartDateOutcome:
 
 @frozen(eq=False)
 class _TimestampBound:
-    """One bound a condition puts on a read's timestamp column. ``value`` is None when the
-    evaluator could not produce it, which ``data_dependent`` tells apart: a bound against a
-    column has no fixed value at all, one against an unsupported fixed expression does."""
+    """One bound a condition puts on a read's timestamp column.
+
+    ``value`` is None when the evaluator could not produce it. ``data_dependent`` tells the two
+    causes apart: a bound against a column has no fixed value at all, one against an unsupported
+    fixed expression does.
+    """
 
     side: _BoundSide
     value: datetime | None
@@ -144,12 +144,9 @@ def check_start_date(tree: ast.AST, *, has_filters_placeholder: bool = False) ->
     if worst.classification == "column":
         reason = "column"
     elif worst.classification == "none" and has_filters_placeholder and _no_read_is_bounded(bounds):
-        # The query asked for a date range through {filters} and none was supplied, so the
-        # placeholder expanded to nothing. The fix is on the insight, not in the SQL.
-        #
-        # A read that did get a bound says a range was supplied after all, and the placeholder
-        # only reaches part of the query. Setting a range again would not help the read that
-        # missed out, so that one is told to bound itself.
+        # The query asked for a date range through {filters} and none was supplied, so the fix is
+        # on the insight, not in the SQL. A read that did get a bound says a range was supplied and
+        # the placeholder only reaches part of the query, so that read is told to bound itself.
         reason = "filters"
 
     return StartDateOutcome(
@@ -192,8 +189,8 @@ def _bounds_for_read(read: EventsRead, conditions: list[ast.Expr], now: datetime
             classification="bound", clause=None, lower=max(lowers), upper=min(uppers) if uppers else None
         )
     if has_fixed_lower:
-        # The query does bound the read at a fixed point in time, so ClickHouse can skip data
-        # with it. Only its value is out of reach, which leaves the range open at the bottom.
+        # The query bounds the read at a fixed point in time, so ClickHouse can skip data with it.
+        # Only the value is out of reach, which leaves the range open at the bottom.
         return _ReadBounds(classification="bound", clause=None, lower=None, upper=min(uppers) if uppers else None)
     if unevaluable_lower is not None:
         return _ReadBounds(
@@ -303,10 +300,10 @@ def _unwrap_monotone(expr: ast.Expr) -> tuple[ast.Expr, frozenset[str]] | None:
 def _end_of_interval(value: datetime | None, truncations: frozenset[str]) -> datetime | None:
     """The end of the interval a truncated upper bound admits.
 
-    ``toStartOfMonth(timestamp) <= '2026-03-15'`` matches every timestamp in March, so the bound
-    on the raw column is the start of April, not March 15. Two different truncations shift the
-    value twice over, which this does not model, so those leave the bound unknown. That widens
-    the range instead of narrowing it wrongly.
+    ``toStartOfMonth(timestamp) <= '2026-03-15'`` matches every timestamp in March, so the bound on
+    the raw column is the start of April, not March 15. Two different truncations shift the value
+    twice over, which this does not model, so those leave the bound unknown and widen the range
+    instead of narrowing it wrongly.
     """
     if value is None or not truncations:
         return value

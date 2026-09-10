@@ -1,9 +1,8 @@
 """Decide whether a query's event filter can prune the events table by its sort key.
 
-The events table is sorted by ``(team_id, toDate(timestamp), event, …)``, so a condition
-that compares ``event`` to fixed names lets ClickHouse skip granules. A condition inside an
-OR, around a function call, negated, or against another column does not, even though the
-query looks filtered.
+The events table is sorted by ``(team_id, toDate(timestamp), event, …)``, so only a condition
+that compares ``event`` to fixed names lets ClickHouse skip granules. A query can look filtered
+and still read every event.
 """
 
 from typing import Literal
@@ -54,14 +53,14 @@ def check_event_filter(tree: ast.AST, plan: QueryPlan | None = None) -> EventFil
 
     key_used = plan.event_key_used() if plan is not None else None
     if key_used is True and worst.reason != "negated":
-        # ClickHouse reports what it really used, so it overrules anything the tree suggests. A
-        # negation is the exception: `event` enters the key condition, but excluding a value skips
-        # only granules made entirely of it, so the plan cannot say that it pruned.
+        # ClickHouse reports what it really used, so it overrules the tree. A negation is the
+        # exception, because `event` enters the key condition but excluding a value skips only the
+        # granules made entirely of that value.
         return EventFilterOutcome(classification="usable")
     if key_used is False and worst.classification == "usable":
-        # The plan says some read did not prune, not which one, so a clause can only be named
-        # when there is one read it could belong to. A read the tree already found fault with
-        # keeps its own reason, which says more than this one.
+        # The plan says some read did not prune, not which one, so name a clause only when there
+        # is a single read it could belong to. A read the tree already faulted keeps its own
+        # reason, which says more.
         return EventFilterOutcome(
             classification="not_used", reason="not_pruned", clause=worst.clause if len(reads) == 1 else None
         )
@@ -111,7 +110,7 @@ def _classify_term(term: ast.Expr, read: EventsRead) -> EventFilterOutcome | Non
         return _classify_compare(term, read)
 
     if contains_column_of(term, read, _EVENT_COLUMN):
-        # A bare call or expression over `event`, for example `match(event, '…')`.
+        # A bare call over `event`, for example `match(event, '…')`.
         return EventFilterOutcome(classification="not_used", reason="wrapped", clause=term)
     return None
 
@@ -145,8 +144,7 @@ def _classify_event_compare(node: ast.CompareOperation, value_side: ast.Expr) ->
         if node.op in _PRUNABLE_PATTERN_OPS and pattern is not None and not pattern.startswith("%"):
             return EventFilterOutcome(classification="usable", clause=node)
         # A leading wildcard leaves no prefix for the sort order to seek on, and an ILIKE pattern
-        # has no case-sensitive prefix at all, so ClickHouse reads the whole range even though the
-        # query names events.
+        # has no case-sensitive prefix at all.
         return EventFilterOutcome(classification="not_used", reason="not_pruned", clause=node)
     return EventFilterOutcome(classification="not_used", reason="dynamic", clause=node)
 

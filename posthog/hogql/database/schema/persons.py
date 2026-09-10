@@ -104,11 +104,10 @@ def select_from_persons_table(
     filter: Optional[Expr] = None,
     joined: bool = False,
 ):
-    # The subquery below is the same whether the query joins the persons table or reads straight
-    # from it, so record which one it is for the query scan checks. A caller that builds a join
-    # says so; an explicit join in the query puts another table next to the persons read.
+    # Callers that build the join pass `joined`. An explicit join in the query instead puts another
+    # table next to the persons read.
     is_joined = joined or (node.select_from is not None and node.select_from.next_join is not None)
-    # A filter reaches the subquery either as the `filter` argument or through a pushdown below.
+    # The optimizeJoinedFilters pushdown below can add a filter too.
     is_filtered = filter is not None
     version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.AUTO:

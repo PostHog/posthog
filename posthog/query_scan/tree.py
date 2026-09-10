@@ -1,16 +1,13 @@
 """Walk a prepared HogQL tree and attribute conditions to the events reads they constrain.
 
-The tree the checks see comes out of ``prepare_ast_for_printing``, so every node carries a
-type, lazy tables are expanded and saved views are inlined. That lets the checks work from
-types instead of chain strings: ``sharded_events`` only exists at print time, and a column
-can reach the events table through any number of view, subquery and alias layers.
+The tree comes out of ``prepare_ast_for_printing``, so lazy tables are expanded, saved views are
+inlined and every node carries a type. The checks match on those types instead of chain strings,
+because ``sharded_events`` only exists at print time and a column can reach the events table
+through any number of view, subquery and alias layers.
 
-A condition is attributed to an events read by the identity of the ``TableType`` node that
-both the read's ``JoinExpr`` and the condition's field resolve to. Identity is what
-separates two reads of the same table, because ``TableType`` compares equal by value.
-
-The attribution stops at a subquery that takes a slice of its own rows, because a condition
-above such a subquery cannot reach the read below it.
+A condition belongs to the events read whose ``TableType`` node its field resolves to, compared by
+identity. ``TableType`` compares equal by value, so identity is the only thing that separates two
+reads of the same table.
 """
 
 from collections.abc import Iterator
@@ -21,14 +18,14 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 
-# A column that needs more hops than this to reach a real table is either a resolver bug or a
-# cycle. Give up instead of looping.
+# More hops than this to reach a real table means a resolver bug or a cycle, so give up rather
+# than loop.
 _MAX_COLUMN_HOPS = 32
 
-# Join types whose ``ON`` condition constrains both sides, so a term in it prunes the read the
-# same way a ``where`` term does. An outer join keeps the rows that fail the condition, and an
-# anti join keeps only those, so neither prunes. The resolver marks a cross-shard join ``GLOBAL``,
-# which does not change this.
+# Join types whose ``ON`` condition constrains both sides, so a term in it prunes the read the same
+# way a ``where`` term does. An outer join keeps the rows that fail the condition and an anti join
+# keeps only those, so neither prunes. A cross-shard join carries a ``GLOBAL`` prefix and prunes
+# the same way.
 _INNER_JOIN_TYPES = frozenset(
     {
         "JOIN",
@@ -45,8 +42,6 @@ _INNER_JOIN_TYPES = frozenset(
 
 @frozen(eq=False)
 class EventsRead:
-    """One read of the events table, plus the select query that reads it."""
-
     select: ast.SelectQuery
     table_type: ast.TableType
 
@@ -61,10 +56,9 @@ def collect_conditions(node: ast.AST, read: EventsRead) -> list[ast.Expr]:
     """Top-level AND terms of every ``where``, ``prewhere`` and inner-join ``ON`` that constrains
     ``read``.
 
-    A term from an enclosing query counts, because ClickHouse pushes a condition on a
-    subquery's or a view's column down into the read. It stops counting where that push
-    stops: a subquery with its own ``LIMIT`` picks which rows to hand up before the outer
-    condition sees them, so the read below it still produced everything.
+    A term from an enclosing query counts, because ClickHouse pushes a condition on a subquery's
+    or a view's column down into the read. It stops counting at a subquery that slices its own
+    rows, which hands up its choice of rows before the outer condition sees them.
     """
     collector = _ConditionCollector()
     collector.visit(node)
@@ -120,10 +114,10 @@ def depends_on_data(expr: ast.Expr) -> bool:
 def resolve_to_table_columns(type_: ast.Type | None) -> list[tuple[ast.TableType, str]]:
     """Follow a field's type down to the database table columns it exports.
 
-    A view or subquery column is a ``FieldType`` on that select's type; its own type is the
-    expression the select exported, which may again be a column of a deeper select. A set query
-    exports one column per branch, and a condition on it constrains every branch, so the walk
-    forks there and can reach more than one table.
+    A view or subquery column is a ``FieldType`` whose own type is the expression that select
+    exported, which may again be a column of a deeper select. A set query exports one column per
+    branch, and a condition on it constrains every branch, so the walk forks and can reach more
+    than one table.
     """
     resolved: list[tuple[ast.TableType, str]] = []
     pending: list[tuple[ast.Type | None, int]] = [(type_, 0)]
@@ -153,9 +147,8 @@ def resolve_to_table_columns(type_: ast.Type | None) -> list[tuple[ast.TableType
 def _physical_column_name(field_type: ast.FieldType) -> str:
     """The database column a field names.
 
-    ``FROM events AS e (id, kind, props, ts)`` renames the table's columns for the query, and
-    the field keeps the name the query used, so map it back the way
-    ``FieldType.resolve_database_field`` does.
+    ``FROM events AS e (id, kind, props, ts)`` renames the table's columns for the query and the
+    field keeps the query's name, so map it back the way ``FieldType.resolve_database_field`` does.
     """
     table_type = field_type.table_type
     if isinstance(table_type, ast.ColumnAliasedTableType):
@@ -192,9 +185,9 @@ def _slices_rows(select: ast.SelectQuery) -> bool:
     """Whether this select picks which of its rows to keep, so a condition applied above it
     cannot reach the read below.
 
-    ``LIMIT``, ``OFFSET`` and ``LIMIT BY`` all do: the rows come in the select's own order,
-    and filtering earlier would keep different ones. The outermost select always carries the
-    query limit, which costs nothing here because no condition sits above it.
+    ``LIMIT``, ``OFFSET`` and ``LIMIT BY`` all do, because the rows come in the select's own order
+    and filtering earlier would keep different ones. The outermost select always carries the query
+    limit, which costs nothing here because no condition sits above it.
     """
     return select.limit is not None or select.offset is not None or select.limit_by is not None
 
@@ -242,9 +235,6 @@ class _EventsReadCollector(TraversingVisitor):
 
 
 class _ConditionCollector(TraversingVisitor):
-    """Every top-level AND term with the select query that holds it, plus each select's
-    enclosing one, so a term can be matched to the reads it reaches."""
-
     def __init__(self) -> None:
         super().__init__()
         self.terms: list[tuple[ast.SelectQuery, ast.Expr]] = []

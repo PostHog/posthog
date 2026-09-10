@@ -408,7 +408,6 @@ class TestStartDateCheck(QueryScanCheckTest):
         outcome = check_start_date(tree)
 
         self.assertEqual(outcome.date_to, date(2026, 2, 1))
-        # The job counts with the exact instants where it has them, and rounds out to days otherwise.
         self.assertEqual(outcome.lower, datetime(2026, 1, 1, 8, 30))
         self.assertEqual(outcome.upper, datetime(2026, 2, 1, 9, 15))
 

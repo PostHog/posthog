@@ -9,7 +9,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-# Retention builds its series differently and is left out of v1.
+# Retention builds its series differently, so it is left out.
 _SERIES_QUERY_KINDS = frozenset({"TrendsQuery", "FunnelsQuery", "StickinessQuery", "LifecycleQuery"})
 
 _ALL_TIME_DATE_FROM = "all"

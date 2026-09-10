@@ -1,7 +1,7 @@
 """Turn a check outcome into the warning a person reads, and gate it by the ratios.
 
-The floor already said the person waited. The ratios say whether the unfiltered thing was a
-large share of what the query read, so advice that would not have helped stays quiet.
+The ratios say whether the unfiltered read was a large share of what the query read, so advice
+that would not have helped stays quiet.
 """
 
 from posthog.schema import QueryScanFindingKind, QueryScanFindingReason, QueryScanWarning
@@ -23,8 +23,6 @@ class ScanThresholds:
 
 @frozen
 class ScanMeasurements:
-    """What the run cost, and what it is measured against."""
-
     # Every row ClickHouse read for the query, across every table it touched, so a joined table
     # counts towards it.
     rows_read: int
@@ -220,7 +218,7 @@ def explain_evidence(plan: QueryPlan | None) -> str | None:
     if not primary_keys:
         return None
     # The finding is about a read that could not prune on `event`, so name that read when the plan
-    # holds one. With several reads the plan does not say which one the finding came from.
+    # holds one. With several such reads the plan does not say which one the finding came from.
     primary_key = next((key for key in primary_keys if "event" not in key.keys), primary_keys[0])
     keys = ", ".join(primary_key.keys)
     if primary_key.initial_granules is None or primary_key.selected_granules is None:

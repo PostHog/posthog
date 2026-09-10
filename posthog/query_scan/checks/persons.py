@@ -1,16 +1,10 @@
 """Decide whether a query joins the persons table without pushing a filter into it.
 
-``select_from_persons_table`` builds a subquery that deduplicates every person version for
-the project. With no filter inside it, that subquery reads every person row on every run, so
-a query over a few million events can be dominated by the join.
+``select_from_persons_table`` builds a subquery that deduplicates every person version for the
+project. With no filter inside it, that subquery reads every person row on every run, so the join
+can dominate a query over a few million events.
 
-The records come from ``HogQLContext.persons_selects``, which the schema fills while it builds
-each subquery. They carry how the query reached the subquery, because the subquery itself looks
-the same for a join and for a read straight from the persons table, and a pushed filter takes a
-different shape for each argMax version and pushdown modifier.
-
-A read straight from the persons table is left alone: there is no join to drop, and counting
-events instead would answer a different question.
+A read straight from the persons table is left alone, because there is no join to drop.
 """
 
 from posthog.hogql.context import HogQLContext
