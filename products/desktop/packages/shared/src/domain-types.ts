@@ -1013,7 +1013,10 @@ import type { AvailableSuggestedReviewer } from "./inbox-types";
 export type { AvailableSuggestedReviewer };
 
 export interface SuggestedReviewer {
-  github_login: string;
+  /** Null for a reviewer with no linked GitHub account — `user` identifies them instead. */
+  github_login: string | null;
+  /** Null on entries written before reviewers carried one; `user` still resolves from the login. */
+  user_uuid?: string | null;
   github_name: string | null;
   relevant_commits: SuggestedReviewerCommit[];
   user: SuggestedReviewerUser | null;

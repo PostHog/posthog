@@ -23,12 +23,13 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskNotFound, taskError, runs, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
+    const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
     const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const isActiveCreation = activeCreation?.taskId === taskId
 
     if (taskNotFound && !task) {
         return <NotFound object="task" />
@@ -38,15 +39,16 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
         return <NotFound object="task" />
     }
 
-    const latestRun = runs.length > 0 ? runs[0] : null
     const isLatestRunInProgress = latestRun?.status === 'in_progress' || latestRun?.status === 'queued'
     const isLatestRunCompleted = latestRun?.status === 'completed'
-    const runButtonText = runs.length === 0 ? 'Run task' : 'Retry task'
+    const runButtonText = latestRun ? 'Retry task' : 'Run task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
     const titleActions =
         isHeaderLoading || !task ? (
-            <TaskHeaderActionsSkeleton />
+            isActiveCreation ? undefined : (
+                <TaskHeaderActionsSkeleton />
+            )
         ) : (
             <div className="flex items-center gap-2">
                 {hasDesktopAccess && (
@@ -89,7 +91,6 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     // When this task was just created optimistically, the seeded run stream lives under the creation's client
     // `streamKey`. Hand it to the run log so it adopts that instance (and renders the thread immediately)
     // instead of cold-bootstrapping a fresh, skeleton-flashing one.
-    const isActiveCreation = activeCreation?.taskId === taskId
     const optimisticStreamKey = isActiveCreation ? activeCreation?.streamKey : undefined
     const optimisticRunId = isActiveCreation ? activeCreation?.runId : undefined
 
@@ -97,7 +98,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
         <TaskRunSceneShell
             task={task}
             selectedRun={selectedRun}
-            isHeaderLoading={isHeaderLoading}
+            isHeaderLoading={isHeaderLoading && !isActiveCreation}
             titleActions={titleActions}
             sceneMenuBarEnabled={sceneMenuBarEnabled}
             onArchive={deleteTask}

@@ -6,8 +6,8 @@ from products.feature_flags.backend.models import FeatureFlag
 
 
 class ExperimentDormantV2AnalysisColumnsMigrationTest(TestMigrations):
-    migrate_from = "0037_squash_2026_09_07_finalize_fks"
-    migrate_to = "0038_experiment_dormant_v2_analysis_columns"
+    migrate_from = "0038_alter_experimentholdout_created_by_and_more"
+    migrate_to = "0039_experiment_dormant_v2_analysis_columns"
 
     @property
     def app(self) -> str:

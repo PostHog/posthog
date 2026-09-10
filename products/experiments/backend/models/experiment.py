@@ -380,13 +380,13 @@ def saved_metric_has_legacy_query(saved_metric: "ExperimentSavedMetric") -> bool
 class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Filters define the definition of the holdout
     # This is then replicated across flags for experiments in the holdout
     filters = models.JSONField(default=list)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -410,7 +410,7 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
 class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     query = models.JSONField()
 
@@ -418,7 +418,7 @@ class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
     # has things like if this metric was migrated from a legacy metric
     metadata = models.JSONField(null=True, blank=True, default=dict)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -483,7 +483,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric = models.JSONField()
     fingerprint = models.CharField(max_length=64)  # SHA256 hash
@@ -541,7 +541,7 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
@@ -558,12 +558,7 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
         indexes = [

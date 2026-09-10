@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("experiments", "0037_squash_2026_09_07_finalize_fks")]
+    dependencies = [("experiments", "0038_alter_experimentholdout_created_by_and_more")]
 
     operations = [
         migrations.AddField(
