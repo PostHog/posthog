@@ -5,7 +5,12 @@ from pathlib import Path
 MARKER = re.compile(r"\[lint:([^\]]+)\]")
 SEMGREP_ID = re.compile(r"^\s*-?\s*id:\s*(\S+)", re.MULTILINE)
 RUFF_CODE = re.compile(r"^ruff ([A-Z]+[0-9]*)$")
+WELL_FORMED = re.compile(r"`\[lint:[^\]]+\]`|`\[review\]`")
 LEGEND_PLACEHOLDER = "<id>"
+
+# A file tag must name something CI executes. A data file the check reads is not
+# the check: delete the step that reads it and the file still sits there.
+EXECUTED_CHECK_ROOTS = ("posthog/test/repo_invariants", ".github/scripts")
 
 # Sections whose every rule must declare what enforces it.
 TAGGED_SECTIONS = (("## Architecture guidelines", "## Code Style"), ("## Code Style", "## User-facing copy"))
@@ -74,8 +79,8 @@ def _resolves(tag: str, repo_root: Path, semgrep_ids: set[str]) -> bool:
     ruff = RUFF_CODE.match(tag)
     if ruff:
         return _ruff_enforces(repo_root, ruff.group(1))
-    if tag.endswith(".py") or tag.endswith(".txt"):
-        return any(repo_root.rglob(tag))
+    if tag.endswith(".py"):
+        return any(path.is_file() for root in EXECUTED_CHECK_ROOTS for path in (repo_root / root).rglob(tag))
     return tag in semgrep_ids
 
 
@@ -102,10 +107,10 @@ def test_every_architecture_and_code_style_rule_is_tagged() -> None:
     rules = _rules(_agents_md(_repo_root()))
     assert rules, "Found no rules to check — did the section headings change?"
 
-    untagged = [rule[:80] for rule in rules if "[lint:" not in rule and "[review]" not in rule]
+    untagged = [rule[:80] for rule in rules if not WELL_FORMED.search(rule)]
 
     assert not untagged, (
-        f"These AGENTS.md rules carry no enforcement tag: {untagged}. "
+        f"These AGENTS.md rules carry no well-formed enforcement tag: {untagged}. "
         "Add `[lint: <rule-id>]` when a linter or invariant test blocks the violation, or `[review]` when "
-        "nothing catches it."
+        "nothing catches it. An empty or unclosed marker does not count."
     )
