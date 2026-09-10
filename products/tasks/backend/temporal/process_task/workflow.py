@@ -2764,9 +2764,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return not self.context.create_pr or self._ci_repetitions > 0
 
     def _mark_sandbox_gone(self) -> None:
-        # A sandbox that vanished mid-setup is a failed setup for onboarding; see
-        # _onboarding_exit_is_failure for why a run that already opened its PR is exempt.
-        self._completion_status = "failed" if self._onboarding_exit_is_failure() else "completed"
+        # A sandbox that vanished mid-turn took the agent's work with it. Mid-setup it is a failed
+        # setup for onboarding; see _onboarding_exit_is_failure for the open-PR exemption.
+        agent_lost = self._end_of_turn_received is False
+        self._completion_status = "failed" if agent_lost or self._onboarding_exit_is_failure() else "completed"
         self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
         self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY
         self._task_completed = True

@@ -1990,26 +1990,30 @@ class TestProcessTaskWorkflowUnit:
         relay_agent_design_signals_mock.assert_called_once()
 
     @pytest.mark.parametrize(
-        "origin_product, pr_progress_emitted, ci_repetitions, expected_status",
+        "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status",
         [
-            (None, False, 1, "completed"),
-            ("user_created", False, 1, "completed"),
+            (None, False, 1, None, "completed"),
+            (None, False, 1, True, "completed"),
+            # The agent was mid-turn when the sandbox vanished, so its work is gone.
+            (None, False, 1, False, "failed"),
+            ("user_created", False, 1, None, "completed"),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
-            ("onboarding", False, 1, "failed"),
+            ("onboarding", False, 1, None, "failed"),
             # Unless the PR is already open: the wizard reads the terminal status, so a downgrade
             # would report a failed install over a PR the user can merge.
-            ("onboarding", True, 1, "completed"),
+            ("onboarding", True, 1, None, "completed"),
             # No follow-up round ever ran, so the empty PR latch is unobserved rather than evidence
             # of no PR. Downgrading here would fail a run whose PR the loop never got to look at.
-            ("onboarding", False, 0, "completed"),
+            ("onboarding", False, 0, None, "completed"),
         ],
     )
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(
-        self, monkeypatch, origin_product, pr_progress_emitted, ci_repetitions, expected_status
+        self, monkeypatch, origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status
     ):
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
+        workflow._end_of_turn_received = end_of_turn_received
         workflow._ci_repetitions = ci_repetitions
         context = _build_context(github_integration_id=123, origin_product=origin_product)
         update_task_run_status_mock = AsyncMock()
