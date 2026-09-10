@@ -61,6 +61,9 @@ const COLUMN_WIDTHS = {
     relationship: '220px',
 } as const
 
+// Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
+const ignoreDataTableQueryChange = (): void => {}
+
 function useGetCell(): (record: unknown, column: string) => unknown {
     const { accountsTableQueryPlan } = useValues(accountsLogic)
     return (record, column) =>
@@ -898,6 +901,19 @@ export function AccountsTable(): JSX.Element {
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
     const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
+    const dataTableContext = useMemo<QueryContext<DataTableNode>>(
+        () => ({
+            columns: contextColumns,
+            tableLayout: 'fixed',
+            tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
+            expandable,
+            dataTableRowsTransformer: sortedRowsTransformer,
+            dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
+            emptyStateHeading: 'There are no matching accounts for this query',
+            emptyStateDetail: 'Try adjusting the filters or refreshing',
+        }),
+        [contextColumns, columnWidths, expandable, sortedRowsTransformer]
+    )
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
@@ -908,19 +924,8 @@ export function AccountsTable(): JSX.Element {
             <DataTable
                 uniqueKey="customer-analytics-accounts-table"
                 query={accountsDataTableQuery}
-                setQuery={() => {
-                    // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
-                }}
-                context={{
-                    columns: contextColumns,
-                    tableLayout: 'fixed',
-                    tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
-                    expandable,
-                    dataTableRowsTransformer: sortedRowsTransformer,
-                    dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
-                    emptyStateHeading: 'There are no matching accounts for this query',
-                    emptyStateDetail: 'Try adjusting the filters or refreshing',
-                }}
+                setQuery={ignoreDataTableQueryChange}
+                context={dataTableContext}
                 readOnly
             />
         </div>

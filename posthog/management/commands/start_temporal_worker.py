@@ -151,6 +151,12 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.alerts.backend.facade.temporal import (
+    DELIVERY_ACTIVITIES as ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
+    DELIVERY_WORKFLOWS as ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+    EVALUATION_ACTIVITIES as ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    EVALUATION_WORKFLOWS as ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -274,6 +280,10 @@ from products.warehouse_sources.backend.facade.temporal import (
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
+)
+from products.wizard.backend.facade.temporal import (
+    ACTIVITIES as WIZARD_ACTIVITIES,
+    WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
 # When adding modules to a queue, also update the corresponding CI trigger
@@ -415,6 +425,11 @@ _task_queue_specs = [
         TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
     ),
     (
+        settings.WIZARD_TASK_QUEUE,
+        WIZARD_WORKFLOWS,
+        WIZARD_ACTIVITIES,
+    ),
+    (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
         AI_ACTIVITIES,
@@ -527,6 +542,16 @@ _task_queue_specs = [
         settings.STAMPHOG_TASK_QUEUE,
         STAMPHOG_WORKFLOWS,
         STAMPHOG_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+        ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+        ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+        ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+        ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
     ),
 ]
 

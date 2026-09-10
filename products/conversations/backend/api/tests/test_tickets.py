@@ -2,7 +2,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
-from threading import Barrier
+from threading import Barrier, Event
 
 from posthog.test.base import (
     APIBaseTest,
@@ -68,8 +68,8 @@ class TestComposeTicketSerializer(SimpleTestCase):
 
     def test_rejects_more_than_100_tags(self):
         # The compose write applies each tag inside the ticket-creation transaction, which
-        # holds a team-row lock. An unbounded list would fan out that work under the lock, so
-        # the field is capped at 100 before any DB work starts.
+        # holds the ticket-number allocation lock. An unbounded list would fan out that work
+        # under the lock, so the field is capped at 100 before any DB work starts.
         serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(101)]))
         assert not serializer.is_valid()
         assert set(serializer.errors) == {"tags"}
@@ -1717,6 +1717,54 @@ class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
 
         self.assertEqual(sorted(numbers), list(range(1, worker_count + 1)))
         self.assertEqual(Ticket.objects.filter(team_id=team_id).count(), worker_count)
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_create_does_not_lock_the_team_row(self, _mock_capture):
+        # Concurrent uniqueness still passes if allocation takes Team FOR UPDATE again.
+        # Pause before the insert so the advisory lock is held and the Team row is not.
+        paused = Event()
+        resume = Event()
+        real_create = type(Ticket.objects).create
+
+        def pausing_create(manager, *args, **kwargs):
+            paused.set()
+            if not resume.wait(timeout=5):
+                raise TimeoutError("test did not resume allocation")
+            return real_create(manager, *args, **kwargs)
+
+        def allocate() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
+                Ticket.objects.create_with_number(
+                    team=self.team,
+                    channel_source=Channel.WIDGET,
+                    widget_session_id="session-team-lock",
+                    distinct_id="user-team-lock",
+                )
+            finally:
+                close_old_connections()
+
+        with patch.object(type(Ticket.objects), "create", pausing_create):
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(allocate)
+                if not paused.wait(timeout=5):
+                    resume.set()
+                    future.result(timeout=1)
+                    self.fail("allocator did not pause before insert")
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET lock_timeout = '250ms'")
+                    with transaction.atomic():
+                        Team.objects.select_for_update().get(id=self.team.id)
+                finally:
+                    with connection.cursor() as cursor:
+                        cursor.execute("RESET lock_timeout")
+                    resume.set()
+                future.result(timeout=5)
+        self.assertTrue(Ticket.objects.filter(team=self.team, widget_session_id="session-team-lock").exists())
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

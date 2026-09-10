@@ -158,7 +158,6 @@ export enum NodeKind {
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
-    NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -241,7 +240,6 @@ export type AnyDataNode =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
-    | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -357,7 +355,6 @@ export type QuerySchema =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
-    | NonIntegratedConversionsTableQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -1256,7 +1253,6 @@ export type DataTableNodeSourceUnion =
     | SessionsQuery
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
-    | NonIntegratedConversionsTableQuery
     | ErrorTrackingQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
@@ -1292,7 +1288,6 @@ export interface DataTableNode
                     | SessionsQuery
                     | MarketingAnalyticsTableQuery
                     | MarketingAnalyticsAggregatedQuery
-                    | NonIntegratedConversionsTableQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
@@ -1395,6 +1390,26 @@ export interface ScatterChartSettings {
     showBestFit?: boolean
 }
 
+export interface MetricChartSettings {
+    /** Which value the resting headline shows: the latest point, the total, or the average of the returned points.
+     * @default latest */
+    summary?: 'total' | 'average' | 'latest'
+    /** Show the change pill comparing the first point to the latest point.
+     * @default true */
+    showChange?: boolean
+    /** Change pill color when the series went up. Defaults to green. */
+    changeIncreaseColor?: string
+    /** Change pill color when the series went down. Defaults to red. */
+    changeDecreaseColor?: string
+    /** Color the sparkline by whether the series went up or down.
+     * @default false */
+    colorByDirection?: boolean
+    /** Sparkline color when the series went up. Defaults to green. */
+    lineIncreaseColor?: string
+    /** Sparkline color when the series went down. Defaults to red. */
+    lineDecreaseColor?: string
+}
+
 export interface BoxPlotSettings {
     xAxisColumn?: string | null
     seriesColumn?: string | null
@@ -1445,6 +1460,7 @@ export interface ChartSettings {
     pie?: PieChartSettings
     scatter?: ScatterChartSettings
     boxPlot?: BoxPlotSettings
+    metric?: MetricChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -1950,6 +1966,8 @@ export interface CompareFilter {
 export interface IntegrationFilter {
     /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
     integrationSourceIds?: string[]
+    /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+    includeNonIntegrated?: boolean
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -2798,6 +2816,8 @@ export type QueryStatus = {
     task_id?: string
     query_progress?: ClickhouseQueryProgress
     labels?: string[]
+    bytes_read?: integer
+    budget_remaining_bytes?: integer
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
@@ -5189,15 +5209,6 @@ export interface FileSystemViewLogEntry {
     type: string
     ref: string
     viewed_at: string
-}
-
-export interface PersistedFolder {
-    id: string
-    type: string
-    protocol: string
-    path: string
-    created_at: string
-    updated_at: string
 }
 
 export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
@@ -7675,47 +7686,6 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
 
 export type CachedMarketingAnalyticsRetentionQueryResponse =
     CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
-
-/** Columns for non-integrated conversions table */
-export enum NonIntegratedConversionsColumnsSchemaNames {
-    Source = 'Source',
-    Campaign = 'Campaign',
-}
-
-export interface NonIntegratedConversionsTableQuery extends Omit<
-    WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>,
-    'orderBy'
-> {
-    kind: NodeKind.NonIntegratedConversionsTableQuery
-    /** Return a limited set of data. Will use default columns if empty. */
-    select?: HogQLExpression[]
-    /** Columns to order by */
-    orderBy?: MarketingAnalyticsOrderBy[]
-    /** Number of rows to return */
-    limit?: integer
-    /** Number of rows to skip before returning rows */
-    offset?: integer
-    /** Filter test accounts */
-    filterTestAccounts?: boolean
-    /** Compare to date range */
-    compareFilter?: CompareFilter
-    /** Draft conversion goal that can be set in the UI without saving */
-    draftConversionGoal?: ConversionGoalFilter | null
-}
-
-export interface NonIntegratedConversionsTableQueryResponse extends AnalyticsQueryResponseBase {
-    results: MarketingAnalyticsItem[][]
-    types?: unknown[]
-    columns?: unknown[]
-    hogql?: string
-    samplingRate?: SamplingRate
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-}
-
-export type CachedNonIntegratedConversionsTableQueryResponse =
-    CachedQueryResponse<NonIntegratedConversionsTableQueryResponse>
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
@@ -10196,6 +10166,7 @@ export enum ProductIntentContext {
     // Session Replay
     SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = 'session_replay_experiment_link_clicked',
+    SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER = 'session_replay_save_filters_as_scanner',
 
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',

@@ -462,12 +462,12 @@ path**: the Django side _sets_ the knobs and the `@posthog/agent` package _appli
   entry in `REVIEW_ARMS_BY_TIER` (the executor kwargs exist for every single-turn stage).
 - **The registry (source of truth for what's allowed)** — `products/tasks/backend/temporal/process_task/utils.py`,
   re-exported framework-free from the facade `products/tasks/backend/facade/run_config.py` (import from the facade):
-  `RuntimeAdapter` (`claude|codex`), `LLMProvider`, `ReasoningEffort`, `RUNTIME_PROVIDER_BY_ADAPTER`,
-  `CLAUDE_REASONING_EFFORTS_BY_MODEL`, `CODEX_MODELS` + `CODEX_REASONING_EFFORTS` + the
-  `CODEX_XHIGH/MAX_REASONING_MODELS` tiers (`gpt-5.5` caps at `xhigh`; the `gpt-5.6-*` models allow up to
-  `max`), and the pure checks `get_provider_for_runtime_adapter` /
-  `get_supported_reasoning_efforts` / `get_reasoning_effort_error`. A new model/effort must be added here or the combo
-  is rejected. `test_constants.py` locks the ReviewHog combo to this registry at unit time.
+  `RuntimeAdapter` (`claude|codex`), `LLMProvider`, `ReasoningEffort`, `RUNTIME_PROVIDER_BY_ADAPTER`, and the pure
+  checks `get_provider_for_runtime_adapter` /
+  `get_supported_reasoning_efforts` / `get_reasoning_effort_error`. Which models exist and what efforts each takes
+  comes from `products/tasks/backend/model_catalog.py`, the one definition both the backend and the generated
+  TypeScript projections read. A new model/effort must be added there or the combo is rejected.
+  `test_constants.py` locks the ReviewHog combo to this registry at unit time.
 - **Transport into the sandbox:** `Task._build_task` writes `extra_state[{runtime_adapter, provider, model,
 reasoning_effort}]` → `get_task_processing_context` reads it back → `start_agent_server` →
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits
@@ -494,11 +494,10 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
   (the local desktop path); the claude adapter's `resolveInitialModelId` fallback covers Claude but not the codex
   reviewer arm — verify `$ai_model` **and `$ai_effort`** on the review generations whenever a pin changes.
 
-**Recipe — testing e.g. Sonnet.** Set `runtime_adapter = "claude"`, `model` a key in `CLAUDE_REASONING_EFFORTS_BY_MODEL`,
-and an effort that model supports; provider auto-derives to `anthropic`. For a new Codex model: `runtime_adapter =
-"codex"`, `model` in `CODEX_MODELS`, effort in `CODEX_REASONING_EFFORTS` (`xhigh`/`max` only for models in the
-`CODEX_XHIGH/MAX_REASONING_MODELS` tiers). A brand-new model/effort must be added to the registry on **both** sides
-(`utils.py` + `reasoning-effort.ts` / the gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
+**Recipe — testing e.g. Sonnet.** Set `runtime_adapter = "claude"`, `model` to a catalog id, and an effort that model
+supports; provider auto-derives to `anthropic`. The same applies to a Codex model with `runtime_adapter = "codex"`.
+Every id and its efforts live in `model_catalog.py`; run `hogli build:task-model-catalog` after editing it, which
+updates the TypeScript projections the desktop app and the web composer read.
 
 ---
 

@@ -130,11 +130,34 @@ class Migration(migrations.Migration):
                 migrations.DeleteModel(name='OldFeature'),
             ],
             database_operations=[
-                # If table has FKs to frequently-truncated tables (User, Team, Organization),
-                # drop those FK constraints to avoid blocking TransactionTestCase teardown.
-                # migrations.RunSQL(
-                #     sql="ALTER TABLE posthog_oldfeature DROP CONSTRAINT IF EXISTS posthog_oldfeature_team_id_fkey",
-                # ),
+                # Required when the table has an FK to a hot parent (Team, User, Organization,
+                # Project). Django stops cascading into a table it cannot see, so the child rows
+                # outlive a parent delete. The constraint is DEFERRABLE INITIALLY DEFERRED, so the
+                # parent delete completes its cascade and then fails at COMMIT.
+                # Django names foreign keys with a hash suffix, so never hardcode the name with
+                # IF EXISTS: a wrong guess drops nothing and the migration still succeeds. Read the
+                # name from the catalog. The loop drops nothing on a re-run, so bin/migrate can
+                # retry the migration safely.
+                migrations.RunSQL(
+                    sql="""
+                    DO $$
+                    DECLARE fk record;
+                    BEGIN
+                        FOR fk IN
+                            SELECT con.conname
+                            FROM pg_constraint con
+                            JOIN pg_class src ON src.oid = con.conrelid
+                            JOIN pg_class tgt ON tgt.oid = con.confrelid
+                            WHERE con.contype = 'f'
+                              AND src.relname = 'posthog_oldfeature'
+                              AND tgt.relname = 'posthog_team'
+                        LOOP
+                            EXECUTE format('ALTER TABLE posthog_oldfeature DROP CONSTRAINT %I', fk.conname);
+                        END LOOP;
+                    END $$;
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
             ],
         ),
     ]
@@ -142,12 +165,14 @@ class Migration(migrations.Migration):
 
 5. Deploy this PR and verify no errors in production
 
+**Deleting a parent becomes impossible if you skip that constraint drop.** Once the model leaves Django's state, a `Team.objects.delete()` cascade no longer reaches the table, so its rows keep referencing the team. Because the constraint is deferred, Postgres raises the violation at `COMMIT`, after the whole cascade has run, and the delete can never succeed. Team and organization deletion stay broken for every tenant with rows in that table until someone drops it. Run `python manage.py audit_orphan_hot_table_fks` against a long-lived database to list tables already in this state; a squashed history leaves no trace of them in the migration files.
+
 **Test infrastructure note:** If your table has foreign keys pointing TO frequently-truncated tables like `User`, `Team`, or `Organization`, you may see test failures like `cannot truncate a table referenced in a foreign key constraint`. This happens because:
 
 - Django's `TransactionTestCase` uses `TRUNCATE` to clean up between tests
 - PostgreSQL won't truncate a table that has FKs pointing to it
 - Since the model is removed from Django's state, Django doesn't know to include it in the truncate list
-- Fix: Drop the FK constraints in `database_operations` (see commented example above) - you're dropping the table soon anyway
+- Fix: Drop the FK constraints in `database_operations` (see the example above) - required anyway, because leaving them breaks parent deletion
 
 **Step 2: Wait for safety window**
 
@@ -159,6 +184,7 @@ class Migration(migrations.Migration):
 
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
+- `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its own foreign keys reference. If one of those is a hot parent, add `SET LOCAL lock_timeout` to bound the wait, because queries arriving while the lock request queues wait behind it
 - If you must drop it, use `RunSQL` with raw SQL (see example below)
 - In the PR description, reference the model removal PR (e.g., "Model removed in #12345, deployed X days ago") so reviewers can verify the safety window
 
@@ -233,17 +259,44 @@ Leaving the table in place — code gone, table dropped in a follow-up — is a 
 
 ### Safe Approach
 
-Use the same multi-phase pattern as [Dropping Tables](#dropping-tables):
+Use the same multi-phase pattern as [Dropping Tables](#dropping-tables).
+Deleting the field and running `makemigrations` is **not** phase 1 on its own: Django generates a plain `RemoveField`, which drops the column in the same deploy that removes the code.
 
-1. Remove the field from your Django model (keeps column in database)
-2. Deploy and verify no code references it (application servers, workers, background jobs)
-3. Wait at least one full deployment cycle
-4. Optionally drop the column with `RemoveField` in a later migration
+**Phase 1: remove the field from Django state only.**
+Delete every reference to the field and the field itself from the model, run `makemigrations`, then wrap the generated `RemoveField` in `SeparateDatabaseAndState`:
+
+```python
+# 1328_remove_userproductlist_reason_state.py
+operations = [
+    migrations.SeparateDatabaseAndState(
+        state_operations=[
+            migrations.RemoveField(model_name="userproductlist", name="reason"),
+        ],
+        database_operations=[],
+    ),
+]
+```
+
+The column stays in Postgres, so in-flight requests on the old release keep working and a rollback still finds it.
+Deploy this, and verify no code references the field (application servers, workers, background jobs).
+
+**Phase 2: drop the column, at least one full deployment cycle later.**
+
+```python
+# 1340_drop_userproductlist_reason_columns.py
+operations = [
+    migrations.RunSQL(
+        sql='ALTER TABLE "posthog_userproductlist" DROP COLUMN IF EXISTS "reason";',
+        reverse_sql='ALTER TABLE "posthog_userproductlist" ADD COLUMN IF NOT EXISTS "reason" varchar(32) NULL;',
+    ),
+]
+```
 
 **Important notes:**
 
-- `RemoveField` operations are irreversible - column data is permanently deleted
-- `DROP COLUMN` takes an `ACCESS EXCLUSIVE` lock (briefly) - schedule during low-traffic windows
+- Dropping a column is irreversible - the data is permanently deleted. `reverse_sql` can re-add an empty column so the migration unapplies, but it cannot restore the values
+- `DROP COLUMN` takes an `ACCESS EXCLUSIVE` lock (briefly) - on a [hot table](#altering-hot-tables) schedule it for a low-traffic window
+- The "Migration Risk Analysis" CI job scores a bare `RemoveField` at 5, its highest risk. Phase 2 scores low only when the analyzer finds the phase 1 state removal in an ancestor migration, so the two phases must land in that order
 - Consider leaving unused columns indefinitely to avoid data loss risks
 
 ## Renaming Tables

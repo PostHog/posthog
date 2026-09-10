@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelsFilter } from '~/queries/schema/schema-general'
 import { FunnelStepReference } from '~/types'
+
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 export function FunnelStepReferencePicker(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

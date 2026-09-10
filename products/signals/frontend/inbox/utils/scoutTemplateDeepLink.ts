@@ -3,7 +3,6 @@ import { base64Decode, base64Encode } from 'lib/utils/base64'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills/frontend/skillConstants'
 
 import type { ScoutCreateInitialValues } from '../logics/scoutCreateModalLogic'
-import { SIGNALS_SCOUT_SKILL_PREFIX } from './scoutRunsWindow'
 
 /**
  * `/inbox/config#createScout=<url-safe base64 JSON>`, e.g. from a posthog.com template page.
@@ -55,11 +54,8 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
     }
 
     let cleanName = typeof name === 'string' ? name.trim() : ''
-    if (cleanName && !cleanName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)) {
-        cleanName = `${SIGNALS_SCOUT_SKILL_PREFIX}${cleanName}`
-    }
     if (cleanName && validateSkillName(cleanName)) {
-        // Invalid name: drop it so the form's default prefix stands rather than the link failing.
+        // Invalid name: drop it so the form opens with an empty name rather than the link failing.
         cleanName = ''
     }
 
