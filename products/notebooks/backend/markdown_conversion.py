@@ -15,9 +15,6 @@ JSONContent = dict[str, Any]
 
 NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Mapping[str, str] = {
     "ph-query": "Query",
-    "ph-python": "Python",
-    "ph-duck-sql": "DuckSQL",
-    "ph-hogql-sql": "HogQLSQL",
     "ph-recording": "Recording",
     "ph-recording-playlist": "RecordingPlaylist",
     "ph-feature-flag": "FeatureFlag",

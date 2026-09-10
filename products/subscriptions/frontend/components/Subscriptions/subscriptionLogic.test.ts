@@ -904,6 +904,32 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.prompt).toBeUndefined()
     })
 
+    it('drops stale AI display options when saving a non-AI subscription', async () => {
+        // Same switch-back path as the stale prompt: the AI display options stay in form state,
+        // and the backend rejects them on a non-AI sub, so the save would dead-end.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 44, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'insight',
+            delivery_config: { include_images: false, include_feedback: true },
+            title: 'Insight test',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.delivery_config).toEqual({})
+    })
+
     it.each([
         ['removes the gallery flag when files:write is missing', 'chat:write,channels:read', false],
         ['keeps the gallery flag when files:write is granted', 'chat:write,files:write', true],

@@ -5512,6 +5512,9 @@ class TestOAuthClientManifest(APIBaseTest):
         for scope in get_oauth_scopes_supported():
             with self.subTest(scope=scope):
                 self.assertIn(f"`{scope}`", body)
+                # A scope with no description falls back to its own name, so an
+                # advertised scope nobody wrote a line for reads as "`x`: x".
+                self.assertNotIn(f"`{scope}`: {scope}", body)
 
     def test_manifest_accessible_without_authentication(self):
         self.client.logout()
