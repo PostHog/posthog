@@ -49,7 +49,7 @@ import textwrap
 import warnings
 import functools
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1684,7 +1684,23 @@ def render_report(uses: list[CrossingUse], class_labels: Iterable[str] = ()) -> 
 
 BASELINE_PATH = REPO_ROOT / "products" / "model_crossing_uses_baseline.txt"
 
-BASELINE_HEADER = """\
+REGENERATE_COMMAND = "bin/hogli product:crossings --all --write-baseline"
+
+NEW_LINE_INSTRUCTION = (
+    "A '+' line is a new disallowed use of a product model class, and counts may only go down. "
+    "Change the caller: move the query, serializer or write into the model's own product and call "
+    "a facade function instead. A 'get_model' line is an apps.get_model reference from outside the "
+    "owning product; it is a coupling the import linters cannot see, and it belongs behind a facade "
+    "function too. A 'reverse-accessor(...)' line is a boundary-crossing relation field without "
+    'related_name="+" (a query:<name> row means an explicit related_query_name keeps filter() '
+    "traversal alive); seal it, remove the explicit query name, and give callers a facade read "
+    "function. A 'drives(...)' line is a test outside the product that executes one of its query "
+    "runners; move that test into the product. A coupling that must stand is a doctrine amendment: "
+    "hand-edit the line in, and record why in products/architecture.md § Wiring couplings. "
+    "Regenerating the baseline cannot add a line."
+)
+
+BASELINE_HEADER = f"""\
 # Disallowed uses of product model classes in consumer code.
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
@@ -1707,21 +1723,104 @@ BASELINE_HEADER = """\
 # access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
-# A new line needs a doctrine amendment, not a baseline edit.
 #
-# Regenerate: bin/hogli product:crossings --all --write-baseline
+# Regenerate after a removal: {REGENERATE_COMMAND}
+# That command refuses to write when the scan holds a line this file does not, or a count that
+# went up. A coupling that
+# must stand is a hand-edited line here, together with the amendment in products/architecture.md
+# § Wiring couplings that permits it, because a reviewer can see both.
 """
 
 
+def scanned_baseline_lines(uses: Iterable[CrossingUse]) -> list[str]:
+    return sorted(use.as_baseline_line() for use in disallowed_uses(uses))
+
+
 def render_baseline(uses: Iterable[CrossingUse]) -> str:
-    lines = sorted(use.as_baseline_line() for use in disallowed_uses(uses))
-    return BASELINE_HEADER + "\n".join(lines) + "\n"
+    return BASELINE_HEADER + "\n".join(scanned_baseline_lines(uses)) + "\n"
 
 
 def read_baseline(path: Path = BASELINE_PATH) -> list[str]:
     return [line for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
 
 
+def _counts_by_identity(lines: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for line in lines:
+        identity, count = line.rsplit(" ", 1)
+        counts[identity] = int(count)
+    return counts
+
+
+@dataclass(frozen=True)
+class BaselineDrift:
+    """The difference between the file and a scan, split by direction.
+
+    A line is (crossing, consumer, kind, count), and only the count is allowed to move down.
+    So `grown` holds a scanned line whose identity the file does not hold, or whose count went
+    up; `shrunk` holds a recorded line whose identity the scan no longer holds, or whose count
+    went down. Comparing whole lines would call a count drop growth and refuse it."""
+
+    grown: list[str]
+    shrunk: list[str]
+
+
+def baseline_drift(recorded: Iterable[str], scanned: Iterable[str]) -> BaselineDrift:
+    recorded_counts = _counts_by_identity(recorded)
+    scanned_counts = _counts_by_identity(scanned)
+    grown = [
+        f"{identity} {count}"
+        for identity, count in sorted(scanned_counts.items())
+        if count > recorded_counts.get(identity, 0)
+    ]
+    shrunk = [
+        f"{identity} {count}"
+        for identity, count in sorted(recorded_counts.items())
+        if count > scanned_counts.get(identity, 0)
+    ]
+    return BaselineDrift(grown=grown, shrunk=shrunk)
+
+
+def baseline_drift_message(added: Sequence[str], removed: Sequence[str]) -> str:
+    """The ratchet failure text, split by direction.
+
+    The two directions are not symmetric. A removal is recorded by a regenerate, an addition is
+    not, so the regenerate command stays out of the text while an addition stands. A reader who is
+    handed that command answers a new coupling by absorbing it, which is how the file grew."""
+    parts = [f"{BASELINE_PATH.name} no longer matches the repo."]
+    if added:
+        parts.append(NEW_LINE_INSTRUCTION)
+        parts.extend(f"  + {line}" for line in added)
+    if removed:
+        parts.append("A '-' line means a use went away. Good, but the file must record that too.")
+        parts.extend(f"  - {line}" for line in removed)
+    if removed and added:
+        parts.append(f"Run {REGENERATE_COMMAND} once the '+' lines are gone.")
+    elif removed:
+        parts.append(f"Run: {REGENERATE_COMMAND}")
+    return "\n".join(parts)
+
+
+class BaselineWouldGrow(Exception):
+    """A regenerate that would record a coupling the baseline does not hold yet."""
+
+    def __init__(self, path: Path, added: Sequence[str]) -> None:
+        self.added = list(added)
+        lines = "\n".join(f"  + {line}" for line in added)
+        super().__init__(f"{path.name} would gain lines, so nothing was written.\n{NEW_LINE_INSTRUCTION}\n{lines}")
+
+
 def write_baseline(uses: Iterable[CrossingUse], path: Path = BASELINE_PATH) -> None:
-    path.write_text(render_baseline(uses))
+    """Record the scan, but only while every difference against the file is a removal.
+
+    A regenerate that absorbs a new line hides the coupling from the review of the change that
+    caused it. A deliberate coupling therefore goes in by hand, next to the doctrine note that
+    permits it. There is no flag to skip this: a hand-edited line is what a reviewer reads, and a
+    flag would be pasted from one change into the next."""
+    scanned = list(uses)
+    if path.exists():
+        drift = baseline_drift(read_baseline(path), scanned_baseline_lines(scanned))
+        if drift.grown:
+            raise BaselineWouldGrow(path, drift.grown)
+    path.write_text(render_baseline(scanned))
     _baseline_lines.cache_clear()
