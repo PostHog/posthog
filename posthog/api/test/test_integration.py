@@ -34,7 +34,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import INTEGRATION_NOT_FOUND_DETAIL, IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.integration import (
@@ -6731,3 +6731,20 @@ class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["files_write_requestable"] is expected
+
+
+class TestIntegrationNotFoundDetail(APIBaseTest):
+    def test_unknown_integration_id_explains_the_miss(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/integrations/9999999/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert response.json()["detail"] == INTEGRATION_NOT_FOUND_DETAIL
+
+    def test_integration_from_another_team_reads_as_a_miss(self):
+        other_team = Team.objects.create(organization=self.organization)
+        integration = Integration.objects.create(team=other_team, kind="slack", integration_id="T123", config={})
+
+        response = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert response.json()["detail"] == INTEGRATION_NOT_FOUND_DETAIL

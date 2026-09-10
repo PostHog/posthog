@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -20,7 +20,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -1230,6 +1230,12 @@ class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
         )
 
 
+INTEGRATION_NOT_FOUND_DETAIL = (
+    "No integration with this id exists in this project. Integration ids belong to a single project, "
+    "so an id from another project does not resolve here. List this project's integrations to see the ids that exist."
+)
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1287,6 +1293,10 @@ class IntegrationViewSet(
         # map them to 429 + Retry-After once here instead of per action.
         if isinstance(exc, GitHubRateLimitError):
             return github_rate_limited_response(exc)
+        # The only 404 a detail route raises comes from `get_object`, so the id missed. The stock
+        # "Not found." does not separate a wrong id from a broken backend, so name the cause.
+        if isinstance(exc, Http404):
+            exc = NotFound(INTEGRATION_NOT_FOUND_DETAIL)
         return super().handle_exception(exc)
 
     def dangerously_get_permissions(self):
