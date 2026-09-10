@@ -4,6 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -203,6 +205,32 @@ describe('createSetupDetectionLogic', () => {
         expect(detect).not.toHaveBeenCalled()
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
         expect(onDetected).toHaveBeenCalledWith('has-data')
+    })
+
+    // A product whose detection API is gated on the same flag as the product can only 403 with
+    // the flag off, and the gate cannot be relied on to prevent that: kea mounts a logic during
+    // render, so a discarded render leaves the logic polling with no component to unmount it.
+    it.each([
+        [true, 1],
+        [false, 0],
+    ])('with the gating flag %s, calls detect %s times', async (flagOn, expectedCalls) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: flagOn })
+        const detect = jest.fn<Promise<ProductSetupStatus>, []>().mockResolvedValue('needs-setup')
+        const logic = createSetupDetectionLogic({
+            productKey: ProductKey.LOGS,
+            path: ['test', 'setupDetectionLogic'],
+            detect,
+            featureFlag: FEATURE_FLAGS.METRICS,
+        }).build()
+        logic.mount()
+        await flushMicrotasks()
+
+        expect(detect).toHaveBeenCalledTimes(expectedCalls)
+        // Either way the gate must not strand the user on its spinner.
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(
+            flagOn ? 'needs-setup' : 'unknown'
+        )
     })
 
     it('does not poll when no interval is configured', async () => {
