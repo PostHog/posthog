@@ -190,8 +190,8 @@ tools:
             pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket:
             `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
             include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot,
-            but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always
-            redacted. Listing reports does not execute metric queries.
+            but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted.
+            Listing reports does not execute metric queries.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -239,15 +239,15 @@ tools:
         title: Get signal report
         description: >
             Get a single signal report by ID. Returns the full report, including work_state, current assignee, and the
-            attached pull request and its latest known state, plus typed impact metrics. Every metric includes a
-            bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and may include an
+            attached pull request and its latest known state, plus typed impact metrics. Every metric includes a bounded
+            live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and may include an
             optional cached snapshot fallback. This call returns that stored content without executing the query.
             Consumers derive a BoldNumber whole-window headline and an ActionsBar longitudinal response, capped at 1,000
             estimated points, through the normal analytics query path and cache. Queryless legacy or malformed metrics
-            are always redacted. The report's full work log is readable via
-            inbox-report-artefacts-list; read it before acting. The raw underlying signals require a HogQL query (see
-            the 'signals' skill). Claim the report before doing work. A report may be claimed in potential, candidate,
-            in_progress, pending_input, ready, or failed state.
+            are always redacted. The report's full work log is readable via inbox-report-artefacts-list; read it before
+            acting. The raw underlying signals require a HogQL query (see the 'signals' skill). Claim the report before
+            doing work. A report may be claimed in potential, candidate, in_progress, pending_input, ready, or failed
+            state.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
