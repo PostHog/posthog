@@ -64,7 +64,7 @@ export function AccountPinnedProperties({
                     <LemonButton
                         size="xsmall"
                         icon={<IconGear />}
-                        className="ml-auto"
+                        className={layout === 'horizontal' ? 'ml-1' : 'ml-auto'}
                         tooltip="Choose pinned properties"
                         aria-label="Configure pinned properties"
                         onClick={onConfigure}

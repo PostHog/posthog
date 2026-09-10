@@ -12,6 +12,7 @@ Only expanded accounts load property values. The list does not load the legacy d
 With the flag disabled, the existing row expansion and account-name behavior remain unchanged.
 
 The Pin properties button and the Properties gear open the same ordered selector in both views.
+In expanded rows, the gear sits beside the Properties label. In the sidebar, it stays right-aligned.
 Only the panel that opened the selector renders it. Saving pins updates every mounted panel in the project.
 Dragging entries changes their saved display order. The sidebar scrolls independently of
 the main account content on wide account scenes.
