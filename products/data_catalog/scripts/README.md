@@ -88,15 +88,29 @@ A structured clarification question parks a permission request that stays open w
 
 ## Scoring a canary batch
 
-`semantic_layer_canary_score.py` grades a completed batch from the full ACP session log of each run, using the same scorers as the offline evals in `products/data_catalog/evals/`. It reads the runner's output, so score the file the runner just wrote:
+`semantic_layer_canary_score.py` grades a completed batch from the full ACP session log of each run, using the same scorers as the offline evals in `products/data_catalog/evals/`. It is the only scorer. The `signals-scout-semantic-layer-canary-report` scout reports the `$ai_evaluation` events this script emits; it does not grade session logs itself. A batch that was never scored here has no pass rate anywhere.
+
+Score the file the runner just wrote:
 
 ```bash
 POSTHOG_API_KEY=phx_... flox activate -- .venv/bin/python \
-  products/data_catalog/scripts/semantic_layer_canary_score.py \
+  -m products.data_catalog.scripts.semantic_layer_canary_score \
   --results .context/semantic-layer-canary.json
 ```
 
-It prints one JSON verdict row per case on stdout and a batch summary on stderr. `--emit` additionally publishes an `$ai_evaluation` event per scored case, tagged with the canary run id, and needs `POSTHOG_CAPTURE_TOKEN`.
+Without the runner's file, rebuild the batch from the tasks the runner created. Pass the window of task creation times and the dataset revision that was run:
+
+```bash
+POSTHOG_API_KEY=phx_... flox activate -- .venv/bin/python \
+  -m products.data_catalog.scripts.semantic_layer_canary_score \
+  --batch 2026-09-10T16:54:23Z 2026-09-10T17:17:23Z --revision 42
+```
+
+`--batch` reads the pinned revision, then finds each enabled question's task among `origin_product=posthog_ai` tasks created inside the window. Only a task whose full description equals the question counts; there is no fuzzy matching. A case with no task in the window is `missing`; a case whose newest attempt is still running is `incomplete`; more than one completed attempt is `duplicate`; a failed attempt followed by a completed one scores the completed one. A run the runner cancelled behind a clarifying question is scored as completed, with the question text recovered from its log. The batch id is `tasks:<from>:<to>`, so scoring the same window twice publishes the same experiment id.
+
+The personal API key needs `task:read`, plus `dataset:read` for `--batch`.
+
+It prints one JSON verdict row per case on stdout and a batch summary on stderr. `--emit` additionally publishes an `$ai_evaluation` event per case, tagged with the batch id, and needs `POSTHOG_CAPTURE_TOKEN`. Unscored cases are emitted too, with `$ai_evaluation_applicable` false and the case status as the reasoning, so the scout can report coverage gaps without reading logs. Every event carries `task_id`, `task_run_id`, and `task_url` for the report's links.
 
 Each case is graded against its dataset `expected_routing`:
 
@@ -106,6 +120,16 @@ Each case is graded against its dataset `expected_routing`:
 | `derive_from_approved` | the same, and the named metric was never run for the answer                                    |
 | `clarify`              | a question was asked before any data-bearing call, and no metric ran                           |
 | `no_match`             | the catalog was consulted first, and no metric ran                                             |
+
+### What the scorer checks
+
+The catalog tool surface is `metric-list` (paginated, no search parameter, not data-bearing), `metric-describe` (one stored definition, not data-bearing), `data-catalog-metric-run` (executes a governed metric; its response repeats `status` and `is_drifted`), and `execute-sql` over `system.information_schema.metrics`, which still counts as consulting the catalog. A data-bearing call is `execute-sql`, any `query-*` tool, `read-data-schema`, or a typed domain tool. Tool discovery (`info`, `search`, `schema`) is neither.
+
+- `metrics_catalog_before_data_discovery`: a successful catalog lookup precedes the first data-bearing call.
+- `canonical_metric_run`: `data-catalog-metric-run` ran `expected_metric` successfully, or was never called where the routing forbids it.
+- `clarification_asked`: a question tool call precedes any data-bearing call.
+- `proposed_metric_not_run`: a `derive_from_approved` case never executed the named proposed metric.
+- `metric_describe_before_adapted_sql`: advisory, see below.
 
 An unrecognized `expected_routing` and a run without a confirmed terminal status both come back as `unscored` rather than a guess. `metric_describe_before_adapted_sql` is advisory: it never fails a case on its own, because a run that listed the catalog and then wrote its own SQL did consult the catalog.
 
