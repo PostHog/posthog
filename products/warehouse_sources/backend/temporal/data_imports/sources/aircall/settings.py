@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PAGE_SIZE = 50
 
 
-@dataclass
+# frozen=False: the shared FanoutEndpointLike protocol declares mutable attributes, which a
+# frozen dataclass cannot satisfy. The instances are treated as immutable by convention.
+@dataclass(frozen=False)
 class AircallEndpointConfig:
     name: str
     path: str
@@ -28,12 +30,9 @@ class AircallEndpointConfig:
     # calls/contacts. Must be the same stable creation-time field the API's `from` filter
     # applies to.
     reanchor_field: Optional[str] = None
-    # Read by the shared fan-out builder for the parent list page size.
     page_size: int = PAGE_SIZE
-    # Read by the shared fan-out builder when a child merges on a cursor; unused for the
-    # full-refresh Conversation Intelligence children, kept for the FanoutEndpointLike protocol.
+    # Unused by the full-refresh CI children; kept so the config satisfies FanoutEndpointLike.
     default_incremental_field: Optional[str] = None
-    # When set, this endpoint fans out over a parent list rather than being a top-level list.
     fanout: Optional[DependentEndpointConfig] = None
 
 
