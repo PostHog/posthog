@@ -38,6 +38,9 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "Write your reply in the language the user wrote to you in" in prompt
         # The spelling rule stays scoped, so the agent does not read it as "always write English".
         assert "When you write in English, we use American English" in prompt
+        # The number format follows the reply language, because an English thousands separator
+        # states the wrong value in a language that uses the comma as a decimal separator.
+        assert "use the number format of the language you write in" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]

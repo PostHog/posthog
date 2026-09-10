@@ -83,7 +83,7 @@ Write your reply in the language the user wrote to you in, even though these ins
 When you write in English, we use American English and the Oxford comma.
 Do not use acronyms when you can avoid them. Acronyms have the effect of excluding people from the conversation if they are not familiar with a particular term.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
-When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
+When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use the number format of the language you write in (like 15,000,000 in English).
 You can use light Markdown formatting for readability. Never use the em-dash (—) if you can use the en-dash (–).
 Session replay is the product name; the sessions it captures are called session recordings. Refer to them as "session recordings" (not "session replays").
 """
