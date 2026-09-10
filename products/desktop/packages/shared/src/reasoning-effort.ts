@@ -1,5 +1,6 @@
 import type { Adapter } from "./adapter";
 import { EFFORT_LEVEL_LABELS, type EffortLevel } from "./domain-types";
+import { normalizeModelId, reasoningEffortsForModel } from "./model-catalog";
 
 export type SupportedReasoningEffort = EffortLevel;
 
@@ -10,70 +11,15 @@ export interface ReasoningEffortOption {
   name: string;
 }
 
-const BASE_OPTIONS: ReasoningEffortOption[] = [
-  { value: "low", name: "Low" },
-  { value: "medium", name: "Medium" },
-  { value: "high", name: "High" },
-];
-
-const STANDARD_EFFORTS: readonly SupportedReasoningEffort[] = [
-  "low",
-  "medium",
-  "high",
-];
-const EXTENDED_EFFORTS: readonly SupportedReasoningEffort[] = [
-  ...STANDARD_EFFORTS,
-  "xhigh",
-  "max",
-  "ultracode",
-];
-
-const CLAUDE_MODEL_EFFORTS: Readonly<
-  Record<string, readonly SupportedReasoningEffort[]>
-> = {
-  "claude-opus-4-7": EXTENDED_EFFORTS,
-  "claude-opus-4-8": EXTENDED_EFFORTS,
-  "claude-sonnet-4-6": STANDARD_EFFORTS,
-  "claude-sonnet-5": EXTENDED_EFFORTS,
-  "claude-fable-5": EXTENDED_EFFORTS,
-  "claude-fable-5-1": EXTENDED_EFFORTS,
-  "@cf/zai-org/glm-5.2": ["high", "max"],
-  "zai-org/glm-5.3": ["high", "max"],
-  "zai-org/glm-5.3-flash": ["high", "max"],
-  "claude-opus-5": EXTENDED_EFFORTS,
-};
-
+/** Null rather than an empty list for a model with no effort control, so the
+ * caller renders no dropdown instead of an empty one. */
 export function getReasoningEffortOptions(
   adapter: Adapter,
   modelId: string,
 ): ReasoningEffortOption[] | null {
-  if (adapter === "claude") {
-    const efforts = CLAUDE_MODEL_EFFORTS[modelId];
-    return (
-      efforts?.map((value) => ({ value, name: EFFORT_LEVEL_LABELS[value] })) ??
-      null
-    );
-  }
-
-  const options = [...BASE_OPTIONS];
-  const normalizedModelId = modelId.toLowerCase();
-  const supportsXhigh =
-    normalizedModelId.includes("gpt-5.5") ||
-    normalizedModelId.includes("gpt-5.6") ||
-    normalizedModelId.includes("gpt-6-astra");
-
-  if (supportsXhigh) {
-    options.push({ value: "xhigh", name: "Extra High" });
-  }
-  if (
-    adapter === "codex" &&
-    (normalizedModelId.includes("gpt-5.6") ||
-      normalizedModelId.includes("gpt-6-astra"))
-  ) {
-    options.push({ value: "max", name: "Max" });
-  }
-
-  return options;
+  const efforts = reasoningEffortsForModel(adapter, modelId);
+  if (efforts.length === 0) return null;
+  return efforts.map((value) => ({ value, name: EFFORT_LEVEL_LABELS[value] }));
 }
 
 export function isSupportedReasoningEffort(
@@ -131,8 +77,10 @@ const MODELS_WITH_1M_CONTEXT = new Set([
   "claude-fable-5-1",
 ]);
 
+// Normalized like the effort lookup above: the gateway serves some ids provider-qualified,
+// and a raw check here would silently drop the model to 200k.
 export function supports1MContext(modelId: string): boolean {
-  return MODELS_WITH_1M_CONTEXT.has(modelId);
+  return MODELS_WITH_1M_CONTEXT.has(normalizeModelId(modelId));
 }
 
 const MODELS_WITH_FAST_MODE = new Set([
@@ -142,5 +90,5 @@ const MODELS_WITH_FAST_MODE = new Set([
 ]);
 
 export function supportsFastMode(modelId: string): boolean {
-  return MODELS_WITH_FAST_MODE.has(modelId);
+  return MODELS_WITH_FAST_MODE.has(normalizeModelId(modelId));
 }
