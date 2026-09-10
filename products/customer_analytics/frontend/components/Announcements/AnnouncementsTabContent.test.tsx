@@ -22,6 +22,7 @@ describe('AnnouncementsTabContent', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/announcements/': { results: [], count: 0 },
+                '/api/projects/:team_id/announcement_templates/': { results: [], count: 0 },
                 '/api/projects/:team_id/announcements/channels/': [
                     { id: 'C1', name: 'acme', is_member: true, customer_name: 'Acme' },
                     { id: 'C2', name: 'globex', is_member: true, customer_name: 'Globex' },

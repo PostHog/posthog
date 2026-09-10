@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import type { AnnouncementApi, AnnouncementDeliveryApi } from '../../generated/api.schemas'
 import { AnnouncementAccountFilters } from './AnnouncementAccountFilters'
 import { announcementsLogic } from './announcementsLogic'
+import { TemplateActions } from './AnnouncementTemplates'
 
 type TagType = 'success' | 'primary' | 'warning' | 'danger' | 'default'
 
@@ -92,6 +93,7 @@ function AnnouncementComposer(): JSX.Element {
                 placeholder="Write a message to send to the selected customer channels…"
                 minRows={4}
             />
+            <TemplateActions currentMessage={messageDraft} onInsert={setMessage} />
             <AnnouncementAccountFilters />
             <div className="flex gap-2 items-center">
                 <LemonInputSelect

@@ -416,6 +416,40 @@ export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+/**
+ * Team-shared library of reusable announcement message bodies.
+ *
+ * Templates store only the message. Recipients are still chosen fresh per send in the
+ * announcement composer. All data is reached through the facade; no product models are
+ * imported here.
+ */
+export const announcementTemplatesCreateBodyNameMax = 255
+
+export const AnnouncementTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(announcementTemplatesCreateBodyNameMax)
+        .describe('Unique, human-friendly name for the template (unique per team).'),
+    message: zod.string().describe('Reusable message body, rendered as Slack mrkdwn when the announcement is sent.'),
+})
+
+/**
+ * Team-shared library of reusable announcement message bodies.
+ *
+ * Templates store only the message. Recipients are still chosen fresh per send in the
+ * announcement composer. All data is reached through the facade; no product models are
+ * imported here.
+ */
+export const announcementTemplatesUpdateBodyNameMax = 255
+
+export const AnnouncementTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(announcementTemplatesUpdateBodyNameMax)
+        .describe('Unique, human-friendly name for the template (unique per team).'),
+    message: zod.string().describe('Reusable message body, rendered as Slack mrkdwn when the announcement is sent.'),
+})
+
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
     channels: zod

@@ -10654,6 +10654,25 @@ export namespace Schemas {
       customer_name: string | null;
     }
 
+    export interface AnnouncementTemplate {
+      readonly id: string;
+      /**
+         * Unique, human-friendly name for the template (unique per team).
+         * @maxLength 255
+         */
+      name: string;
+      /** Reusable message body, rendered as Slack mrkdwn when the announcement is sent. */
+      message: string;
+      /** When the template was created. */
+      readonly created_at: string;
+      /**
+         * When the template was last edited.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
+    }
+
     export interface AppSandboxContract {
       status: string;
       restart_count: number;
@@ -55597,6 +55616,15 @@ export namespace Schemas {
       results: Announcement[];
     }
 
+    export interface PaginatedAnnouncementTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AnnouncementTemplate[];
+    }
+
     export interface PaginatedAppSummaryContractList {
       count: number;
       /** @nullable */
@@ -93955,6 +93983,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type AnnouncementTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AnnouncementsListParams = {

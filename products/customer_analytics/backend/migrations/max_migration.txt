@@ -1,1 +1,1 @@
-0051_squash_2026_09_07_schema_addons
+0053_announcementtemplate_validate_fks
