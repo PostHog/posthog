@@ -1293,8 +1293,7 @@ class IntegrationViewSet(
         # map them to 429 + Retry-After once here instead of per action.
         if isinstance(exc, GitHubRateLimitError):
             return github_rate_limited_response(exc)
-        # The only 404 a detail route raises comes from `get_object`, so the id missed. The stock
-        # "Not found." does not separate a wrong id from a broken backend, so name the cause.
+        # Nothing else in this module raises 404, so a detail route's 404 is always a missed id.
         if isinstance(exc, Http404):
             exc = NotFound(INTEGRATION_NOT_FOUND_DETAIL)
         return super().handle_exception(exc)

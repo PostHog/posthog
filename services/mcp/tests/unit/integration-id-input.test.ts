@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { GENERATED_TOOLS } from '@/tools/generated/integrations'
 
-// Production traces show `integration-get` rejecting calls that carry the right
-// integration but the wrong key spelling (`integrationId` / `integration_id`) or a
-// stringified id. Both are unambiguous, so they normalize to the numeric `id` the
-// endpoint takes. A value that is not an integration id must still be rejected.
+// Production traces show agents sending the right integration under a different key
+// spelling, or as a stringified id. Both were rejected before the param overrides.
 describe('integration-get id input', () => {
     const schema = GENERATED_TOOLS['integration-get']!().schema
     const ALIAS_KEYS = ['integrationId', 'integration_id'] as const
