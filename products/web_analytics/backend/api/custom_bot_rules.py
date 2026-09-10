@@ -23,6 +23,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     compiled_patterns,
     parse_rules,
     validate_rule,
+    validate_rule_set,
 )
 
 _MATCHERS = (*PATTERN_MATCHERS, CIDR_MATCHER)
@@ -167,6 +168,10 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             rules = list((team.modifiers or {}).get("customBotDefinitions") or [])
             if len(rules) >= MAX_CUSTOM_BOT_DEFINITIONS:
                 raise ValidationError(f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots.")
+            try:
+                validate_rule_set([*parse_rules(rules, warn_on_drop=False), parsed])
+            except ValueError as error:
+                raise ValidationError(str(error))
             self._save(team, [*rules, rule])
 
         return Response(rule, status=201)

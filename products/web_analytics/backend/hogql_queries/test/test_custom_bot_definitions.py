@@ -15,6 +15,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     MAX_CONDITIONS_PER_RULE,
     MAX_CUSTOM_BOT_DEFINITIONS,
     MAX_PATTERN_LENGTH,
+    MAX_TOTAL_CONDITIONS,
     TRAFFIC_TYPE_BY_CATEGORY,
     CidrGroup,
     CompositeGroup,
@@ -26,6 +27,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     compiled_patterns,
     parse_rules,
     validate_rule,
+    validate_rule_set,
 )
 
 
@@ -139,6 +141,17 @@ class TestValidation:
     def test_rejects_unusable_rules(self, _name: str, overrides: dict, expected_message: str):
         with pytest.raises(ValueError, match=expected_message):
             validate_rule(rule(**overrides))
+
+    def test_rejects_a_rule_set_over_the_aggregate_condition_budget(self):
+        # The per-list and per-rule caps multiply to 500 conditions; the aggregate budget is what
+        # actually bounds a query's hyperscan work.
+        rules = [
+            rule(id=str(i), items=[condition(id=f"{i}-{j}") for j in range(MAX_CONDITIONS_PER_RULE)])
+            for i in range(MAX_TOTAL_CONDITIONS // MAX_CONDITIONS_PER_RULE + 1)
+        ]
+
+        with pytest.raises(ValueError, match="across all rules"):
+            validate_rule_set(rules)
 
     def test_rejects_a_rule_with_too_many_conditions(self):
         # Every condition is a read added to every query that selects a classification field.
@@ -260,6 +273,19 @@ class TestCompileDefinitions:
         assert [bot.name for group in groups if isinstance(group, PatternGroup) for bot in group.definitions] == [
             "Good bot"
         ]
+
+    def test_rules_beyond_the_aggregate_condition_budget_are_dropped(self):
+        # Client-supplied query modifiers never pass a save path, so the budget must hold at
+        # compile time too or a crafted query forces one hyperscan call per condition per row.
+        rules = [
+            rule(id=str(i), name=f"Bot {i}", items=[condition(id=f"{i}-{j}") for j in range(MAX_CONDITIONS_PER_RULE)])
+            for i in range(MAX_TOTAL_CONDITIONS // MAX_CONDITIONS_PER_RULE + 5)
+        ]
+
+        groups = compile_definitions(rules)
+
+        total = sum(len(group.conditions) if isinstance(group, CompositeGroup) else 1 for group in groups)
+        assert total <= MAX_TOTAL_CONDITIONS
 
     def test_rules_beyond_the_cap_are_dropped(self):
         groups = compile_definitions([rule(id=str(i), name=f"Bot {i}") for i in range(MAX_CUSTOM_BOT_DEFINITIONS + 10)])

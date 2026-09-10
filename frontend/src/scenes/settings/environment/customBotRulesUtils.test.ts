@@ -7,6 +7,7 @@ import {
     parseCustomBotRules,
     validateCustomBotCondition,
     validateCustomBotRule,
+    validateCustomBotRuleSet,
 } from './customBotRulesUtils'
 
 const condition = (overrides: Partial<CustomBotCondition> = {}): CustomBotCondition => ({
@@ -118,6 +119,22 @@ describe('customBotRulesUtils', () => {
 
         it('accepts a usable rule', () => {
             expect(validateCustomBotRule(rule())).toBeNull()
+        })
+    })
+
+    describe('validateCustomBotRuleSet', () => {
+        // The per-rule cap cannot see siblings, so a set over the aggregate budget would save as
+        // valid in the editor and 400 on the server without this mirror.
+        it('rejects a set over the aggregate condition budget', () => {
+            const rules = Array.from({ length: 11 }, (_, i) =>
+                rule({
+                    id: String(i),
+                    items: Array.from({ length: 10 }, (_, j) => condition({ id: `${i}-${j}` })),
+                })
+            )
+
+            expect(validateCustomBotRuleSet(rules)).toEqual('You can have at most 100 conditions across all rules.')
+            expect(validateCustomBotRuleSet(rules.slice(0, 10))).toBeNull()
         })
     })
 

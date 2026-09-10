@@ -108,6 +108,31 @@ class TestCustomBotRulesAPI(ClickhouseTestMixin, APIBaseTest):
         self.team.refresh_from_db()
         assert (self.team.modifiers or {}).get("customBotDefinitions", []) == []
 
+    def test_create_rejects_a_rule_set_over_the_aggregate_condition_budget(self) -> None:
+        # The per-rule serializer caps cannot see the stored rules, so the budget check must.
+        self.team.modifiers = {
+            "customBotDefinitions": [
+                {
+                    "id": str(i),
+                    "name": f"Bot {i}",
+                    "combiner": "AND",
+                    "items": [
+                        {"id": f"{i}-{j}", "key": "$raw_user_agent", "matcher": "contains", "pattern": f"Bot{i}-{j}"}
+                        for j in range(10)
+                    ],
+                }
+                for i in range(10)
+            ]
+        }
+        self.team.save()
+
+        create = self.client.post(
+            self._url(),
+            {"name": "One too many", "items": [{"key": "$raw_user_agent", "matcher": "contains", "pattern": "x"}]},
+        )
+        assert create.status_code == status.HTTP_400_BAD_REQUEST, create.json()
+        assert "across all rules" in str(create.json())
+
     def test_delete_unknown_id_is_not_found(self) -> None:
         response = self.client.delete(self._url("does-not-exist/"))
         assert response.status_code == status.HTTP_404_NOT_FOUND

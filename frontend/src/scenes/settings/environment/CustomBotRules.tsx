@@ -26,6 +26,7 @@ import {
     CUSTOM_BOT_FIELD_OPTIONS,
     MAX_CONDITIONS_PER_RULE,
     MAX_CUSTOM_BOT_RULES,
+    MAX_TOTAL_CONDITIONS,
     defaultMatcherFor,
     fieldLabel,
     matcherLabel,
@@ -36,6 +37,7 @@ import {
     parseCustomBotRules,
     validateCustomBotCondition,
     validateCustomBotRule,
+    validateCustomBotRuleSet,
 } from './customBotRulesUtils'
 
 // Lowercase: the labels render mid-sentence ("when all conditions are met").
@@ -117,7 +119,9 @@ export function CustomBotRules(): JSX.Element {
     })
     const canEdit = !restrictedReason
 
-    const firstError = rules.map(validateCustomBotRule).find(Boolean)
+    const anyRuleError = rules.map(validateCustomBotRule).find(Boolean)
+    const setError = validateCustomBotRuleSet(rules)
+    const totalConditions = rules.reduce((sum, rule) => sum + rule.items.length, 0)
     // Sanitize both sides: a rule written through the API can lack the optional category or carry
     // unpadded whitespace, and a pristine editor must not read as dirty for normalization alone.
     const isUnchanged = equal(sanitizeCustomBotRules(rules), sanitizeCustomBotRules(savedRules))
@@ -266,7 +270,9 @@ export function CustomBotRules(): JSX.Element {
                                 disabledReason={
                                     rule.items.length >= MAX_CONDITIONS_PER_RULE
                                         ? `A rule can have at most ${MAX_CONDITIONS_PER_RULE} conditions`
-                                        : undefined
+                                        : totalConditions >= MAX_TOTAL_CONDITIONS
+                                          ? `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules`
+                                          : undefined
                                 }
                             >
                                 Add condition
@@ -283,7 +289,9 @@ export function CustomBotRules(): JSX.Element {
                                 disabledReason={
                                     rules.length >= MAX_CUSTOM_BOT_RULES
                                         ? `You can define at most ${MAX_CUSTOM_BOT_RULES} bots`
-                                        : undefined
+                                        : totalConditions >= MAX_TOTAL_CONDITIONS
+                                          ? `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules`
+                                          : undefined
                                 }
                             >
                                 Add bot
@@ -300,11 +308,9 @@ export function CustomBotRules(): JSX.Element {
                                 disabledReason={
                                     currentTeamLoading
                                         ? 'Saving'
-                                        : firstError
+                                        : anyRuleError
                                           ? 'Fix the errors above first'
-                                          : isUnchanged
-                                            ? 'No changes to save'
-                                            : undefined
+                                          : (setError ?? (isUnchanged ? 'No changes to save' : undefined))
                                 }
                             >
                                 Save

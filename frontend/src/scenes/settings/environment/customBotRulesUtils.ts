@@ -4,6 +4,8 @@ import { FilterLogicalOperator } from '~/types'
 export const CUSTOM_BOT_CATEGORY = 'custom'
 export const MAX_CUSTOM_BOT_RULES = 50
 export const MAX_CONDITIONS_PER_RULE = 10
+// The per-list and per-rule caps multiply, so the aggregate cap is what limits a query.
+export const MAX_TOTAL_CONDITIONS = 100
 export const MAX_PATTERN_LENGTH = 200
 export const MAX_NAME_LENGTH = 100
 
@@ -276,6 +278,14 @@ export function validateCustomBotRule(rule: CustomBotRule): string | null {
         if (error) {
             return error
         }
+    }
+    return null
+}
+
+export function validateCustomBotRuleSet(rules: CustomBotRule[]): string | null {
+    const total = rules.reduce((sum, rule) => sum + rule.items.length, 0)
+    if (total > MAX_TOTAL_CONDITIONS) {
+        return `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules.`
     }
     return null
 }

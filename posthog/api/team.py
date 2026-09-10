@@ -127,6 +127,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     compiled_patterns as compiled_custom_bot_patterns,
     parse_rules as parse_custom_bot_rules,
     validate_rule as validate_custom_bot_rule,
+    validate_rule_set as validate_custom_bot_rule_set,
 )
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
@@ -1920,6 +1921,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     message = f"{rule.name}: {error}" if rule.name else str(error)
                     raise exceptions.ValidationError({"customBotDefinitions": message})
             try:
+                validate_custom_bot_rule_set(rules)
                 assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(rules))
             except ValueError as error:
                 raise exceptions.ValidationError({"customBotDefinitions": str(error)})

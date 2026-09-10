@@ -44,9 +44,12 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Bounds the work added to every query that reads a classification field.
+# Bounds the work added to every query that reads a classification field. The per-list and
+# per-rule caps multiply, so the aggregate cap is what actually limits a query: modifiers can
+# also arrive in a client-supplied query, and each condition is a hyperscan call per row.
 MAX_CUSTOM_BOT_DEFINITIONS = 50
 MAX_CONDITIONS_PER_RULE = 10
+MAX_TOTAL_CONDITIONS = 100
 MAX_PATTERN_LENGTH = 200
 MAX_NAME_LENGTH = 100
 # Ids are stored on team.modifiers, which is read on every query for the team.
@@ -269,6 +272,13 @@ def validate_rule(rule: "CustomBotRule") -> None:
         validate_pattern(item.pattern, item.matcher.value, item.key)
 
 
+def validate_rule_set(rules: list["CustomBotRule"]) -> None:
+    """Raise ValueError when the rules together exceed the aggregate condition budget."""
+    total = sum(len(rule.items) for rule in rules)
+    if total > MAX_TOTAL_CONDITIONS:
+        raise ValueError(f"You can have at most {MAX_TOTAL_CONDITIONS} conditions across all rules.")
+
+
 def parse_rules(raw: list, strict: bool = False, warn_on_drop: bool = True) -> list["CustomBotRule"]:
     """Parse stored or submitted rules.
 
@@ -400,11 +410,18 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
     open_bucket_key: tuple[str, str] | None = None
     open_bucket: list[CustomBotRule] = []
     order: list[Union[tuple[str, str, list[CustomBotRule]], CustomBotRule]] = []
+    total_conditions = 0
     for rule in rules[:MAX_CUSTOM_BOT_DEFINITIONS]:
         try:
             validate_rule(rule)
         except ValueError:
             continue
+        # The aggregate budget is enforced here as well as on save, because modifiers can arrive
+        # in a client-supplied query that never went through a save path. Stop rather than skip:
+        # dropping only the oversized rule would let a later rule jump the precedence order.
+        total_conditions += len(rule.items)
+        if total_conditions > MAX_TOTAL_CONDITIONS:
+            break
         if len(rule.items) > 1:
             order.append(rule)
             open_bucket_key = None
