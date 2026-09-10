@@ -12,6 +12,7 @@ map values from failing insertion into the typed JSON column while preserving un
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
 The utility module and CI use Go 1.27.1, declared in `clickhouse-udfs/util/go.mod`.
 Rebuild all utilities for Linux amd64 and arm64 with `./scripts/build.sh` whenever this version changes; CI verifies the checked-in binaries.
+Changes to `posthog/user_scripts` no longer dispatch the separate UDF publishing workflow on pushes to master.
 
 The event, person, and temporary cleaners reuse at most 4,096 parser nodes across rows.
 Recycled nodes keep small backing arrays for reuse and release larger arrays whose capacity exceeds twice their used length, so a wide row does not make later small rows repeatedly clear oversized arrays.
