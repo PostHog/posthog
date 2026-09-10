@@ -122,6 +122,9 @@ export interface evaluationBackfillsLogicActions {
         evaluation: EvaluationConfig | null
         requestedTab: string | null
     } // llmEvaluationLogic
+    saveEvaluationSuccess: (evaluation: EvaluationConfig) => {
+        evaluation: EvaluationConfig
+    } // llmEvaluationLogic
     cancelBackfill: (id: string) => {
         id: string
     }
@@ -221,7 +224,10 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
 
     connect((props: EvaluationBackfillsLogicProps) => ({
         values: [llmEvaluationLogic({ evaluationId: props.evaluationId }), ['evaluation'], teamLogic, ['timezone']],
-        actions: [llmEvaluationLogic({ evaluationId: props.evaluationId }), ['loadEvaluationSuccess']],
+        actions: [
+            llmEvaluationLogic({ evaluationId: props.evaluationId }),
+            ['loadEvaluationSuccess', 'saveEvaluationSuccess'],
+        ],
     })),
 
     actions({
@@ -411,12 +417,21 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                 return () => window.clearTimeout(timerId)
             }, POLL_KEY)
         }
+        /** The server counts against the evaluation's own target and target config, neither of
+         * which the request carries, so a save that changes either leaves the cached count
+         * describing a different unit. Seeding recounts on its own; an edited editor keeps its
+         * condition sets and only recounts. */
+        const followEvaluation = (): void => {
+            cache.lastEstimate = null
+            if (!values.conditionsDirty && values.evaluation) {
+                actions.seedConditions(values.evaluation.conditions.map(toBackfillCondition))
+            } else {
+                actions.requestEstimate()
+            }
+        }
         return {
-            loadEvaluationSuccess: () => {
-                if (!values.conditionsDirty && values.evaluation) {
-                    actions.seedConditions(values.evaluation.conditions.map(toBackfillCondition))
-                }
-            },
+            loadEvaluationSuccess: followEvaluation,
+            saveEvaluationSuccess: followEvaluation,
             loadBackfills: async ({ background }) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
