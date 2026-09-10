@@ -2248,6 +2248,7 @@ export interface CredentialApi {
  * * `Freshchat` - Freshchat
  * * `Freshservice` - Freshservice
  * * `Fulcrum` - Fulcrum
+ * * `GainsightCs` - GainsightCs
  * * `GainsightPx` - GainsightPx
  * * `GitBook` - GitBook
  * * `Glassfrog` - Glassfrog
@@ -3588,6 +3589,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Freshchat: 'Freshchat',
     Freshservice: 'Freshservice',
     Fulcrum: 'Fulcrum',
+    GainsightCs: 'GainsightCs',
     GainsightPx: 'GainsightPx',
     GitBook: 'GitBook',
     Glassfrog: 'Glassfrog',

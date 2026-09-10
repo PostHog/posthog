@@ -24302,6 +24302,7 @@ export namespace Schemas {
      * * `Freshchat` - Freshchat
      * * `Freshservice` - Freshservice
      * * `Fulcrum` - Fulcrum
+     * * `GainsightCs` - GainsightCs
      * * `GainsightPx` - GainsightPx
      * * `GitBook` - GitBook
      * * `Glassfrog` - Glassfrog
@@ -25642,6 +25643,7 @@ export namespace Schemas {
       Freshchat: 'Freshchat',
       Freshservice: 'Freshservice',
       Fulcrum: 'Fulcrum',
+      GainsightCs: 'GainsightCs',
       GainsightPx: 'GainsightPx',
       GitBook: 'GitBook',
       Glassfrog: 'Glassfrog',
@@ -26996,6 +26998,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -29041,6 +29044,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -37857,6 +37861,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -39231,6 +39236,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -80913,6 +80919,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -82303,6 +82310,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
@@ -83675,6 +83683,7 @@ export namespace Schemas {
        * * `Freshchat` - Freshchat
        * * `Freshservice` - Freshservice
        * * `Fulcrum` - Fulcrum
+       * * `GainsightCs` - GainsightCs
        * * `GainsightPx` - GainsightPx
        * * `GitBook` - GitBook
        * * `Glassfrog` - Glassfrog
