@@ -47,6 +47,11 @@ export interface DataModelingJobApi {
      * * `full_refresh` - Full refresh
      * * `incremental` - Incremental */
     readonly run_mode: DataModelingJobRunModeEnumApi | null
+    /**
+     * Why this run rebuilt the whole table instead of updating only new rows, for example first run, definition changed, or table missing. Null when the run was incremental.
+     * @nullable
+     */
+    readonly full_refresh_reason: string | null
     readonly rows_materialized: number
     /** @nullable */
     readonly error: string | null
