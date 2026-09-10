@@ -51,8 +51,6 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
   return (
     <InboxDetailFrame
       report={report}
-      backTo="/inbox/pulls"
-      backLabel="Back to pull requests"
       fallbackTitle="Untitled pull request"
       metaSuffix={
         prUrl ? (

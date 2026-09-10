@@ -96,6 +96,10 @@ export function resolveNavigationSource(
   };
 }
 
+export function hrefPath(href: string): string {
+  return href.replace(/[?#].*$/, "");
+}
+
 /** For callers holding a location as a string, not a parsed one. */
 export function reportSourceHrefFromHref(href: string): string | undefined {
   const [path, query] = href.split(/[?#]/, 2);

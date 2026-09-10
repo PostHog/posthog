@@ -13,13 +13,13 @@ import {
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
-import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
 import {
   InboxMetaRow,
   InboxMetaSeparator,
   InboxMetaText,
 } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
+import { ReportBreadcrumbs } from "@posthog/ui/features/inbox/components/ReportBreadcrumbs";
 import { ReportDetailCloseButton } from "@posthog/ui/features/inbox/components/ReportDetailCloseButton";
 import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import { ReportSummaryDocument } from "@posthog/ui/features/inbox/components/ReportSummaryDocument";
@@ -27,7 +27,6 @@ import { RightColumnSection } from "@posthog/ui/features/inbox/components/RightC
 import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
 import { SignalReportStatusBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportStatusBadge";
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
-import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
@@ -36,8 +35,6 @@ import { useMemo, useState } from "react";
 
 export interface InboxDetailFrameViewProps {
   report: SignalReport;
-  backTo: InboxListRoute | (string & {});
-  backLabel: string;
   fallbackTitle: string;
   breadcrumb?: ReactNode;
   metaPrefix?: ReactNode;
@@ -64,8 +61,6 @@ export interface InboxDetailFrameViewProps {
 
 export function InboxDetailFrameView({
   report,
-  backTo,
-  backLabel,
   fallbackTitle,
   breadcrumb,
   metaPrefix,
@@ -155,44 +150,52 @@ export function InboxDetailFrameView({
     </>
   );
 
+  const trail = useMemo(
+    () => (
+      <div className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-gray-11">
+        <ReportBreadcrumbs report={report} />
+        {breadcrumb}
+      </div>
+    ),
+    [report, breadcrumb],
+  );
+  const actions = useMemo(
+    () => (
+      <>
+        {primaryAction}
+        {dismissButton}
+        {ownsChrome && <ReportDetailCloseButton />}
+      </>
+    ),
+    [primaryAction, dismissButton, ownsChrome],
+  );
   const header = useMemo(
     () => (
       <>
-        <div className="flex min-w-0 items-center gap-2 text-[13px] text-gray-11">
-          <DetailBackLink to={backTo} label={backLabel} report={report} />
-          {breadcrumb}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {primaryAction}
-          {dismissButton}
-          {ownsChrome && <ReportDetailCloseButton />}
-        </div>
+        {trail}
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
       </>
     ),
-    [
-      report,
-      backTo,
-      backLabel,
-      breadcrumb,
-      primaryAction,
-      dismissButton,
-      ownsChrome,
-    ],
+    [trail, actions],
   );
   useSetHeaderContent(header, ownsChrome);
 
   return (
     <div className="@container flex min-h-full flex-col">
-      {!ownsChrome && <ChromeBar inset="control">{header}</ChromeBar>}
+      {!ownsChrome && (
+        <ChromeBar inset="control" actions={actions}>
+          {trail}
+        </ChromeBar>
+      )}
 
       <div className="mx-auto w-full max-w-[calc(160ch+5rem)]">
         <div className="flex @5xl:flex-row flex-col @5xl:items-start overflow-hidden">
-          <main className="@5xl:order-none order-1 flex min-w-0 flex-1 flex-col p-2">
+          <main className="@5xl:order-none order-1 flex min-w-0 flex-1 flex-col">
             {secondaryTab ? (
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList
                   variant="line"
-                  className="mb-5 h-auto w-full justify-start gap-0.5 border-(--gray-5) border-b"
+                  className="h-auto w-full justify-start gap-0.5 border-border border-b"
                 >
                   <TabsTrigger value="overview" className="gap-1.5 px-2.5 py-2">
                     <span className="font-bold text-[14px]">
@@ -222,14 +225,14 @@ export function InboxDetailFrameView({
             )}
 
             {secondaryTab && activeTab === "secondary" ? (
-              <div className="flex min-w-0 flex-col gap-5">
+              <div className="flex min-w-0 flex-col gap-5 p-4">
                 <h1 className="m-0 min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
                   {title}
                 </h1>
                 {secondaryTab.content}
               </div>
             ) : (
-              <div className="flex min-h-full min-w-0 flex-col gap-6">
+              <div className="flex min-h-full min-w-0 flex-col gap-6 p-4">
                 <div className="flex flex-col gap-2">
                   <h1 className="m-0 min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
                     {title}
@@ -251,7 +254,7 @@ export function InboxDetailFrameView({
               </div>
             )}
           </main>
-          <aside className="@5xl:order-none order-2 flex @5xl:w-[26rem] w-full min-w-0 @5xl:shrink-0 flex-col gap-5 @5xl:self-stretch">
+          <aside className="@5xl:order-none order-2 flex @5xl:w-[26rem] w-full min-w-0 @5xl:shrink-0 flex-col gap-2 @5xl:self-stretch p-2">
             {hasEvidence && (
               <RightColumnSection
                 Icon={EvidenceIcon}

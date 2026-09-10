@@ -135,29 +135,32 @@ export function TaskFeedPane({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <ChromeBar>
+      <ChromeBar
+        actions={
+          <>
+            <Button
+              variant="default"
+              size="icon-xs"
+              aria-label="Edit saved search"
+              onClick={openEdit}
+            >
+              <PencilSimpleIcon size={14} />
+            </Button>
+            <Button
+              variant="default"
+              size="icon-xs"
+              aria-label="Delete saved search…"
+              onClick={requestDelete}
+            >
+              <TrashIcon size={14} />
+            </Button>
+          </>
+        }
+      >
         <SavedSearchSwitcher
           currentFeedId={feedId}
           className="min-w-0 flex-1"
         />
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button
-            variant="default"
-            size="icon-xs"
-            aria-label="Edit saved search"
-            onClick={openEdit}
-          >
-            <PencilSimpleIcon size={14} />
-          </Button>
-          <Button
-            variant="default"
-            size="icon-xs"
-            aria-label="Delete saved search…"
-            onClick={requestDelete}
-          >
-            <TrashIcon size={14} />
-          </Button>
-        </div>
       </ChromeBar>
 
       <Button

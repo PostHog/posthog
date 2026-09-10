@@ -6,7 +6,6 @@ import {
   SignalsList,
   SignalsListSkeleton,
 } from "@posthog/ui/features/inbox/components/SignalsList";
-import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import {
   useInboxReportArtefacts,
@@ -16,8 +15,6 @@ import type { ComponentType, ReactNode } from "react";
 
 interface InboxDetailFrameProps {
   report: SignalReport;
-  backTo: InboxListRoute | (string & {});
-  backLabel: string;
   showDismiss?: boolean;
   showMetadata?: boolean;
   fallbackTitle: string;
@@ -43,8 +40,6 @@ interface InboxDetailFrameProps {
 
 export function InboxDetailFrame({
   report,
-  backTo,
-  backLabel,
   fallbackTitle,
   breadcrumb,
   metaPrefix,
@@ -89,8 +84,6 @@ export function InboxDetailFrame({
   return (
     <InboxDetailFrameView
       report={report}
-      backTo={backTo}
-      backLabel={backLabel}
       fallbackTitle={fallbackTitle}
       breadcrumb={breadcrumb}
       metaPrefix={metaPrefix}

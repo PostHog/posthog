@@ -58,14 +58,11 @@ function GenericArtifactHeader({
   actions?: ReactNode;
 }): ReactElement {
   return (
-    <ChromeBar inset="even" className="justify-between">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
-          {name}
-        </span>
-        {versionNav}
-      </div>
-      {actions}
+    <ChromeBar inset="even" actions={actions}>
+      <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
+        {name}
+      </span>
+      {versionNav}
     </ChromeBar>
   );
 }

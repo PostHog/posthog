@@ -1,5 +1,7 @@
-import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
-import { reportSourceHrefFromHref } from "@posthog/ui/router/reportNavigation";
+import {
+  hrefPath,
+  reportSourceHrefFromHref,
+} from "@posthog/ui/router/reportNavigation";
 
 /**
  * Which rail destination the app is on, and whether that destination owns the
@@ -72,20 +74,7 @@ export function railPaneForPath(fullPath: string): NavRailPane {
  * path, so `/reports/$id` under `?from=/inbox` is Self-driving.
  */
 export function railPaneForHref(href: string): NavRailPane {
-  const path = href.replace(/[?#].*$/, "");
-  return railPaneForPath(reportSourceHrefFromHref(href) ?? path);
-}
-
-export function railPaneForMatches(
-  matches: readonly { fullPath: string }[],
-): NavRailPane {
-  return railPaneForPath(matches[matches.length - 1]?.fullPath ?? "");
-}
-
-/** Read the destination outside React (event handlers, imperative picks). */
-/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
-export function getRailPane(): NavRailPane {
-  return railPaneForMatches(getCurrentMatches());
+  return railPaneForPath(reportSourceHrefFromHref(href) ?? hrefPath(href));
 }
 
 const NON_RESTORABLE_ROOTS = [
@@ -101,7 +90,7 @@ export function isRestorableVisitHref(
   pane: NavRailPane,
   href: string,
 ): boolean {
-  const path = href.replace(/[?#].*$/, "");
+  const path = hrefPath(href);
   const blocked = NON_RESTORABLE_ROOTS.some(
     (root) => path === root || path.startsWith(`${root}/`),
   );

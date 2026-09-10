@@ -211,23 +211,25 @@ export function GridCanvasView({
         {interactive ? (
           // The freeform canvas's toolbar shape: version info on the left,
           // panel controls on the right, in the bar rather than floating.
-          <ChromeBar inset="even" className="justify-between">
-            <div className="flex items-center gap-1">
-              {versionText ? (
-                <Text size="sm" className="text-(--gray-9)">
-                  {versionText}
-                </Text>
-              ) : null}
-            </div>
-            {collapsed && !widgetTarget ? (
-              <Button
-                variant="default"
-                size="icon"
-                aria-label="Show chat"
-                onClick={() => setCollapsed(false)}
-              >
-                <SidebarSimpleIcon size={16} />
-              </Button>
+          <ChromeBar
+            inset="even"
+            actions={
+              collapsed && !widgetTarget ? (
+                <Button
+                  variant="default"
+                  size="icon"
+                  aria-label="Show chat"
+                  onClick={() => setCollapsed(false)}
+                >
+                  <SidebarSimpleIcon size={16} />
+                </Button>
+              ) : null
+            }
+          >
+            {versionText ? (
+              <Text size="sm" className="text-(--gray-9)">
+                {versionText}
+              </Text>
             ) : null}
           </ChromeBar>
         ) : null}

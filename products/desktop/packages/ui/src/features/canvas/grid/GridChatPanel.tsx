@@ -83,7 +83,7 @@ export function GridChatPanel({
   if (target) {
     return (
       <div className="flex h-full flex-col border-(--gray-5) border-l">
-        <ChromeBar inset="control" className="gap-1">
+        <ChromeBar inset="control" className="gap-1" actions={minimize}>
           <Button
             variant="default"
             size="icon"
@@ -95,7 +95,6 @@ export function GridChatPanel({
           <Text size="sm" weight="medium" className="min-w-0 flex-1 truncate">
             {target.title}
           </Text>
-          {minimize}
         </ChromeBar>
         {target.taskId ? (
           <TaskChat taskId={target.taskId} />
@@ -110,7 +109,7 @@ export function GridChatPanel({
 
   return (
     <div className="flex h-full flex-col border-(--gray-5) border-l">
-      <ChromeBar className="justify-between">
+      <ChromeBar actions={minimize}>
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as "chat" | "comments")}
@@ -128,7 +127,6 @@ export function GridChatPanel({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        {minimize}
       </ChromeBar>
       {tab === "comments" && commentTaskId ? (
         <CanvasComments

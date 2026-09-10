@@ -72,14 +72,11 @@ function ReportPageContent({ report }: { report: SignalReport }) {
         <ReportOpenTracker report={report} tab={hasPr ? "pulls" : "reports"} />
       )}
       {archived ? (
-        <DismissedReportDetailContent
-          report={report}
-          back={{ to: "/inbox/dismissed", label: "Report" }}
-        />
+        <DismissedReportDetailContent report={report} />
       ) : hasPr ? (
         <PullRequestDetailContent report={report} />
       ) : (
-        <ReportDetailContent report={report} backTo="/" backLabel="Report" />
+        <ReportDetailContent report={report} />
       )}
     </ReportPageContext>
   );

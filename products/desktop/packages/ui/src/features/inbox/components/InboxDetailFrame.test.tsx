@@ -3,8 +3,8 @@ import type { SignalReport } from "@posthog/shared/types";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@posthog/ui/features/inbox/components/DetailBackLink", () => ({
-  DetailBackLink: () => null,
+vi.mock("@posthog/ui/features/inbox/components/ReportBreadcrumbs", () => ({
+  ReportBreadcrumbs: () => null,
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
@@ -44,8 +44,6 @@ describe("InboxDetailFrame", () => {
     render(
       <InboxDetailFrame
         report={report}
-        backTo="/inbox/reports"
-        backLabel="Back to reports"
         fallbackTitle="Untitled report"
         summarySection={{ Icon: FileTextIcon, title: "Summary" }}
         evidenceSection={null}

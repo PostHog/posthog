@@ -91,31 +91,35 @@ export function ReportChatSidebar({
       side="right"
     >
       <div className="flex h-full min-w-0 flex-col border-border border-l bg-gray-1">
-        <ChromeBar className="justify-between bg-chrome">
-          <span className="flex items-center gap-1.5 font-medium text-[14px] text-gray-12">
-            <ChatCircleIcon size={14} />
-            Chat
-          </span>
-          <span className="flex items-center gap-1">
-            {boundTask && (
+        <ChromeBar
+          className="bg-chrome"
+          actions={
+            <>
+              {boundTask && (
+                <Button
+                  size="icon-sm"
+                  variant="default"
+                  aria-label="Open the full task"
+                  title="Open the full task"
+                  onClick={() => void openTask(boundTask)}
+                >
+                  <ArrowsOutSimpleIcon size={14} />
+                </Button>
+              )}
               <Button
                 size="icon-sm"
                 variant="default"
-                aria-label="Open the full task"
-                title="Open the full task"
-                onClick={() => void openTask(boundTask)}
+                aria-label="Close chat"
+                onClick={() => setOpen(false)}
               >
-                <ArrowsOutSimpleIcon size={14} />
+                <XIcon size={14} />
               </Button>
-            )}
-            <Button
-              size="icon-sm"
-              variant="default"
-              aria-label="Close chat"
-              onClick={() => setOpen(false)}
-            >
-              <XIcon size={14} />
-            </Button>
+            </>
+          }
+        >
+          <span className="flex items-center gap-1.5 font-medium text-[14px] text-gray-12">
+            <ChatCircleIcon size={14} />
+            Chat
           </span>
         </ChromeBar>
         <div className="min-h-0 flex-1">

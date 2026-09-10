@@ -30,7 +30,6 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
-  getCurrentMatches,
   navigateToActivity,
   navigateToCanvases,
   navigateToChannel,
@@ -146,10 +145,9 @@ export function pickRailDestination(
   destination: RailDestination,
   current: NavRailPane,
 ): void {
-  const matches = getCurrentMatches();
   // A report page belongs to the list that opened it, and only its `?from=`
-  // says which, so the pattern cannot answer this.
-  const here = currentHref() ?? matches[matches.length - 1]?.fullPath ?? "";
+  // says which, so a route pattern cannot answer this.
+  const here = currentHref() ?? "";
   const onDestination =
     destination.pane === current &&
     isRestorableVisitHref(destination.pane, here);

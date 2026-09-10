@@ -10,10 +10,7 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
-import {
-  type InboxBackTarget,
-  useInboxBackTarget,
-} from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import { useInboxBackTarget } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useNavigate } from "@tanstack/react-router";
@@ -58,17 +55,15 @@ export function DismissedReportDetail({
       backLinkLabel={back.label}
       missingCopy="This report couldn't be found. It may have been deleted."
     >
-      {(report) => <DismissedReportDetailContent report={report} back={back} />}
+      {(report) => <DismissedReportDetailContent report={report} />}
     </InboxReportDetailGate>
   );
 }
 
 export function DismissedReportDetailContent({
   report,
-  back,
 }: {
   report: SignalReport;
-  back: InboxBackTarget;
 }) {
   // Resolved reports are terminal (their PR already merged) — nothing to
   // restore, so only suppressed reports get a Restore action.
@@ -76,8 +71,6 @@ export function DismissedReportDetailContent({
   return (
     <InboxDetailFrame
       report={report}
-      backTo={back.to}
-      backLabel={back.label}
       fallbackTitle="Untitled report"
       showDismiss={false}
       primaryAction={

@@ -48,8 +48,6 @@ export function ReportDetail({
       {(report) => (
         <ReportDetailContent
           report={report}
-          backTo={backTo}
-          backLabel={backLabel}
           headerTrailingAction={headerTrailingAction}
         />
       )}
@@ -69,13 +67,9 @@ export function ReportDetail({
  */
 export function ReportDetailContent({
   report,
-  backTo,
-  backLabel,
   headerTrailingAction,
 }: {
   report: SignalReport;
-  backTo: string;
-  backLabel: string;
   headerTrailingAction?: ReactNode;
 }) {
   const chatOpen = useReportChatPanelStore((s) => s.open);
@@ -102,8 +96,6 @@ export function ReportDetailContent({
       <div ref={contentRef} className="min-w-0 flex-1 overflow-y-auto">
         <InboxDetailFrame
           report={report}
-          backTo={backTo}
-          backLabel={backLabel}
           fallbackTitle="Untitled report"
           primaryAction={
             <>

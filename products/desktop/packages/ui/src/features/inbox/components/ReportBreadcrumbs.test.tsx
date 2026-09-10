@@ -40,7 +40,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));
 
-import { DetailBackLink } from "./DetailBackLink";
+import { ReportBreadcrumbs } from "./ReportBreadcrumbs";
 
 const report = {
   id: "report-1",
@@ -48,7 +48,7 @@ const report = {
   status: "ready",
 } as SignalReport;
 
-describe("DetailBackLink", () => {
+describe("ReportBreadcrumbs", () => {
   beforeEach(() => {
     mocks.sourceHref = "/inbox/reports";
     mocks.triageOrigin = null;
@@ -56,13 +56,7 @@ describe("DetailBackLink", () => {
   });
 
   const renderCrumbs = () => {
-    const { container } = render(
-      <DetailBackLink
-        to="/inbox/reports"
-        label="Self-driving"
-        report={report}
-      />,
-    );
+    const { container } = render(<ReportBreadcrumbs report={report} />);
     return container.querySelectorAll("a");
   };
 

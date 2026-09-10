@@ -84,7 +84,26 @@ export function CanvasSidePanel({
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
-      <ChromeBar className="justify-between bg-chrome">
+      <ChromeBar
+        className="bg-chrome"
+        actions={
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Minimize panel"
+                  onClick={onMinimize}
+                >
+                  <SidebarSimpleIcon size={16} />
+                </Button>
+              }
+            />
+            <TooltipContent>Minimize panel</TooltipContent>
+          </Tooltip>
+        }
+      >
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as "chat" | "comments")}
@@ -102,21 +121,6 @@ export function CanvasSidePanel({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="icon"
-                variant="default"
-                aria-label="Minimize panel"
-                onClick={onMinimize}
-              >
-                <SidebarSimpleIcon size={16} />
-              </Button>
-            }
-          />
-          <TooltipContent>Minimize panel</TooltipContent>
-        </Tooltip>
       </ChromeBar>
 
       <div className="min-h-0 flex-1">
