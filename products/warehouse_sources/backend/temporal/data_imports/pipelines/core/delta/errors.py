@@ -35,6 +35,15 @@ class TransientObjectStoreError(NonReportableError):
     unaffected either way, since NonReportableError only suppresses reporting, not retries."""
 
 
+class DeltaRebuildDeferredError(NonReportableError):
+    """A corrupt table needs a rebuild from source, but this run's query is bound to a cursor.
+
+    `handle_corrupted_delta_log` latches `reset_pipeline` and raises this instead of truncating.
+    The import activity lists it as non-retryable (`IMPORT_NON_RETRYABLE_ERROR_TYPES`): the v3
+    pipeline runs the revive only on attempt 1, so a retry would skip it. The run fails once and
+    the next scheduled run rebuilds. A deferral is not a defect, so it stays out of error tracking."""
+
+
 def is_transient_object_store_error(error: BaseException) -> bool:
     """True for a transient object-store error, however it happened to surface.
 

@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    DeltaRebuildDeferredError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
@@ -432,15 +435,15 @@ class TestHandleCorruptedDeltaLog:
         job.refresh_from_db()
         assert job.billable is True
 
-    def test_revive_marker_resets_readable_table(self, team):
+    def test_revive_marker_resets_readable_table_even_with_stored_cursor(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to
         # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
         # reset + non-billable rebuild and be cleared so the revive can't loop.
-        schema, job = self._schema_and_job(team)
-        schema.sync_type_config = {
-            "delta_revive_required": {"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"}
-        }
-        schema.save(update_fields=["sync_type_config"])
+        schema, job = self._incremental_schema_and_job(
+            team,
+            incremental_field_last_value="2026-08-19T00:00:00+00:00",
+            delta_revive_required={"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"},
+        )
         helper = MagicMock(is_table_corrupted=AsyncMock(return_value=False), reset_table=AsyncMock())
 
         with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
@@ -458,6 +461,79 @@ class TestHandleCorruptedDeltaLog:
         schema.refresh_from_db()
         assert "delta_revive_required" not in schema.sync_type_config
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
+
+    def _incremental_schema_and_job(self, team, **config) -> tuple[ExternalDataSchema, ExternalDataJob]:
+        schema, job = self._schema_and_job(team)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            **config,
+        }
+        schema.save(update_fields=["sync_type", "sync_type_config"])
+        return schema, job
+
+    @pytest.mark.parametrize(
+        "_name,sync_type,config,cursor_key",
+        [
+            (
+                "incremental",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                {
+                    "incremental_field": "updated_at",
+                    "incremental_field_type": "datetime",
+                    "incremental_field_last_value": "2026-08-19T00:00:00+00:00",
+                },
+                "incremental_field_last_value",
+            ),
+            ("xmin", ExternalDataSchema.SyncType.XMIN, {"xmin_last_value": 123456}, "xmin_last_value"),
+        ],
+    )
+    def test_cursor_bound_run_defers_the_rebuild_instead_of_truncating(
+        self, team, _name, sync_type, config, cursor_key
+    ):
+        schema, job = self._schema_and_job(team)
+        schema.sync_type = sync_type
+        schema.sync_type_config = dict(config)
+        schema.save(update_fields=["sync_type", "sync_type_config"])
+        helper = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
+
+        with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
+            with pytest.raises(DeltaRebuildDeferredError):
+                async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+
+        helper.reset_table.assert_not_awaited()
+        schema.refresh_from_db()
+        assert schema.sync_type_config["reset_pipeline"] is True
+        assert schema.sync_type_config[cursor_key] == config[cursor_key]
+        job.refresh_from_db()
+        assert job.billable is True
+        assert ph.capture.call_args.kwargs["properties"]["outcome"] == "deferred_reset_rebuild"
+
+    def test_latched_reset_run_resets_and_rebuilds(self, team):
+        schema, job = self._incremental_schema_and_job(
+            team, incremental_field_last_value="2026-08-19T00:00:00+00:00", reset_pipeline=True
+        )
+        helper = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
+
+        with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger(), True)
+
+        assert result is True
+        helper.reset_table.assert_awaited_once()
+        job.refresh_from_db()
+        assert job.billable is False
+        assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
+
+    def test_incremental_first_sync_still_resets_in_run(self, team):
+        schema, job = self._incremental_schema_and_job(team)
+        helper = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
+
+        with patch(f"{_EXTRACT_MODULE}.posthoganalytics"):
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+
+        assert result is True
+        helper.reset_table.assert_awaited_once()
 
     def test_corrupt_table_with_ready_swap_is_salvaged(self, team):
         # A corrupt table whose interrupted repartition swap left a `ready` temp table is finished from temp

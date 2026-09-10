@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     MissingPrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    DeltaRebuildDeferredError,
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
@@ -469,11 +470,57 @@ def _capture_delta_revived(
         capture_exception(e)
 
 
+def _run_can_rebuild_from_source(schema: "ExternalDataSchema", query_ignores_cursor: bool) -> bool:
+    """Whether this run's source query covers the whole table rather than an incremental window.
+
+    The activity binds the query before the pipeline opens the Delta table, so a reset here cannot
+    widen it. `query_ignores_cursor` is what the activity and the Postgres source decide from
+    `reset_pipeline` and the revive marker; otherwise a stored cursor means a bound query.
+    """
+    if query_ignores_cursor:
+        return True
+    if schema.is_xmin:
+        return schema.xmin_last_value is None
+    if not schema.should_use_incremental_field:
+        return True
+    config = schema.sync_type_config or {}
+    return config.get("incremental_field_last_value") is None and config.get("incremental_field_earliest_value") is None
+
+
+async def _defer_rebuild_to_next_run(
+    schema: "ExternalDataSchema",
+    job: "ExternalDataJob",
+    logger: FilteringBoundLogger,
+) -> NoReturn:
+    """Latch `reset_pipeline` and stop this run before it writes; the next scheduled run rebuilds.
+
+    The corruption markers stay in place, so that run reaches the reset branch with the latch set.
+    """
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    schema.sync_type_config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+        schema.id, schema.team_id, updates={"reset_pipeline": True}
+    )
+    _capture_delta_revived(schema, job, outcome="deferred_reset_rebuild", made_non_billable=False)
+    await logger.awarning(
+        f"handle_corrupted_delta_log: this run only reads new rows, so it cannot rebuild the table. "
+        f"Latched reset_pipeline for the next run, schema_id={schema.id}",
+        schema_id=str(schema.id),
+    )
+    raise DeltaRebuildDeferredError(
+        "This table's storage is damaged and needs a full re-import. The next sync rebuilds it from "
+        "the source, so no action is needed."
+    )
+
+
 async def handle_corrupted_delta_log(
     schema: "ExternalDataSchema",
     job: "ExternalDataJob",
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
+    reset_pipeline: bool = False,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
 
@@ -494,7 +541,13 @@ async def handle_corrupted_delta_log(
     - Otherwise the table is reset so this run rebuilds it from source, and the job is marked
       non-billable — the corruption is our fault, not the customer's.
 
-    Returns True if a revive happened. Best-effort: any failure here must not block the sync.
+    A reset only happens in a run whose source query covers the whole table. The activity binds the
+    query before the pipeline opens the table, so a cursor-bound run would rebuild only the rows
+    after the cursor. That run latches `reset_pipeline` and raises `DeltaRebuildDeferredError`
+    instead, and the next scheduled run rebuilds (see `_run_can_rebuild_from_source`).
+
+    Returns True if a revive happened. Detection and salvage are best-effort and must not block the
+    sync. Only the deferral and a failed reset stop the run.
     """
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
@@ -571,6 +624,11 @@ async def handle_corrupted_delta_log(
         except Exception as e:
             capture_exception(e)
             await logger.aexception(f"handle_corrupted_delta_log: salvage failed, resetting: {e}", exc_info=e)
+
+    # Salvage was impossible, so the table has to be rebuilt from source. Only a run whose query
+    # covers the whole table may truncate it.
+    if not _run_can_rebuild_from_source(schema, query_ignores_cursor=reset_pipeline or revive_marker is not None):
+        await _defer_rebuild_to_next_run(schema, job, logger)
 
     # Reset + rebuild from source in this run, marked non-billable — we caused the corruption.
     from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path

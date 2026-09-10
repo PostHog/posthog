@@ -25,8 +25,12 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import IMPORT_NON_RETRYABLE_ERROR_TYPES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    DeltaRebuildDeferredError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
@@ -286,6 +290,35 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+def test_deferred_rebuild_error_is_not_retried():
+    assert DeltaRebuildDeferredError.__name__ in IMPORT_NON_RETRYABLE_ERROR_TYPES
+
+
+@pytest.mark.asyncio
+async def test_deferred_rebuild_error_is_reraised_by_type_and_never_disables_the_schema():
+    error = DeltaRebuildDeferredError("This table's storage is damaged and needs a full re-import.")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {"storage is damaged"}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        with pytest.raises(DeltaRebuildDeferredError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    handle_mock.assert_not_awaited()
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
