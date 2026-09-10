@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { toolbarLockedFeatureLogic } from '~/toolbar/bar/toolbarLockedFeatureLogic'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarEntitlementsLogic } from '~/toolbar/toolbarEntitlementsLogic'
 import { urls } from '~/toolbar/urls'
 import { joinWithUiHost } from '~/toolbar/utils'
 
@@ -16,6 +17,7 @@ export interface ToolbarLockedFeatureProps {
 export function ToolbarLockedFeature({ featureName }: ToolbarLockedFeatureProps): JSX.Element {
     const { uiHost } = useValues(toolbarConfigLogic)
     const { reportViewPlansClicked } = useActions(toolbarLockedFeatureLogic({ featureName }))
+    const { loadEntitlements } = useActions(toolbarEntitlementsLogic)
 
     return (
         <ToolbarMenu>
@@ -29,6 +31,15 @@ export function ToolbarLockedFeature({ featureName }: ToolbarLockedFeatureProps)
                 </div>
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
+                <LemonButton
+                    type="secondary"
+                    fullWidth
+                    center
+                    onClick={loadEntitlements}
+                    data-attr="toolbar-locked-feature-check-again"
+                >
+                    Check again
+                </LemonButton>
                 <LemonButton
                     type="primary"
                     fullWidth

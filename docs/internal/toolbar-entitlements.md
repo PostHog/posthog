@@ -8,6 +8,7 @@ Legacy self-hosted license tiers therefore do not list these features.
 
 When the `toolbar-paid-heatmaps` rollout flag is enabled, toolbar heatmaps require `toolbar_heatmaps: true`. Loading, failed requests, and missing entitlements do not grant access. The menu shows a loading state while checking access and offers a retry when access cannot be determined. A failed request is logged under the `entitlements` context and reported in the `toolbar api request` telemetry, so the rollout can be watched without waiting for a user report. Only an explicit `false` shows the plan upgrade prompt.
 The toolbar button follows the same rule: it carries the lock badge only for an explicit `false`, and while the check is pending or failed its tooltip says that instead of asking for a subscription.
+That prompt also offers a recheck, so a user who upgrades in the billing tab unlocks the tool without reloading the page they are working on.
 
 Opening the heatmap menu while access is loading does not enable heatmaps. A confirmed entitlement enables the open menu; refreshing or losing that entitlement disables heatmaps. When the rollout flag is disabled, the toolbar retains its existing behavior.
 
