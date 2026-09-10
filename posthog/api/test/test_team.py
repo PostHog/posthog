@@ -2009,6 +2009,38 @@ def team_api_test_factory():
             self.assertEqual(self.team.timezone, "Europe/Lisbon")
             self.assertEqual(self.team.session_recording_opt_in, True)
 
+        def test_changing_event_retention_months_is_rejected_with_an_explanation(self):
+            response = self.client.patch("/api/environments/@current/", {"event_retention_months": 12})
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            detail = response.json()["detail"]
+            self.assertIn("read-only", detail)
+            self.assertIn("github.com/PostHog/posthog/issues/17031", detail)
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.event_retention_months, 84)
+
+        def test_changing_events_retention_enforced_is_rejected_with_an_explanation(self):
+            response = self.client.patch("/api/environments/@current/", {"events_retention_enforced": True})
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("read-only", response.json()["detail"])
+
+        def test_patch_echoing_back_unchanged_retention_fields_is_accepted(self):
+            """A client that GETs the project and PATCHes the whole body back isn't trying to change anything."""
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "event_retention_months": self.team.event_retention_months,
+                    "events_retention_enforced": False,
+                    "timezone": "Europe/Lisbon",
+                },
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "Europe/Lisbon")
+
         def _get_model_for_name_field(self):
             """Returns the model whose 'name' field is updated by the current endpoint.
 

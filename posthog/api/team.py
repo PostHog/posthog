@@ -1941,6 +1941,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         raise exceptions.PermissionDenied("Proactive tasks can only be enabled for authorized teams.")
 
     def validate(self, attrs: Any) -> Any:
+        validate_events_retention_read_only(self.initial_data, self.instance)
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
         return super().validate(attrs)
 
@@ -2922,6 +2923,50 @@ def handle_conversations_token_on_update(
         validated_data["conversations_settings"] = conv_settings
 
     return validated_data
+
+
+# DRF silently drops a read-only field from a write and still answers 200, which reads as "the change was
+# applied". For the two plan-derived retention fields that misreads badly: the caller re-reads the unchanged
+# value, concludes the field is server-managed, and asks support to set it instead. Reject the write and say why.
+EVENTS_RETENTION_READ_ONLY_MESSAGES = {
+    "event_retention_months": (
+        "This field is read-only. The retention window follows your organization's plan data retention "
+        "entitlement and is re-synced automatically, so it cannot be set through the API or in the UI, and "
+        "PostHog support cannot set it for you. A shorter window is available on the enterprise plan by request. "
+        "This field limits query access only. It never deletes events. To erase data, use the persons bulk "
+        "delete API. Self-serve retention limits are tracked in https://github.com/PostHog/posthog/issues/17031."
+    ),
+    "events_retention_enforced": (
+        "This field is read-only. It reports whether retention enforcement is currently active for this project. "
+        "It cannot be switched on or off through the API, in the UI, or by PostHog support. Enforcement limits "
+        "query access only. It never deletes events. To erase data, use the persons bulk delete API. Self-serve "
+        "retention limits are tracked in https://github.com/PostHog/posthog/issues/17031."
+    ),
+}
+
+
+def validate_events_retention_read_only(initial_data: Any, instance: "Team | Project | None") -> None:
+    """Reject a write that would change a plan-derived retention field, ignoring a no-op round trip.
+
+    Clients that GET a project and PATCH the whole body back are common, so a field sent at its current value
+    passes through untouched — only an attempt to change it errors.
+    """
+    if instance is None or not isinstance(initial_data, dict):
+        return
+
+    team = instance if isinstance(instance, Team) else instance.passthrough_team
+    current: dict[str, Any] = {
+        "event_retention_months": team.event_retention_months,
+        "events_retention_enforced": should_enforce_events_retention(team.id),
+    }
+
+    errors = {
+        field: message
+        for field, message in EVENTS_RETENTION_READ_ONLY_MESSAGES.items()
+        if field in initial_data and initial_data[field] != current[field]
+    }
+    if errors:
+        raise exceptions.ValidationError(errors)
 
 
 def validate_team_attrs(
