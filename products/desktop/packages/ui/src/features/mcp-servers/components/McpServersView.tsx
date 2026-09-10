@@ -2,6 +2,7 @@ import type {
   McpRecommendedServer,
   McpServerInstallation,
 } from "@posthog/api-client/posthog-client";
+import { Button as QuillButton } from "@posthog/quill";
 import { MCP_GATEWAY_FLAG } from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useLocalMcpCloudServers } from "@posthog/ui/features/local-mcp/useLocalMcpCloudServers";
@@ -11,7 +12,6 @@ import { MarketplaceView } from "@posthog/ui/features/mcp-servers/components/par
 import { McpInstalledRail } from "@posthog/ui/features/mcp-servers/components/parts/McpInstalledRail";
 import { useMcpServers } from "@posthog/ui/features/mcp-servers/hooks/useMcpServers";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   AlertDialog,
   Box,
@@ -330,15 +330,14 @@ function UninstallConfirmDialog({
             </Button>
           </AlertDialog.Cancel>
           <AlertDialog.Action>
-            <Button
-              variant="solid"
-              color="red"
+            <QuillButton
+              variant="destructive-outline"
               onClick={onConfirm}
+              loading={isPending}
               disabled={isPending}
             >
-              {isPending ? <Spinner size="sm" /> : null}
               Remove
-            </Button>
+            </QuillButton>
           </AlertDialog.Action>
         </Flex>
       </AlertDialog.Content>

@@ -248,7 +248,11 @@ function FreeformEditControls({
                 </Button>
               }
             />
-            <Button variant="destructive" size="sm" onClick={confirmDelete}>
+            <Button
+              variant="destructive-outline"
+              size="sm"
+              onClick={confirmDelete}
+            >
               Delete
             </Button>
           </AlertDialogFooter>
