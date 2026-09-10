@@ -16,7 +16,7 @@ class GitHubSyncStatus(models.TextChoices):
 
 
 class GitHubSyncConfig(CreatedMetaFields, UpdatedMetaFields):
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+")
     team_id: int
 
     integration = models.ForeignKey(

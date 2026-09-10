@@ -3452,7 +3452,7 @@ class SandboxSnapshot(UUIDModel):
     integration = models.ForeignKey(
         Integration,
         on_delete=models.SET_NULL,
-        related_name="snapshots",
+        related_name="+",
         null=True,
         blank=True,
     )
