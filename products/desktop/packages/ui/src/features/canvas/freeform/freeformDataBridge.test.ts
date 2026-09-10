@@ -29,6 +29,7 @@ const capabilities: CanvasCapabilities = {
     captureEvents: ["allowed-event"],
     state: ["user"],
     actions: ["tasks.create"],
+    activityFeed: false,
   },
   network: { origins: [] },
   connectors: [{ provider: "github", tools: ["list_pull_requests"] }],

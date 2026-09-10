@@ -1149,7 +1149,9 @@ type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "activity_tab_change";
+  | "activity_tab_change"
+  /** Picked which canvas draws the activity panel, or went back to the built-in timeline. */
+  | "activity_canvas_change";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";
 

@@ -269,6 +269,12 @@ export function buildSandboxDocument(
         }
         return call("capture", { event, properties: properties ?? {}, distinctId });
       },
+      // Read the viewer's own activity feed as flat, printable rows: the
+      // tasks, canvases and reports they worked on. Available only where the
+      // host draws the canvas as the Activity page; elsewhere it rejects. A
+      // built canvas needs \`capabilities.posthog.activityFeed\`.
+      // Returns \`{ rows, unreadCount, truncated }\`.
+      activityFeed: (opts) => call("activityFeed", { limit: opts && opts.limit }),
       // Durable key-value memory, declared in capabilities.posthog.state.
       // Scope "user" (default) is private to this viewer; "shared" is one
       // value per canvas, visible to the whole team. Values are JSON, capped

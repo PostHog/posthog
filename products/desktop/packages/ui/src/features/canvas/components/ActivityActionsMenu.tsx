@@ -7,6 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@posthog/quill";
+import { ActivityCanvasMenuSection } from "@posthog/ui/features/canvas/components/ActivityCanvasMenuSection";
 import { ActivityIncludeMenuSection } from "@posthog/ui/features/canvas/components/ActivityIncludeMenuSection";
 import { markLoadedReadLabel } from "@posthog/ui/features/canvas/components/activityFeed";
 import type { ReactElement } from "react";
@@ -56,6 +57,7 @@ export function ActivityActionsMenu({
 
         <DropdownMenuSeparator />
         <ActivityIncludeMenuSection />
+        <ActivityCanvasMenuSection />
       </DropdownMenuContent>
     </DropdownMenu>
   );

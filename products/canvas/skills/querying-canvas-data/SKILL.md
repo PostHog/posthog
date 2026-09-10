@@ -204,6 +204,32 @@ currently restrict this query to its own space. Filtering to the current viewer 
 known numeric user id; the canvas runtime does not inject one. State these limits when the request
 depends on “this space” or “my tasks” instead of silently showing project-wide public tasks.
 
+## The viewer's activity feed — ph.activityFeed
+
+A canvas that draws PostHog Desktop's Activity page reads the viewer's own feed with
+`ph.activityFeed()`. Declare `capabilities.posthog.activityFeed: true`.
+
+The canvas names no person and no space. The host answers for whoever is looking at the canvas, so
+a canvas can only ever read its own viewer's activity. Other hosts reject the call, so treat it as
+optional and render an explanation when it rejects.
+
+```tsx
+const { rows, unreadCount, truncated } = await ph.activityFeed({ limit: 100 })
+// rows: [{ key, kind, at, title, detail, space, unread, targetId }] — newest first
+```
+
+`kind` is `task`, `canvas`, or `report`. `unread` is true only on a task update the viewer has not
+read, and `unreadCount` counts every one of them, including rows the limit dropped. `detail` is a
+preview, capped at 500 characters.
+
+Open a row with `targetId`: `ph.navigate.toTask(row.targetId)` for a task and
+`ph.navigate.toCanvas(row.targetId)` for a canvas. A report carries no target, because the canvas
+cannot open one.
+
+Two limits are worth stating to whoever asks for the canvas. Reports arrive through the same capped
+preview the built page uses, so a feed shows at most a few of them. The feed is a snapshot, so poll
+on a timer to keep it live.
+
 ## Runtime memory — ph.state
 
 Durable key-value storage per canvas. Declare every scope you use in `capabilities.posthog.state`

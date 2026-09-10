@@ -63,6 +63,11 @@ export function assertCanvasCapability(
         throw new Error("Agent requests are not allowed by this canvas");
       }
       return;
+    case "activityFeed":
+      if (!capabilities.posthog.activityFeed) {
+        throw new Error("The activity feed is not allowed by this canvas");
+      }
+      return;
     case "connectorCall": {
       const { provider, tool } =
         (payload as { provider?: string; tool?: string }) ?? {};

@@ -180,6 +180,7 @@ _PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
 _STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
 _PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
+_PH_ACTIVITY_FEED_RE = re.compile(r"\bph\s*\.\s*activityFeed\s*\(")
 _PH_CONNECTORS_CALL_RE = re.compile(
     r"\bph\s*\.\s*connectors\s*\.\s*call\s*\(\s*(?:[\"']([^\"']+)[\"']\s*(?:,\s*[\"']([^\"']+)[\"'])?)?"
 )
@@ -486,6 +487,7 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
     agent_requests = bool(posthog_capabilities.get("agentRequests"))
+    activity_feed = bool(posthog_capabilities.get("activityFeed"))
 
     declared_state = set(posthog_capabilities.get("state") or [])
     if not declared_state:
@@ -636,6 +638,20 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                     "the host rejects undeclared agent requests at runtime",
                     path=path,
                     line=_line_of(code, request_match.start()),
+                )
+            )
+
+    if not activity_feed:
+        activity_feed_match = _PH_ACTIVITY_FEED_RE.search(code)
+        if activity_feed_match is not None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_activity_feed",
+                    "ph.activityFeed() requires capabilities.posthog.activityFeed: true — "
+                    "the host rejects undeclared activity feed reads at runtime",
+                    path=path,
+                    line=_line_of(code, activity_feed_match.start()),
                 )
             )
 

@@ -325,3 +325,23 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
 
   Otherwise the new content cold-fetches on first expand and reintroduces the
   open jank the prefetch path exists to prevent.
+
+## Drawing the Activity page with a canvas
+
+- **A person can replace the Activity page with a canvas of their own.**
+  The pick is gated by `ACTIVITY_CANVAS_FLAG`, held per person in
+  `activityCanvasStore`, and made from the Activity actions menu
+  (`ActivityCanvasMenuSection`). The `/activity` route then renders
+  `ActivityCanvasPane` in place of `ActivityView` or `ActivityDetailPane`.
+- **The pane answers `activityFeed`, the shared bridge answers the rest.**
+  `createActivityCanvasDataRequest` routes the one method the page owns to the
+  signed-in viewer's own feed, and hands every other method to
+  `handleFreeformDataRequest` scoped to the canvas. The canvas names no person
+  and no space, so it can only read the feed of whoever is looking at it.
+- **A built canvas must declare `capabilities.posthog.activityFeed`.**
+  `BuiltCanvas` checks the frozen manifest before the request reaches the pane,
+  the same tier as every other canvas capability.
+- **A feed crosses spaces, so its rows do not navigate through
+  `useCanvasNavigation`.** That hook moves within one channel.
+  `useActivityCanvasNavigation` resolves each row's own space from the data the
+  canvas was given, and drops an intent it cannot place.
