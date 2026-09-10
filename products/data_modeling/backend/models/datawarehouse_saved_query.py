@@ -33,10 +33,9 @@ from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.facade.hogql import (
-    CLICKHOUSE_HOGQL_MAPPING,
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
-    clean_type,
+    hogql_type_name_for_clickhouse_type,
     reconstruct_ordered_columns,
     remove_named_tuples,
 )
@@ -348,6 +347,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
 
     def revert_materialization(self):
+        from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
@@ -374,6 +374,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
                 "failed_to_clear_frequency_target_on_revert",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+            )
+
+        # The circuit breaker suspended a materialization that no longer exists, so the marker
+        # would outlive it and keep reporting a view its owner stopped themselves.
+        try:
+            unsuspend_saved_query(self, by="revert")
+        except Exception as e:
+            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.exception(
+                "failed_to_clear_suspension_on_revert",
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
             )
@@ -423,7 +435,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         columns = {
             str(item[0]): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                 "clickhouse": item[1],
                 "valid": True,
             }

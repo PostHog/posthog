@@ -1261,7 +1261,21 @@ class CSPMiddleware:
                 # parses with a WebAssembly build, so both break without it.
                 f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
                 f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
-                "worker-src 'self'",
+                # `blob:` grants nothing to an attacker who cannot already run script, because only
+                # script can mint a blob URL, and a worker started from one inherits this policy
+                # rather than escaping it. The ServiceWorker spec rejects `blob:` on its own, so
+                # this cannot register a persistent worker either.
+                #
+                # The reasoning holds only while every blob worker body is a compile-time constant.
+                # `no-dynamic-worker-body` in .semgrep/rules/security checks first-party code for
+                # that. It follows an object URL or a `data:` URL into a worker constructor through
+                # the assignments in one function, so it catches the shapes we write rather than
+                # every possible one.
+                #
+                # posthog-js builds its rrweb recorder worker from a blob, and PixiJS builds two
+                # ImageBitmap workers the same way. Do not add `data:`: the recorder falls back to a
+                # data URL only when blob fails, so allowing blob stops those attempts.
+                "worker-src 'self' blob:",
                 "child-src 'none'",
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",

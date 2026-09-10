@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from requests import HTTPError, Response
@@ -347,7 +347,7 @@ def _messages_page(count: int, last_event_time: str) -> list[dict[str, Any]]:
 
 
 class TestActivityPagination:
-    @freeze_time("2026-08-07T12:00:00Z")
+    @time_machine.travel("2026-08-07T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_walks_query_window_backwards_until_short_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -421,7 +421,7 @@ class TestActivityPagination:
             int(datetime(2026, 8, 1, 3, 4, 5, tzinfo=UTC).timestamp()),
         ],
     )
-    @freeze_time("2026-08-07T12:00:00Z")
+    @time_machine.travel("2026-08-07T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_window_starts_at_watermark(self, MockSession, cursor: Any) -> None:
         # The cursor round-trips through storage in several shapes; all must produce the same
@@ -444,7 +444,7 @@ class TestActivityPagination:
             == 'last_event_time BETWEEN TIMESTAMP "2026-08-01T03:04:05Z" AND TIMESTAMP "2026-08-07T12:00:00Z"'
         )
 
-    @freeze_time("2026-08-07T12:00:00Z")
+    @time_machine.travel("2026-08-07T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_page_that_cannot_narrow_the_window_stops(self, MockSession) -> None:
         # More than `limit` messages sharing the window-end second would otherwise refetch the
@@ -586,7 +586,7 @@ class TestGetEndpointPermissions:
             ),
         ],
     )
-    @freeze_time("2026-08-07T12:00:00Z")
+    @time_machine.travel("2026-08-07T12:00:00Z", tick=False)
     def test_probe_uses_the_endpoints_own_pagination_params(
         self, endpoint: str, expected_params: dict[str, str]
     ) -> None:

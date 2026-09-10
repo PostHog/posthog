@@ -2,21 +2,23 @@
 
 Three assets on the same daily partition as the dataset dag, each writing under the dataset prefix:
 
-    inbox_ranking_training_examples/v1/dt=D/   scoring-moment examples over the trailing snapshots
-    inbox_ranking_models/v1/dt=D/<head>.ubj    one booster per head + metadata.json (the candidate)
-    inbox_ranking_models/v1/champion.json      pointer to the model version the scoring sweep loads
-    inbox_ranking_unseen_scores/v1/dt=D/       the day's models on the reports born that day
+    inbox_ranking_training_examples/v1/dt=D/          scoring-moment examples over the trailing snapshots
+    inbox_ranking_models/v1/<name>/dt=D/<head>.ubj    one booster per head + metadata.json (the candidate)
+    inbox_ranking_models/v1/<name>/champion.json      pointer to the version the scoring sweep loads
+    inbox_ranking_unseen_scores/v1/dt=D/              the day's models on the reports born that day
 
 Partition dt=D trains on the report-state/labels snapshots dt=D-lookback..D (issue 13's
 scoring-moment join, `training/examples.py`), grades each head on the last `holdout_days` of
 reports, and refits on everything. The champion asset applies `promotion.decide_promotion`; it
 rewrites the pointer only when `INBOX_RANKING_AUTO_PROMOTE` is on, otherwise it logs the decision
 so the daily candidate series doubles as monitoring while the first shadow read runs against a
-frozen champion. Every candidate is kept under `models/v1/dt=D/`; a re-run of a partition replaces
+frozen champion. Every candidate is kept under `models/v1/<model_name>/dt=D/`; a re-run of a partition replaces
 that prefix in full (stale head files are removed), and `champion.json` carries the `run_id` it
 was promoted from so a loader can tell a re-run apart from the version it pinned. The champion is
 graded on the candidate's holdout through its `<head>.holdout.ubj` (the train-only fit), so the
-promotion rule compares both models on one set of reports.
+promotion rule compares both models on one set of reports. Every model object sits under its
+family's `model_name`, and promotion stays inside a family: a richer family is a second candidate
+graded on the same rows, not a competitor for the tabular family's pointer.
 
 Two further assets grade the day's models on data no example covers. `inbox_ranking_unseen_scores`
 scores every report born on D (`unseen_pool` explains why no example can cover one);
@@ -44,6 +46,7 @@ from products.signals.dags.inbox_ranking.common import (
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
+    object_row_count,
     owner_tags,
     partition_def,
     partition_object_key,
@@ -80,8 +83,11 @@ from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, Train
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
+    MODEL_FAMILIES,
+    TABULAR_MODEL_NAME,
     HeadGrade,
     UnseenModel,
+    empty_scores_write_allowed,
     graded_rows,
     head_grades,
     leaked_report_ids,
@@ -94,6 +100,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     scored_pool,
     scores_table,
     unseen_pool,
+    with_model_names,
 )
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
@@ -126,12 +133,12 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
 }
 
 
-def model_object_key(prefix: str, partition_key: str, filename: str) -> str:
-    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/dt={partition_key}/{filename}"
+def model_object_key(prefix: str, model_name: str, partition_key: str, filename: str) -> str:
+    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{model_name}/dt={partition_key}/{filename}"
 
 
-def champion_object_key(prefix: str) -> str:
-    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{CHAMPION_FILE}"
+def champion_object_key(prefix: str, model_name: str) -> str:
+    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{model_name}/{CHAMPION_FILE}"
 
 
 def _read_bytes_if_exists(client, bucket: str, key: str) -> bytes | None:
@@ -273,11 +280,13 @@ def candidate_metadata(
     partition_key: str,
     trained: list[TrainedHead],
     *,
+    model_name: str,
     skipped: list[str],
     trained_at: datetime.datetime,
     run_id: str,
 ) -> dict[str, Any]:
     return {
+        "model_name": model_name,
         "model_version": partition_key,
         "dataset_version": DATASET_VERSION,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -312,7 +321,9 @@ def paired_champion_aucs(
         if head is None or not entry.get("readable") or not entry.get("holdout_file"):
             continue
         body = _read_bytes_if_exists(
-            client, bucket, model_object_key(prefix, champion["model_version"], entry["holdout_file"])
+            client,
+            bucket,
+            model_object_key(prefix, champion["model_name"], champion["model_version"], entry["holdout_file"]),
         )
         if body is None:
             continue
@@ -347,21 +358,24 @@ def inbox_ranking_model_candidate(context: dagster.AssetExecutionContext) -> Non
         if model.holdout_booster_ubj is not None:
             files[f"{model.head}.holdout.ubj"] = model.holdout_booster_ubj
         for filename, body in files.items():
-            key = model_object_key(prefix, partition_key, filename)
+            key = model_object_key(prefix, TABULAR_MODEL_NAME, partition_key, filename)
             client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/octet-stream")
             written.add(key)
     metadata = candidate_metadata(
         partition_key,
         trained,
+        model_name=TABULAR_MODEL_NAME,
         skipped=skipped,
         trained_at=datetime.datetime.now(datetime.UTC),
         run_id=context.run.run_id,
     )
-    metadata_key = model_object_key(prefix, partition_key, METADATA_FILE)
+    metadata_key = model_object_key(prefix, TABULAR_MODEL_NAME, partition_key, METADATA_FILE)
     _put_json(client, bucket, metadata_key, metadata)
     written.add(metadata_key)
     # A re-run that trains fewer heads must not leave the previous run's files behind.
-    stale = _delete_other_objects(client, bucket, model_object_key(prefix, partition_key, ""), written)
+    stale = _delete_other_objects(
+        client, bucket, model_object_key(prefix, TABULAR_MODEL_NAME, partition_key, ""), written
+    )
     if stale:
         context.log.warning(f"removed {len(stale)} stale objects from a previous run of dt={partition_key}")
     capture_training_events(context, partition_key, candidate_events(metadata))
@@ -387,10 +401,12 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
     partition_key = context.partition_key
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
-    candidate = _read_json_if_exists(client, bucket, model_object_key(prefix, partition_key, METADATA_FILE))
+    candidate = _read_json_if_exists(
+        client, bucket, model_object_key(prefix, TABULAR_MODEL_NAME, partition_key, METADATA_FILE)
+    )
     if candidate is None:
         raise dagster.Failure(f"candidate metadata for dt={partition_key} is missing")
-    champion_key = champion_object_key(prefix)
+    champion_key = champion_object_key(prefix, TABULAR_MODEL_NAME)
     champion = _read_json_if_exists(client, bucket, champion_key)
     champion_aucs: dict[str, float] = {}
     if champion is not None:
@@ -417,7 +433,7 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
             {
                 **candidate,
                 "promoted_at": datetime.datetime.now(datetime.UTC).isoformat(),
-                "metadata_key": model_object_key(prefix, partition_key, METADATA_FILE),
+                "metadata_key": model_object_key(prefix, TABULAR_MODEL_NAME, partition_key, METADATA_FILE),
             },
         )
         promoted = True
@@ -448,6 +464,7 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
             promotion_event(
                 partition_key=partition_key,
                 run_id=context.run.run_id,
+                model_name=TABULAR_MODEL_NAME,
                 decision=decision,
                 promoted=promoted,
                 champion_version=champion_version,
@@ -467,14 +484,15 @@ _HORIZON_MAPPING = dagster.TimeWindowPartitionMapping(
 )
 
 
-def load_unseen_models(
-    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
+def load_family_models(
+    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str, model_name: str
 ) -> list[UnseenModel]:
-    """The models worth an unseen read on dt=D: the day's candidate, plus the champion when the
-    pointer names a different version. A model whose feature contract has moved on is logged and
-    left out rather than failing the asset, because its boosters cannot take the current matrix."""
-    candidate = _read_json_if_exists(client, bucket, model_object_key(prefix, partition_key, METADATA_FILE))
-    champion = _read_json_if_exists(client, bucket, champion_object_key(prefix))
+    """One family's models worth an unseen read on dt=D: the day's candidate, plus that family's
+    champion when its pointer names a different version. A model whose feature contract has moved
+    on is logged and left out rather than failing the asset, because its boosters cannot take the
+    current matrix."""
+    candidate = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, partition_key, METADATA_FILE))
+    champion = _read_json_if_exists(client, bucket, champion_object_key(prefix, model_name))
     records = [(CANDIDATE_ROLE, candidate)]
     if champion is not None and champion.get("model_version") != (candidate or {}).get("model_version"):
         records.append((CHAMPION_ROLE, champion))
@@ -482,22 +500,25 @@ def load_unseen_models(
     models: list[UnseenModel] = []
     for role, metadata in records:
         if metadata is None:
-            context.log.warning(f"no {role} metadata to score the unseen pool with")
+            context.log.warning(f"no {model_name} {role} metadata to score the unseen pool with")
             continue
         mismatch = model_mismatch(metadata)
         if mismatch is not None:
-            context.log.warning(f"{role} {metadata.get('model_version')} not scored: {mismatch}")
+            context.log.warning(f"{model_name} {role} {metadata.get('model_version')} not scored: {mismatch}")
             continue
         boosters = {}
         for head_name, filename in readable_head_files(metadata).items():
-            body = _read_bytes_if_exists(client, bucket, model_object_key(prefix, metadata["model_version"], filename))
+            body = _read_bytes_if_exists(
+                client, bucket, model_object_key(prefix, model_name, metadata["model_version"], filename)
+            )
             if body is not None:
                 boosters[head_name] = body
         if not boosters:
-            context.log.warning(f"{role} {metadata['model_version']} has no readable head to score")
+            context.log.warning(f"{model_name} {role} {metadata['model_version']} has no readable head to score")
             continue
         models.append(
             UnseenModel(
+                model_name=model_name,
                 model_version=metadata["model_version"],
                 model_role=role,
                 feature_schema_version=metadata["feature_schema_version"],
@@ -505,6 +526,20 @@ def load_unseen_models(
             )
         )
     return models
+
+
+def load_unseen_models(
+    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
+) -> list[UnseenModel]:
+    """Every registered family's models, so one grading run puts every family on the same rows. A
+    family with nothing to score that day contributes nothing and does not stop the others: a
+    family can be registered before its trainer's first run, and a broken one costs its own series
+    rather than every family's."""
+    return [
+        model
+        for model_name in MODEL_FAMILIES
+        for model in load_family_models(context, client, bucket, prefix, partition_key, model_name)
+    ]
 
 
 @dagster.asset(
@@ -533,16 +568,27 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
         )
     models = load_unseen_models(context, client, bucket, prefix, partition_key)
     scores = score_pool(pool, snapshot.labels, models, snapshot_date=day)
+    key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
     if scores.empty:
+        existing_rows = object_row_count(client, bucket, key)
+        if not empty_scores_write_allowed(existing_rows):
+            raise dagster.Failure(
+                f"{UNSEEN_SCORES_TABLE} dt={partition_key} already holds {existing_rows} rows and this run scored "
+                f"none, so writing would destroy the scores the dt=D+horizon grade reads. Candidates are loaded "
+                f"from {MODELS_TABLE}/{DATASET_VERSION}/<model_name>/, so a partition trained before that layout "
+                f"has no model to score with. To replace the object deliberately, delete it by hand first."
+            )
         context.log.warning(f"nothing scored for dt={partition_key}: {len(pool)} newborn reports, {len(models)} models")
 
-    key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
     write_parquet(client, bucket, key, scores_table(scores), snapshot_date=partition_key)
     context.add_output_metadata(
         {
             "unseen_pool": dagster.MetadataValue.int(len(pool)),
             "models_scored": dagster.MetadataValue.int(len(models)),
-            **{f"{model.model_role}_heads_scored": dagster.MetadataValue.int(len(model.boosters)) for model in models},
+            **{
+                f"{model.model_name}_{model.model_role}_heads_scored": dagster.MetadataValue.int(len(model.boosters))
+                for model in models
+            },
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )
@@ -554,13 +600,15 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
 
 
 def grade_metadata(grades: Sequence[HeadGrade]) -> dict[str, dagster.MetadataValue]:
-    """One metadata entry per (head, model, metric). Counts stay ints: `MetadataValue.float` rejects them."""
+    """One metadata entry per (head, model, metric). The family is in the key, so two families
+    graded on the same rows do not overwrite each other. Counts stay ints: `MetadataValue.float`
+    rejects them."""
     metadata: dict[str, dagster.MetadataValue] = {}
     for grade in grades:
         for name, value in grade.metrics().items():
             if value is None:
                 continue
-            key = f"{grade.head}_{grade.model_role}_{name}"
+            key = f"{grade.head}_{grade.model_name}_{grade.model_role}_{name}"
             metadata[key] = (
                 dagster.MetadataValue.int(value) if isinstance(value, int) else dagster.MetadataValue.float(value)
             )
@@ -595,7 +643,7 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
         if table is None:
             skipped.update({head.name: f"no unseen scores for dt={scoring_partition}" for head in heads})
             continue
-        scores = table.to_pandas()
+        scores = with_model_names(table.to_pandas())
         pool = scored_pool(scores)
         graded_by_head: dict[str, pd.DataFrame] = {}
         for head in heads:
