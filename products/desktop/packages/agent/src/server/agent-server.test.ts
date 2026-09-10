@@ -44,7 +44,9 @@ import type { StoredEntry, TaskRun } from "../types";
 import {
   AgentServer,
   isTurnCompleteNotification,
+  MESSAGE_DRIVEN_RESUME_CAPABILITY,
   PREWARMED_RESUME_IDLE_CAPABILITY,
+  type PreparedInitialTaskMessage,
   SSE_KEEPALIVE_INTERVAL_MS,
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
@@ -224,6 +226,17 @@ vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => ({
   query: mockedClaudeSdk.query,
 }));
 
+interface StartupTestServer {
+  prepareInitialTaskMessage(
+    payload: JwtPayload,
+    run?: TaskRun | null,
+  ): Promise<PreparedInitialTaskMessage>;
+  sendInitialTaskMessage(
+    payload: JwtPayload,
+    startup: PreparedInitialTaskMessage,
+  ): Promise<void>;
+}
+
 interface TestableServer {
   getInitialPromptOverride(run: TaskRun): string | null;
   getClearedPendingUserState(run: TaskRun | null): string[] | null;
@@ -392,6 +405,16 @@ o7kFcjIuxu/b/Dr4o4SzCYyQYd03W1SH4vkZFY/x/eFFHylkXyQNHi8pAFb04hX9
 JwIDAQAB
 -----END PUBLIC KEY-----`;
 
+async function startInitialTaskMessage(
+  server: AgentServer,
+  payload: JwtPayload,
+  run: TaskRun | null,
+): Promise<void> {
+  const startup = server as unknown as StartupTestServer;
+  const prepared = await startup.prepareInitialTaskMessage(payload, run);
+  await startup.sendInitialTaskMessage(payload, prepared);
+}
+
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
@@ -420,7 +443,7 @@ describe("AgentServer HTTP Mode", () => {
     appendLogCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
-  });
+  }, 30_000);
 
   afterEach(async () => {
     const runningServer = server;
@@ -429,7 +452,7 @@ describe("AgentServer HTTP Mode", () => {
       await runningServer?.stop();
     } finally {
       mswServer.resetHandlers();
-      await repo.cleanup();
+      await repo?.cleanup();
     }
   });
 
@@ -571,7 +594,10 @@ describe("AgentServer HTTP Mode", () => {
           totalMs: expect.any(Number),
           phasesMs: expect.any(Object),
         }),
-        capabilities: [PREWARMED_RESUME_IDLE_CAPABILITY],
+        capabilities: [
+          PREWARMED_RESUME_IDLE_CAPABILITY,
+          MESSAGE_DRIVEN_RESUME_CAPABILITY,
+        ],
       });
     }, 30000);
 
@@ -2553,6 +2579,39 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(testServer.pendingEvents).toEqual([event]);
     });
+
+    it("redacts authorization headers before an event leaves the sandbox", () => {
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      testServer.session = null;
+
+      testServer.broadcastEvent({
+        type: "notification",
+        notification: {
+          method: "session/new",
+          params: {
+            mcpServers: [
+              {
+                name: "posthog",
+                headers: [
+                  { name: "Authorization", value: "Bearer mcp-secret" },
+                  { name: "x-posthog-mcp-consumer", value: "cloud" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      const [broadcast] = testServer.eventStreamSender.enqueue.mock.calls[0];
+      const serialized = JSON.stringify(broadcast);
+      expect(serialized).not.toContain("mcp-secret");
+      expect(serialized).toContain("x-posthog-mcp-consumer");
+      expect(testServer.pendingEvents).toEqual([broadcast]);
+    });
   });
 
   describe("relayed MCP server tool permissions", () => {
@@ -4217,6 +4276,85 @@ describe("AgentServer HTTP Mode", () => {
       await firstTurn;
     }, 20000);
 
+    it("steers the turn after startup delivered the prewarmed message", async () => {
+      const s = createServer();
+      await s.start();
+      let finishFollowup!: (result: { stopReason: "end_turn" }) => void;
+      const prompt = vi.fn((params: { _meta?: Record<string, unknown> }) => {
+        if (params._meta?.steer === true) {
+          return Promise.resolve({
+            stopReason: "steered",
+            _meta: { steer: true },
+          });
+        }
+        // First call is the startup message; the follow-up turn stays open for the steer.
+        if (prompt.mock.calls.length === 1) {
+          return Promise.resolve({ stopReason: "end_turn" });
+        }
+        return new Promise<{ stopReason: "end_turn" }>((resolve) => {
+          finishFollowup = resolve;
+        });
+      });
+      const serverInternals = s as unknown as {
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.session.clientConnection.prompt = prompt;
+      const taskRun = createTaskRun({
+        id: "test-run-id",
+        task: "test-task-id",
+        state: {
+          prewarmed: true,
+          pending_user_message: "start on this",
+          pending_user_message_id: "startup-message",
+        },
+      });
+      vi.spyOn(serverInternals.posthogAPI, "getTaskRun").mockResolvedValue(
+        taskRun,
+      );
+
+      await startInitialTaskMessage(
+        s,
+        {
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        },
+        taskRun,
+      );
+      expect(prompt).toHaveBeenCalledOnce();
+
+      const token = createToken();
+      const send = (id: string, steer = false) =>
+        fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "user_message",
+            params: { content: id, messageId: id, ...(steer && { steer }) },
+          }),
+        });
+
+      const followupTurn = send("follow-up-turn");
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2));
+
+      const steerResponse = await send("steer-during-follow-up", true);
+      await expect(steerResponse.json()).resolves.toMatchObject({
+        result: { stopReason: "steered", steered: true },
+      });
+
+      finishFollowup({ stopReason: "end_turn" });
+      await followupTurn;
+    }, 20000);
+
     it("does not queue steering behind an active non-steering turn", async () => {
       const s = createServer();
       await s.start();
@@ -4884,9 +5022,47 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("resume prompt display", () => {
-    it.each(["native", "summary"] as const)(
-      "keeps a prewarmed %s resume idle until the forwarded user message arrives",
-      async (resumeKind) => {
+    it("does not accept commands until startup context is prepared", async () => {
+      const s = createServer();
+      const internals = s as unknown as {
+        posthogAPI: PostHogAPIClient;
+      };
+      const run = createTaskRun({
+        state: { prewarmed: true, warm_activated: true },
+      });
+      const refresh = Promise.withResolvers<TaskRun>();
+      const refreshing = Promise.withResolvers<void>();
+      vi.spyOn(internals.posthogAPI, "getTaskRun")
+        .mockResolvedValueOnce(run)
+        .mockImplementationOnce(() => {
+          refreshing.resolve();
+          return refresh.promise;
+        })
+        .mockResolvedValue(run);
+
+      const starting = s.start();
+      try {
+        await refreshing.promise;
+        const health = await fetch(`http://localhost:${port}/health`);
+        expect(await health.json()).toMatchObject({ hasSession: false });
+      } finally {
+        refresh.resolve(run);
+        await starting;
+      }
+      const health = await fetch(`http://localhost:${port}/health`);
+      expect(await health.json()).toMatchObject({ hasSession: true });
+    });
+
+    it.each([
+      { resumeKind: "native", activated: false, beforeStartup: false },
+      { resumeKind: "native", activated: true, beforeStartup: false },
+      { resumeKind: "summary", activated: false, beforeStartup: false },
+      { resumeKind: "summary", activated: true, beforeStartup: false },
+      { resumeKind: "native", activated: true, beforeStartup: true },
+      { resumeKind: "summary", activated: true, beforeStartup: true },
+    ] as const)(
+      "keeps a prewarmed $resumeKind resume idle until delivery (activated=$activated, beforeStartup=$beforeStartup)",
+      async ({ resumeKind, activated, beforeStartup }) => {
         const s = createServer();
         await s.start();
 
@@ -4904,7 +5080,9 @@ describe("AgentServer HTTP Mode", () => {
           task: "test-task-id",
           state: {
             prewarmed: true,
-            await_user_message: true,
+            ...(activated
+              ? { warm_activated: true }
+              : { await_user_message: true }),
             resume_from_run_id: "previous-run",
           },
         });
@@ -4919,10 +5097,6 @@ describe("AgentServer HTTP Mode", () => {
             enqueue: ReturnType<typeof vi.fn>;
             stop: ReturnType<typeof vi.fn>;
           };
-          sendInitialTaskMessage(
-            payload: JwtPayload,
-            taskRun: TaskRun | null,
-          ): Promise<void>;
         };
         internals.session.clientConnection.prompt = prompt;
         internals.prewarmedRun = true;
@@ -4952,12 +5126,19 @@ describe("AgentServer HTTP Mode", () => {
             : null;
         vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(taskRun);
 
-        await internals.sendInitialTaskMessage(payload, taskRun);
+        const startup = s as unknown as StartupTestServer;
+        const prepared = await startup.prepareInitialTaskMessage(
+          payload,
+          taskRun,
+        );
+        if (!beforeStartup) {
+          await startup.sendInitialTaskMessage(payload, prepared);
+        }
 
         expect(prompt).not.toHaveBeenCalled();
         expect(internals.resumeState).not.toBeNull();
 
-        const response = await fetch(`http://localhost:${port}/command`, {
+        const request = {
           method: "POST",
           headers: {
             Authorization: `Bearer ${createToken()}`,
@@ -4967,11 +5148,32 @@ describe("AgentServer HTTP Mode", () => {
             jsonrpc: "2.0",
             id: `deferred-${resumeKind}`,
             method: "user_message",
-            params: { content: "continue with this change" },
+            params: {
+              content: [
+                { type: "text", text: "continue with this change" },
+                {
+                  type: "resource_link",
+                  uri: "file:///tmp/example.txt",
+                  name: "example.txt",
+                },
+              ],
+              messageId: "forwarded-first-message",
+            },
           }),
-        });
+        };
+        const response = await fetch(
+          `http://localhost:${port}/command`,
+          request,
+        );
 
         expect(response.status).toBe(200);
+        if (beforeStartup) {
+          await startup.sendInitialTaskMessage(payload, prepared);
+        }
+        const retry = await fetch(`http://localhost:${port}/command`, request);
+        expect(await retry.json()).toMatchObject({
+          result: { duplicate: true },
+        });
         expect(prompt).toHaveBeenCalledOnce();
         expect(
           internals.eventStreamSender.enqueue.mock.calls.filter(
@@ -4994,13 +5196,18 @@ describe("AgentServer HTTP Mode", () => {
           )
           .map((block) => (block as { text: string }).text);
         expect(visibleText).toEqual(["continue with this change"]);
+        expect(promptBlocks).toContainEqual({
+          type: "resource_link",
+          uri: "file:///tmp/example.txt",
+          name: "example.txt",
+        });
         if (resumeKind === "summary") {
-          expect(promptBlocks).toHaveLength(3);
+          expect(promptBlocks).toHaveLength(4);
           expect((promptBlocks[0] as { text: string }).text).toContain(
             "work completed so far",
           );
         } else {
-          expect(promptBlocks).toHaveLength(1);
+          expect(promptBlocks).toHaveLength(2);
         }
         expect(internals.resumeState).toBeNull();
         expect(internals.nativeResume).toBeNull();
@@ -5008,62 +5215,69 @@ describe("AgentServer HTTP Mode", () => {
       30000,
     );
 
-    it("resumes instead of idling once the run is no longer awaiting its first message", async () => {
-      // `prewarmed` outlives activation; `await_user_message` is what the backend clears. Idling on
-      // provenance alone strands every reinitialization of an activated run, waiting for a first
-      // message that was already delivered.
-      const s = createServer();
-      await s.start();
+    it.each(["native", "summary"])(
+      "recovers an explicitly restarted prewarmed run with %s context",
+      async (resumeKind) => {
+        const s = createServer();
+        await s.start();
 
-      const prompt = vi.fn(async () => ({ stopReason: "end_turn" }));
-      const payload: JwtPayload = {
-        run_id: "test-run-id",
-        task_id: "test-task-id",
-        team_id: 1,
-        user_id: 1,
-        distinct_id: "test-distinct-id",
-        mode: "interactive",
-      };
-      const taskRun = createTaskRun({
-        id: "test-run-id",
-        task: "test-task-id",
-        state: { prewarmed: true, resume_from_run_id: "previous-run" },
-      });
-      const internals = s as unknown as {
-        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-        session: { clientConnection: { prompt: typeof prompt } };
-        resumeState: ResumeState | null;
-        nativeResume: { sessionId: string; warm: boolean } | null;
-        prewarmedRun: boolean;
-        sendInitialTaskMessage(
-          payload: JwtPayload,
-          taskRun: TaskRun | null,
-        ): Promise<void>;
-      };
-      internals.session.clientConnection.prompt = prompt;
-      internals.nativeResume = null;
-      internals.resumeState = {
-        conversation: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "original request" }],
-          },
-          {
-            role: "assistant",
-            content: [{ type: "text", text: "work completed so far" }],
-          },
-        ],
-        interrupted: false,
-        logEntryCount: 2,
-        sessionId: "prior-session",
-      };
-      vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(taskRun);
+        const prompt = vi.fn(async () => ({ stopReason: "end_turn" }));
+        const payload: JwtPayload = {
+          run_id: "test-run-id",
+          task_id: "test-task-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        };
+        const taskRun = createTaskRun({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: { prewarmed: true, same_run_resume: true },
+        });
+        const internals = s as unknown as {
+          posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+          session: { clientConnection: { prompt: typeof prompt } };
+          resumeState: ResumeState | null;
+          nativeResume: { sessionId: string; warm: boolean } | null;
+          prewarmedRun: boolean;
+        };
+        internals.session.clientConnection.prompt = prompt;
+        internals.nativeResume =
+          resumeKind === "native"
+            ? { sessionId: "prior-session", warm: true }
+            : null;
+        internals.resumeState = {
+          conversation: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "original request" }],
+            },
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "work completed so far" }],
+            },
+          ],
+          interrupted: false,
+          logEntryCount: 2,
+          sessionId: "prior-session",
+        };
+        vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(taskRun);
 
-      await internals.sendInitialTaskMessage(payload, taskRun);
+        await startInitialTaskMessage(s, payload, taskRun);
 
-      expect(internals.prewarmedRun).toBe(false);
-      expect(prompt).toHaveBeenCalledOnce();
-    }, 30000);
+        expect(internals.prewarmedRun).toBe(true);
+        expect(prompt).toHaveBeenCalledOnce();
+        expect(prompt).toHaveBeenCalledWith(
+          expect.objectContaining({
+            prompt: [
+              expect.objectContaining({ _meta: { ui: { hidden: true } } }),
+            ],
+          }),
+        );
+      },
+      30000,
+    );
 
     it("loads the summary fallback before a prewarmed run idles", async () => {
       // Initialization may fail to fetch the run `prepareNativeResume` needed. If the fallback load
@@ -5099,10 +5313,6 @@ describe("AgentServer HTTP Mode", () => {
           resumeRunId: string,
           currentRunId: string,
         ): Promise<void>;
-        sendInitialTaskMessage(
-          payload: JwtPayload,
-          taskRun: TaskRun | null,
-        ): Promise<void>;
       };
       internals.nativeResume = null;
       internals.resumeState = null;
@@ -5123,7 +5333,7 @@ describe("AgentServer HTTP Mode", () => {
           };
         });
 
-      await internals.sendInitialTaskMessage(payload, taskRun);
+      await startInitialTaskMessage(s, payload, taskRun);
 
       expect(loadResumeState).toHaveBeenCalledWith(
         "test-task-id",
@@ -5419,6 +5629,7 @@ describe("AgentServer HTTP Mode", () => {
 
       const setupIdleResume = async (
         state: Record<string, unknown>,
+        resumeKind: "native" | "summary" = "native",
       ): Promise<{
         prompt: ReturnType<typeof vi.fn>;
         turnCompleteEvents: () => unknown[];
@@ -5433,14 +5644,29 @@ describe("AgentServer HTTP Mode", () => {
           posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
           session: { clientConnection: { prompt: typeof prompt } };
           nativeResume: { sessionId: string; warm: boolean } | null;
+          resumeState: ResumeState | null;
           broadcastEvent: typeof broadcastEvent;
-          sendInitialTaskMessage(
-            payload: JwtPayload,
-            taskRun: TaskRun | null,
-          ): Promise<void>;
         };
         internals.session.clientConnection.prompt = prompt;
-        internals.nativeResume = { sessionId: "prior-session", warm: true };
+        internals.nativeResume =
+          resumeKind === "native"
+            ? { sessionId: "prior-session", warm: true }
+            : null;
+        internals.resumeState = {
+          conversation: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Original request" }],
+            },
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "Preserved work" }],
+            },
+          ],
+          interrupted: false,
+          logEntryCount: 2,
+          sessionId: "prior-session",
+        };
         internals.broadcastEvent = broadcastEvent;
         vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(
           createTaskRun({ id: "test-run-id", task: "test-task-id", state }),
@@ -5456,7 +5682,7 @@ describe("AgentServer HTTP Mode", () => {
                   ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
             ),
           sendInitialTaskMessage: () =>
-            internals.sendInitialTaskMessage(idlePayload, null),
+            startInitialTaskMessage(s, idlePayload, null),
         };
       };
 
@@ -5464,15 +5690,41 @@ describe("AgentServer HTTP Mode", () => {
         delete process.env.POSTHOG_RESUME_IDLE;
       });
 
-      it("does not prompt the resumed session", async () => {
-        const { prompt, turnCompleteEvents, sendInitialTaskMessage } =
-          await setupIdleResume({});
+      it.each(["native", "summary"] as const)(
+        "defers the next turn with %s context on idle restore",
+        async (resumeKind) => {
+          const { prompt, turnCompleteEvents, sendInitialTaskMessage } =
+            await setupIdleResume({}, resumeKind);
 
-        await sendInitialTaskMessage();
+          await sendInitialTaskMessage();
 
-        expect(prompt).not.toHaveBeenCalled();
-        expect(turnCompleteEvents()).toHaveLength(1);
-      });
+          expect(prompt).not.toHaveBeenCalled();
+          expect(turnCompleteEvents()).toHaveLength(1);
+          const response = await fetch(`http://localhost:${port}/command`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${createToken()}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: "next-turn",
+              method: "user_message",
+              params: { content: "Next request" },
+            }),
+          });
+          expect(response.status).toBe(200);
+          expect(prompt).toHaveBeenCalledOnce();
+          const blocks = prompt.mock.calls[0]?.[0].prompt;
+          expect(blocks).toContainEqual({ type: "text", text: "Next request" });
+          if (resumeKind === "summary") {
+            expect(blocks[0]).toMatchObject({
+              text: expect.stringContaining("Preserved work"),
+              _meta: { ui: { hidden: true } },
+            });
+          }
+        },
+      );
 
       it("still delivers a message that landed during the swap", async () => {
         const { prompt, sendInitialTaskMessage } = await setupIdleResume({
@@ -5518,7 +5770,8 @@ describe("AgentServer HTTP Mode", () => {
         }),
       );
 
-      await internals.sendResumeContinuation(
+      await startInitialTaskMessage(
+        s,
         {
           task_id: "test-task-id",
           run_id: "test-run-id",
@@ -5839,6 +6092,113 @@ describe("AgentServer HTTP Mode", () => {
       },
       20000,
     );
+
+    it("answers the pending user message on the fresh-session retry", async () => {
+      const s = createServer();
+      await s.start();
+
+      const prompts: ContentBlock[][] = [];
+      const prompt = vi.fn(async (params: { prompt: ContentBlock[] }) => {
+        prompts.push(params.prompt);
+        if (prompts.length === 1) {
+          throw new Error("Internal error: Prompt is too long");
+        }
+        return { stopReason: "end_turn" };
+      });
+      const newSession = vi.fn(async () => ({ sessionId: "fresh-session" }));
+      const broadcastEvent = vi.fn();
+
+      const internals = s as unknown as {
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        session: {
+          clientConnection: {
+            prompt: typeof prompt;
+            newSession: typeof newSession;
+          };
+        };
+        resumeState: ResumeState | null;
+        nativeResume: { sessionId: string; warm: boolean } | null;
+        broadcastEvent: typeof broadcastEvent;
+        loadResumeState(
+          taskId: string,
+          resumeRunId: string,
+          runId: string,
+        ): Promise<void>;
+        sendResumeContinuation(
+          payload: JwtPayload,
+          taskRun: TaskRun | null,
+        ): Promise<void>;
+      };
+      internals.session.clientConnection.prompt = prompt;
+      internals.session.clientConnection.newSession = newSession;
+      internals.nativeResume = { sessionId: "prior-session", warm: true };
+      internals.broadcastEvent = broadcastEvent;
+      internals.loadResumeState = vi.fn(async () => {
+        internals.resumeState = {
+          conversation: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "original task" }],
+            },
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "progress so far" }],
+            },
+          ],
+          interrupted: false,
+          logEntryCount: 2,
+          sessionId: "prior-session",
+        };
+      });
+
+      const taskRun = createTaskRun({
+        id: "test-run-id",
+        task: "test-task-id",
+        state: {
+          resume_from_run_id: "previous-run",
+          pending_user_message: "answer this now",
+          pending_user_message_id: "pending-message-1",
+        },
+      });
+      vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(taskRun);
+
+      await internals.sendResumeContinuation(
+        {
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        },
+        taskRun,
+      );
+
+      expect(prompts).toHaveLength(2);
+      const retryBlocks = prompts[1];
+      expect(
+        retryBlocks
+          .map((block) => ("text" in block ? block.text : ""))
+          .join("\n"),
+      ).toContain("progress so far");
+      expect(
+        retryBlocks
+          .filter(
+            (block) =>
+              block.type === "text" &&
+              (block as { _meta?: { ui?: { hidden?: boolean } } })._meta?.ui
+                ?.hidden !== true,
+          )
+          .map((block) => (block as { text: string }).text),
+      ).toEqual(["answer this now"]);
+      expect(
+        broadcastEvent.mock.calls.filter(
+          ([event]) =>
+            (event as { notification?: { method?: string } }).notification
+              ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+        ),
+      ).toHaveLength(1);
+    }, 20000);
 
     it("hydrates cold sessions from S3 logs instead of cached resume conversation", async () => {
       const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;

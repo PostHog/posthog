@@ -107,7 +107,6 @@ def create_event_definitions_sql(
     is_enterprise: bool = False,
     conditions: str = "",
     order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
-    paginated: bool = True,
 ) -> str:
     if order_expressions is None:
         order_expressions = []
@@ -142,13 +141,11 @@ def create_event_definitions_sql(
     # A `RawQuerySet` has no `count()`, so DRF's paginator counts it with `len()` and slices the
     # result in Python. Without this clause one page of 100 costs a read of every event definition
     # the project has, wide columns included.
-    limit_clause = "LIMIT %(limit)s OFFSET %(offset)s" if paginated else ""
-
     return f"""
             SELECT {",".join(selected_fields)}
             {_event_definitions_source_sql(event_type, is_enterprise, conditions)}
             ORDER BY {",".join(additional_ordering)}
-            {limit_clause}
+            LIMIT %(limit)s OFFSET %(offset)s
         """
 
 
@@ -450,19 +447,24 @@ class EventDefinitionViewSet(
             params["names"] = list(set(names))
 
         tags_list = self._tags_filter_from_request()
+        if tags_list:
+            # EXISTS, not a join: it keeps one row per definition, so the page stays a page and
+            # the count stays a count, with no DISTINCT over the whole result set.
+            search_query = (
+                search_query
+                + " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
+                + " JOIN posthog_tag ON posthog_tag.id = posthog_taggeditem.tag_id"
+                + " WHERE posthog_taggeditem.event_definition_id = posthog_eventdefinition.id"
+                + " AND posthog_tag.name = ANY(%(tags)s))"
+            )
+            params["tags"] = tags_list
+
         sql = create_event_definitions_sql(
             event_type,
             is_enterprise=EE_AVAILABLE,
             conditions=search_query,
             order_expressions=order_expressions,
-            paginated=not tags_list,
         )
-
-        if tags_list:
-            # The tags filter has to see every match before it can page, so this path keeps the
-            # unbounded fetch and lets the paginator page the resulting ORM queryset instead.
-            ids = [obj.id for obj in event_definition_object_manager.raw(sql, params=params)]
-            return event_definition_object_manager.filter(id__in=ids, tagged_items__tag__name__in=tags_list).distinct()
 
         paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)

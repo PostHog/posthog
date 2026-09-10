@@ -64,6 +64,13 @@ describe('sceneLogic', () => {
         })
     })
 
+    it('keeps teamLogic mounted after every other mount reference is released', () => {
+        // openScene and activeSceneId read teamLogic.values directly. Without a mount reference of
+        // its own, navigation throws as soon as nothing else holds teamLogic up.
+        teamLogic.unmount()
+        expect(teamLogic.isMounted()).toBe(true)
+    })
+
     it('changing URL runs openScene, loadScene and setScene', async () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.DataManagement,
