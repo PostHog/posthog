@@ -498,6 +498,18 @@ class TestResolver(BaseTest):
         select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
         assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
 
+    def test_unresolved_field_chain_type(self):
+        query = "SELECT x.y"
+        # raises with ClickHouse
+        with self.assertRaises(QueryError):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        # does not raise with HogQL, the whole chain stays unresolved
+        select = self._select(query)
+        select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
+        field_type = select.select[0].type
+        assert isinstance(field_type, ast.UnresolvedFieldType)
+        assert field_type.name == "x.y"
+
     def test_unknown_table_suggests_close_matches(self):
         with self.assertRaises(QueryError) as ctx:
             resolve_types(
