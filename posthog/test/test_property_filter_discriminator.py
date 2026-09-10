@@ -1,7 +1,7 @@
 from django.test.testcases import SimpleTestCase
 
 from parameterized import parameterized
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
@@ -25,6 +25,8 @@ from posthog.schema import (
     LogPropertyFilter,
     LogPropertyFilterType,
     MCPModelBreakdownQuery,
+    MCPToolQualityRowsQuery,
+    MCPToolStatsQuery,
     MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -273,16 +275,30 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
         assert isinstance(query.properties, list)
         assert type(query.properties[0]) is EventPropertyFilter
 
-    def test_mcp_model_breakdown_properties_use_the_discriminated_filter(self) -> None:
-        query = MCPModelBreakdownQuery.model_validate(
+    @parameterized.expand(
+        [
+            ("MCPModelBreakdownQuery", MCPModelBreakdownQuery, {}),
+            # Tool quality tab and per-tool report queries were extended with the same
+            # shared `properties` filter (see products/mcp_analytics/backend/hogql_queries/
+            # base.py:shared_filter_exprs), so pin that their usage sites got discriminated too.
+            ("MCPToolQualityRowsQuery", MCPToolQualityRowsQuery, {}),
+            ("MCPToolStatsQuery", MCPToolStatsQuery, {"toolName": "search"}),
+        ]
+    )
+    def test_mcp_analytics_properties_use_the_discriminated_filter(
+        self, kind: str, model: type[BaseModel], extra_fields: dict
+    ) -> None:
+        query = model.model_validate(
             {
-                "kind": "MCPModelBreakdownQuery",
+                "kind": kind,
                 "properties": [{"type": "event", "key": "$mcp_llm_model", "operator": "exact"}],
+                **extra_fields,
             }
         )
 
-        assert query.properties is not None
-        assert type(query.properties[0]) is EventPropertyFilter
+        properties = query.properties  # type: ignore[attr-defined]
+        assert properties is not None
+        assert type(properties[0]) is EventPropertyFilter
 
     def test_serialization_round_trip_is_stable(self) -> None:
         node = EventsNode(

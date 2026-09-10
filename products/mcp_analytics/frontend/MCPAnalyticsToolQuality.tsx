@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpIntervalFilter } from './components/McpIntervalFilter'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { mcpAnalyticsToolQualityLogic, mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
@@ -54,6 +55,7 @@ function FilterBar(): JSX.Element {
                 onChange={setPinnedInterval}
                 dataAttr="mcp-tool-quality-interval-filter"
             />
+            <McpSharedFilters pageKey="mcp-tool-quality" dataAttrPrefix="mcp-tool-quality" />
             {hasScope && sharePct !== null ? (
                 <Tooltip
                     title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls were in the selected categories (${dateRangeLabel})`}

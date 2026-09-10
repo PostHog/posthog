@@ -41,6 +41,7 @@ import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-gener
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
@@ -538,6 +539,10 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
+
+            <div className="flex flex-wrap items-center gap-3 px-4 pb-2">
+                <McpSharedFilters pageKey="mcp-tool-detail" dataAttrPrefix="mcp-tool-detail" />
+            </div>
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />

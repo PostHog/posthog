@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
+    EventPropertyFilter,
     IntervalType,
     MCPToolCategoriesQuery,
     MCPToolCategoryCountsQuery,
@@ -15,6 +16,7 @@ from posthog.schema import (
     MCPToolQualityDailyStatsQuery,
     MCPToolQualityRowsQuery,
     MCPToolQualityRowsQueryResponse,
+    PropertyOperator,
 )
 
 from posthog.hogql import ast
@@ -241,6 +243,84 @@ class TestMCPToolCategoryMapQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         pairs = [(r.tool, r.category) for r in runner.calculate().results]
 
         assert pairs == [("query_run", "Insights"), ("query_run", "SQL")]
+
+
+def _setup_included_and_excluded_tools(team: Any) -> None:
+    """One event on the shared property filter's match, one off it, to prove the filter
+    reaches every runner below the same way it reaches the Tool quality rows table."""
+    _emit(team, tool_name="included_tool", category="Data")
+    _emit(team, tool_name="excluded_tool", category="Insights")
+
+
+class TestMCPToolQualitySharedFilters(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    """Every runner here resolves its WHERE through `_named_tool_where` or applies
+    `shared_filter_exprs` directly, so the dashboard's shared property filters and "Filter out
+    internal and test users" switch (see hogql_queries/base.py) reach all of them. One
+    parameterized case per runner proves that, rather than duplicating a property-filter test
+    and a filterTestAccounts test per runner.
+    """
+
+    @parameterized.expand(
+        [
+            ("quality_rows", MCPToolQualityRowsQueryRunner, MCPToolQualityRowsQuery, len, 2, 1),
+            (
+                "quality_daily_stats",
+                MCPToolQualityDailyStatsQueryRunner,
+                MCPToolQualityDailyStatsQuery,
+                lambda rows: sum(r.calls for r in rows),
+                2,
+                1,
+            ),
+            (
+                "category_counts",
+                MCPToolCategoryCountsQueryRunner,
+                MCPToolCategoryCountsQuery,
+                lambda rows: sum(r.calls for r in rows),
+                2,
+                1,
+            ),
+            (
+                "categories",
+                MCPToolCategoriesQueryRunner,
+                MCPToolCategoriesQuery,
+                lambda rows: {r.category for r in rows},
+                {"Data", "Insights"},
+                {"Data"},
+            ),
+        ]
+    )
+    def test_property_filter_and_test_accounts_narrow_the_results(
+        self,
+        _name: str,
+        runner_cls: Any,
+        query_cls: Any,
+        metric_fn: Any,
+        expected_unfiltered: Any,
+        expected_filtered: Any,
+    ) -> None:
+        _setup_included_and_excluded_tools(self.team)
+        flush_persons_and_events()
+
+        def run(**filter_kwargs: Any) -> Any:
+            query = query_cls(dateRange=DateRange(date_from="-7d"), **filter_kwargs)
+            return metric_fn(runner_cls(query=query, team=self.team).calculate().results)
+
+        assert run() == expected_unfiltered
+
+        assert (
+            run(
+                properties=[
+                    EventPropertyFilter(key="$mcp_tool_name", value=["included_tool"], operator=PropertyOperator.EXACT)
+                ]
+            )
+            == expected_filtered
+        )
+
+        self.team.test_account_filters = [
+            {"key": "$mcp_tool_name", "value": ["excluded_tool"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        assert run(filterTestAccounts=True) == expected_filtered
 
 
 class TestMCPToolQualityGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
