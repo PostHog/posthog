@@ -251,16 +251,9 @@ The first implementation uses `SKIP` overlap and one page without admission perm
 
 ### Subscription sizing evidence
 
-The first subscription rollout uses a 300-item baseline page and a code-owned 1,000-item hard ceiling. A 30-day production sample of scheduled-only subscription SLO starts, grouped into the scheduler's 30-minute cadence windows, showed:
+The first subscription rollout uses a 300-item baseline page and a code-owned 1,000-item hard ceiling. Production sampling shows that the default covers a typical cadence window while keeping each activation bounded. Payload measurement can reduce even that page when unusual identifiers would exceed 512 KiB.
 
-| Region | p99 starts/tick | Maximum starts/tick | p99 active teams/tick | Maximum active teams/tick | Maximum starts from one team/tick |
-| ------ | --------------- | ------------------- | --------------------- | ------------------------- | --------------------------------- |
-| EU     | 348             | 799                 | 272                   | 604                       | 29                                |
-| US     | 445             | 855                 | 352                   | 648                       | 42                                |
-
-The 300 default is therefore an operating page, not a recovery envelope. It keeps the first rollout bounded while covering a typical cadence window. Payload measurement can reduce even that page when unusual identifiers would exceed 512 KiB.
-
-The adaptive follow-up must admit multiple independent pages behind durable permits. Applying the three-interval recovery rule to the larger observed p99 requires capacity for roughly 1,335 items per tick, spread across bounded pages; it must not raise the per-page payload or command limit. The observed tenant breadth also requires a durable rotating tenant cursor rather than always beginning at the lowest tenant identifier.
+The 300 default is an operating page, not a recovery envelope. The adaptive follow-up must admit multiple independent pages behind durable permits to cover the three-interval recovery target without raising the per-page payload or command limit. Production tenant breadth also requires a durable rotating tenant cursor rather than always beginning at the lowest tenant identifier.
 
 ### Logs-alert sizing evidence
 

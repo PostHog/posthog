@@ -177,7 +177,7 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             ),
             id="schedule-all-subscriptions-schedule",
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-            execution_timeout=timedelta(minutes=10),
+            execution_timeout=timedelta(minutes=20),
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(cron_expressions=["25,55 * * * *"]),  # Run shortly before :30 and :00 deliveries
