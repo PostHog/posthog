@@ -4,6 +4,7 @@ import uuid
 import typing
 import datetime as dt
 import dataclasses
+from collections import defaultdict
 from datetime import datetime
 
 from django.db import connection, transaction
@@ -98,6 +99,69 @@ class _DueSubscriptionsPage:
     due_items_lower_bound: int
     oldest_due_at: dt.datetime | None
     discovery_cursor: str
+
+
+def _select_due_subscription_candidate_ids(
+    selected_team_ids: list[int], now_with_buffer: dt.datetime, candidate_limit: int
+) -> list[int]:
+    candidates_by_team: dict[int, list[tuple[int, dt.datetime]]] = defaultdict(list)
+    team_order = {team_id: index for index, team_id in enumerate(selected_team_ids)}
+    teams_to_fetch = list(selected_team_ids)
+
+    with connection.cursor() as cursor:
+        while teams_to_fetch and sum(len(rows) for rows in candidates_by_team.values()) < candidate_limit:
+            remaining = candidate_limit - sum(len(rows) for rows in candidates_by_team.values())
+            candidates_per_team = math.ceil(remaining / len(teams_to_fetch))
+            offsets = [len(candidates_by_team[team_id]) for team_id in teams_to_fetch]
+            orders = [team_order[team_id] for team_id in teams_to_fetch]
+            cursor.execute(
+                """
+                WITH selected_teams(team_id, candidate_offset, team_order) AS (
+                    SELECT * FROM unnest(%s::bigint[], %s::bigint[], %s::bigint[])
+                )
+                SELECT
+                    selected_teams.team_id,
+                    candidate.id,
+                    candidate.next_delivery_date
+                FROM selected_teams
+                CROSS JOIN LATERAL (
+                    SELECT subscription.id, subscription.next_delivery_date
+                    FROM posthog_subscription AS subscription
+                    LEFT JOIN posthog_dashboard AS dashboard ON dashboard.id = subscription.dashboard_id
+                    LEFT JOIN posthog_insight AS insight ON insight.id = subscription.insight_id
+                    WHERE subscription.team_id = selected_teams.team_id
+                      AND subscription.next_delivery_date <= %s
+                      AND subscription.deleted = FALSE
+                      AND subscription.enabled = TRUE
+                      AND (subscription.dashboard_id IS NULL OR dashboard.deleted = FALSE)
+                      AND (subscription.insight_id IS NULL OR insight.deleted = FALSE)
+                      AND (
+                          subscription.insight_id IS NOT NULL
+                          OR subscription.dashboard_id IS NOT NULL
+                          OR NULLIF(subscription.prompt, '') IS NOT NULL
+                      )
+                    ORDER BY subscription.next_delivery_date, subscription.id
+                    OFFSET selected_teams.candidate_offset
+                    LIMIT %s
+                ) AS candidate
+                ORDER BY selected_teams.team_order, candidate.next_delivery_date, candidate.id
+                """,
+                [teams_to_fetch, offsets, orders, now_with_buffer, candidates_per_team],
+            )
+            fetched_counts: dict[int, int] = defaultdict(int)
+            for team_id, subscription_id, next_delivery_date in cursor.fetchall():
+                candidates_by_team[team_id].append((subscription_id, next_delivery_date))
+                fetched_counts[team_id] += 1
+            teams_to_fetch = [team_id for team_id in teams_to_fetch if fetched_counts[team_id] == candidates_per_team]
+
+    candidates: list[tuple[int, dt.datetime, int, int]] = []
+    for team_id, rows in candidates_by_team.items():
+        candidates.extend(
+            (team_rank, next_delivery_date, team_order[team_id], subscription_id)
+            for team_rank, (subscription_id, next_delivery_date) in enumerate(rows, start=1)
+        )
+    candidates.sort()
+    return [subscription_id for _, _, _, subscription_id in candidates[:candidate_limit]]
 
 
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
@@ -262,67 +326,16 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 )
                 selected_team_ids.extend(teams_before_cursor[:remaining_team_slots])
                 deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
+            elif team_cursor:
+                deferred_teams = deferred_teams or due_subscriptions.filter(team_id__lte=team_cursor).exists()
 
             if not selected_team_ids:
                 return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor)
 
-            # Each selected tenant contributes an equally bounded number of candidates. The
-            # LATERAL limit is applied before the global fair ordering, so even a pathological
-            # tenant backlog cannot make Postgres rank or hydrate an unbounded number of rows.
             candidate_limit = inputs.max_subscriptions_per_run + 1
-            candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    WITH selected_teams(team_id, team_order) AS (
-                        SELECT * FROM unnest(%s::bigint[]) WITH ORDINALITY
-                    ),
-                    bounded_candidates AS (
-                        SELECT
-                            selected_teams.team_id,
-                            selected_teams.team_order,
-                            candidate.id,
-                            candidate.next_delivery_date
-                        FROM selected_teams
-                        CROSS JOIN LATERAL (
-                            SELECT subscription.id, subscription.next_delivery_date
-                            FROM posthog_subscription AS subscription
-                            LEFT JOIN posthog_dashboard AS dashboard ON dashboard.id = subscription.dashboard_id
-                            LEFT JOIN posthog_insight AS insight ON insight.id = subscription.insight_id
-                            WHERE subscription.team_id = selected_teams.team_id
-                              AND subscription.next_delivery_date <= %s
-                              AND subscription.deleted = FALSE
-                              AND subscription.enabled = TRUE
-                              AND (subscription.dashboard_id IS NULL OR dashboard.deleted = FALSE)
-                              AND (subscription.insight_id IS NULL OR insight.deleted = FALSE)
-                              AND (
-                                  subscription.insight_id IS NOT NULL
-                                  OR subscription.dashboard_id IS NOT NULL
-                                  OR NULLIF(subscription.prompt, '') IS NOT NULL
-                              )
-                            ORDER BY subscription.next_delivery_date, subscription.id
-                            LIMIT %s
-                        ) AS candidate
-                    ),
-                    ranked_candidates AS (
-                        SELECT
-                            id,
-                            next_delivery_date,
-                            team_order,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY team_id
-                                ORDER BY next_delivery_date, id
-                            ) AS team_rank
-                        FROM bounded_candidates
-                    )
-                    SELECT id
-                    FROM ranked_candidates
-                    ORDER BY team_rank, next_delivery_date, team_order, id
-                    LIMIT %s
-                    """,
-                    [selected_team_ids, now_with_buffer, candidates_per_team, candidate_limit],
-                )
-                bounded_candidate_ids = [row[0] for row in cursor.fetchall()]
+            bounded_candidate_ids = _select_due_subscription_candidate_ids(
+                selected_team_ids, now_with_buffer, candidate_limit
+            )
 
             deferred_candidates = len(bounded_candidate_ids) > inputs.max_subscriptions_per_run
             candidate_ids = bounded_candidate_ids[: inputs.max_subscriptions_per_run]
