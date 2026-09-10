@@ -28,7 +28,7 @@ flowchart TD
 
 **Scan** (`logic/scan.py`) runs every scout that applies to the scope against a local checkout (`RepoIndex`, `logic/repo.py`: ripgrep with a pattern file for references, git for history).
 A failing scout is reported in the run summary and skipped; the scan only fails when every scout fails.
-Scouts read production data through facades: `list_flag_summaries` (feature_flags), `list_concluded_experiments` (experiments), `$pageview` counts over HogQL.
+Scouts read production data through facades: `list_flag_summaries` (feature_flags), `list_concluded_experiments` (experiments), `$pageview` and `$feature_flag_called` counts over HogQL.
 Convergence (`logic/converge.py`) groups hits by root, ranks them (decisive hit or two scouts = strong), blocks oversize clusters and assigns a CODEOWNERS owner.
 `logic/inventory.py` upserts clusters idempotently: a re-scan refreshes rows, reopens `declined` clusters whose files changed and marks missing roots `vanished`.
 

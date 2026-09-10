@@ -9,6 +9,7 @@ from posthog.models.user import User
 
 from products.reaperhog.backend.facade.enums import NAMED_SCOPES, ScoutName
 from products.reaperhog.backend.logic.artefacts import Hit
+from products.reaperhog.backend.logic.enrollment import EnrollmentCounts, EnrollmentLoader, load_flag_enrollment
 from products.reaperhog.backend.logic.repo import RepoIndex
 
 _NOREPLY_SUFFIX = "@users.noreply.github.com"
@@ -20,6 +21,11 @@ class ScoutContext:
     repo: RepoIndex
     scope: str
     now: datetime
+    enrollment_loader: EnrollmentLoader = load_flag_enrollment
+
+    @cached_property
+    def flag_enrollment(self) -> EnrollmentCounts:
+        return self.enrollment_loader(self.team_id)
 
     @property
     def scope_path(self) -> str | None:
