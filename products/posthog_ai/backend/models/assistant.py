@@ -290,10 +290,10 @@ class CoreMemory(UUIDTModel):
         await self.asave()
 
     async def aset_core_memory(self, text: str) -> None:
-        # Unlike append/replace, this path is fed raw model output (onboarding compression), so it can't
-        # reject — it clamps to the cap instead, keeping the stored row within the limit the serializer,
-        # the textarea, and the /remember command all enforce. Without this a verbose model response
-        # writes an over-cap row that the user can then neither save nor edit.
+        # Unlike append/replace, this path is fed raw model output (onboarding compression), so it clamps
+        # to the cap instead of rejecting. That keeps the stored row within the limit that the serializer,
+        # the textarea, and the /remember command all enforce, because an over-cap row can afterwards be
+        # neither saved nor edited through any of them.
         if len(text) > CORE_MEMORY_MAX_CHARACTERS:
             logger.warning(
                 "core_memory_set_truncated",

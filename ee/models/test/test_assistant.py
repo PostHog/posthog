@@ -85,8 +85,6 @@ class TestCoreMemory(BaseTest):
             await self.core_memory.areplace_core_memory("nonexistent", "new")
 
     async def test_set_truncates_at_limit(self):
-        # Onboarding feeds raw model output here, so an over-cap value must be clamped rather than stored
-        # whole — an over-cap row can't be saved or edited afterwards via the serializer or textarea.
         await self.core_memory.aset_core_memory("x" * (CORE_MEMORY_MAX_CHARACTERS + 5546))
         self.assertEqual(len(self.core_memory.text), CORE_MEMORY_MAX_CHARACTERS)
         await self.core_memory.arefresh_from_db()
