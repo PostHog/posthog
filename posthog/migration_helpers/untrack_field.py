@@ -26,10 +26,10 @@ def untrack_field(
     Args:
         model_name: The model the fields belong to, lowercase, as migrations spell it.
         field_names: One or more fields to take out of model state.
-        database_operations: SQL to run alongside the state change. Pass a RunSQL that drops
-            the foreign key constraint when an untracked column has one. TRUNCATE refuses a
-            table that another table references, and Django no longer knows to include this
-            table in the teardown, so TransactionTestCase teardown fails without it.
+        database_operations: Operations to run alongside the state change. Pass
+            DropForeignKey(...) when an untracked column carries a foreign key. That drop is
+            required: Django stops cascading into a relation it cannot see, and the deferred
+            constraint then fails the parent delete at COMMIT, permanently.
     """
     if not field_names:
         raise ValueError("untrack_field needs at least one field name")
