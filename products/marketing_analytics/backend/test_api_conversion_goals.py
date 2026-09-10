@@ -1,5 +1,11 @@
-from posthog.test.base import APIBaseTest
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+from time import monotonic
+
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.db import close_old_connections, connection, transaction
 
 from parameterized import parameterized
 
@@ -443,3 +449,44 @@ class TestConversionGoalIdIsOneName(APIBaseTest):
         delete = self.client.delete(f"{self.base_url}/{goal_id}/delete")
 
         assert (update.status_code, delete.status_code) == (200, 200), (update.json(), delete.json())
+
+
+class TestConcurrentMarketingSettingsWrites(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_settings_wait_for_goal_write_and_preserve_it(self) -> None:
+        config = self.team.marketing_analytics_config
+        backend_pid: Queue[int] = Queue()
+
+        def save_settings() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET statement_timeout = '10s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    backend_pid.put(cursor.fetchone()[0])
+                TeamMarketingAnalyticsConfigSerializer().update(config, {"filter_test_accounts": True})
+            finally:
+                close_old_connections()
+
+        goals = [{**goal_payload("Purchases", conversion_goal_id="purchase-goal"), "name": "Purchases"}]
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                locked = TeamMarketingAnalyticsConfig.objects.select_for_update().get(pk=config.pk)
+                pending = executor.submit(save_settings)
+                pid = backend_pid.get(timeout=10)
+                deadline = monotonic() + 10
+                with connection.cursor() as cursor:
+                    while True:
+                        cursor.execute("SELECT cardinality(pg_blocking_pids(%s)) > 0", [pid])
+                        if cursor.fetchone()[0]:
+                            break
+                        self.assertFalse(pending.done(), "settings finished before the goal transaction committed")
+                        self.assertLess(monotonic(), deadline, "settings did not wait for the configuration lock")
+                locked.conversion_goals = goals
+                locked.save(update_fields=["_conversion_goals"])
+            pending.result(timeout=10)
+
+        config.refresh_from_db()
+        self.assertTrue(config.filter_test_accounts)
+        self.assertEqual(config.conversion_goals, goals)
