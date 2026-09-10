@@ -53,7 +53,7 @@
                                 }
                             ],
                             "default": 1024,
-                            "description": "Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size."
+                            "description": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size."
                         }
                     },
                     "type": "object"
@@ -118,7 +118,7 @@
                                 }
                             ],
                             "default": 1024,
-                            "description": "Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size."
+                            "description": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size."
                         }
                     },
                     "type": "object"
@@ -177,7 +177,7 @@
                                 }
                             ],
                             "default": 1024,
-                            "description": "Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size."
+                            "description": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size."
                         }
                     },
                     "type": "object"
@@ -226,7 +226,7 @@
                                 }
                             ],
                             "default": 1024,
-                            "description": "Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size."
+                            "description": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size."
                         }
                     },
                     "type": "object"
