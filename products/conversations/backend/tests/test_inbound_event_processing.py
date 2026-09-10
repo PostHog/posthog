@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 
 from freezegun import freeze_time
@@ -9,8 +11,9 @@ from django.db import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
-from prometheus_client import REGISTRY
+from prometheus_client import REGISTRY, CollectorRegistry
 
+from posthog.metrics import pushed_metrics_registry
 from posthog.models.team import Team
 
 from products.conversations.backend.models import (
@@ -36,6 +39,21 @@ from products.conversations.backend.tasks.slack import (
     process_supporthog_interactivity_receipt,
     sweep_inbound_events,
 )
+
+
+@contextmanager
+def capture_pushed_registries() -> Iterator[list[CollectorRegistry]]:
+    """Collect the registries the sweep pushes its inbound queue gauges to."""
+    captured: list[CollectorRegistry] = []
+
+    @contextmanager
+    def wrapper(job_name: str) -> Iterator[CollectorRegistry]:
+        with pushed_metrics_registry(job_name) as registry:
+            captured.append(registry)
+            yield registry
+
+    with patch("products.conversations.backend.services.inbound_events.pushed_metrics_registry", wrapper):
+        yield captured
 
 
 class TestInboundEventSourceId(SimpleTestCase):
@@ -333,6 +351,10 @@ class TestInboundEventProcessing(BaseTest):
                 lease_expires_at=timezone.now() - timedelta(minutes=3),
                 updated_at=timezone.now(),
             )
-            sweep_inbound_events()
-        age = REGISTRY.get_sample_value("posthog_conversations_inbound_oldest_ready_age_seconds")
+            with capture_pushed_registries() as registries:
+                sweep_inbound_events()
+        age = registries[0].get_sample_value("posthog_conversations_inbound_oldest_ready_age_seconds")
         assert age == 180
+        # The gauge is a whole-table snapshot, so it must stay out of the process-global
+        # registry — otherwise every worker pod that swept exports its own stale copy.
+        assert REGISTRY.get_sample_value("posthog_conversations_inbound_oldest_ready_age_seconds") is None

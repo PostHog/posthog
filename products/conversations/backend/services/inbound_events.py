@@ -13,17 +13,14 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 import structlog
+from prometheus_client import Gauge
 
 from posthog.dataclasses import frozen
+from posthog.metrics import pushed_metrics_registry
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 
-from products.conversations.backend.metrics import (
-    INBOUND_ATTEMPTS_TOTAL,
-    INBOUND_BACKLOG,
-    INBOUND_LEASES_TOTAL,
-    INBOUND_OLDEST_READY_AGE_SECONDS,
-)
+from products.conversations.backend.metrics import INBOUND_ATTEMPTS_TOTAL, INBOUND_LEASES_TOTAL
 from products.conversations.backend.models import ConversationInboundEvent, ConversationInboundEventSource
 from products.conversations.backend.models.inbound_event import (
     INBOUND_ERROR_MAX_LENGTH,
@@ -372,16 +369,53 @@ def delete_inbound_tombstones(now: datetime, *, limit: int = INBOUND_SWEEP_BATCH
     return deleted
 
 
+def _push_inbound_queue_gauges(*, backlog: list[tuple[str, str, int]], oldest_age: float, now: datetime) -> None:
+    """Push the inbound queue snapshot as region-scoped gauges.
+
+    These values describe the whole receipt table, not the pod that measured them, so one
+    value per region is the only correct reading. The sweep runs on any worker, so a
+    module-level gauge makes every pod that swept export its own snapshot from a different
+    minute — a sum then multiplies the backlog and a maximum holds a stale value after the
+    queue drains. ``multiprocess_mode`` stays: the workers re-export the value from the
+    pod's multiproc directory whatever registry it was created against.
+    """
+    with pushed_metrics_registry("conversations_inbound_queue") as registry:
+        backlog_gauge = Gauge(
+            "posthog_conversations_inbound_backlog",
+            "Non-terminal inbound callback receipts by status and source",
+            labelnames=["status", "source"],
+            registry=registry,
+            multiprocess_mode="mostrecent",
+        )
+        for status, source, count in backlog:
+            backlog_gauge.labels(status=status, source=source).set(count)
+        Gauge(
+            "posthog_conversations_inbound_oldest_ready_age_seconds",
+            "Age in seconds of the oldest due or expired-lease inbound receipt",
+            registry=registry,
+            multiprocess_mode="mostrecent",
+        ).set(oldest_age)
+        # Pushgateway gauges never expire. Without this, a dead sweeper freezes an empty
+        # backlog forever and a backlog alert can never fire.
+        Gauge(
+            "posthog_conversations_inbound_last_sweep_timestamp_seconds",
+            "Unix timestamp of the last completed inbound queue sweep",
+            registry=registry,
+            multiprocess_mode="mostrecent",
+        ).set(now.timestamp())
+
+
 def record_inbound_queue_metrics(now: datetime) -> InboundQueueMetrics:
     oldest_age = 0.0
     counts = {
         ConversationInboundEvent.Status.PENDING: 0,
         ConversationInboundEvent.Status.PROCESSING: 0,
     }
+    backlog: list[tuple[str, str, int]] = []
     for source in ConversationInboundEventSource.values:
         for status in (ConversationInboundEvent.Status.PENDING, ConversationInboundEvent.Status.PROCESSING):
             count = ConversationInboundEvent.objects.unscoped().filter(source=source, status=status).count()
-            INBOUND_BACKLOG.labels(status=status, source=source).set(count)
+            backlog.append((status, source, count))
             counts[status] += count
     oldest_pending = _pending_inbound_events(now=now).order_by("due_at").values_list("due_at", flat=True).first()
     oldest_expired = (
@@ -390,7 +424,7 @@ def record_inbound_queue_metrics(now: datetime) -> InboundQueueMetrics:
     oldest = min((ready_at for ready_at in (oldest_pending, oldest_expired) if ready_at is not None), default=None)
     if oldest is not None:
         oldest_age = max((now - oldest).total_seconds(), 0.0)
-    INBOUND_OLDEST_READY_AGE_SECONDS.set(oldest_age)
+    _push_inbound_queue_gauges(backlog=backlog, oldest_age=oldest_age, now=now)
     return InboundQueueMetrics(
         pending_count=counts[ConversationInboundEvent.Status.PENDING],
         processing_count=counts[ConversationInboundEvent.Status.PROCESSING],
