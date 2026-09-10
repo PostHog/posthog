@@ -9,11 +9,16 @@
  *
  * This loader therefore treats the stylesheet as something that can fail. Each attempt has its own
  * timeout, because a stalled request fires no `error` event. `load` counts as success only when the
- * sheet applied, because a response that is not CSS fires `load` and leaves `link.sheet` null. A
+ * sheet applied, because a response that is not CSS fires `load` too and leaves an empty sheet. A
  * failed attempt starts the next URL in the ladder: a stale CDN can refuse the hashed file but
  * serve the hashless copy, and a fresh query defeats a poisoned cache entry or a hung connection.
+ * The last rung asks the app origin for the same file, because every rung before it resolves
+ * against `JS_URL`, and one fault on the way to that host defeats all of them together.
+ *
  * Each failure also sends an `$exception` beacon by hand, because posthog-js is not loaded this
- * early, the same way RootErrorBoundary reports boot failures.
+ * early, the same way RootErrorBoundary reports boot failures. A `<link>` exposes neither the
+ * response status nor the content type, so the beacon carries a short probe of the same URL: a
+ * proxy interstitial, a MIME rewrite and a blocked host all look the same without it.
  *
  * `window.ESBUILD_CSS_READY` resolves `true` once a stylesheet applies, and `false` once every
  * attempt has failed. The app entry waits on it before its first render (frontend/src/index.tsx).
@@ -23,6 +28,9 @@ export const CSS_READY_GLOBAL = 'ESBUILD_CSS_READY'
 
 /** How long one stylesheet request may hang before the loader gives up on it and tries the next. */
 export const CSS_ATTEMPT_TIMEOUT_MS = 10000
+
+/** How long the diagnostic probe of a failed URL may hang before the beacon goes out without it. */
+export const CSS_PROBE_TIMEOUT_MS = 3000
 
 export const STYLESHEET_ERROR_TYPE = 'StylesheetLoadError'
 
@@ -39,6 +47,19 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
             var lastPath = paths[paths.length - 1];
             paths.push(lastPath + (lastPath.indexOf('?') === -1 ? '?' : '&') + 'retry=' + Date.now());
 
+            var apiKey = window.JS_POSTHOG_API_KEY;
+            var staticHost = window.JS_URL || '';
+            var hrefs = [];
+            for (var i = 0; i < paths.length; i++) {
+                hrefs.push(staticHost + '/static/' + paths[i]);
+            }
+            // The app origin serves the same files, so this rung survives a fault that reaches
+            // every rung above: an interstitial in front of the static host, a MIME rewrite, or a
+            // client that cannot reach that host at all.
+            if (staticHost) {
+                hrefs.push('/static/' + paths[0]);
+            }
+
             var resolveReady;
             window.${CSS_READY_GLOBAL} = new Promise(function (resolve) { resolveReady = resolve; });
             var isReady = false;
@@ -48,11 +69,38 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                 resolveReady(applied);
             }
 
-            function report(reason, href, attempt) {
-                console.error('[PostHog] App stylesheet ' + reason + ': ' + href);
+            // A link element reports neither the status nor the content type of its response, so ask for
+            // the same URL again. The browser answers a cached response without a second request.
+            function probe(href, done) {
+                var isSettled = false;
+                var controller = typeof AbortController === 'function' ? new AbortController() : null;
+                function finish(diagnostics) {
+                    if (isSettled) { return; }
+                    isSettled = true;
+                    clearTimeout(timer);
+                    done(diagnostics);
+                }
+                var timer = setTimeout(function () {
+                    if (controller) { controller.abort(); }
+                    finish({ stylesheet_probe: 'stalled' });
+                }, ${CSS_PROBE_TIMEOUT_MS});
                 try {
-                    var apiKey = window.JS_POSTHOG_API_KEY;
-                    if (!apiKey) { return; }
+                    fetch(href, { credentials: 'omit', signal: controller ? controller.signal : undefined })
+                        .then(function (response) {
+                            finish({
+                                stylesheet_probe: 'answered',
+                                stylesheet_status: response.status,
+                                stylesheet_content_type: response.headers.get('content-type')
+                            });
+                        })
+                        .catch(function () { finish({ stylesheet_probe: 'unreachable' }); });
+                } catch (e) {
+                    finish({ stylesheet_probe: 'unreachable' });
+                }
+            }
+
+            function report(reason, href, attempt, diagnostics) {
+                try {
                     var host = window.JS_POSTHOG_HOST || window.location.origin;
                     var distinctId;
                     try {
@@ -60,27 +108,31 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                     } catch (e) {
                         // storage unavailable or corrupt, so report anonymously
                     }
+                    var properties = {
+                        $process_person_profile: false,
+                        // Origin only. This loader also runs on exporter.html, where the path
+                        // carries the share token (/shared/<token>, /interview/<token>), and it
+                        // runs before the exporter can redact it. stylesheet_href already says
+                        // which build and which page type failed.
+                        $current_url: window.location.origin,
+                        $exception_level: attempt === hrefs.length ? 'fatal' : 'error',
+                        $exception_list: [{
+                            type: ${JSON.stringify(STYLESHEET_ERROR_TYPE)},
+                            value: 'App stylesheet ' + reason,
+                            mechanism: { handled: true, synthetic: true }
+                        }],
+                        stylesheet_href: href,
+                        stylesheet_attempt: attempt,
+                        stylesheet_attempts: hrefs.length
+                    };
+                    for (var key in diagnostics) {
+                        properties[key] = diagnostics[key];
+                    }
                     var payload = JSON.stringify({
                         api_key: apiKey,
                         event: '$exception',
                         distinct_id: distinctId || ('stylesheet-failure-' + Date.now()),
-                        properties: {
-                            $process_person_profile: false,
-                            // Origin only. This loader also runs on exporter.html, where the path
-                            // carries the share token (/shared/<token>, /interview/<token>), and it
-                            // runs before the exporter can redact it. stylesheet_href already says
-                            // which build and which page type failed.
-                            $current_url: window.location.origin,
-                            $exception_level: attempt === paths.length ? 'fatal' : 'error',
-                            $exception_list: [{
-                                type: ${JSON.stringify(STYLESHEET_ERROR_TYPE)},
-                                value: 'App stylesheet ' + reason,
-                                mechanism: { handled: true, synthetic: true }
-                            }],
-                            stylesheet_href: href,
-                            stylesheet_attempt: attempt,
-                            stylesheet_attempts: paths.length
-                        }
+                        properties: properties
                     });
                     // A string body goes out as text/plain: CORS-safelisted and accepted by capture.
                     var url = host + '/e/';
@@ -92,8 +144,22 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                 }
             }
 
+            // A response that is not CSS fires a load event all the same. Some browsers leave
+            // link.sheet null; Chromium builds the sheet and its MIME check leaves it empty. The
+            // app stylesheet always has rules, so an empty sheet is an interstitial or a rewritten
+            // content type, never the stylesheet.
+            function didApply(link) {
+                if (!link.sheet) { return false; }
+                try {
+                    return link.sheet.cssRules.length > 0;
+                } catch (e) {
+                    // A sheet the page may not read is still a sheet the browser applied.
+                    return true;
+                }
+            }
+
             function attempt(index) {
-                var href = (window.JS_URL || '') + '/static/' + paths[index];
+                var href = hrefs[index];
                 var link = document.createElement("link");
                 link.rel = "stylesheet";
                 link.crossOrigin = "anonymous";
@@ -104,15 +170,20 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                     if (isDone) { return; }
                     isDone = true;
                     clearTimeout(timer);
-                    report(reason, href, index + 1);
-                    if (index + 1 < paths.length) {
+                    console.error('[PostHog] App stylesheet ' + reason + ': ' + href);
+                    // The probe only enriches the beacon, so it is worth a request only when
+                    // there is a beacon to send. The ladder does not wait for either.
+                    if (apiKey) {
+                        probe(href, function (diagnostics) { report(reason, href, index + 1, diagnostics); });
+                    }
+                    if (index + 1 < hrefs.length) {
                         attempt(index + 1);
                     } else {
                         settle(false);
                     }
                 }
                 link.addEventListener("load", function () {
-                    if (!link.sheet) { fail('loaded but did not apply'); return; }
+                    if (!didApply(link)) { fail('loaded but did not apply'); return; }
                     isDone = true;
                     clearTimeout(timer);
                     // A link left behind by an earlier timeout can still land and style the page,
