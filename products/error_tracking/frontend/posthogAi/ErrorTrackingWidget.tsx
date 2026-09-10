@@ -1,8 +1,7 @@
-import { DataToolRow } from '../DataToolRow'
-import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
-import type { ToolRendererProps } from '../toolRegistry'
+import { DataToolRow, GenericMcpToolRenderer, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
+
 import { ErrorTrackingFiltersWidget } from './ErrorTrackingFiltersWidget'
-import { extractErrorTrackingResponse } from './extractors'
+import { extractErrorTrackingResponse } from './extractErrorTrackingResponse'
 
 /**
  * Error-tracking search / filter tool calls. `rawOutput` is a `MaxErrorTrackingSearchResponse`
