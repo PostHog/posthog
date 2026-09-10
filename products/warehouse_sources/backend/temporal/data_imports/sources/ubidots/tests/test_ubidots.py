@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -518,8 +518,12 @@ class TestUbidotsSourceResponse:
         assert called == [expected_fn]
 
 
-@freeze_time("2026-07-28T00:00:00Z")
 class TestGetValuesRowsV2:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-28T00:00:00Z", tick=False):
+            yield
+
     NOW_MS = int(datetime(2026, 7, 28, tzinfo=UTC).timestamp() * 1000)
 
     @staticmethod
