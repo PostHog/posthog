@@ -51,7 +51,7 @@ from posthog.api.email_verification import email_verification_code_verifier, is_
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import report_user_logged_in, report_user_password_reset, report_user_password_reset_requested
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
@@ -76,6 +76,7 @@ from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
     LoginPrecheckThrottle,
+    PasswordResetIPThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -83,6 +84,7 @@ from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import (
     login_from_new_device_notification,
     send_password_reset,
+    send_password_reset_no_account,
     send_two_factor_auth_backup_code_used_email,
 )
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
@@ -1111,13 +1113,16 @@ class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
 
 class PasswordResetSerializer(serializers.Serializer):
-    email = serializers.EmailField(write_only=True)
+    email = serializers.EmailField(
+        write_only=True, help_text="Email address of the account to send a password reset link to."
+    )
 
     def create(self, validated_data):
         email = validated_data.pop("email")
 
         # Check SSO enforcement (which happens at the domain level)
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
+            report_user_password_reset_requested("sso_enforced")
             raise serializers.ValidationError(
                 "Password reset is disabled because SSO login is enforced for this domain.",
                 code="sso_enforced",
@@ -1142,6 +1147,14 @@ class PasswordResetSerializer(serializers.Serializer):
             user.save()
             token = password_reset_token_generator.make_token(user)
             send_password_reset(user.id, token)
+            report_user_password_reset_requested("sent", user)
+        else:
+            # Say why no reset link arrived, so a typo or a second email address stops
+            # dead-ending. Only the mailbox owner reads this, so the HTTP response stays
+            # identical and no one can probe which addresses have an account.
+            has_inactive_account = User.objects.filter(is_active=False, email__iexact=email).exists()
+            send_password_reset_no_account(email)
+            report_user_password_reset_requested("inactive" if has_inactive_account else "no_account")
 
         return True
 
@@ -1208,7 +1221,7 @@ class PasswordResetViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = PasswordResetSerializer
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = [UserPasswordResetThrottle]
+    throttle_classes = [UserPasswordResetThrottle, PasswordResetIPThrottle]
     SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
 
 
