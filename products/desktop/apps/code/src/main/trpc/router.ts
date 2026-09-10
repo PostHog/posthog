@@ -44,6 +44,10 @@ import { provisioningRouter } from "@posthog/host-router/routers/provisioning.ro
 import { releaseFeedRouter } from "@posthog/host-router/routers/release-feed.router";
 import { secureStoreRouter } from "@posthog/host-router/routers/secure-store.router";
 import { shellRouter } from "@posthog/host-router/routers/shell.router";
+import { sketchpadRouter } from "@posthog/host-router/routers/sketchpad.router";
+import { sketchpadCacheRouter } from "@posthog/host-router/routers/sketchpad-cache.router";
+import { sketchpadFrameRouter } from "@posthog/host-router/routers/sketchpad-frame.router";
+import { sketchpadStreamRouter } from "@posthog/host-router/routers/sketchpad-stream.router";
 import { skillsRouter } from "@posthog/host-router/routers/skills.router";
 import { slackIntegrationRouter } from "@posthog/host-router/routers/slack-integration.router";
 import { sleepRouter } from "@posthog/host-router/routers/sleep.router";
@@ -71,6 +75,10 @@ export const trpcRouter = router({
   browserTabs: browserTabsRouter,
   canvasData: canvasDataRouter,
   canvasTemplates: canvasTemplatesRouter,
+  sketchpad: sketchpadRouter,
+  sketchpadCache: sketchpadCacheRouter,
+  sketchpadFrame: sketchpadFrameRouter,
+  sketchpadStream: sketchpadStreamRouter,
   channelTasks: channelTasksRouter,
   claudeCliSessions: claudeCliSessionsRouter,
   dashboards: dashboardsRouter,

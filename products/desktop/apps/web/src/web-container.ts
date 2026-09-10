@@ -472,6 +472,7 @@ container.bind(POWER_MANAGER_SERVICE).toConstantValue(webPowerManager);
 container.bind(HOST_CAPABILITIES).toConstantValue({
   localWorkspaces: false,
   customCloud: false,
+  vendoredSketchpadModules: false,
 } satisfies HostCapabilities);
 
 container.load(authUiModule);

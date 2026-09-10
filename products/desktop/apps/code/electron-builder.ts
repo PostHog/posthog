@@ -67,6 +67,7 @@ const config: Configuration = {
   extraResources: [
     { from: "build/app-icon.png", to: "app-icon.png" },
     { from: "build/Assets.car", to: "Assets.car" },
+    { from: "resources/sketchpad-modules", to: "sketchpad-modules" },
   ],
 
   protocols: [

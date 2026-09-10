@@ -43,6 +43,10 @@ import { provisioningRouter } from "./routers/provisioning.router";
 import { releaseFeedRouter } from "./routers/release-feed.router";
 import { secureStoreRouter } from "./routers/secure-store.router";
 import { shellRouter } from "./routers/shell.router";
+import { sketchpadRouter } from "./routers/sketchpad.router";
+import { sketchpadCacheRouter } from "./routers/sketchpad-cache.router";
+import { sketchpadFrameRouter } from "./routers/sketchpad-frame.router";
+import { sketchpadStreamRouter } from "./routers/sketchpad-stream.router";
 import { skillsRouter } from "./routers/skills.router";
 import { slackIntegrationRouter } from "./routers/slack-integration.router";
 import { sleepRouter } from "./routers/sleep.router";
@@ -62,6 +66,10 @@ export const hostRouter = router({
   browserTabs: browserTabsRouter,
   canvasData: canvasDataRouter,
   canvasTemplates: canvasTemplatesRouter,
+  sketchpad: sketchpadRouter,
+  sketchpadCache: sketchpadCacheRouter,
+  sketchpadFrame: sketchpadFrameRouter,
+  sketchpadStream: sketchpadStreamRouter,
   channelTasks: channelTasksRouter,
   claudeCliSessions: claudeCliSessionsRouter,
   cloudTask: cloudTaskRouter,

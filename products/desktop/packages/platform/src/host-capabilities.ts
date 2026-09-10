@@ -18,6 +18,9 @@ export interface HostCapabilities {
    * Desktop (Electron) has it; the browser host has no store for it.
    */
   readonly customCloud: boolean;
+
+  /** Whether the host serves the vendored sketchpad module pipeline. */
+  readonly vendoredSketchpadModules: boolean;
 }
 
 export const HOST_CAPABILITIES = Symbol.for(

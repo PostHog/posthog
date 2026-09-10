@@ -143,6 +143,15 @@ protocol.registerSchemesAsPrivileged([
     },
   },
   {
+    scheme: "posthog-sketchpad",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+  {
     scheme: "posthog-cache",
     privileges: {
       standard: true,
