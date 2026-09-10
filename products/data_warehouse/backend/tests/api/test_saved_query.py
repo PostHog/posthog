@@ -730,7 +730,7 @@ class TestSavedQuery(APIBaseTest):
             ("5min", "15min", timedelta(minutes=15)),
         ]
     )
-    def test_update_sync_frequency_on_tiered_v2_writes_target_through(
+    def test_update_sync_frequency_writes_target_through(
         self, sync_frequency: str, expected_frequency: str | None, expected_target: timedelta | None
     ):
         from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
@@ -742,7 +742,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
         ):
             response = self.client.patch(
@@ -782,7 +781,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag"),
         ):
             response = self.client.patch(
@@ -798,7 +796,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(frequency_changes[0]["before"], expected_before)
         self.assertEqual(frequency_changes[0]["after"], expected_after)
 
-    def test_update_sync_frequency_on_tiered_v2_without_node_is_rejected(self):
+    def test_update_sync_frequency_without_node_is_rejected(self):
         from products.data_modeling.backend.facade.models import Node
 
         saved_query = self._create_saved_query_for_frequency_tests()
@@ -806,7 +804,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag"),
         ):
             response = self.client.patch(
@@ -819,14 +816,13 @@ class TestSavedQuery(APIBaseTest):
         updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertIsNone(updated.sync_frequency_interval)
 
-    def test_update_sync_frequency_on_tiered_v2_rolls_back_invalid_target(self):
+    def test_update_sync_frequency_rolls_back_invalid_target(self):
         from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
 
         saved_query = self._create_saved_query_for_frequency_tests()
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(
                 f"{reconcile_module}.apply_saved_query_frequency_target",
                 side_effect=UnsatisfiableFrequencyError("target is fresher than its sources deliver"),
@@ -841,23 +837,6 @@ class TestSavedQuery(APIBaseTest):
         # validation happens inside the transaction: the interval write rolls back with it
         updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertIsNone(updated.sync_frequency_interval)
-
-    def test_update_sync_frequency_on_untiered_v2_stays_blocked(self):
-        saved_query = self._create_saved_query_for_frequency_tests()
-
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=False,
-            ),
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-                {"sync_frequency": "24hour"},
-            )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("managed by the DAG", response.json()["detail"])
 
     def _read_sync_frequency(self, saved_query_id: str, action: str) -> str | None:
         if action == "retrieve":
@@ -919,30 +898,6 @@ class TestSavedQuery(APIBaseTest):
         node_queries = [q for q in queries.captured_queries if Node._meta.db_table in q["sql"]]
         self.assertEqual(len(node_queries), 1, node_queries)
 
-    @parameterized.expand(
-        [
-            ("single_schedule", False, True),
-            ("tiered", True, False),
-        ]
-    )
-    def test_sync_frequency_managed_by_dag_tracks_the_write_path(self, _name: str, tiered: bool, expected: bool):
-        # The frontend hides the cadence control on this flag. It must mean exactly what the
-        # write path rejects, or the control disappears from teams that can in fact edit.
-        saved_query = self._create_saved_query_for_frequency_tests()
-
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=tiered,
-            ),
-        ):
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-            )
-
-        self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual(response.json()["sync_frequency_managed_by_dag"], expected)
-
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
         # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
@@ -969,35 +924,21 @@ class TestSavedQuery(APIBaseTest):
         set_declared_target(Node.objects.get(saved_query_id=consumer.json()["id"]), consumer_target)
         return upstream
 
-    def _read_frequency_bounds(self, saved_query_id: str, *, tiered: bool = True) -> dict:
-        with patch(
-            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-            return_value=tiered,
-        ):
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
-            )
+    def _read_frequency_bounds(self, saved_query_id: str) -> dict:
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+        )
         self.assertEqual(response.status_code, 200, response.json())
         return response.json()["sync_frequency_bounds"]
 
-    @parameterized.expand(
-        [
-            ("single_schedule", False, "dag_schedule"),
-            ("tiered", True, "tiered"),
-        ]
-    )
-    def test_bounds_are_offered_only_where_a_per_view_cadence_is_writable(
-        self, _name: str, tiered: bool, expected_mode: str
-    ):
-        # The picker renders from this payload. Offering options to a team whose writes the DAG
-        # owns puts a control on screen that can only 400, which is the bug this field exists
-        # to close; serving none to a tiered team hides a control that does work.
+    def test_bounds_offer_the_per_view_cadence_options(self):
+        # The picker renders from this payload. Serving no options hides a control that works.
         saved_query = self._create_saved_query_for_frequency_tests()
 
-        bounds = self._read_frequency_bounds(saved_query["id"], tiered=tiered)
+        bounds = self._read_frequency_bounds(saved_query["id"])
 
-        self.assertEqual(bounds["frequency_mode"], expected_mode)
-        self.assertEqual(bool(bounds["options"]), expected_mode == "tiered")
+        self.assertEqual(bounds["frequency_mode"], "tiered")
+        self.assertTrue(bounds["options"])
 
     def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(self):
         # The whole point of serving bounds is that the picker and the write path cannot
@@ -1008,13 +949,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertTrue(any(not option["allowed"] for option in options))
 
         for option in options:
-            with (
-                patch(
-                    "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                    return_value=True,
-                ),
-                patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
-            ):
+            with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
                 response = self.client.patch(
                     f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
                     {"sync_frequency": option["cadence"]},
@@ -1040,13 +975,7 @@ class TestSavedQuery(APIBaseTest):
         # writes anyway must be told the same thing the picker would have shown.
         upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
 
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=True,
-            ),
-            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
-        ):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
                 {"sync_frequency": "24hour"},

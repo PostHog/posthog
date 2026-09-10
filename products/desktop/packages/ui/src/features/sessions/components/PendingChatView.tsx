@@ -1,4 +1,3 @@
-import { Brain } from "@phosphor-icons/react";
 import {
   ChatBubble,
   ChatBubbleContent,
@@ -14,21 +13,25 @@ import {
   CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
+import {
+  SessionStartupStatus,
+  type SessionStartupStatusProps,
+} from "./SessionStartupStatus";
 
-interface PendingChatViewProps {
+interface PendingChatViewProps extends SessionStartupStatusProps {
   /**
    * The prompt as the live transcript will render it (serialized content with
    * chips), so the bubble looks the same when the transcript replaces it.
    */
   content: string;
   attachments?: UserMessageAttachment[];
-  statusText?: string;
 }
 
 export function PendingChatView({
   content,
   attachments,
-  statusText,
+  executionTarget,
+  phase,
 }: PendingChatViewProps) {
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -56,13 +59,13 @@ export function PendingChatView({
             </ChatMessage>
           </div>
           <div
-            className="mx-auto flex w-full items-center gap-2 px-2.5"
+            className="mx-auto w-full px-2.5"
             style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
           >
-            <Brain size={12} className="ph-pulse text-accent-11" />
-            <span className="text-[13px] text-accent-11">
-              {statusText ?? "Starting task..."}
-            </span>
+            <SessionStartupStatus
+              executionTarget={executionTarget}
+              phase={phase}
+            />
           </div>
         </div>
       </div>

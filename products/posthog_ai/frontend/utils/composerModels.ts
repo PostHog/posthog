@@ -107,6 +107,7 @@ const CAPABILITY_LADDERS: Record<RuntimeAdapterEnumApi, CapabilityNotch[]> = {
         { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Medium },
         { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.High },
         { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Xhigh },
+        { model: 'gpt-6-astra', effort: ReasoningEffortEnumApi.Max },
     ],
 }
 

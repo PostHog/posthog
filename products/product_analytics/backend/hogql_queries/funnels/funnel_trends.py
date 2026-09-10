@@ -10,7 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID
+from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_unfiltered
@@ -387,7 +387,10 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
 
             if breakdown_clause:
                 breakdown_value = period_row[-1]
-                if breakdown_value in (None, [None], 0):
+                is_all_users_cohort = (
+                    self.context.breakdownType == BreakdownType.COHORT and breakdown_value == ALL_USERS_COHORT_ID
+                )
+                if not is_all_users_cohort and breakdown_value in (None, [None], 0):
                     serialized_result.update({"breakdown_value": ["None"]})
                 elif isinstance(breakdown_value, str) or (
                     isinstance(breakdown_value, list) and all(isinstance(item, str) for item in breakdown_value)

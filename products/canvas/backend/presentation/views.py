@@ -28,10 +28,13 @@ from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
-from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
+from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
+    call_connector_tool,
+    canvas_connectors_enabled,
+    connector_listings,
     default_layout,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
@@ -49,6 +52,9 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
     CanvasCapabilityWideningSerializer,
+    CanvasConnectorCallResultSerializer,
+    CanvasConnectorCallSerializer,
+    CanvasConnectorsResponseSerializer,
     CanvasCreateSerializer,
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
@@ -184,10 +190,16 @@ class CanvasActionInvokeThrottle(CanvasStateWriteThrottle):
     rate = "60/min"
 
 
+class CanvasConnectorCallThrottle(CanvasStateWriteThrottle):
+    scope = "canvas_connector_call"
+    rate = "120/min"
+
+
 class CanvasAccessMixin(TeamAndOrgViewSetMixin):
     """Team, channel, and sandbox visibility rules shared by every canvas-like resource."""
 
     scope_object_read_actions: list[str] = []
+    _EDITOR_ACTIONS: set[str] = set()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
@@ -206,7 +218,11 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
                 )
             else:
                 actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
-                can_use_visible_canvas = self.action in [*self.scope_object_read_actions, "set_state"]
+                can_use_visible_canvas = self.action in [
+                    *self.scope_object_read_actions,
+                    "set_state",
+                    *self._EDITOR_ACTIONS,
+                ]
                 queryset = queryset.filter(
                     public_canvas_q | actor_canvas_q if can_use_visible_canvas else actor_canvas_q
                 )
@@ -296,6 +312,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         "validate",
         "state",
         "layout",
+        "connectors",
     ]
     scope_object_write_actions = [
         "create",
@@ -312,6 +329,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         "request_fix",
         "set_state",
         "invoke_action",
+        "call_connector",
         "request_agent",
         "publish_layout",
         "patch_layout",
@@ -325,6 +343,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             return [*super().get_throttles(), CanvasStateWriteThrottle()]
         if self.action == "invoke_action":
             return [*super().get_throttles(), CanvasActionInvokeThrottle()]
+        if self.action == "call_connector":
+            return [*super().get_throttles(), CanvasConnectorCallThrottle()]
         return super().get_throttles()
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
@@ -339,10 +359,15 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             return None
         return ["canvas:write", *entry.required_scopes]
 
-    _CREATOR_ONLY_ACTIONS = {
+    # Content writes. Every member who can see a canvas in a public space may
+    # publish a new version of it; a canvas in a personal space is only visible
+    # to its owner, so the creator rule is implied there. partial_update is in
+    # this set because a member must record their own generation task on the
+    # canvas; every other metadata field stays creator-only (see partial_update).
+    _EDITOR_ACTIONS = {
         "partial_update",
-        "destroy",
         "publish",
+        "publish_current_version",
         "edit",
         "draft",
         "promote",
@@ -351,6 +376,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         "publish_layout",
         "patch_layout",
     }
+    _CREATOR_ONLY_ACTIONS = {"destroy"}
+    _NON_CREATOR_UPDATE_FIELDS = {"generation_task_id"}
 
     @extend_schema(
         parameters=[
@@ -379,6 +406,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         queryset = super().safely_get_queryset(queryset).filter(source_policy=Canvas.SOURCE_POLICY_STANDARD)
         user = self._request_user()
         is_sandbox_authenticated = self._is_sandbox_authenticated(self.request)
+        if not is_sandbox_authenticated and self.action in self._EDITOR_ACTIONS:
+            if user is None:
+                return queryset.none()
+            queryset = queryset.filter(
+                Q(created_by_id=user.id) | tasks_facade.visible_channels_q(None, relation="channel")
+            )
         if not is_sandbox_authenticated and self.action in self._CREATOR_ONLY_ACTIONS:
             if user is None:
                 return queryset.none()
@@ -448,7 +481,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     @extend_schema(
         operation_id="canvases_partial_update",
         request=CanvasUpdateSerializer,
-        responses={200: CanvasSerializer},
+        responses={
+            200: CanvasSerializer,
+            403: OpenApiResponse(
+                description="Only the canvas creator can change the name, description, space, or pin state."
+            ),
+        },
     )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update canvas metadata, including the space it belongs to."""
@@ -456,6 +494,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         payload = CanvasUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
+        requester = self._request_user()
+        is_creator = requester is not None and canvas.created_by_id == requester.id
+        if not is_creator and set(data) - self._NON_CREATOR_UPDATE_FIELDS:
+            return Response(
+                {"detail": "Only the canvas creator can rename, move, pin, or describe it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         update_fields = ["updated_at"]
         changes: list[Change] = []
 
@@ -467,13 +512,6 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
                 record("name", canvas.name, data["name"])
             canvas.name = data["name"]
             update_fields.append("name")
-        if "context" in data:
-            # The author-context markdown is content, not configuration — record
-            # that it changed without copying it into the audit trail.
-            if data["context"] != canvas.context:
-                record("context")
-            canvas.context = data["context"]
-            update_fields.append("context")
         if "description" in data:
             if data["description"] != canvas.description:
                 record("description", canvas.description, data["description"])
@@ -656,6 +694,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         request=CanvasSourcePublishSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
+            403: OpenApiResponse(description="Only the canvas creator can supply a name when publishing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="The source project failed validation.",
@@ -696,6 +735,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         request=CanvasSourceEditSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
+            403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="An edit targeted a missing file, or the edited project failed validation.",
@@ -763,11 +803,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         has_expected_version: bool,
         expected_version_id: str | None,
     ) -> Response:
+        user = self._request_user()
+        if name is not None and (user is None or canvas.created_by_id != user.id):
+            raise PermissionDenied("Only the canvas creator can rename it.")
+
         diagnostics = validate_source_project(project, kind=canvas.kind)
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
 
-        user = self._request_user()
         task_id = self._sandbox_task_id(request)
         try:
             canvas, version, _build, first_publish = build_service.publish_source_project(
@@ -1643,6 +1686,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         """The user whose personal state is read or written."""
         return self._request_user()
 
+    def _connector_actor(self, request: Request) -> User | None:
+        """The viewer whose third-party connections a connector call may use.
+        A sandbox token acts for an agent, not a viewer, so it gets none."""
+        if self._is_sandbox_authenticated(request):
+            return None
+        return self._request_user()
+
     @extend_schema(
         operation_id="canvases_actions_retrieve",
         responses={200: CanvasActionsResponseSerializer},
@@ -1726,6 +1776,122 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
 
     @extend_schema(
+        operation_id="canvases_connectors_retrieve",
+        parameters=[
+            OpenApiParameter(
+                "mcp_hosts",
+                OpenApiTypes.STR,
+                required=False,
+                description=(
+                    "Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every "
+                    "server the caller has connected in the MCP store."
+                ),
+            )
+        ],
+        responses={
+            200: CanvasConnectorsResponseSerializer,
+            403: OpenApiResponse(description="Connectors are not enabled for this team, or the caller is a sandbox."),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="connectors")
+    def connectors(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
+
+        Authoring agents read this to write ph.connectors.call sites and the
+        matching capabilities.connectors declarations.
+        """
+        user = self._connector_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "The connector catalog is a viewer surface; sandbox tokens cannot read it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not canvas_connectors_enabled(self.team):
+            return Response(
+                {"detail": "Canvas connectors are not enabled for this team."}, status=status.HTTP_403_FORBIDDEN
+            )
+        raw_hosts = request.query_params.get("mcp_hosts")
+        mcp_hosts = [host.strip() for host in raw_hosts.split(",") if host.strip()] if raw_hosts else None
+        listings = connector_listings(self.team_id, user.id, mcp_hosts)
+        return Response(CanvasConnectorsResponseSerializer(instance={"connectors": listings}).data)
+
+    @extend_schema(
+        operation_id="canvases_connectors_call",
+        request=CanvasConnectorCallSerializer,
+        responses={
+            200: CanvasConnectorCallResultSerializer,
+            400: OpenApiResponse(description="The arguments failed the tool's schema."),
+            403: OpenApiResponse(
+                description="The provider or tool is not declared in the canvas's capabilities, connectors are "
+                "not enabled for the team, or the caller is a sandbox."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="connectors/call", required_scopes=["canvas:write", "user:read"])
+    def call_connector(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Call one declared connector tool as the viewer.
+
+        The canvas must declare the provider and tool in capabilities.connectors
+        (the reviewed permission boundary); the call runs with the viewer's own
+        connection, so two viewers of the same canvas see their own data.
+        """
+        canvas = self.get_object()
+        user = self._connector_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "Connector calls are made by viewers; sandbox tokens cannot use them."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not canvas_connectors_enabled(self.team):
+            return Response(
+                {"detail": "Canvas connectors are not enabled for this team."}, status=status.HTTP_403_FORBIDDEN
+            )
+        payload = CanvasConnectorCallSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        provider = payload.validated_data["provider"]
+        tool = payload.validated_data["tool"]
+        version = canvas.current_source_version
+        declared = declared_connectors(version.capabilities if version else None)
+        if "shared" in declared_state_scopes(version.capabilities if version else None):
+            return Response(
+                {"detail": "Canvases with connectors cannot use shared state."}, status=status.HTTP_403_FORBIDDEN
+            )
+        if tool not in declared.get(provider, set()):
+            return Response(
+                {
+                    "detail": f'The canvas does not declare connector tool "{tool}" on "{provider}". '
+                    "Add it to capabilities.connectors and publish."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        result = call_connector_tool(
+            self.team_id,
+            user.id,
+            provider,
+            tool,
+            payload.validated_data["arguments"],
+            actor_label=user.email or "",
+        )
+        # Every call is audited: the trigger names the tool, the activity log
+        # row names the viewer whose connection it used. Never the arguments.
+        self._log_canvas_activity(
+            canvas,
+            "connector_tool_called",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(
+                    job_type="canvas_connector",
+                    job_id=f"{provider}/{tool}",
+                    payload={"provider": provider, "tool": tool, "status": str(result.status)},
+                ),
+            ),
+        )
+        self._report_canvas_action(
+            "canvas connector tool called", canvas, provider=provider, tool=tool, status=str(result.status)
+        )
+        return Response(CanvasConnectorCallResultSerializer(instance=result).data)
+
+    @extend_schema(
         operation_id="canvases_state_retrieve",
         parameters=[
             OpenApiParameter(
@@ -1796,6 +1962,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         # the canvas's reviewed permission boundary, exactly like insights.
         version = canvas.current_source_version
         declared = declared_state_scopes(version.capabilities if version else None)
+        if scope == CanvasState.SCOPE_SHARED and declared_connectors(version.capabilities if version else None):
+            return Response(
+                {"detail": "Canvases with connectors cannot use shared state."}, status=status.HTTP_403_FORBIDDEN
+            )
         if scope not in declared:
             return Response(
                 {

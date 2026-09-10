@@ -1,4 +1,3 @@
-import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,17 +33,14 @@ function renderPending(
   props: {
     content?: string;
     attachments?: { id: string; label: string }[];
-    statusText?: string;
   } = {},
 ) {
   render(
-    <Theme>
-      <PendingChatView
-        content={props.content ?? "Ship the login fix"}
-        attachments={props.attachments}
-        statusText={props.statusText}
-      />
-    </Theme>,
+    <PendingChatView
+      executionTarget="local"
+      content={props.content ?? "Ship the login fix"}
+      attachments={props.attachments}
+    />,
   );
 }
 
@@ -58,16 +54,13 @@ describe("PendingChatView", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the prompt as a chat message with the default status", () => {
+  it("renders the prompt with a loading state", () => {
     renderPending();
     expect(screen.getByText("Ship the login fix")).toBeInTheDocument();
-    expect(screen.getByText("Starting task...")).toBeInTheDocument();
-  });
-
-  it("shows the live run status in place of the default line", () => {
-    renderPending({ statusText: "Starting the sandbox…" });
-    expect(screen.getByText("Starting the sandbox…")).toBeInTheDocument();
-    expect(screen.queryByText("Starting task...")).not.toBeInTheDocument();
+    expect(screen.getByText("Starting local agent")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Your prompt is saved with this task/),
+    ).not.toBeInTheDocument();
   });
 
   it("renders file mentions as chips so the bubble matches the live transcript", () => {

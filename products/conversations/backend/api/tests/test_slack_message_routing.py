@@ -25,12 +25,12 @@ from products.conversations.backend.slack import (
     handle_support_message,
     handle_support_reaction,
 )
-from products.conversations.backend.tasks import process_supporthog_interactivity
+from products.conversations.backend.tasks.slack import process_supporthog_interactivity
 from products.customer_analytics.backend.facade import api as customer_analytics
 from products.customer_analytics.backend.facade.testing import create_account
 
 MODULE = "products.conversations.backend.slack"
-TASKS_MODULE = "products.conversations.backend.tasks"
+TASKS_MODULE = "products.conversations.backend.tasks.slack"
 MESSAGE_TS = "1700000000.000100"
 MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
 USE_TEAMMATE_EMAIL = "use-the-org-members-own-email"

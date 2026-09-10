@@ -25,6 +25,8 @@ function seriesBandsResponse(seriesCount: number): LogsSeriesBandsResponseApi {
             baseline_weeks: 5,
             history_start: '2026-07-13T10:00:00Z',
             band_ready_at: null,
+            interval_minutes: 60,
+            coarsened_reason: null,
             buckets: [],
         })),
     }
