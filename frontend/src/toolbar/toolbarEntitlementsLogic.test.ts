@@ -95,6 +95,23 @@ describe('toolbarEntitlementsLogic', () => {
         jest.restoreAllMocks()
     })
 
+    it('gives up on a stalled request so the retry becomes reachable', async () => {
+        jest.useFakeTimers()
+        useMocks({ get: { '/api/user/toolbar_entitlements': () => new Promise(() => {}) } })
+
+        logic.actions.loadEntitlements()
+        expect(logic.values.entitlementsLoading).toBe(true)
+
+        // Well past the request's own bound. Without one, the loader would stay pending and the
+        // menu would keep showing the spinner, which has no retry.
+        jest.advanceTimersByTime(10_000)
+        jest.useRealTimers()
+        await expectLogic(logic).toDispatchActions(['loadEntitlementsSuccess'])
+
+        expect(logic.values.entitlementsLoading).toBe(false)
+        expect(logic.values.entitlements).toBe(null)
+    })
+
     it('keeps an open heatmap disabled until access is confirmed and disables it after access is lost', async () => {
         jest.spyOn(toolbarPosthogJS, 'getFeatureFlag').mockReturnValue(true)
         const toolbar = toolbarLogic()
