@@ -3614,6 +3614,23 @@
             "description": "Whether web vitals was enabled in remote config",
             "label": "Web vitals enabled server side"
         },
+        "$webview_app": {
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app.",
+            "examples": [
+                "LinkedIn",
+                "Instagram",
+                "TikTok"
+            ],
+            "label": "In-app browser"
+        },
+        "$webview_app_version": {
+            "description": "Version of the host app whose in-app browser the event came from.",
+            "examples": [
+                "309.1.0",
+                "375.0.0"
+            ],
+            "label": "In-app browser version"
+        },
         "$window_id": {
             "description": "Unique window ID for session recording disambiguation",
             "label": "Window ID",
@@ -7096,6 +7113,23 @@
             "description": "Google Ads, app to web Data from the first time this user was seen.",
             "label": "Initial wbraid"
         },
+        "$initial_webview_app": {
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app. Data from the first time this user was seen.",
+            "examples": [
+                "LinkedIn",
+                "Instagram",
+                "TikTok"
+            ],
+            "label": "Initial in-app browser"
+        },
+        "$initial_webview_app_version": {
+            "description": "Version of the host app whose in-app browser the event came from. Data from the first time this user was seen.",
+            "examples": [
+                "309.1.0",
+                "375.0.0"
+            ],
+            "label": "Initial in-app browser version"
+        },
         "$initialization_time": {
             "description": "The iso formatted timestamp of SDK initialization.",
             "label": "initialization time",
@@ -8741,6 +8775,23 @@
         "$web_vitals_enabled_server_side": {
             "description": "Whether web vitals was enabled in remote config",
             "label": "Web vitals enabled server side"
+        },
+        "$webview_app": {
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app. Data from the last time this user was seen.",
+            "examples": [
+                "LinkedIn",
+                "Instagram",
+                "TikTok"
+            ],
+            "label": "Latest in-app browser"
+        },
+        "$webview_app_version": {
+            "description": "Version of the host app whose in-app browser the event came from. Data from the last time this user was seen.",
+            "examples": [
+                "309.1.0",
+                "375.0.0"
+            ],
+            "label": "Latest in-app browser version"
         },
         "$window_id": {
             "description": "Unique window ID for session recording disambiguation",

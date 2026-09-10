@@ -317,6 +317,30 @@ class TestWebStatsTableQueryRunner(
             ["Login", (1, None), (1, None), 1 / 3, ""],
         ] == results
 
+    def test_in_app_browser_breakdown_groups_by_webview_app_and_drops_regular_traffic(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+        s4 = str(uuid7("2023-12-05"))
+        # Two LinkedIn visitors, one Instagram visitor, and one regular-browser visitor with no
+        # $webview_app. The regular pageview must not surface as a "(not set)" row: the in-app
+        # browser tile answers "which host apps", not "how much traffic is not in-app".
+        self._create_events(
+            [
+                ("li1", [("2023-12-02", s1, "/", {"$webview_app": "LinkedIn"})]),
+                ("li2", [("2023-12-03", s2, "/", {"$webview_app": "LinkedIn"})]),
+                ("ig1", [("2023-12-04", s3, "/", {"$webview_app": "Instagram"})]),
+                ("web1", [("2023-12-05", s4, "/")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-11", breakdown_by=WebStatsBreakdown.IN_APP_BROWSER
+        ).results
+
+        assert [row[0] for row in results] == ["LinkedIn", "Instagram"]
+        assert all(row[0] not in (None, "") for row in results)
+
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
