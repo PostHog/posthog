@@ -56,6 +56,7 @@ from posthog.clickhouse.query_tagging import (
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
+    APIQueriesBudgetExceeded,
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
@@ -626,6 +627,10 @@ class EndpointExecutionService(PydanticModelMixin):
         except ConcurrencyLimitExceeded:
             ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+        except APIQueriesBudgetExceeded:
+            # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
+            # execution counter alone: the budget path counts its own refusals.
+            raise
         except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
             execution_status = "query_performance"
             error_label = type(e).__name__
