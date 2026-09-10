@@ -105,6 +105,35 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("overlaps", response.json()["detail"])
 
+    @patch("posthog.api.identity_provider_config.is_url_allowed", return_value=(True, ""))
+    def test_oidc_all_domain_configuration_does_not_overlap_unlinked_selected_configuration(self, _mock_url_allowed):
+        self._make_admin()
+        self._enable_features(AvailableFeature.OIDC)
+        OrganizationDomain.objects.create(
+            organization=self.organization, domain="example.com", verified_at=timezone.now()
+        )
+        IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="oidc",
+            domain_scope="selected",
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="example-client",
+            oidc_credentials={"client_secret": "example-secret"},
+        )
+
+        response = self.client.post(
+            "/api/organizations/@current/identity_provider_configs/",
+            {
+                "config_scope": "oidc",
+                "domain_scope": "all",
+                "oidc_issuer_url": "https://other.example.com",
+                "oidc_client_id": "other-client",
+                "oidc_client_secret": "other-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_oidc_configuration_rejects_insecure_issuer(self):
         self._make_admin()
         self._enable_features(AvailableFeature.OIDC)

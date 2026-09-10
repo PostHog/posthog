@@ -6,7 +6,9 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ValidationError
 
 import jwt
-from requests import RequestException, Response
+import structlog
+from prometheus_client import Counter, Histogram
+from requests import HTTPError, RequestException, Response, Timeout
 from social_core.backends.open_id_connect import OpenIdConnectAuth
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
 
@@ -16,6 +18,27 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
 BasicAuthCredentials = tuple[str, str]
+
+logger = structlog.get_logger("posthog.auth.oidc")
+OIDC_REQUEST_FAILURES = Counter(
+    "posthog_oidc_request_failures_total",
+    "OIDC requests that failed before authentication could continue.",
+    labelnames=["phase", "failure_category"],
+)
+OIDC_REQUEST_DURATION = Histogram(
+    "posthog_oidc_request_duration_seconds",
+    "OIDC request duration.",
+    labelnames=["phase"],
+)
+
+
+class OIDCResponseTooLargeError(RequestException):
+    pass
+
+
+class OIDCResponseTimeoutError(RequestException):
+    pass
+
 
 OIDC_FETCH_TIMEOUT_SECONDS = 10
 OIDC_FETCH_MAX_BYTES = 1024 * 1024
@@ -150,10 +173,38 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             raise AuthTokenError(self, "The OIDC authorized party does not match the client ID.")
         super().validate_claims(id_token)
 
+    def _request_phase(self, url: str) -> str:
+        if url.endswith("/.well-known/openid-configuration"):
+            return "discovery"
+        if not hasattr(self, "strategy"):
+            return "unknown"
+        if url == self.access_token_url():
+            return "token"
+        if url == self.jwks_uri():
+            return "jwks"
+        if url == self.userinfo_url():
+            return "userinfo"
+        return "unknown"
+
+    def _request_failure_category(self, error: RequestException | SSRFBlockedError) -> str:
+        if isinstance(error, SSRFBlockedError):
+            return "ssrf_blocked"
+        if isinstance(error, Timeout):
+            return "timeout"
+        if isinstance(error, HTTPError):
+            return "http_error"
+        if isinstance(error, OIDCResponseTooLargeError):
+            return "response_too_large"
+        if isinstance(error, OIDCResponseTimeoutError):
+            return "response_timeout"
+        return "request_error"
+
     def request(self, url: str, method: str = "GET", *args: Any, **kwargs: Any) -> Response:
         if urlsplit(url).scheme != "https":
             raise AuthFailed(self, "OIDC requires HTTPS endpoints.")
-        deadline = time.monotonic() + OIDC_FETCH_TIMEOUT_SECONDS
+        phase = self._request_phase(url)
+        started_at = time.monotonic()
+        deadline = started_at + OIDC_FETCH_TIMEOUT_SECONDS
         remaining_seconds = deadline - time.monotonic()
         kwargs["timeout"] = (remaining_seconds, remaining_seconds)
         kwargs["allow_redirects"] = False
@@ -168,17 +219,17 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
 
                     content_length = response.headers.get("Content-Length")
                     if content_length and content_length.isdigit() and int(content_length) > OIDC_FETCH_MAX_BYTES:
-                        raise RequestException("OIDC response exceeds the maximum size")
+                        raise OIDCResponseTooLargeError()
 
                     chunks: list[bytes] = []
                     bytes_read = 0
                     for chunk in response.iter_content(chunk_size=OIDC_FETCH_READ_CHUNK_BYTES):
                         bytes_read += len(chunk)
                         if bytes_read > OIDC_FETCH_MAX_BYTES:
-                            raise RequestException("OIDC response exceeds the maximum size")
+                            raise OIDCResponseTooLargeError()
                         chunks.append(chunk)
                         if time.monotonic() > deadline:
-                            raise RequestException("OIDC response exceeded the total time limit")
+                            raise OIDCResponseTimeoutError()
 
                     response._content = b"".join(chunks)
                     response._content_consumed = True
@@ -186,7 +237,21 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
                 finally:
                     response.close()
         except (RequestException, SSRFBlockedError) as error:
+            failure_category = self._request_failure_category(error)
+            config = self.identity_provider_config
+            duration_seconds = time.monotonic() - started_at
+            OIDC_REQUEST_FAILURES.labels(phase, failure_category).inc()
+            logger.warning(
+                "oidc_request_failed",
+                phase=phase,
+                failure_category=failure_category,
+                identity_provider_config_id=str(config.id),
+                organization_id=str(config.organization_id),
+                duration_seconds=duration_seconds,
+            )
             raise AuthConnectionError(self) from error
+        finally:
+            OIDC_REQUEST_DURATION.labels(phase).observe(time.monotonic() - started_at)
 
     def user_data(self, access_token: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         id_token = cast(dict[str, Any] | None, self.id_token)

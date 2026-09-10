@@ -288,7 +288,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
         if domain_scope == DomainScope.ALL:
             has_overlap = other_auth_configs.filter(
-                Q(organization__domains__verified_at__isnull=False)
+                Q(domain_scope=DomainScope.ALL, organization__domains__verified_at__isnull=False)
                 | Q(linked_identity_provider_configs__organization_domain__verified_at__isnull=False)
             ).exists()
         elif proposed_domain_ids:

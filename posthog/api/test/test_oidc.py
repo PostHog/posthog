@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from typing import cast
+
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
@@ -7,6 +10,7 @@ from requests.structures import CaseInsensitiveDict
 from social_core.exceptions import AuthConnectionError
 
 from posthog.api.oidc import OIDC_FETCH_MAX_BYTES, MultitenantOIDCAuth
+from posthog.models import IdentityProviderConfig
 
 
 class TestMultitenantOIDCAuthRequest(SimpleTestCase):
@@ -19,6 +23,7 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
         session = Mock()
         session.request.return_value = response
         auth = object.__new__(MultitenantOIDCAuth)
+        auth.identity_provider_config = cast(IdentityProviderConfig, SimpleNamespace(id=123, organization_id=456))
 
         with patch("posthog.api.oidc.pinned_session") as pinned_session:
             pinned_session.return_value.__enter__.return_value = session
@@ -42,10 +47,20 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
         session = Mock()
         session.request.return_value = response
         auth = object.__new__(MultitenantOIDCAuth)
+        auth.identity_provider_config = cast(IdentityProviderConfig, SimpleNamespace(id=123, organization_id=456))
 
         with patch("posthog.api.oidc.pinned_session") as pinned_session:
             pinned_session.return_value.__enter__.return_value = session
-            with self.assertRaises(AuthConnectionError):
-                auth.request("https://idp.example.com/discovery")
+            with patch("posthog.api.oidc.logger") as logger:
+                with self.assertRaises(AuthConnectionError):
+                    auth.request("https://idp.example.com/.well-known/openid-configuration")
 
         response.close.assert_called_once()
+        logger.warning.assert_called_once_with(
+            "oidc_request_failed",
+            phase="discovery",
+            failure_category="response_too_large",
+            identity_provider_config_id="123",
+            organization_id="456",
+            duration_seconds=logger.warning.call_args.kwargs["duration_seconds"],
+        )
