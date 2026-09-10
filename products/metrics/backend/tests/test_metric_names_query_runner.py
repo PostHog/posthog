@@ -119,8 +119,21 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 metric_type="gauge",
             )
 
-        runner = MetricNamesQueryRunner(team=self.team)
-        self.assertEqual(runner.run(), [{"name": "queue.depth", "metric_type": "gauge"}])
+        # Sparklines are off so the row shape stays about the series collapse,
+        # not the bucket grid.
+        runner = MetricNamesQueryRunner(team=self.team, include_sparklines=False)
+        self.assertEqual(
+            runner.run(),
+            [
+                {
+                    "name": "queue.depth",
+                    "metric_type": "gauge",
+                    "unit": "",
+                    "last_seen": (anchor - dt.timedelta(minutes=1)).isoformat(),
+                    "sparkline": [],
+                }
+            ],
+        )
 
     def test_cache_covers_the_unsearched_list_only(self):
         with patch.object(MetricNamesQueryRunner, "run") as run:
@@ -319,7 +332,9 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # A clear rise across the window: any faithful downsampling keeps the
         # last value above the first.
         points = [(anchor + dt.timedelta(minutes=i), float(i)) for i in range(30)]
-        seed_metric(team_id=self.team.id, metric_name="queue.depth", points=points, metric_type="gauge")
+        # Sparklines read metric_samples, so seed through the raw-sample path
+        # (seed_metric writes only the pre-aggregated metrics row).
+        seed_metric_event(team_id=self.team.id, metric_name="queue.depth", points=points, metric_type="gauge")
 
         runner = MetricNamesQueryRunner(team=self.team)
         row = next(r for r in runner.run() if r["name"] == "queue.depth")
@@ -331,11 +346,14 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_sparkline_is_bounded(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=120)
         points = [(anchor + dt.timedelta(minutes=i), float(i % 7)) for i in range(120)]
-        seed_metric(team_id=self.team.id, metric_name="busy.metric", points=points, metric_type="gauge")
+        # Sparklines read metric_samples, so seed through the raw-sample path.
+        seed_metric_event(team_id=self.team.id, metric_name="busy.metric", points=points, metric_type="gauge")
 
         runner = MetricNamesQueryRunner(team=self.team)
         row = next(r for r in runner.run() if r["name"] == "busy.metric")
 
+        # The bound is only meaningful against a card that has data to draw.
+        self.assertGreater(len(row["sparkline"]), 1)
         self.assertLessEqual(len(row["sparkline"]), 24)
 
     def test_sparkline_reads_samples_without_a_preaggregated_row(self):
@@ -370,7 +388,8 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_sparkline_scoped_to_services(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
         for service, metric_name in (("web", "http.duration"), ("worker", "jobs.processed")):
-            seed_metric(
+            # Sparklines read metric_samples, so seed through the raw-sample path.
+            seed_metric_event(
                 team_id=self.team.id,
                 metric_name=metric_name,
                 points=[(anchor + dt.timedelta(minutes=i), float(i)) for i in range(10)],
@@ -387,14 +406,15 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # web and worker emit the same metric name. A card scoped to web must
         # draw only web's series; an unscoped card averages both.
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
-        seed_metric(
+        # Sparklines read metric_samples, so seed through the raw-sample path.
+        seed_metric_event(
             team_id=self.team.id,
             metric_name="shared.metric",
             points=[(anchor + dt.timedelta(minutes=i), 100.0) for i in range(10)],
             metric_type="gauge",
             service_name="web",
         )
-        seed_metric(
+        seed_metric_event(
             team_id=self.team.id,
             metric_name="shared.metric",
             points=[(anchor + dt.timedelta(minutes=i), 1.0) for i in range(10)],
@@ -405,6 +425,10 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         web_row = next(r for r in MetricNamesQueryRunner(team=self.team, services=["web"]).run())
         all_row = next(r for r in MetricNamesQueryRunner(team=self.team).run())
 
+        # Non-empty first: `all()` on an empty sparkline passes vacuously, which
+        # is how the unscoped-averaging bug slipped through before.
+        self.assertGreater(len(web_row["sparkline"]), 1)
+        self.assertGreater(len(all_row["sparkline"]), 1)
         self.assertTrue(all(v == 100.0 for v in web_row["sparkline"]))
         self.assertTrue(all(v < 100.0 for v in all_row["sparkline"]))
 
