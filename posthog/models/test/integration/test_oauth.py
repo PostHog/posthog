@@ -356,6 +356,34 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": None,
             }
 
+    @parameterized.expand(
+        [
+            ("read_timeout", requests.ReadTimeout("timed out")),
+            ("connection_error", requests.ConnectionError("connection reset")),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.requests.post")
+    @patch("posthog.models.integration.oauth.requests.get")
+    def test_token_info_network_error_raises_validation_error(self, _name, error, mock_get, mock_post):
+        # The token exchange already spent the authorization code, so a transport failure on the
+        # token_info call must give a 400 that tells the user to reconnect, not a 500.
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "expires_in": 3600,
+            }
+            mock_get.side_effect = error
+
+            with pytest.raises(ValidationError, match="try connecting again"):
+                OauthIntegration.integration_from_oauth_response(
+                    "hubspot",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
     @patch("posthog.models.integration.oauth.requests.post")
     def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):
         """

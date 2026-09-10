@@ -976,22 +976,35 @@ class OauthIntegration:
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
-            if oauth_config.token_info_graphql_query:
-                token_info_res = requests.post(
-                    oauth_config.token_info_url,
-                    headers={"Authorization": f"Bearer {config['access_token']}"},
-                    json={"query": oauth_config.token_info_graphql_query},
-                    timeout=10,
-                    # This call carries the access token; don't let a misconfigured/compromised
-                    # provider 30x us into resending it to another origin (matches the exchange/refresh/revoke calls).
-                    allow_redirects=False,
+            try:
+                if oauth_config.token_info_graphql_query:
+                    token_info_res = requests.post(
+                        oauth_config.token_info_url,
+                        headers={"Authorization": f"Bearer {config['access_token']}"},
+                        json={"query": oauth_config.token_info_graphql_query},
+                        timeout=10,
+                        # This call carries the access token; don't let a misconfigured/compromised
+                        # provider 30x us into resending it to another origin (matches the exchange/refresh/revoke calls).
+                        allow_redirects=False,
+                    )
+                else:
+                    token_info_res = requests.get(
+                        oauth_config.token_info_url.replace(":access_token", config["access_token"]),
+                        headers={"Authorization": f"Bearer {config['access_token']}"},
+                        timeout=10,
+                        allow_redirects=False,
+                    )
+            except requests.RequestException as e:
+                # The authorization code is already spent, so the user cannot retry this request.
+                # ValidationError gives a 400 that tells them to start the connect flow again,
+                # instead of the generic 500 an unhandled transport error causes.
+                logger.warning(
+                    f"OAuth token_info request failed for {kind}",
+                    token_info_url=oauth_config.token_info_url,
+                    error=str(e),
                 )
-            else:
-                token_info_res = requests.get(
-                    oauth_config.token_info_url.replace(":access_token", config["access_token"]),
-                    headers={"Authorization": f"Bearer {config['access_token']}"},
-                    timeout=10,
-                    allow_redirects=False,
+                raise ValidationError(
+                    f"{kind} did not respond in time while we confirmed your account. Please try connecting again."
                 )
 
             if token_info_res.status_code == 200:
