@@ -30,6 +30,7 @@ The initial route remains fixed while the current route changes as someone tries
 It persists across navigation and reloads in local storage.
 It is not a project-wide or cross-device identifier.
 The data-detected event is emitted at most once per stored attempt.
+MCP signal queries discard successes and failures when the selected project UUID changes while the query is in flight.
 Clearing browser storage starts a new attempt, so deduplicate analysis by project, not by attempt count.
 Forced `?empty_state` previews, Storybook previews, and impersonated sessions do not emit the new setup funnel events.
 

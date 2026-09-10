@@ -109,8 +109,11 @@ export interface productSetupStatusLogicActions {
 export interface productSetupStatusLogicMeta {
     key: ProductKey
     __keaTypeGenInternalSelectorTypes: {
-        setupProjectKey: (currentTeam: any) => string | null
-        setupAttempt: (setupAttemptsByProject: any, setupProjectKey: any) => SetupAttempt | null
+        setupProjectKey: (currentTeam: TeamPublicType | TeamType | null) => string | null
+        setupAttempt: (
+            setupAttemptsByProject: Record<string, SetupAttempt>,
+            setupProjectKey: string | null
+        ) => SetupAttempt | null
         status: (detected: DetectedStatus, currentTeamId: number | null) => ProductSetupStatus
         skipped: (skippedByTeam: Record<number, boolean>, currentTeamId: number | null) => boolean
         mode: (status: ProductSetupStatus) => ProductEmptyStateMode
