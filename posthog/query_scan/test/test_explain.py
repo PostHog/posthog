@@ -75,6 +75,8 @@ class TestExplainParsing(SimpleTestCase):
             ("the sharded native-JSON table", "posthog.sharded_events_json", True),
             ("the plain native-JSON table", "posthog.events_json", True),
             ("another table whose name ends in events", "posthog.ai_events", False),
+            ("another table whose name ends in sharded_events", "posthog.ai_sharded_events", False),
+            ("the events table with no database qualifier", "events", True),
         ]
     )
     def test_which_table_names_count_as_the_events_read(
@@ -103,10 +105,6 @@ class TestExplainParsing(SimpleTestCase):
         self.assertEqual((pruned.initial_granules, pruned.selected_granules), (60000, 800))
         self.assertEqual((unpruned.initial_granules, unpruned.selected_granules), (60000, 40000))
 
-    @parameterized.expand([("persons_join", ("team_id",)), ("event_filter_usable", None)])
-    def test_persons_read_keys(self, fixture: str, expected: tuple[str, ...] | None) -> None:
-        self.assertEqual(parse_query_plan(load_plan(fixture)).persons_primary_keys(), expected)
-
     @parameterized.expand(
         [
             ("empty list", []),
@@ -122,7 +120,6 @@ class TestExplainParsing(SimpleTestCase):
 
         self.assertEqual(plan.reads, ())
         self.assertIsNone(plan.event_key_used())
-        self.assertIsNone(plan.persons_primary_keys())
 
     def test_json_text_is_accepted(self) -> None:
         raw = (FIXTURES / "event_filter_usable.json").read_text()

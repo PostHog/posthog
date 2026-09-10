@@ -5,6 +5,8 @@ product surface (AI observability, error tracking, web analytics, replay, …)
 based on what tables and event filters they reference.
 """
 
+from collections.abc import Iterator
+
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.visitor import TraversingVisitor
@@ -39,7 +41,7 @@ class HogQLFeatureExtractor(TraversingVisitor):
                 right = right.expr
             for field_side, value_side in ((left, right), (right, left)):
                 if _looks_like_event_field(field_side):
-                    self.events.update(v for v in _iter_string_constants(value_side) if v in EVENT_TAG_MATCHERS)
+                    self.events.update(v for v in iter_string_constants(value_side) if v in EVENT_TAG_MATCHERS)
         super().visit_compare_operation(node)
 
 
@@ -66,7 +68,7 @@ def _looks_like_event_field(expr: ast.Expr) -> bool:
     return expr.chain[-1] == "event"
 
 
-def _iter_string_constants(expr: ast.Expr):
+def iter_string_constants(expr: ast.Expr) -> Iterator[str]:
     """Yield string literals from a constant, tuple, or array — covers ``= 'X'`` and ``IN ('X', 'Y')``."""
     if isinstance(expr, ast.Constant):
         if isinstance(expr.value, str):
@@ -74,7 +76,7 @@ def _iter_string_constants(expr: ast.Expr):
         return
     if isinstance(expr, (ast.Tuple, ast.Array)):
         for sub in expr.exprs:
-            yield from _iter_string_constants(sub)
+            yield from iter_string_constants(sub)
 
 
 def extract_hogql_features(query: ast.SelectQuery | ast.SelectSetQuery | None) -> HogQLFeatures:

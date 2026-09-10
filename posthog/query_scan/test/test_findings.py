@@ -17,9 +17,18 @@ from posthog.query_scan.findings import (
     passes_event_gate,
     passes_persons_gate,
 )
-from posthog.query_scan.test.test_explain import MIXED_PRUNING_PLAN, load_plan
+from posthog.query_scan.test.test_explain import MIXED_PRUNING_PLAN, load_plan, plan_read
 
 THRESHOLDS = ScanThresholds()
+
+
+# A read whose primary key entry lists no columns, which some plans print.
+def unnamed_key_read() -> dict[str, object]:
+    return {
+        "Node Type": "ReadFromMergeTree",
+        "Description": "posthog.sharded_events",
+        "Indexes": [{"Type": "PrimaryKey"}],
+    }
 
 
 class TestFindings(SimpleTestCase):
@@ -75,9 +84,20 @@ class TestFindings(SimpleTestCase):
                 "ClickHouse used the primary key columns team_id, toDate(timestamp), event and kept "
                 "800 of 60,000 granules.",
             ),
+            (
+                "a read that names no key columns, beside one that does",
+                parse_query_plan(
+                    [{"Plan": unnamed_key_read()}, {"Plan": plan_read(["team_id", "toDate(timestamp)"], 40000)}]
+                ),
+                "ClickHouse used the primary key columns team_id, toDate(timestamp) and kept "
+                "40,000 of 60,000 granules.",
+            ),
+            ("no read names any key columns", parse_query_plan([{"Plan": unnamed_key_read()}]), None),
         ]
     )
-    def test_evidence_names_the_read_the_finding_is_about(self, _name: str, plan: QueryPlan, expected: str) -> None:
+    def test_evidence_names_the_read_the_finding_is_about(
+        self, _name: str, plan: QueryPlan, expected: str | None
+    ) -> None:
         self.assertEqual(explain_evidence(plan), expected)
 
     @parameterized.expand(
@@ -218,7 +238,11 @@ class TestSettingsAnalysis(SimpleTestCase):
             ),
             (
                 "retention is out of scope in v1",
-                {"kind": "RetentionQuery", "series": [{"kind": "EventsNode", "event": None}]},
+                {
+                    "kind": "RetentionQuery",
+                    "series": [{"kind": "EventsNode", "event": None}],
+                    "dateRange": {"date_from": "all"},
+                },
                 40_000_000_000,
                 40_000_000_000,
                 [],

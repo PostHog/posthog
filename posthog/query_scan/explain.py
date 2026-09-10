@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 # The events read prints as the sharded table on a cluster and as the plain table on a single node,
 # and the native-JSON schema has its own pair (see events_table_clickhouse_table_ref). Spelled out
 # rather than imported, because the schema modules would pull the model layer into this parser.
-_EVENTS_DESCRIPTION_SUFFIXES = ("sharded_events", "sharded_events_json", ".events", ".events_json")
+_EVENTS_TABLE_NAMES = ("events", "events_json", "sharded_events", "sharded_events_json")
 _PERSON_DESCRIPTION_SUFFIX = ".person"
 
 _PRIMARY_KEY_INDEX_TYPE = "PrimaryKey"
@@ -26,9 +26,6 @@ class PlanIndex:
 
     type: str
     keys: tuple[str, ...]
-    condition: str | None
-    initial_parts: int | None
-    selected_parts: int | None
     initial_granules: int | None
     selected_granules: int | None
 
@@ -38,7 +35,6 @@ class PlanTableRead:
     """One ``ReadFromMergeTree`` node."""
 
     description: str
-    node_id: str | None
     indexes: tuple[PlanIndex, ...]
 
     def primary_key(self) -> PlanIndex | None:
@@ -48,7 +44,9 @@ class PlanTableRead:
         return None
 
     def reads_events(self) -> bool:
-        return self.description.endswith(_EVENTS_DESCRIPTION_SUFFIXES)
+        # The database qualifier is optional, but a longer name that merely ends in one of these is
+        # a different table.
+        return any(self.description == name or self.description.endswith(f".{name}") for name in _EVENTS_TABLE_NAMES)
 
     def reads_persons(self) -> bool:
         return self.description.endswith(_PERSON_DESCRIPTION_SUFFIX)
@@ -75,13 +73,6 @@ class QueryPlan:
         if not reads:
             return None
         return all(_uses_event_key(read) for read in reads)
-
-    def persons_primary_keys(self) -> tuple[str, ...] | None:
-        for read in self.persons_reads():
-            primary_key = read.primary_key()
-            if primary_key is not None:
-                return primary_key.keys
-        return None
 
 
 def _uses_event_key(read: PlanTableRead) -> bool:
@@ -127,7 +118,6 @@ def _parse_read(node: dict[str, Any]) -> PlanTableRead | None:
     description = node.get("Description")
     if not isinstance(description, str):
         return None
-    node_id = node.get("Node Id")
     indexes = node.get("Indexes")
     parsed_indexes: list[PlanIndex] = []
     if isinstance(indexes, list):
@@ -135,11 +125,7 @@ def _parse_read(node: dict[str, Any]) -> PlanTableRead | None:
             parsed = _parse_index(entry)
             if parsed is not None:
                 parsed_indexes.append(parsed)
-    return PlanTableRead(
-        description=description,
-        node_id=node_id if isinstance(node_id, str) else None,
-        indexes=tuple(parsed_indexes),
-    )
+    return PlanTableRead(description=description, indexes=tuple(parsed_indexes))
 
 
 def _parse_index(entry: object) -> PlanIndex | None:
@@ -149,13 +135,9 @@ def _parse_index(entry: object) -> PlanIndex | None:
     if not isinstance(index_type, str):
         return None
     keys = entry.get("Keys")
-    condition = entry.get("Condition")
     return PlanIndex(
         type=index_type,
         keys=tuple(key for key in keys if isinstance(key, str)) if isinstance(keys, list) else (),
-        condition=condition if isinstance(condition, str) else None,
-        initial_parts=_as_int(entry.get("Initial Parts")),
-        selected_parts=_as_int(entry.get("Selected Parts")),
         initial_granules=_as_int(entry.get("Initial Granules")),
         selected_granules=_as_int(entry.get("Selected Granules")),
     )

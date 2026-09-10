@@ -8,7 +8,7 @@ and still read every event.
 from typing import Literal
 
 from posthog.hogql import ast
-from posthog.hogql.feature_extractor import _iter_string_constants
+from posthog.hogql.feature_extractor import iter_string_constants
 
 from posthog.dataclasses import frozen
 from posthog.query_scan.explain import QueryPlan
@@ -31,6 +31,18 @@ _EQUALITY_OPS = frozenset({ast.CompareOperationOp.Eq, ast.CompareOperationOp.In,
 _PATTERN_OPS = frozenset({ast.CompareOperationOp.Like, ast.CompareOperationOp.ILike})
 # The sort order is case-sensitive, so only a case-sensitive pattern can seek in it.
 _PRUNABLE_PATTERN_OPS = frozenset({ast.CompareOperationOp.Like})
+# A fixed comparison the sort order cannot seek on: a regular expression has no prefix to seek
+# with, and a range over event names spans the whole table in practice.
+_NOT_PRUNED_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Regex,
+        ast.CompareOperationOp.IRegex,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+)
 
 # Worst first, so the aggregate across events reads is the first class any read reports.
 _CLASS_ORDER: tuple[EventFilterClass, ...] = ("none", "not_used", "usable")
@@ -140,13 +152,23 @@ def _classify_event_compare(node: ast.CompareOperation, value_side: ast.Expr) ->
     if node.op in _EQUALITY_OPS and _is_constant(value_side):
         return EventFilterOutcome(classification="usable", clause=node)
     if node.op in _PATTERN_OPS and _is_constant(value_side):
-        pattern = next(_iter_string_constants(value_side), None)
+        pattern = next(iter_string_constants(value_side), None)
         if node.op in _PRUNABLE_PATTERN_OPS and pattern is not None and not pattern.startswith("%"):
             return EventFilterOutcome(classification="usable", clause=node)
         # A leading wildcard leaves no prefix for the sort order to seek on, and an ILIKE pattern
         # has no case-sensitive prefix at all.
         return EventFilterOutcome(classification="not_used", reason="not_pruned", clause=node)
-    return EventFilterOutcome(classification="not_used", reason="dynamic", clause=node)
+    if node.op not in _NOT_PRUNED_OPS and _is_data(value_side):
+        # `dynamic` tells the person their filter compares `event` to a column or a subquery, so
+        # only that shape may take it.
+        return EventFilterOutcome(classification="not_used", reason="dynamic", clause=node)
+    return EventFilterOutcome(classification="not_used", reason="not_pruned", clause=node)
+
+
+def _is_data(expr: ast.Expr) -> bool:
+    """Whether the other side of the comparison is read from the data rather than written out."""
+    expr = strip_aliases(expr)
+    return isinstance(expr, ast.Field | ast.SelectQuery | ast.SelectSetQuery)
 
 
 def _is_constant(expr: ast.Expr) -> bool:

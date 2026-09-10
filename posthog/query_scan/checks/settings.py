@@ -38,5 +38,7 @@ def _has_all_events_series(query: Mapping[str, Any]) -> bool:
 
 
 def _has_all_time_range(query: Mapping[str, Any]) -> bool:
+    if query.get("kind") not in _SERIES_QUERY_KINDS:
+        return False
     date_range = query.get("dateRange")
     return isinstance(date_range, Mapping) and date_range.get("date_from") == _ALL_TIME_DATE_FROM

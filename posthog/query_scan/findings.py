@@ -8,6 +8,7 @@ from posthog.schema import QueryScanFindingKind, QueryScanFindingReason, QuerySc
 
 from posthog.dataclasses import frozen
 from posthog.query_scan.explain import QueryPlan
+from posthog.query_scan.flag import DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO
 
 FindingKind = QueryScanFindingKind
 FindingReason = QueryScanFindingReason
@@ -17,8 +18,8 @@ FindingReason = QueryScanFindingReason
 class ScanThresholds:
     """Ratio gates, filled from the feature flag payload."""
 
-    event_ratio: float = 0.10
-    persons_ratio: float = 0.5
+    event_ratio: float = DEFAULT_EVENT_RATIO
+    persons_ratio: float = DEFAULT_PERSONS_RATIO
 
 
 @frozen
@@ -214,7 +215,9 @@ def explain_evidence(plan: QueryPlan | None) -> str | None:
     """What ClickHouse reported about the events read, for the person to check against."""
     if plan is None:
         return None
-    primary_keys = [key for read in plan.events_reads() if (key := read.primary_key()) is not None]
+    # A plan can name a primary key index without listing its columns, and there is nothing to
+    # describe in that entry.
+    primary_keys = [key for read in plan.events_reads() if (key := read.primary_key()) is not None and key.keys]
     if not primary_keys:
         return None
     # The finding is about a read that could not prune on `event`, so name that read when the plan

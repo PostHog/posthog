@@ -125,6 +125,18 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "not_pruned",
             ),
             (
+                "a regular expression",
+                "SELECT count() FROM events WHERE event =~ 'purchase'",
+                "not_used",
+                "not_pruned",
+            ),
+            (
+                "a range over event names",
+                "SELECT count() FROM events WHERE event > 'purchase'",
+                "not_used",
+                "not_pruned",
+            ),
+            (
                 "named in the ON of an inner join",
                 "SELECT count() FROM events AS e INNER JOIN cohort_people AS cp "
                 "ON e.person_id = cp.person_id AND e.event = 'purchase'",
