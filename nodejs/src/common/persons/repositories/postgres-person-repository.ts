@@ -1487,9 +1487,13 @@ export class PostgresPersonRepository
         } catch (error) {
             // The mark index turns "someone else holds this person" into a unique
             // violation; a duplicate op_id means a concurrent delivery of the same event.
+            // PostgreSQL reports the name of the index that it enforced, so every index
+            // that enforces the mark must be listed here.
             if (
                 error.code === '23505' &&
-                ['lifecycle_op_person_mark', 'lifecycle_op_pkey'].includes(error.constraint)
+                ['lifecycle_op_person_mark', 'lifecycle_op_person_mark_covering', 'lifecycle_op_pkey'].includes(
+                    error.constraint
+                )
             ) {
                 throw new PersonClaimedByLifecycleOpError(
                     'Person is claimed by a concurrent lifecycle operation',
