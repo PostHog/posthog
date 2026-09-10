@@ -87,8 +87,8 @@ class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
         default=DEFAULT_MAX_SIZE_MB,
         allow_null=True,
         min_value=0,
-        help_text="Split the download into files of at most this size in MB. Set it to null or 0 to "
-        "write a single file of any size.",
+        help_text="Split the download into files of about this size in MiB. A file can go a little "
+        "over. Set it to null or 0 to write a single file of any size.",
     )
 
 

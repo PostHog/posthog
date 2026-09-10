@@ -3421,7 +3421,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .nullish()
                         .default(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault)
                         .describe(
-                            'Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size.'
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
                         ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
@@ -3460,7 +3460,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .nullish()
                         .default(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault)
                         .describe(
-                            'Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size.'
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
                         ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
@@ -3497,7 +3497,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .nullish()
                         .default(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault)
                         .describe(
-                            'Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size.'
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
                         ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
@@ -3534,7 +3534,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .nullish()
                         .default(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault)
                         .describe(
-                            'Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size.'
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
                         ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
@@ -3583,7 +3583,7 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
                     .nullish()
                     .default(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault)
                     .describe(
-                        'Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size.'
+                        'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
                     ),
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),

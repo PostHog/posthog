@@ -20404,7 +20404,7 @@ export namespace Schemas {
        * * `snappy` - snappy */
       compression?: CompressionEnum | null;
       /**
-         * Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size.
+         * Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.
          * @minimum 0
          * @nullable
          */
