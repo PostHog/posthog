@@ -148,16 +148,47 @@ class Command(BaseCommand):
 
         detail["old_key"] = linked_flag.get("key")
         detail["new_key"] = flag.key
-        if not dry_run:
-            save_replay_gate_rewrites(
-                team.pk,
-                lambda locked: ReplayGateRewrite(
-                    linked_flag=rewritten_linked_flag(
-                        locked.session_recording_linked_flag, flag_id=stored_id, new_key=flag.key
-                    )
-                ),
-            )
+        if dry_run:
+            return Outcome.REPAIRED, detail
+
+        written_key = self._write_current_key(team.pk, stored_id)
+        if written_key is None:
+            return Outcome.FLAG_MISSING, detail
+        detail["new_key"] = written_key
         return Outcome.REPAIRED, detail
+
+    def _write_current_key(self, team_id: int, flag_id: int) -> str | None:
+        """Point a team's replay link at the flag's key, and report the key that was written.
+
+        None when the row to rewrite was already gone, which leaves the link alone.
+
+        `_load_flags` reads each key once per chunk, so a whole page of teams can be written after
+        it. A rename landing in that window has already relinked this team, and writing the key
+        the chunk read would put a key no flag holds back over the new one. Reading the key inside
+        the lock converges on the value `relink_teams` writes, because that relink takes this same
+        row lock.
+        """
+        current_key: str | None = None
+
+        def rewrite(locked: Team) -> ReplayGateRewrite:
+            nonlocal current_key
+            # `objects_including_soft_deleted` so a soft delete landing in the same window keeps
+            # the team on the tombstone key that `_free_key_held_by_soft_deleted_flags` gives the
+            # flag. That rename frees the original key for a new flag to claim, and a team left on
+            # it would gate recording on a flag it never linked.
+            current_key = (
+                FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id).values_list("key", flat=True).first()
+            )
+            if current_key is None:
+                return ReplayGateRewrite()
+            return ReplayGateRewrite(
+                linked_flag=rewritten_linked_flag(
+                    locked.session_recording_linked_flag, flag_id=flag_id, new_key=current_key
+                )
+            )
+
+        save_replay_gate_rewrites(team_id, rewrite)
+        return current_key
 
     def _report(self, report: dict[str, Any], *, as_json: bool) -> None:
         if as_json:
