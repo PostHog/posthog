@@ -494,6 +494,14 @@ class EvaluationBackfillViewSet(
 
         try:
             client = sync_connect()
+        except Exception:
+            # Connecting failed, so no start request reached Temporal and no workflow can exist for
+            # this row. Removing it lets the user retry at once.
+            EvaluationBackfill.objects.for_team(self.team_id).filter(pk=backfill.pk).delete()
+            logger.exception("llma.evaluation_backfill_connect_failed", backfill_id=str(backfill.pk))
+            raise APIException("Couldn't start the backfill. Try again.")
+
+        try:
             asyncio.run(
                 client.start_workflow(
                     BACKFILL_WORKFLOW_NAME,
@@ -504,11 +512,14 @@ class EvaluationBackfillViewSet(
                 )
             )
         except Exception:
-            # Nothing else creates the workflow, so a row left behind would sit at running forever
-            # and block the next backfill through the one-active constraint.
-            EvaluationBackfill.objects.for_team(self.team_id).filter(pk=backfill.pk).delete()
+            # The call can fail after Temporal accepted the start, and the row is what controls the
+            # walk: the first tick ends the run when the row is not active, and cancel needs it to
+            # exist. Deleting it on an unknown outcome would leave a walk that dispatches judge runs
+            # against the team's own provider key with nothing recording them and no way to stop
+            # them. The row therefore stays, and `_workflow_is_alive` releases it on the next read
+            # once the start grace has passed and Temporal answers NOT_FOUND for the workflow.
             logger.exception("llma.evaluation_backfill_start_failed", backfill_id=str(backfill.pk))
-            raise APIException("Couldn't start the backfill. Try again.")
+            raise APIException("Couldn't confirm the backfill started. Check the list before starting another one.")
 
         return Response(self.get_serializer(backfill).data, status=status.HTTP_201_CREATED)
 

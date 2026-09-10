@@ -485,11 +485,23 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
     @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))
-    def test_create_rolls_back_row_when_workflow_start_fails(self, _connect, _count):
+    def test_create_rolls_back_row_when_temporal_is_unreachable(self, _connect, _count):
         response = self.client.post(f"{self.url}/", _body(), format="json")
 
         assert response.status_code >= 500
         assert EvaluationBackfill.objects.unscoped().count() == 0
+
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
+    @patch(f"{API_MODULE}.sync_connect")
+    def test_create_keeps_the_row_when_the_start_result_is_unknown(self, connect, _count):
+        connect.return_value = _temporal_client()
+        connect.return_value.start_workflow.side_effect = RuntimeError("stream closed")
+
+        response = self.client.post(f"{self.url}/", _body(), format="json")
+
+        assert response.status_code >= 500
+        row = EvaluationBackfill.objects.unscoped().get()
+        assert row.status == EvaluationBackfillStatus.RUNNING
 
     @patch(f"{API_MODULE}.sync_connect")
     def test_cancel_marks_terminal_and_is_idempotent(self, connect):
