@@ -6,6 +6,7 @@ The left arrow expands or collapses the row. The account name opens account deta
 Expanded pins use the same Properties section and editable fields as the account sidebar.
 They follow the saved order and wrap horizontally within the table container.
 Each property uses its content width, up to 16rem, with a 1rem gap between properties. An open editor uses the full 16rem width.
+Field headers reserve equal height with or without an edit button, so read-only and editable values align.
 Fixed-layout tables reserve 3rem for the expansion button so the icon does not get clipped.
 If no properties are pinned, the Pin properties button opens the selector in place.
 Only expanded accounts load property values. The list does not load the legacy detail tabs while this flag is enabled.

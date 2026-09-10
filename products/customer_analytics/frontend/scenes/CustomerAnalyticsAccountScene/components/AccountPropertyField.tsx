@@ -51,7 +51,7 @@ export function AccountPropertyField({
     // Keep the data-attr stable for existing selectors and autocapture.
     return (
         <div className="flex flex-col gap-1 min-w-0" data-attr="account-property-row">
-            <div className="flex items-center gap-1 min-w-0">
+            <div className="flex items-center gap-1 min-w-0 min-h-7">
                 <span className="text-xs text-secondary truncate">{property.definition.name}</span>
                 {provenance ? (
                     <Tooltip title={provenance.title}>
