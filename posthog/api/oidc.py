@@ -37,13 +37,8 @@ class OIDCResponseTooLargeError(RequestException):
     pass
 
 
-class OIDCResponseTimeoutError(RequestException):
-    pass
-
-
 OIDC_FETCH_TIMEOUT_SECONDS = 10
 OIDC_FETCH_MAX_BYTES = 1024 * 1024
-OIDC_FETCH_READ_CHUNK_BYTES = 64 * 1024
 
 
 @frozen
@@ -196,8 +191,6 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             return "http_error"
         if isinstance(error, OIDCResponseTooLargeError):
             return "response_too_large"
-        if isinstance(error, OIDCResponseTimeoutError):
-            return "response_timeout"
         return "request_error"
 
     def request(self, url: str, method: str = "GET", *args: Any, **kwargs: Any) -> Response:
@@ -205,15 +198,13 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             raise AuthFailed(self, "OIDC requires HTTPS endpoints.")
         phase = self._request_phase(url)
         started_at = time.monotonic()
-        deadline = started_at + OIDC_FETCH_TIMEOUT_SECONDS
-        remaining_seconds = deadline - time.monotonic()
         kwargs["timeout"] = Urllib3Timeout(
             total=OIDC_FETCH_TIMEOUT_SECONDS,
-            connect=remaining_seconds,
-            read=remaining_seconds,
+            connect=OIDC_FETCH_TIMEOUT_SECONDS,
+            read=OIDC_FETCH_TIMEOUT_SECONDS,
         )
         kwargs["allow_redirects"] = False
-        kwargs["stream"] = True
+        kwargs["stream"] = False
         try:
             with pinned_session(url) as session:
                 response = session.request(method, url, *args, **kwargs)
@@ -226,19 +217,9 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
                     if content_length and content_length.isdigit() and int(content_length) > OIDC_FETCH_MAX_BYTES:
                         raise OIDCResponseTooLargeError()
 
-                    chunks: list[bytes] = []
-                    bytes_read = 0
-                    for chunk in response.iter_content(chunk_size=OIDC_FETCH_READ_CHUNK_BYTES):
-                        bytes_read += len(chunk)
-                        if bytes_read > OIDC_FETCH_MAX_BYTES:
-                            raise OIDCResponseTooLargeError()
-                        chunks.append(chunk)
-                        if time.monotonic() > deadline:
-                            raise OIDCResponseTimeoutError()
+                    if len(response.content) > OIDC_FETCH_MAX_BYTES:
+                        raise OIDCResponseTooLargeError()
 
-                    response_as_any = cast(Any, response)
-                    response_as_any._content = b"".join(chunks)
-                    response_as_any._content_consumed = True
                     return response
                 finally:
                     response.close()

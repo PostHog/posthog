@@ -18,7 +18,8 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
         response = requests.Response()
         response.status_code = 200
         response.headers = CaseInsensitiveDict({"Content-Type": "application/json"})
-        cast(Any, response).iter_content = Mock(return_value=iter([b'{"issuer": "https://idp.example.com"}']))
+        cast(Any, response)._content = b'{"issuer": "https://idp.example.com"}'
+        cast(Any, response)._content_consumed = True
         close_mock = Mock()
         cast(Any, response).close = close_mock
         session = Mock()
@@ -32,7 +33,7 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
 
         assert result.json() == {"issuer": "https://idp.example.com"}
         request_kwargs = session.request.call_args.kwargs
-        assert request_kwargs["stream"] is True
+        assert request_kwargs["stream"] is False
         assert request_kwargs["allow_redirects"] is False
         timeout = request_kwargs["timeout"]
         assert timeout.total == OIDC_FETCH_TIMEOUT_SECONDS
@@ -44,7 +45,8 @@ class TestMultitenantOIDCAuthRequest(SimpleTestCase):
         response = requests.Response()
         response.status_code = 200
         response.headers = CaseInsensitiveDict()
-        cast(Any, response).iter_content = Mock(return_value=iter([b"x" * OIDC_FETCH_MAX_BYTES, b"y"]))
+        cast(Any, response)._content = b"x" * (OIDC_FETCH_MAX_BYTES + 1)
+        cast(Any, response)._content_consumed = True
         close_mock = Mock()
         cast(Any, response).close = close_mock
         session = Mock()
