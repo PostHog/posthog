@@ -25,9 +25,17 @@ export interface HarnessLogo {
     alt: string
 }
 
+const HARNESS_BRAND_COLORS = {
+    claude: '#d97757',
+    openai: '#74aa9c',
+    vscode: '#007acc',
+    coderabbit: '#ff570a',
+} as const
+
 interface HarnessDescriptor {
     logo?: HarnessLogo
-    // Index into the data-viz palette, shared by harnesses from the same family.
+    color?: keyof typeof HARNESS_BRAND_COLORS | 'monochrome'
+    // Index into the data-viz palette for harnesses without a brand color.
     colorIndex?: number
     shade?: number
 }
@@ -38,34 +46,34 @@ interface HarnessDescriptor {
 // has no opinion on. Keys must match HARNESS_LABELS / harness_label_sql in mcp_harness.py.
 // Exported so tests can assert coverage against the backend HARNESS_LABELS tuple.
 export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
-    'Claude Desktop': { logo: { src: claudeLogo, alt: 'Claude Desktop logo' }, colorIndex: 11, shade: 5 },
-    'Claude Code (VS Code)': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, colorIndex: 11, shade: 10 },
-    'Claude Agent SDK': { logo: { src: claudeLogo, alt: 'Claude Agent SDK logo' }, colorIndex: 11, shade: 15 },
-    'Claude Code': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, colorIndex: 11, shade: 0 },
-    'Claude.ai': { logo: { src: claudeLogo, alt: 'Claude.ai logo' }, colorIndex: 11, shade: 20 },
-    'Anthropic API': { colorIndex: 11, shade: 25 },
-    Cowork: { logo: { src: claudeLogo, alt: 'Cowork logo' }, colorIndex: 11, shade: 30 },
-    'Claude Design': { logo: { src: claudeLogo, alt: 'Claude Design logo' }, colorIndex: 11, shade: 35 },
-    ChatGPT: { logo: { src: openaiLogo, alt: 'ChatGPT logo' }, colorIndex: 0, shade: 5 },
-    'OpenAI Agent Builder': { logo: { src: openaiLogo, alt: 'OpenAI Agent Builder logo' }, colorIndex: 0, shade: 10 },
-    'OpenAI Responses API': { logo: { src: openaiLogo, alt: 'OpenAI Responses API logo' }, colorIndex: 0, shade: 15 },
-    OpenAI: { logo: { src: openaiLogo, alt: 'OpenAI logo' }, colorIndex: 0, shade: 20 },
-    'OpenAI Codex': { logo: { src: openaiLogo, alt: 'OpenAI Codex logo' }, colorIndex: 0, shade: 0 },
-    Grok: { logo: { src: grokLogo, alt: 'Grok logo' }, colorIndex: 1, shade: 0 },
-    Cursor: { logo: { src: cursorLogo, alt: 'Cursor logo' }, colorIndex: 5, shade: 0 },
-    'VS Code': { logo: { src: vscodeLogo, alt: 'VS Code logo' }, colorIndex: 6, shade: 0 },
-    Windsurf: { logo: { src: windsurfLogo, alt: 'Windsurf logo' } },
-    Replit: { logo: { src: replitLogo, alt: 'Replit logo' } },
-    Lovable: { logo: { src: lovableLogo, alt: 'Lovable logo' } },
-    Manus: { logo: { src: manusLogo, alt: 'Manus logo' } },
-    CodeRabbit: { logo: { src: coderabbitLogo, alt: 'CodeRabbit logo' } },
-    Notion: { logo: { src: notionLogo, alt: 'Notion logo' } },
-    Linear: { logo: { src: linearLogo, alt: 'Linear logo' } },
-    LibreChat: { logo: { src: librechatLogo, alt: 'LibreChat logo' } },
-    Pi: { logo: { src: piLogo, alt: 'Pi logo' } },
-    Antigravity: { logo: { src: antigravityLogo, alt: 'Antigravity logo' } },
+    'Claude Desktop': { logo: { src: claudeLogo, alt: 'Claude Desktop logo' }, color: 'claude', shade: -8 },
+    'Claude Code (VS Code)': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, color: 'claude', shade: -4 },
+    'Claude Agent SDK': { logo: { src: claudeLogo, alt: 'Claude Agent SDK logo' }, color: 'claude', shade: 4 },
+    'Claude Code': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, color: 'claude', shade: 0 },
+    'Claude.ai': { logo: { src: claudeLogo, alt: 'Claude.ai logo' }, color: 'claude', shade: 8 },
+    'Anthropic API': { color: 'claude', shade: -12 },
+    Cowork: { logo: { src: claudeLogo, alt: 'Cowork logo' }, color: 'claude', shade: 12 },
+    'Claude Design': { logo: { src: claudeLogo, alt: 'Claude Design logo' }, color: 'claude', shade: 16 },
+    ChatGPT: { logo: { src: openaiLogo, alt: 'ChatGPT logo' }, color: 'openai', shade: 0 },
+    'OpenAI Agent Builder': { logo: { src: openaiLogo, alt: 'OpenAI Agent Builder logo' }, color: 'openai', shade: 4 },
+    'OpenAI Responses API': { logo: { src: openaiLogo, alt: 'OpenAI Responses API logo' }, color: 'openai', shade: -4 },
+    OpenAI: { logo: { src: openaiLogo, alt: 'OpenAI logo' }, color: 'openai', shade: 8 },
+    'OpenAI Codex': { logo: { src: openaiLogo, alt: 'OpenAI Codex logo' }, color: 'openai', shade: -8 },
+    Grok: { logo: { src: grokLogo, alt: 'Grok logo' }, color: 'monochrome' },
+    Cursor: { logo: { src: cursorLogo, alt: 'Cursor logo' }, color: 'monochrome' },
+    'VS Code': { logo: { src: vscodeLogo, alt: 'VS Code logo' }, color: 'vscode' },
+    Windsurf: { logo: { src: windsurfLogo, alt: 'Windsurf logo' }, color: 'monochrome' },
+    Replit: { logo: { src: replitLogo, alt: 'Replit logo' }, colorIndex: 11, shade: 15 },
+    Lovable: { logo: { src: lovableLogo, alt: 'Lovable logo' }, colorIndex: 4 },
+    Manus: { logo: { src: manusLogo, alt: 'Manus logo' }, color: 'monochrome' },
+    CodeRabbit: { logo: { src: coderabbitLogo, alt: 'CodeRabbit logo' }, color: 'coderabbit' },
+    Notion: { logo: { src: notionLogo, alt: 'Notion logo' }, color: 'monochrome' },
+    Linear: { logo: { src: linearLogo, alt: 'Linear logo' }, colorIndex: 9 },
+    LibreChat: { logo: { src: librechatLogo, alt: 'LibreChat logo' }, colorIndex: 14 },
+    Pi: { logo: { src: piLogo, alt: 'Pi logo' }, color: 'monochrome' },
+    Antigravity: { logo: { src: antigravityLogo, alt: 'Antigravity logo' }, colorIndex: 7 },
     Poke: {},
-    opencode: { logo: { src: opencodeLogo, alt: 'opencode logo' } },
+    opencode: { logo: { src: opencodeLogo, alt: 'opencode logo' }, color: 'monochrome' },
     Kiro: {},
     'Desktop Commander': {},
     'PostHog CLI': {},
@@ -80,8 +88,11 @@ export function harnessColor(theme: ChartTheme, label: string): string | undefin
         return theme.axisColor
     }
     const descriptor = HARNESS_BY_LABEL[label]
+    if (descriptor?.color === 'monochrome') {
+        return theme.axisColor
+    }
     const index = descriptor?.colorIndex ?? hashCodeForString(label)
-    const base = theme.colors[index % theme.colors.length]
+    const base = descriptor?.color ? HARNESS_BRAND_COLORS[descriptor.color] : theme.colors[index % theme.colors.length]
     if (!base) {
         return theme.axisColor
     }

@@ -30,7 +30,22 @@ describe('harnessColor', () => {
         expect(harnessColor(theme, 'OpenAI Codex')).not.toBe(theme.axisColor)
     })
 
+    it.each(['Claude Code', 'OpenAI Codex', 'VS Code', 'CodeRabbit'])(
+        'preserves the brand color for %s independently of the categorical palette',
+        (label) => {
+            expect(harnessColor({ ...theme, colors: [] }, label)).toBe(harnessColor(theme, label))
+        }
+    )
+
+    it.each(['Cursor', 'Grok', 'Notion', 'opencode', 'Windsurf'])(
+        'adapts the monochrome %s color to the chart theme',
+        (label) => {
+            expect(harnessColor(theme, label)).toBe(theme.axisColor)
+            expect(harnessColor({ ...theme, axisColor: '#eeeeee' }, label)).toBe('#eeeeee')
+        }
+    )
+
     it('uses the neutral color when the theme has no palette', () => {
-        expect(harnessColor({ ...theme, colors: [] }, 'Claude Agent SDK')).toBe(theme.axisColor)
+        expect(harnessColor({ ...theme, colors: [] }, 'Example custom client')).toBe(theme.axisColor)
     })
 })
