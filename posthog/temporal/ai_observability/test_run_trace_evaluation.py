@@ -632,8 +632,12 @@ class TestEmitTraceEvaluationEventActivity:
                     await emit_trace_evaluation_event_activity(inputs)
 
 
-@time_machine.travel(FROZEN_NOW, tick=False)
 class TestEmitSessionEvaluationEvent:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            yield
+
     @pytest.mark.parametrize(
         "target,ai_session_id,expected_target_type,expected_target_id",
         [

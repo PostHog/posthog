@@ -362,8 +362,12 @@ class TestSendOperation:
         assert session.post.call_count == 1
 
 
-@time_machine.travel("2024-06-01T12:00:00Z", tick=False)
 class TestGetRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-01T12:00:00Z", tick=False):
+            yield
+
     def _run(
         self,
         responses: list[Any],

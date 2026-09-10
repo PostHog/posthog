@@ -558,8 +558,12 @@ class TestSingleRequestEndpoints:
             assert list(mp._fetch_annotations("us", "u", "s", "123", LOGGER)) == []
 
 
-@time_machine.travel("2024-06-04", tick=False)
 class TestGetRowsExportWindow:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-04", tick=False):
+            yield
+
     def _captured_window(self, **kwargs) -> tuple[date, date]:
         with patch.object(mp, "_iter_export", return_value=iter([])) as mock_iter:
             list(mp.get_rows("us", "u", "s", "123", "export", LOGGER, FakeManager(), **kwargs))  # type: ignore[arg-type]

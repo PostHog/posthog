@@ -159,8 +159,12 @@ class TestValidateCredentials:
         assert error is None
 
 
-@time_machine.travel("2026-07-15T10:00:00Z", tick=False)
 class TestGetRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T10:00:00Z", tick=False):
+            yield
+
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_flattens_result_sets_and_injects_key_and_window(self, mock_session):
         mock_session.return_value.get.return_value = _response(

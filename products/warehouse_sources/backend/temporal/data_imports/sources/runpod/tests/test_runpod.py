@@ -89,8 +89,12 @@ class TestNormalizeBillingRecord:
         assert record["time"] == "2025-08-01T00:00:00Z"
 
 
-@time_machine.travel("2022-05-15T12:00:00Z", tick=False)
 class TestBillingWindows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2022-05-15T12:00:00Z", tick=False):
+            yield
+
     def test_full_refresh_walks_windows_from_launch_date(self) -> None:
         responses = [
             [
@@ -210,8 +214,12 @@ class TestSensitiveDataStripping:
         assert "env" not in rows[0]["template"]
 
 
-@time_machine.travel("2022-05-15T12:00:00Z", tick=False)
 class TestSampleCapture:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2022-05-15T12:00:00Z", tick=False):
+            yield
+
     @parameterized.expand(
         [
             ("pods", False),

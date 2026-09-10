@@ -137,7 +137,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         notebook_short_id: str,
         notebook_version: int,
         the_user: User,
-        frozen_time: time_machine.Traveller | time_machine.Traveller | time_machine.Traveller,
+        frozen_time: time_machine.Traveller,
     ) -> int:
         self.client.force_login(the_user)
         for created_insight_id in created_insights[:7]:

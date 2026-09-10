@@ -44,8 +44,12 @@ def _produce(
     )
 
 
-@time_machine.travel(_NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), tick=False)
 class TestVisitedPaths(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), tick=False):
+            yield
+
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
@@ -167,7 +171,6 @@ class TestVisitedPaths(ClickhouseTestMixin):
         assert [r.pathname for r in results] == ["/billing"]
 
 
-@time_machine.travel(_NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), tick=False)
 class TestVisitedPageFilterSemantics(ClickhouseTestMixin):
     """One `visited_page` property holding several values ORs them; several properties AND.
 
@@ -176,6 +179,11 @@ class TestVisitedPageFilterSemantics(ClickhouseTestMixin):
     because that compilation lives upstream of this product: if it ever changed, every filter would
     quietly match almost nothing and no test of our own output would show it.
     """
+
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), tick=False):
+            yield
 
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())

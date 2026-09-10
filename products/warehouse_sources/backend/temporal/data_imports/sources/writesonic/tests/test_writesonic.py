@@ -146,8 +146,12 @@ class TestConfigEndpoints:
             _collect("nonexistent", _FakeManager(), monkeypatch, _FakeApi())
 
 
-@time_machine.travel("2026-07-09T12:00:00Z", tick=False)
 class TestDailyEndpoints:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-09T12:00:00Z", tick=False):
+            yield
+
     def test_walks_days_from_watermark_to_today_inclusive(self, monkeypatch):
         # The watermark day is re-fetched: its previous sync may have run mid-day and captured
         # partial data. Skipping it would permanently freeze that day's rows.

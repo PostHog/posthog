@@ -731,7 +731,13 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         fake_now = datetime(2025, 10, 9, 12, 11, 0, tzinfo=ZoneInfo("UTC"))
         call_log: list[datetime] = []
 
-        class TimeDriftingDatetime(datetime):
+        class DriftingDatetimeMeta(type):
+            # The runner asks isinstance(row_value, datetime) to normalize ClickHouse rows.
+            # This stand-in replaces that name, so it has to answer for real datetimes too.
+            def __instancecheck__(cls, obj: object) -> bool:
+                return isinstance(obj, datetime)
+
+        class TimeDriftingDatetime(datetime, metaclass=DriftingDatetimeMeta):
             @classmethod
             def now(cls, tz=None):
                 # Each call advances by 12 hours to simulate worst-case drift across the day boundary

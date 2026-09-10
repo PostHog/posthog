@@ -111,8 +111,13 @@ class TestColumnHandling:
         ]
 
 
-@time_machine.travel("2026-07-15T12:00:00Z", tick=False)  # a Wednesday
 class TestBuildWindows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        # 2026-07-15 is a Wednesday.
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
+            yield
+
     @parameterized.expand(
         [
             # Mid-week start aligns down to Monday; the current (incomplete) ISO week is excluded.
@@ -188,8 +193,12 @@ class TestFetchCsv:
         assert "startDate=2026-06-29" in session.get.call_args[0][0]
 
 
-@time_machine.travel("2026-07-15T12:00:00Z", tick=False)
 class TestGetRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
+            yield
+
     @patch(_TRACKED_SESSION_PATH)
     def test_incremental_sync_fetches_complete_windows_after_watermark(self, mock_make_session: MagicMock) -> None:
         session = mock_make_session.return_value

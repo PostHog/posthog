@@ -509,8 +509,12 @@ class TestRunAggregateEvaluationWorkflow:
         assert elapsed < timedelta(hours=1)
 
 
-@time_machine.travel("2026-07-23T12:00:00Z", tick=False)
 class TestCheckTraceSettledActivity:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-23T12:00:00Z", tick=False):
+            yield
+
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):
         team = setup_data["team"]
@@ -584,8 +588,12 @@ class TestCheckTraceSettledActivity:
         assert "trace active" in err.value.message
 
 
-@time_machine.travel("2026-07-23T12:00:00Z", tick=False)
 class TestCheckSessionSettledActivity:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-23T12:00:00Z", tick=False):
+            yield
+
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):
         team = setup_data["team"]

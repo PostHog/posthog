@@ -142,8 +142,12 @@ class TestFormatSessionForJudge:
         assert "t-beta" in rendered
 
 
-@time_machine.travel(FROZEN_NOW, tick=False)
 class TestCountSessionEvents:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            yield
+
     def test_the_count_stays_an_ungrouped_aggregate(self):
         """An ungrouped aggregate always returns exactly one row, so `query_ai_events`'s
         empty-result probe never fires and the stripped events-table fallback stays structurally
@@ -341,8 +345,12 @@ class TestFetchSessionForEvaluation:
         assert outcome.skip_reason == "session_truncated"
 
 
-@time_machine.travel(FROZEN_NOW, tick=False)
 class TestExecuteSessionActivities:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            yield
+
     @pytest.mark.parametrize(
         "skip_reason",
         ["session_not_found", "session_too_large", "session_payload_too_large", "session_truncated"],

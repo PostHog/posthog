@@ -146,8 +146,12 @@ class TestCreateExperimentInput:
         assert "variant_notes" in input_dto.parameters
 
 
-@time_machine.travel("2026-03-21T12:00:00Z", tick=False)
 class TestFeatureFlag:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-03-21T12:00:00Z", tick=False):
+            yield
+
     def test_feature_flag_output(self):
         """Test feature flag output DTO."""
         flag = FeatureFlag(
@@ -164,8 +168,12 @@ class TestFeatureFlag:
         assert flag.active is True
 
 
-@time_machine.travel("2026-03-21T12:00:00Z", tick=False)
 class TestExperiment:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-03-21T12:00:00Z", tick=False):
+            yield
+
     def test_experiment_output_minimal(self):
         """Test experiment output DTO with minimal fields."""
         exp = Experiment(

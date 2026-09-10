@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 import time_machine
 from unittest.mock import MagicMock, patch
 
@@ -211,8 +212,12 @@ class TestUnpaginatedEndpoint:
         assert manager.saved == []
 
 
-@time_machine.travel("2026-07-15T12:00:00Z", tick=False)
 class TestAlertsWindowing:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
+            yield
+
     def test_first_sync_walks_year_of_30_day_windows(self) -> None:
         empty = _relay_page("getAlerts", [], None)
         responses = [empty] * 13  # 365 days / 30-day windows

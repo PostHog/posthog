@@ -45,8 +45,12 @@ class TestSnapchatErrorHandler:
         assert SnapchatErrorHandler.is_retryable(error) == expected
 
 
-@time_machine.travel(FROZEN_TIME, tick=False)
 class TestSnapchatDateRangeManager:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(FROZEN_TIME, tick=False):
+            yield
+
     @parameterized.expand(
         [
             ("no_incremental", False, None, 365),

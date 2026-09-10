@@ -189,8 +189,12 @@ class TestGetRows:
         ]
 
 
-@time_machine.travel("2026-01-30T00:00:00Z", tick=False)
 class TestAuditLogRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-01-30T00:00:00Z", tick=False):
+            yield
+
     def _run(self, responses: list[Any], manager: Optional[mock.MagicMock] = None, **kwargs: Any):
         if manager is None:
             manager = mock.MagicMock()

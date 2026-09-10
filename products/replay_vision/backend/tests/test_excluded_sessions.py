@@ -49,8 +49,12 @@ def _event(team, session_id: str, at: dt.datetime, **props) -> None:
     )
 
 
-@time_machine.travel(_FROZEN_TIME, tick=False)
 class TestExcludedSessions(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     @pytest.mark.django_db
     def test_excludes_only_the_sessions_carrying_a_disqualifying_event(self, team) -> None:
         _event(team, "dirty", _NOW - dt.timedelta(hours=2), **{"$host": "internal.example.com"})

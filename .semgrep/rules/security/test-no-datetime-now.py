@@ -8,6 +8,7 @@
 import datetime as dt
 from datetime import date, datetime
 
+import pytest
 import time_machine
 
 from django.utils import (
@@ -103,6 +104,41 @@ class TestWithFreezeOnClass:
 @time_machine.travel("2024-01-01", tick=False)
 class TestWithFreezeOnClassWithBases:
     def test_class_frozen_with_bases(self):
+        # ok: test-datetime-now-without-freeze
+        now = datetime.now()
+
+
+# ============================================================
+# Should NOT flag: protected by an autouse fixture that travels
+# ============================================================
+
+
+class TestWithAutouseFixture:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-01-01", tick=False):
+            yield
+
+    def test_fixture_frozen_datetime_now(self):
+        # ok: test-datetime-now-without-freeze
+        now = datetime.now()
+
+    def test_fixture_frozen_date_today(self):
+        # ok: test-datetime-now-without-freeze
+        today = date.today()
+
+
+class ClockMixin:
+    pass
+
+
+class TestWithAutouseFixtureAndBases(ClockMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-01-01", tick=False):
+            yield
+
+    def test_fixture_frozen_with_bases(self):
         # ok: test-datetime-now-without-freeze
         now = datetime.now()
 

@@ -1033,8 +1033,6 @@ class TestFileSystemAPI(APIBaseTest):
         `created_at` and `created_by` into both the FileSystem columns and the
         `meta` dict.
         """
-        import time_machine
-
         from django.utils import timezone
 
         # Create a FeatureFlag at a known moment in time

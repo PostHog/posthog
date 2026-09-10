@@ -6,7 +6,7 @@ import time_machine
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
 # freeze at a different instant than CI does.
-time_machine.naive_mode = time_machine.NaiveMode.UTC
+time_machine.naive_mode = time_machine.NaiveMode.UTC  # ty: ignore[invalid-assignment]
 
 # Test-session boot — plugin imports and importing every collected test module —
 # allocates almost exclusively permanent objects, so automatic cyclic GC during that

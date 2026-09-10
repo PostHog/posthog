@@ -1476,7 +1476,6 @@ class TestRetryableErrors:
         assert not any(pattern in str(exc_info.value) for pattern in patterns)
 
 
-@time_machine.travel("2026-06-16", tick=False)
 class TestTimeRangeClamping:
     """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
 
@@ -1486,6 +1485,11 @@ class TestTimeRangeClamping:
     The date is frozen so the ``today`` captured in the test and the
     ``dt.date.today()`` read inside ``get_rows`` always agree (no midnight race).
     """
+
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-06-16", tick=False):
+            yield
 
     def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
         integration = mock.MagicMock()

@@ -20,8 +20,12 @@ from products.marketing_analytics.backend.services.data_source_health import (
 )
 
 
-@time_machine.travel("2025-06-15", tick=False)
 class TestResolveSyncStatus:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2025-06-15", tick=False):
+            yield
+
     @parameterized.expand(
         [
             ("never_synced_returns_never", None, None, "never"),

@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import time_machine
 from posthog.test.base import (
@@ -259,7 +259,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ]
 
             _create_event(  # 3 am but included because date_from is set to start of day
-                timestamp=frozen_time(),
+                timestamp=datetime.now(),
                 team=self.team,
                 elements=elements,
                 event="$autocapture",
@@ -270,7 +270,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             frozen_time.shift(timedelta(hours=10))
 
             _create_event(  # included
-                timestamp=frozen_time(),
+                timestamp=datetime.now(),
                 team=self.team,
                 elements=elements,
                 event="$autocapture",

@@ -41,11 +41,29 @@ rules:
           - pattern-not-inside: |
                 with time_machine.travel(...) as $FT:
                     ...
+          # time_machine.travel only decorates unittest.TestCase subclasses, so a
+          # pytest-style class freezes its clock with an autouse fixture instead.
+          - pattern-not-inside: |
+                class $C(...):
+                    @pytest.fixture(autouse=True)
+                    def $FIX(...):
+                        with time_machine.travel(...):
+                            ...
+                    ...
+          - pattern-not-inside: |
+                class $C:
+                    @pytest.fixture(autouse=True)
+                    def $FIX(...):
+                        with time_machine.travel(...):
+                            ...
+                    ...
       message: |
           `datetime.now()` (or similar) in a test without a frozen clock causes
           flaky failures when CI runs near midnight UTC. Wrap the test method or
           class with `@time_machine.travel("...", tick=False)`, or use
-          `with time_machine.travel("...", tick=False):`.
+          `with time_machine.travel("...", tick=False):`. The class decorator
+          only works on a unittest.TestCase subclass; a pytest-style class needs
+          an autouse fixture that enters the same context manager.
       languages: [python]
       severity: WARNING
       metadata:

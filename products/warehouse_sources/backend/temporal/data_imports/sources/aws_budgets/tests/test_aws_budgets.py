@@ -544,8 +544,12 @@ class TestGetBudgetRows:
             )
 
 
-@time_machine.travel("2024-06-01T12:00:00Z", tick=False)
 class TestGetFanoutRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-01T12:00:00Z", tick=False):
+            yield
+
     LISTED = budgets_page(
         [
             {"BudgetName": "monthly-cost", "TimeUnit": "MONTHLY"},
