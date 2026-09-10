@@ -329,7 +329,9 @@ Both self-registration paths accept a `logo_uri`, and PostHog shows it on the co
 - Dynamic client registration (`POST /oauth/register/`, RFC 7591): send `logo_uri` alongside `redirect_uris`. The response echoes it back.
 - Client ID metadata documents: put `logo_uri` in the document.
 
-The URI must be `https` and must not resolve to an internal address, because a browser loads it from a PostHog page. A URI that fails either check is dropped and left out of the registration response. It never fails the registration, since a client can complete every OAuth flow without a logo.
+The URI must be `https`, because a PostHog page is https and a browser blocks anything else. A URI that fails that check is dropped and left out of the registration response. It never fails the registration, since a client can complete every OAuth flow without a logo.
+
+PostHog never fetches a logo itself, so there is no server-side request to guard. The browser loads it, from a page that sends no referrer.
 
 ## Signed-out visitors
 

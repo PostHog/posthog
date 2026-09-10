@@ -105,7 +105,7 @@ class DCRRequestSerializer(serializers.Serializer):
         max_length=MAX_LOGO_URI_LENGTH,
         required=False,
         allow_blank=True,
-        help_text="HTTPS URL of the client's logo, shown on the consent screen and on the login and signup screens. A URL that is not HTTPS, or that resolves to an internal address, is dropped and left out of the response.",
+        help_text="HTTPS URL of the client's logo, shown on the consent screen and on the login and signup screens. A URL that is not HTTPS is dropped and left out of the response.",
     )
 
 
