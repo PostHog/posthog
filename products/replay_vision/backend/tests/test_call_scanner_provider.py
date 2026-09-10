@@ -3,12 +3,12 @@ import dataclasses
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
 import httpx
+from freezegun import freeze_time
 from google.genai.errors import APIError
 from pydantic import BaseModel
 from temporalio.testing import ActivityEnvironment
