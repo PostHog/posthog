@@ -349,12 +349,24 @@ def auto_resolve_quiet_patterns(
         .filter(status=TicketPatternStatus.OPEN, last_seen_at__lt=quiet_since)
         .exclude(fingerprint__in=still_firing)
     )
+    resolved: list[UUID] = []
     for pattern in quiet:
-        pattern.status = TicketPatternStatus.RESOLVED
-        pattern.resolved_at = now
-        pattern.evidence = {**pattern.evidence, "auto_resolved": True}
-        pattern.save(update_fields=["status", "resolved_at", "evidence", "updated_at"])
-    return [p.id for p in quiet]
+        # The row is re-checked in the UPDATE, not held under a lock: an overlapping run that saw the
+        # topic fire again, or a human who dismissed it, moves the row out of this filter and the
+        # stale transition is dropped instead of applied.
+        applied = (
+            TicketPattern.objects.for_team(team.id)
+            .filter(id=pattern.id, status=TicketPatternStatus.OPEN, last_seen_at__lt=quiet_since)
+            .update(
+                status=TicketPatternStatus.RESOLVED,
+                resolved_at=now,
+                evidence={**pattern.evidence, "auto_resolved": True},
+                updated_at=now,
+            )
+        )
+        if applied:
+            resolved.append(pattern.id)
+    return resolved
 
 
 def run_detection(team: Team, *, now: datetime) -> DetectionOutcome:
