@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { defaultRetryConfig } from '~/common/utils/retries'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -177,6 +178,34 @@ describe('PersonMergeService store-owned merges', () => {
         const service = makeService()
 
         await expect(service.handleIdentifyOrAlias()).rejects.toThrow(PersonMergeCallFailedError)
+    })
+
+    // An ack on either shape drops the merge for good and leaves the person split
+    // across two records. The raw case is not hypothetical: PostgresRouter.transaction
+    // acquires its client outside the try that runs handlePostgresError, so a saturated
+    // pooler reaches this catch with the message but no flag.
+    it.each([
+        [
+            'a flagged dependency failure',
+            new DependencyUnavailableError('no more connections allowed', 'Postgres', new Error('pooler saturated')),
+        ],
+        ['a raw transient Postgres failure', new Error('no more connections allowed')],
+    ])('%s fails the batch instead of dropping the merge', async (_case, error) => {
+        store.mergePersons.mockRejectedValue(error)
+        const service = makeService()
+
+        // Identity, not just type: the retry framework reads isRetriable off
+        // whatever this rethrows, so a wrapped error would change redelivery.
+        await expect(service.handleIdentifyOrAlias()).rejects.toBe(error)
+    })
+
+    it('an unflagged failure still acks so one bad event cannot stall the partition', async () => {
+        store.mergePersons.mockRejectedValue(new Error('merge broke'))
+        const service = makeService()
+
+        const mergeResult = await service.handleIdentifyOrAlias()
+
+        expect(mergeResult.success).toBe(true)
     })
 
     it.each([
