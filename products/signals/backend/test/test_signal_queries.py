@@ -23,6 +23,7 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
+    _parse_signal_row,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     fetch_signals_for_report_sync,
@@ -350,6 +351,29 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
         )
 
         assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == set()
+
+
+class TestParseSignalRow:
+    def test_carries_only_the_metadata_the_research_selection_reads(self) -> None:
+        metadata = {
+            "report_id": str(uuid.uuid4()),
+            "source_product": "github",
+            "source_type": "issue",
+            "source_id": "42",
+            "weight": 0.5,
+            "extra": {"body": "x" * 1000},
+            "remediation": {"agent": "raise the timeout"},
+            "match_metadata": {"reason": "y" * 1000, "rejected_signal_ids": ["a", "b"]},
+            "report_signal_count": 3,
+            "research_trigger": True,
+        }
+        timestamp = datetime.now(UTC)
+
+        signal = _parse_signal_row(("doc-1", "the signal content", json.dumps(metadata), timestamp, timestamp))
+
+        assert signal.metadata == {"report_signal_count": 3, "research_trigger": True}
+        assert signal.extra == {"body": "x" * 1000}
+        assert signal.remediation == {"agent": "raise the timeout"}
 
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):

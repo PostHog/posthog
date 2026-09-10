@@ -98,6 +98,13 @@ def _report_placeholders(report_id: str) -> dict:
     }
 
 
+# The only stored metadata the report workflows read back off a ClickHouse row (see
+# summary.select_research_signal_key). The rest of the blob repeats fields SignalData already
+# carries and adds unbounded ones like `extra` and `match_metadata`, and this list rides four more
+# activity payloads per research pass.
+_RESEARCH_SELECTION_METADATA_KEYS = ("report_signal_count", "research_trigger")
+
+
 def _parse_signal_row(row: tuple) -> SignalData:
     """Turn a ClickHouse document embedding row into a SignalData."""
     document_id, content, metadata_str, timestamp_raw, inserted_at_raw = row
@@ -115,7 +122,7 @@ def _parse_signal_row(row: tuple) -> SignalData:
         timestamp=timestamp_raw,
         inserted_at=_ensure_tz_aware(inserted_at_raw),
         extra=metadata.get("extra", {}),
-        metadata=metadata,
+        metadata={key: metadata[key] for key in _RESEARCH_SELECTION_METADATA_KEYS if key in metadata},
         remediation=metadata.get("remediation"),
     )
 
