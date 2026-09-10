@@ -234,9 +234,7 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
     def _validate_source_specific_keys(self, attrs: dict[str, Any]) -> None:
         # Source is resolved from the instance on update, the submitted value on create.
         source = (
-            self.instance.source
-            if self.instance is not None
-            else attrs.get("source", LogsMetricRule.RecordSource.LOGS)
+            self.instance.source if self.instance is not None else attrs.get("source", LogsMetricRule.RecordSource.LOGS)
         )
         is_spans = source == LogsMetricRule.RecordSource.SPANS
         value_attribute = attrs.get("value_attribute")
@@ -249,9 +247,7 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
         group_by = attrs.get("group_by") or []
         for key in group_by:
             if key in METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS and key not in METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS:
-                raise ValidationError(
-                    {"group_by": f"{key!r} is a log-only group-by key; spans carry no such column."}
-                )
+                raise ValidationError({"group_by": f"{key!r} is a log-only group-by key; spans carry no such column."})
 
     def _validate_immutable_fields(self, attrs: dict[str, Any]) -> None:
         assert self.instance is not None
