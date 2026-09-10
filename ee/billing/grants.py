@@ -113,6 +113,9 @@ class EffectiveBillingGrants:
     roles: list[str] = field(default_factory=list)
     entitlements: list[str] = field(default_factory=list)
     projects: Optional[list[int]] = None
+    # The acting user's analytics id, carried beside the subject rather than inside it: the subject
+    # has to name the same principal forever, and a user without a distinct id can gain one later.
+    distinct_id: Optional[str] = None
 
     @property
     def grants_anything(self) -> bool:
@@ -228,21 +231,28 @@ def effective_billing_grants(
         return _grants_for_project_secret_key(authenticator, organization)
     if user is None or not isinstance(user, User):
         return NO_GRANTS
-    # distinct_id is nullable, and a subject has to identify one user for billing's own logs.
-    sub = f"user:{user.distinct_id or user.uuid}"
+    # The uuid, not the distinct id: it is unique, never null and never edited, so the subject names
+    # the same user for as long as the user exists. The distinct id rides along as its own claim.
+    sub = f"user:{user.uuid}"
+    distinct_id = user.distinct_id or None
     membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
     if membership is None:
-        return EffectiveBillingGrants(sub=sub)
+        return EffectiveBillingGrants(sub=sub, distinct_id=distinct_id)
     roles = [_role_name(membership.level)]
     if not _credential_may_act_for(authenticator, organization):
-        return EffectiveBillingGrants(sub=sub, roles=roles)
+        return EffectiveBillingGrants(sub=sub, roles=roles, distinct_id=distinct_id)
     scope = _billing_scope_from_credential(get_authenticator_scopes(authenticator))
     if BILLING_READ_SCOPE not in scope:
-        return EffectiveBillingGrants(sub=sub, roles=roles)
+        return EffectiveBillingGrants(sub=sub, roles=roles, distinct_id=distinct_id)
     entitlement = _entitlement_for_role(user, organization, membership.level)
     projects, anything = _projects_for_credential(organization, authenticator)
     if not anything:
-        return EffectiveBillingGrants(sub=sub, roles=roles, scope=scope)
+        return EffectiveBillingGrants(sub=sub, roles=roles, scope=scope, distinct_id=distinct_id)
     return EffectiveBillingGrants(
-        sub=sub, scope=scope, roles=roles, entitlements=entitlements_for(entitlement), projects=projects
+        sub=sub,
+        scope=scope,
+        roles=roles,
+        entitlements=entitlements_for(entitlement),
+        projects=projects,
+        distinct_id=distinct_id,
     )

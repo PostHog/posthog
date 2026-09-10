@@ -56,6 +56,10 @@ def build_billing_access_token_payload(
         "iat": int(now.timestamp()),
         "exp": int((now + ttl).timestamp()),
     }
+    if grants.distinct_id:
+        # The analytics identity, for attributing what billing captures back to the acting user.
+        # Absent when the user has none; `sub` is what identifies the principal.
+        payload["distinct_id"] = grants.distinct_id
     if act:
         payload["act"] = act
     return payload

@@ -177,6 +177,25 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertEqual(claims["entitlements"], entitlements_for(BillingEntitlement.FULL_ACCESS))
         self.assertEqual(claims["org_id"], str(self.organization.id))
         self.assertIsNone(claims["projects"])
+        # The subject names the user by uuid, which never changes, and the analytics id rides beside it.
+        self.assertEqual(claims["sub"], f"user:{self.user.uuid}")
+        self.assertEqual(claims["distinct_id"], self.user.distinct_id)
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_user_without_a_distinct_id_keeps_a_subject_of_their_own(self, mock_get):
+        mock_get.return_value = _response(SUBSCRIPTION)
+        self.user.distinct_id = None
+        self.user.save(update_fields=["distinct_id"])
+        self.client.force_login(self.user)
+
+        self.client.get(self._url("subscription/"))
+
+        claims = jwt.decode(
+            mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer "),
+            options={"verify_signature": False},
+        )
+        self.assertEqual(claims["sub"], f"user:{self.user.uuid}")
+        self.assertNotIn("distinct_id", claims)
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_current_alias_resolves_the_organization(self, mock_get):
