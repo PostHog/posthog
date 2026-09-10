@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { sketchpadFragmentSchema } from "./schemas";
+import {
+  SKETCHPAD_FIELD_ID_MAX_CHARS,
+  sketchpadFragmentSchema,
+} from "./schemas";
 
 export const SKETCHPAD_CHANNEL = "posthog-sketchpad";
 
@@ -55,14 +58,20 @@ export type SketchpadDataMethod = (typeof SKETCHPAD_DATA_METHODS)[number];
 
 const channel = z.literal(SKETCHPAD_CHANNEL);
 
-export const sketchpadFrameCaretSchema = z.object({
+export const sketchpadPresenceCaretSchema = z.object({
+  key: z.string().max(128),
+  anchor: z.string().max(SKETCHPAD_FIELD_ID_MAX_CHARS).nullable(),
+  focus: z.string().max(SKETCHPAD_FIELD_ID_MAX_CHARS).nullable(),
+});
+export type SketchpadPresenceCaret = z.infer<
+  typeof sketchpadPresenceCaretSchema
+>;
+
+export const sketchpadFrameCaretSchema = sketchpadPresenceCaretSchema.extend({
   clientId: z.string().max(128),
   name: z.string().max(120),
   color: z.string().max(32),
   textColor: z.string().max(32),
-  key: z.string().max(128),
-  anchor: z.string().max(64).nullable(),
-  focus: z.string().max(64).nullable(),
 });
 export type SketchpadFrameCaret = z.infer<typeof sketchpadFrameCaretSchema>;
 

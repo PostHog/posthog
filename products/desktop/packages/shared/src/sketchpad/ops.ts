@@ -2,6 +2,7 @@ import {
   emptyField,
   isField,
   SKETCHPAD_FIELD_MARK,
+  type SketchpadEditFieldOp,
   type SketchpadField,
 } from "./fields";
 import {
@@ -11,6 +12,7 @@ import {
   type SketchpadLogEntry,
   type SketchpadOp,
   type SketchpadSnapshot,
+  sketchpadFragmentSchema,
 } from "./schemas";
 
 export function applyOp(
@@ -63,11 +65,8 @@ export function applyOp(
     }
     case "edit_field": {
       const current = snapshot.state[op.key];
-      const holdsPlainValue =
-        current !== undefined && current !== null && !isField(current);
-      if (holdsPlainValue && !("initialValue" in op)) return snapshot;
-      const field = isField(current) ? current : emptyField(op.kind);
-      if (field[SKETCHPAD_FIELD_MARK] !== op.kind) return snapshot;
+      const field = fieldForEdit(current, op);
+      if (field === null) return snapshot;
 
       const entries = { ...field.entries };
       const removed = new Set(field.removed);
@@ -94,6 +93,40 @@ export function applyOp(
         state: { ...op.snapshot.state },
       };
   }
+}
+
+function fieldForEdit(
+  current: unknown,
+  op: SketchpadEditFieldOp,
+): SketchpadField | null {
+  if (isField(current))
+    return current[SKETCHPAD_FIELD_MARK] === op.kind ? current : null;
+  if (
+    current !== null &&
+    typeof current === "object" &&
+    !Array.isArray(current)
+  )
+    return null;
+  const value = current ?? null;
+  if ("initialValue" in op) {
+    if (stableJson(value) !== stableJson(op.initialValue)) return null;
+  } else if (value !== null) {
+    return null;
+  }
+  return emptyField(op.kind);
+}
+
+function stableJson(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, item) => {
+    if (item !== null && typeof item === "object" && !Array.isArray(item)) {
+      return Object.fromEntries(
+        Object.keys(item)
+          .sort()
+          .map((key) => [key, item[key]]),
+      );
+    }
+    return item;
+  });
 }
 
 export function foldOps(
@@ -123,22 +156,15 @@ export function minZ(snapshot: SketchpadSnapshot): number {
   return bottom;
 }
 
+const FRAGMENT_COMPARED_KEYS = (
+  Object.keys(sketchpadFragmentSchema.shape) as (keyof SketchpadFragment)[]
+).filter((key) => key !== "id");
+
 export function fragmentsEqual(
   a: SketchpadFragment,
   b: SketchpadFragment,
 ): boolean {
-  return (
-    a.title === b.title &&
-    a.x === b.x &&
-    a.y === b.y &&
-    a.w === b.w &&
-    a.h === b.h &&
-    a.z === b.z &&
-    a.code === b.code &&
-    a.codeVersion === b.codeVersion &&
-    a.surface === b.surface &&
-    a.hidden === b.hidden
-  );
+  return FRAGMENT_COMPARED_KEYS.every((key) => a[key] === b[key]);
 }
 
 const GRID = 40;

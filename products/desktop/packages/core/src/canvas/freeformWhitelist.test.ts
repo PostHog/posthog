@@ -29,7 +29,7 @@ describe("checkFreeformImports", () => {
   });
 
   it.each([
-    ['const m = import("react");', "dynamic import()"],
+    ['const m = import("react");', "import()"],
     ['const r = require("react");', "require()"],
     ["importScripts('evil.js');", "importScripts()"],
     ['const s = `<script src="x">`;', "inline <script>"],

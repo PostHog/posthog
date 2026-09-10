@@ -27,8 +27,8 @@ export const sketchpadFragmentSchema = z.object({
   z: z.number().int().safe().default(0),
   code: z.string().min(1).max(200_000),
   codeVersion: z.number().int().default(1),
-  surface: z.enum(["card", "plain"]).optional(),
-  hidden: z.boolean().optional(),
+  surface: z.enum(["card", "plain"]).default("card"),
+  hidden: z.boolean().default(false),
 });
 export type SketchpadFragment = z.infer<typeof sketchpadFragmentSchema>;
 
@@ -59,6 +59,8 @@ export const sketchpadFragmentPatchSchema = sketchpadFragmentSchema
   .omit({ id: true })
   .extend({
     z: sketchpadFragmentSchema.shape.z.removeDefault(),
+    surface: sketchpadFragmentSchema.shape.surface.removeDefault(),
+    hidden: sketchpadFragmentSchema.shape.hidden.removeDefault(),
     codeVersion: sketchpadFragmentSchema.shape.codeVersion.removeDefault(),
   })
   .partial();
@@ -113,25 +115,18 @@ export const sketchpadOpSchema = z.discriminatedUnion("type", [
 export type SketchpadOp = z.infer<typeof sketchpadOpSchema>;
 export type SketchpadOpType = SketchpadOp["type"];
 
-export const SKETCHPAD_OP_TYPES: readonly SketchpadOpType[] = [
-  "add_fragment",
-  "update_fragment",
-  "remove_fragment",
-  "bring_to_front",
-  "set_state",
-  "edit_field",
-  "restore",
-];
-
 export const sketchpadActorKindSchema = z.enum(["user", "agent"]);
 export type SketchpadActorKind = z.infer<typeof sketchpadActorKindSchema>;
 
-export const sketchpadActorSchema = z.object({
-  kind: sketchpadActorKindSchema,
+export const sketchpadUserSchema = z.object({
   userId: z.number().optional(),
   userUuid: z.string().optional(),
   userName: z.string().optional(),
   userEmail: z.string().optional(),
+});
+
+export const sketchpadActorSchema = sketchpadUserSchema.extend({
+  kind: sketchpadActorKindSchema,
   taskId: z.string().optional(),
 });
 export type SketchpadActor = z.infer<typeof sketchpadActorSchema>;
