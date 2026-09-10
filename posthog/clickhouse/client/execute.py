@@ -19,7 +19,7 @@ from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
 
-from posthog.api_queries_quota import increment_api_queries_bytes
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     Workload,
@@ -41,6 +41,7 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.dataclasses import frozen
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -213,6 +214,32 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
         return team_level
     return level
+
+
+def _meter_chargeable_query(team_id: str, query_info: Any) -> None:
+    # Runs after the pooled connection is released, and must never raise: a metering failure
+    # is an error counter, not a failed query.
+    try:
+        bytes_read = int(query_info.progress.bytes or 0)
+        remaining = debit(team_id, bytes_read)
+        record_request_query_cost(QueryCost(bytes_read=bytes_read, remaining_bytes=remaining))
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="meter").inc()
+        capture_exception(e)
+
+
+def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]:
+    """The query info to meter for the query that just ran on `client`, or None.
+
+    The driver only creates a new query info once the connection is established, so the identity
+    check keeps a pooled client's previous query from being re-metered when connecting fails.
+    The driver also clears `last_query` when it disconnects after a server-side error, so a query
+    the server killed is not metered.
+    """
+    query_info = getattr(client, "last_query", None)
+    if query_info is None or query_info is query_info_before or not query_info.progress:
+        return None
+    return query_info
 
 
 def kill_switch_overrides(team_id: Optional[int], ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dict[str, int]:
@@ -507,6 +534,7 @@ def sync_execute(
         else:
             settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
+    chargeable_query_info: Optional[Any] = None
 
     try:
         QUERY_STARTED_COUNTER.labels(
@@ -530,18 +558,10 @@ def sync_execute(
                 )
             finally:
                 # A query killed mid-scan (timeout, memory limit) has already cost the read, so
-                # meter the progress the server reported before it died. The driver only resets
-                # `last_query` once the connection is established; the identity check keeps a
-                # pooled client's previous query from being re-metered when connecting fails.
-                query_info = getattr(client, "last_query", None)
-                if (
-                    tags.chargeable
-                    and tags.org_id
-                    and query_info is not None
-                    and query_info is not query_info_before
-                    and query_info.progress
-                ):
-                    increment_api_queries_bytes(str(tags.org_id), query_info.progress.bytes)
+                # keep the progress the server reported before it died. The Redis write happens
+                # in the outer finally, once the connection is back in the pool.
+                if tags.chargeable and tags.team_id:
+                    chargeable_query_info = _chargeable_query_info(client, query_info_before)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
@@ -560,6 +580,8 @@ def sync_execute(
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
+        if chargeable_query_info is not None:
+            _meter_chargeable_query(str(tags.team_id), chargeable_query_info)
 
         QUERY_FINISHED_COUNTER.labels(
             team_id=str(team_id or ""),

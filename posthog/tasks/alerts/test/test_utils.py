@@ -7,13 +7,14 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import AlertCalculationInterval
+from posthog.schema import AlertCalculationInterval, AlertState
 
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     calculation_interval_to_order,
     disable_invalid_alert,
+    dispatch_alert_notification,
     next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
@@ -272,6 +273,71 @@ class TestSendNotificationsReceipts(APIBaseTest):
 
         assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
         mock_send.assert_called_once()
+
+
+class TestDispatchAlertInsightChart(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="test insight")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="test alert",
+            condition={"type": "absolute_value"},
+            created_by=self.user,
+        )
+        self.alert.subscribed_users.add(self.user)
+        self.alert_check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            state=AlertState.FIRING,
+            calculated_value=42.0,
+        )
+
+    @patch(
+        "posthog.tasks.alerts.utils.prepare_alert_insight_chart_url",
+        return_value="https://export/chart.png?token=abc",
+    )
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_firing_alert_attaches_rendered_chart_url(self, mock_send: MagicMock, _mock_prepare: MagicMock) -> None:
+        dispatch_alert_notification(self.alert, self.alert_check, ["Series A is below 1000"])
+
+        assert (
+            mock_send.call_args.kwargs["extra_properties"]["insight_chart_url"] == "https://export/chart.png?token=abc"
+        )
+
+    @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_real_time_alert_skips_chart_render(self, mock_send: MagicMock, mock_prepare: MagicMock) -> None:
+        self.alert.calculation_interval = AlertCalculationInterval.REAL_TIME
+        self.alert.save(update_fields=["calculation_interval"])
+
+        dispatch_alert_notification(self.alert, self.alert_check, ["breach"])
+
+        mock_prepare.assert_not_called()
+        # No chart keeps the common threshold-alert call shape (no extra_properties forwarded).
+        assert "extra_properties" not in mock_send.call_args.kwargs
+
+    @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_render_chart_false_skips_render_under_a_lock(self, _mock_send: MagicMock, mock_prepare: MagicMock) -> None:
+        # Callers holding a row lock pre-render instead; rendering here would block the
+        # lock for up to RENDER_TIMEOUT.
+        dispatch_alert_notification(self.alert, self.alert_check, ["breach"], render_chart=False)
+
+        mock_prepare.assert_not_called()
+
+    @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_supplied_chart_url_is_not_re_rendered(self, mock_send: MagicMock, mock_prepare: MagicMock) -> None:
+        dispatch_alert_notification(
+            self.alert,
+            self.alert_check,
+            ["breach"],
+            extra_properties={"insight_chart_url": "https://supplied/url"},
+        )
+
+        mock_prepare.assert_not_called()
+        assert mock_send.call_args.kwargs["extra_properties"]["insight_chart_url"] == "https://supplied/url"
 
 
 class TestDisableInvalidAlert(APIBaseTest):

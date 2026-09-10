@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
-	"fmt"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/valyala/fastjson"
 )
 
 func TestProcessLineErrorsOnMalformedJSON(t *testing.T) {
@@ -21,6 +24,18 @@ func TestDropKeysJSON(t *testing.T) {
 		name, input, want string
 		keys              []string
 	}{
+		{
+			name:  "dotted key in unfiltered sibling stays literal",
+			input: `{"keep":{"a.b":1},"items":{"a.b":2,"a.c":3}}`,
+			want:  `{"keep":{"a.b":1},"items":{"a":{"c":3}}}`,
+			keys:  []string{"items.a.b"},
+		},
+		{
+			name:  "dotted key at root expands even outside filter",
+			input: `{"keep.a.b":1,"items.a.b":2,"items.a.c":3}`,
+			want:  `{"keep":{"a":{"b":1}},"items":{"a":{"c":3}}}`,
+			keys:  []string{"items.a.b"},
+		},
 		{
 			"empty",
 			"{}",
@@ -102,6 +117,69 @@ func TestDropKeysJSON(t *testing.T) {
 			assert.NoError(t, err, "unexpected error processing line")
 			assert.Equal(t, c.want, buf.String(), "unexpected output")
 		})
+	}
+}
+
+func TestDropKeysPreservesDottedScopeAndEncoding(t *testing.T) {
+	for _, tc := range []struct {
+		input, want string
+		keys        []string
+	}{
+		{`{"a.b":1,"a":{"c":2},"a.d":3}`, `{"a":{"b":1},"a":{"c":2,"d":3}}`, nil},
+		{`{"a.b":1,"a":2,"a.c":3}`, `{"a":{},"a":2,"a":{"c":3}}`, []string{"a.b"}},
+		{`{"keep":{"a.b":1},"items":[{"a.b":2,"a.c":3}]}`, `{"keep":{"a.b":1},"items":[{"a":{"c":3}}]}`, []string{"items.a.b"}},
+		{`{"a":1,"a":2,"b":3}`, `{"b":3}`, []string{"a"}},
+		{`[[{"a.b":1,"a.c":2}],null,3]`, `[[{"a":{"c":2}}],null,3]`, []string{"a.b"}},
+		{`{"\u0061":1,"text":"\u0000\u001b\u263a\/","number":-1.230e+04}`, `{"text":"\u0000\u001b☺/","number":-1.230e+04}`, []string{"a"}},
+	} {
+		var output bytes.Buffer
+		if err := processLine(makeKeyDict(tc.keys), []byte(tc.input), &output); err != nil {
+			t.Fatal(err)
+		}
+		if output.String() != tc.want {
+			t.Fatalf("input %s: got %s, want %s", tc.input, output.String(), tc.want)
+		}
+	}
+}
+
+func TestDropKeysLargeRowsAndMemoryReuse(t *testing.T) {
+	for _, size := range []int{31, 4*1024*1024 + 17} {
+		row := `{"keep":"` + strings.Repeat("x", size) + `\n\t","drop":1}`
+		want := `{"keep":"` + strings.Repeat("x", size) + `\n\t"}`
+		for _, ending := range []string{"", "\n", "\r\n"} {
+			var output bytes.Buffer
+			if err := run(strings.NewReader(row+ending), &output, makeKeyDict([]string{"drop"})); err != nil {
+				t.Fatal(err)
+			}
+			expected := want
+			if ending != "" {
+				expected += "\n"
+			}
+			if output.String() != expected {
+				t.Fatalf("row size=%d ending=%q changed", size, ending)
+			}
+		}
+	}
+	obj := &objectNode{entries: make([]objectEntry, 1, 32)}
+	obj.entries[0] = objectEntry{key: "drop", value: (*scalarNode)(fastjson.MustParse(`"secret"`))}
+	obj.DropKeys(makeKeyDict([]string{"drop"}))
+	recycleNode(obj)
+	for _, entry := range obj.entries[:cap(obj.entries)] {
+		if entry.key != "" || entry.value != nil {
+			t.Fatal("recycled object retains dropped values")
+		}
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+func TestDropKeysStreamErrors(t *testing.T) {
+	if err := run(strings.NewReader(`{"drop":[1,]}`), io.Discard, makeKeyDict([]string{"drop"})); err == nil {
+		t.Fatal("malformed discarded value accepted")
+	}
+	if err := run(strings.NewReader(`{}`), failingWriter{}, nil); !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("write error lost: %v", err)
 	}
 }
 
@@ -198,47 +276,58 @@ func TestMakeKeyDict(t *testing.T) {
 }
 
 func BenchmarkProcessLine(b *testing.B) {
-	input := []byte(`{"id":1,"identity":"abc","properties":{"secret":"drop","public":"keep"},"events":[{"identity":"nested","value":1}],"amount":934504962295726700000}`)
-	keys := makeKeyDict([]string{"identity", "properties.secret"})
+	benchmarkProcessLines(b, "testdata/benchmarks/small.jsonl", []string{"identity", "properties.secret"})
+}
+
+func BenchmarkProcessFixture(b *testing.B) {
+	path := os.Getenv("BENCH_FILE")
+	if path == "" {
+		path = "testdata/benchmarks/events.jsonl"
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join("../..", path)
+	}
+
+	for _, tc := range []struct {
+		name string
+		path string
+		keys []string
+	}{
+		{name: "missing", path: path, keys: []string{"missing"}},
+		{name: "nested", path: path, keys: []string{"properties.secret"}},
+		{name: "subtree", path: path, keys: []string{"properties"}},
+		{name: "array", path: path, keys: []string{"events.identity"}},
+		{name: "dotted", path: "testdata/benchmarks/dotted.jsonl", keys: []string{"items.a.b"}},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			benchmarkProcessLines(b, tc.path, tc.keys)
+		})
+	}
+}
+
+func benchmarkProcessLines(b *testing.B, path string, keyPaths []string) {
+	b.Helper()
+	lines, totalBytes := loadBenchmarkLines(b, path)
+	keys := makeKeyDict(keyPaths)
 	var buf bytes.Buffer
 
+	for _, line := range lines {
+		if err := processLine(keys, line, &buf); err != nil {
+			b.Fatal(err)
+		}
+	}
 	b.ReportAllocs()
-	b.SetBytes(int64(len(input)))
+	b.SetBytes(int64(totalBytes / len(lines)))
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if err := processLine(keys, input, &buf); err != nil {
+		if err := processLine(keys, lines[i%len(lines)], &buf); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkProcessFixture(b *testing.B) {
-	lines, totalBytes := loadBenchmarkLines(b)
-	keys := makeKeyDict([]string{"identity", "properties.secret"})
-	var buf bytes.Buffer
-
-	b.ReportAllocs()
-	b.SetBytes(int64(totalBytes))
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		for _, line := range lines {
-			if err := processLine(keys, line, &buf); err != nil {
-				b.Fatal(err)
-			}
-		}
-	}
-}
-
-func loadBenchmarkLines(b *testing.B) ([][]byte, int) {
+func loadBenchmarkLines(b *testing.B, path string) ([][]byte, int) {
 	b.Helper()
-
-	path := os.Getenv("BENCH_FILE")
-	if path == "" {
-		return generatedBenchmarkLines()
-	} else if !filepath.IsAbs(path) {
-		path = filepath.Join("../..", path)
-	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -259,26 +348,6 @@ func loadBenchmarkLines(b *testing.B) ([][]byte, int) {
 
 	if len(lines) == 0 {
 		b.Fatalf("benchmark file has no JSON lines: %s", path)
-	}
-
-	return lines, totalBytes
-}
-
-func generatedBenchmarkLines() ([][]byte, int) {
-	lines := make([][]byte, 0, 256)
-	totalBytes := 0
-	for i := 0; i < 256; i++ {
-		line := []byte(fmt.Sprintf(
-			`{"id":%d,"identity":"user-%d","properties":{"secret":"s%d","public":"p%d"},"events":[{"identity":"nested-%d","value":%d}],"amount":934504962295726700000}`,
-			i,
-			i,
-			i,
-			i,
-			i,
-			i,
-		))
-		lines = append(lines, line)
-		totalBytes += len(line)
 	}
 
 	return lines, totalBytes

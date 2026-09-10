@@ -457,15 +457,8 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         Edge.objects.create(team=self.team, dag=dag, source=self.upstream_node, target=self.consumer_node)
         set_declared_target(self.consumer_node, timedelta(hours=6))
 
-    def _tiered(self):
-        return patch(
-            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-            return_value=True,
-        )
-
     def _read_upstream(self) -> tuple[dict, str]:
-        with self._tiered():
-            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/")
+        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()["sync_frequency_bounds"], response.content.decode()
 
@@ -506,7 +499,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         self._deny_the_consumer(self.editor_user)
         self.client.force_login(self.editor_user)
 
-        with self._tiered(), patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
                 {"sync_frequency": "24hour"},
@@ -521,7 +514,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 
-        with self._tiered(), patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
                 {"sync_frequency": "24hour"},
@@ -598,13 +591,7 @@ class TestSyncFrequencyTableBlockerAccessControl(WarehouseAccessControlTestMixin
         Edge.objects.create(team=self.team, dag=dag, source=source_node, target=self.view_node)
 
     def _read_view(self) -> tuple[dict, str]:
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=True,
-            ),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}/")
+        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()["sync_frequency_bounds"], response.content.decode()
 
@@ -690,13 +677,7 @@ class TestSyncFrequencyDuplicateResourceAcrossDags(WarehouseAccessControlTestMix
             Edge.objects.create(team=self.team, dag=dag, source=source_node, target=view_node)
 
     def _read_view(self) -> dict:
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=True,
-            ),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}/")
+        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()["sync_frequency_bounds"]
 

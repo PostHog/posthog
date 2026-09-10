@@ -56,16 +56,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
             side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
         )
-        self.tiered_schedules_patcher = mock.patch(
-            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-            return_value=True,
-        )
         self.mock_v2_dag_ids = self.v2_dag_ids_patcher.start()
-        self.tiered_schedules_patcher.start()
 
     def tearDown(self):
         self.v2_dag_ids_patcher.stop()
-        self.tiered_schedules_patcher.stop()
         super().tearDown()
 
     def test_enable_materialization_creates_saved_query(self):

@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/alerts/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AlertCreateSchema = () => {
@@ -84,6 +84,84 @@ const alertDelete = (): ToolBase<ReturnType<typeof AlertDeleteSchema>, unknown> 
         const result = await context.api.request<unknown>({
             method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AlertDestinationsCreateSchema = () => {
+    const AlertsDestinationsCreateBody = orvalSchemas.AlertsDestinationsCreateBody()
+    const AlertsDestinationsCreateParams = orvalSchemas.AlertsDestinationsCreateParams()
+    return AlertsDestinationsCreateParams.omit({ project_id: true })
+        .extend(AlertsDestinationsCreateBody.shape)
+        .extend({
+            type: AlertsDestinationsCreateBody.shape['type'].describe(
+                'Destination type. Slack is the only type this tool creates.'
+            ),
+            slack_workspace_id: AlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
+                'Integration ID of the connected Slack workspace.'
+            ),
+            slack_channel_id: AlertsDestinationsCreateBody.shape['slack_channel_id'].describe(
+                'Slack channel ID to post in, for example C0123456789.'
+            ),
+            slack_channel_name: AlertsDestinationsCreateBody.shape['slack_channel_name'].describe(
+                'Optional channel name shown on the destination.'
+            ),
+        })
+}
+
+const alertDestinationsCreate = (): ToolBase<
+    ReturnType<typeof AlertDestinationsCreateSchema>,
+    Schemas.AlertDestinationResponse
+> => ({
+    name: 'alert-destinations-create',
+    schema: AlertDestinationsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AlertDestinationsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.slack_workspace_id !== undefined) {
+            body['slack_workspace_id'] = params.slack_workspace_id
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        const result = await context.api.request<Schemas.AlertDestinationResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/destinations/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['hog_function_ids']) as typeof result
+        return filtered
+    },
+})
+
+const AlertDestinationsDeleteSchema = () => {
+    const AlertsDestinationsDeleteCreateBody = orvalSchemas.AlertsDestinationsDeleteCreateBody()
+    const AlertsDestinationsDeleteCreateParams = orvalSchemas.AlertsDestinationsDeleteCreateParams()
+    return AlertsDestinationsDeleteCreateParams.omit({ project_id: true }).extend(
+        AlertsDestinationsDeleteCreateBody.shape
+    )
+}
+
+const alertDestinationsDelete = (): ToolBase<ReturnType<typeof AlertDestinationsDeleteSchema>, unknown> => ({
+    name: 'alert-destinations-delete',
+    schema: AlertDestinationsDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AlertDestinationsDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.hog_function_ids !== undefined) {
+            body['hog_function_ids'] = params.hog_function_ids
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
+            body,
         })
         return result
     },
@@ -256,6 +334,8 @@ const alertsList = (): ToolBase<ReturnType<typeof AlertsListSchema>, WithPostHog
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alert-create': alertCreate,
     'alert-delete': alertDelete,
+    'alert-destinations-create': alertDestinationsCreate,
+    'alert-destinations-delete': alertDestinationsDelete,
     'alert-get': alertGet,
     'alert-simulate': alertSimulate,
     'alert-update': alertUpdate,

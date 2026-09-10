@@ -282,6 +282,26 @@ describe("cloud task update notifications", () => {
     ]);
   });
 
+  it("shows the credential error from cloud startup", () => {
+    const harness = createHarness();
+    harness.sendUpdate(
+      logsUpdate(
+        [
+          {
+            type: "notification",
+            notification: {
+              method: "_posthog/initialization_failed",
+              params: { initializationPhase: "credential_relay" },
+            },
+          },
+        ],
+        1,
+      ),
+    );
+    expect(harness.session.errorMessage).toContain("Settings > Harness");
+    expect(harness.session.status).toBe("error");
+  });
+
   it("does not seed a reopened run before its history is known", () => {
     expect(createHarness().session.optimisticItems).toEqual([]);
   });

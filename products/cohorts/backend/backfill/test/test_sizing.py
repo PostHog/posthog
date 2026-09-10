@@ -4,10 +4,19 @@ from unittest import mock
 
 from django.test import SimpleTestCase, override_settings
 
-from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
+from parameterized import parameterized
+
+from posthog.errors import InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryTimeOut
+
+from products.cohorts.backend.backfill.sizing import PersonSeedEstimateScanCapExceeded, estimate_person_seed_topic_bytes
 
 
-@override_settings(BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=10_000)
+@override_settings(
+    BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=10_000,
+    BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_BYTES=20_000_000_000,
+    BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS=300,
+)
 class TestPersonBackfillSizing(SimpleTestCase):
     @mock.patch(
         "products.cohorts.backend.backfill.sizing.sync_execute",
@@ -40,9 +49,32 @@ class TestPersonBackfillSizing(SimpleTestCase):
             sync_execute.call_args.args[1],
             {"team_id": 7, "person_scan_since": person_scan_since},
         )
+        # Both caps come from settings, so an environment that raises them for one large team gets a
+        # scan that can finish rather than a run that always refuses.
         self.assertEqual(
             sync_execute.call_args.kwargs["settings"],
-            {"max_execution_time": 30, "max_bytes_to_read": 10_000_000_000, "read_overflow_mode": "throw"},
+            {"max_execution_time": 300, "max_bytes_to_read": 20_000_000_000, "read_overflow_mode": "throw"},
         )
         self.assertEqual(sync_execute.call_args.kwargs["team_id"], 7)
         self.assertTrue(sync_execute.call_args.kwargs["readonly"])
+
+    @parameterized.expand(
+        [
+            ("too_many_rows", InternalCHQueryError("rows", code=158, code_name="too_many_rows")),
+            ("too_many_bytes", InternalCHQueryError("bytes", code=307, code_name="too_many_bytes")),
+            ("timeout", ClickHouseQueryTimeOut()),
+        ]
+    )
+    def test_a_scan_that_hits_a_cap_refuses(self, _name: str, raised: Exception) -> None:
+        # The callers turn this exception into a deterministic refusal. Any other exception is
+        # retried, which pays for the whole scan again on the user-facing cluster.
+        with mock.patch("products.cohorts.backend.backfill.sizing.sync_execute", side_effect=raised):
+            with self.assertRaises(PersonSeedEstimateScanCapExceeded):
+                estimate_person_seed_topic_bytes(7, datetime(2026, 5, 1, tzinfo=UTC), 2)
+
+    def test_an_unrelated_clickhouse_error_propagates(self) -> None:
+        raised = InternalCHQueryError("no such table", code=60, code_name="unknown_table")
+
+        with mock.patch("products.cohorts.backend.backfill.sizing.sync_execute", side_effect=raised):
+            with self.assertRaises(InternalCHQueryError):
+                estimate_person_seed_topic_bytes(7, datetime(2026, 5, 1, tzinfo=UTC), 2)

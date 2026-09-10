@@ -1,10 +1,11 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DatabaseField, ExpressionField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -140,52 +141,39 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False)
         self.aliases: dict[str, ast.Expr] = {}
-        self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
-        self.in_group_by = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_aliases = self.aliases
-        outer_alias_positions = self.alias_positions
         self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
-        self.alias_positions = {
-            expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
-        }
         lowered = super().visit_select_query(node)
-        if node.group_by is not None:
-            outer_in_group_by = self.in_group_by
-            self.in_group_by = True
-            try:
-                lowered.group_by = [self.visit(expr) for expr in node.group_by]
-            finally:
-                self.in_group_by = outer_in_group_by
-        for order in lowered.order_by or []:
-            order_expression = order.expr
-            while isinstance(order_expression, ast.Alias) and order_expression.hidden:
-                order_expression = order_expression.expr
-            if (
-                isinstance(order_expression, ast.Field)
-                and len(order_expression.chain) > 1
-                and isinstance(order_expression.chain[0], str)
-                and order_expression.chain[0] in self.aliases
-                and isinstance(order_expression.chain[-1], str)
-                and order_expression.chain[-1] in self.aliases
-            ):
-                order.expr = ast.PositionalRef(index=self.alias_positions[order_expression.chain[-1]])
+        if node.group_by is not None and lowered.group_by is not None and lowered.group_by_mode is None:
+            projections = [expression_key(expr) for expr in lowered.select]
+            # Separate parameter occurrences are not identical grouping expressions in Trino.
+            for index, expr in enumerate(lowered.group_by):
+                if positional_index(node.group_by[index]) is not None:
+                    continue
+                key = expression_key(expr)
+                if key in projections:
+                    lowered.group_by[index] = ast.PositionalRef(index=projections.index(key) + 1)
+        if node.order_by is not None and lowered.order_by is not None:
+            alias_positions = {
+                expr.alias: index + 1 for index, expr in enumerate(node.select) if isinstance(expr, ast.Alias)
+            }
+            for original, order in zip(node.order_by, lowered.order_by, strict=True):
+                expr = original.expr
+                while isinstance(expr, ast.Alias) and expr.hidden:
+                    expr = expr.expr
+                if (
+                    isinstance(expr, ast.Field)
+                    and isinstance(expr.type, ast.FieldAliasType)
+                    and len(expr.chain) == 1
+                    and isinstance(expr.chain[0], str)
+                    and (position := alias_positions.get(expr.chain[0])) is not None
+                ):
+                    order.expr = ast.PositionalRef(index=position)
         self.aliases = outer_aliases
-        self.alias_positions = outer_alias_positions
         return lowered
-
-    def visit_alias(self, node: ast.Alias) -> ast.Alias:
-        if node.hidden:
-            return clone_expr(node, clear_types=False)
-        already_expanding = node.alias in self.expanding
-        self.expanding.add(node.alias)
-        try:
-            return super().visit_alias(node)
-        finally:
-            if not already_expanding:
-                self.expanding.remove(node.alias)
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         outer_aliases = self.aliases
@@ -209,14 +197,12 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def visit_field(self, node: ast.Field) -> ast.Expr:
         if (
             len(node.chain) == 1
+            and isinstance(node.type, ast.FieldAliasType)
             and isinstance(node.chain[0], str)
             and node.chain[0] in self.aliases
             and node.chain[0] not in self.expanding
-            and not isinstance(node.type, ast.BaseTableType)
         ):
             alias = node.chain[0]
-            if self.in_group_by:
-                return ast.PositionalRef(index=self.alias_positions[alias])
             self.expanding.add(alias)
             try:
                 return self.visit(self.aliases[alias])
@@ -238,18 +224,27 @@ class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
             expression = projection.expr
             while isinstance(expression, ast.Alias) and expression.hidden:
                 expression = expression.expr
-            if not isinstance(expression, ast.Field):
-                projection.hidden = False
-                continue
-            field_type = projection.expr.type
+            field_type = expression.type
             while isinstance(field_type, ast.FieldAliasType):
                 field_type = field_type.type
             if not isinstance(field_type, ast.FieldType):
+                if self._selects_expression_field(lowered.select_from, projection.alias):
+                    projection.hidden = False
                 continue
             database_field = field_type.resolve_database_field(self.context)
             if isinstance(database_field, DatabaseField) and database_field.name != projection.alias:
                 projection.hidden = False
         return lowered
+
+    def _selects_expression_field(self, join: ast.JoinExpr | None, name: str) -> bool:
+        while join is not None:
+            table_type = join.type
+            while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+                table_type = table_type.table_type
+            if isinstance(table_type, ast.TableType) and isinstance(table_type.table.fields.get(name), ExpressionField):
+                return True
+            join = join.next_join
+        return False
 
 
 class TrinoArrayJoinFunctionLowerer(CloningVisitor):
