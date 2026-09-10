@@ -46,6 +46,8 @@ _NON_ASCII_HOST_ERROR = (
 # The sync registry and the schema-refresh map match this prefix; the rest of the message carries
 # the volatile host details.
 DATABASE_HOST_NOT_ALLOWED_ERROR = "Database host not allowed"
+SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR = "SSH tunnel host not allowed"
+TEMPORARY_HOST_RESOLUTION_PREFIX = "Temporary failure resolving the host"
 DATABASE_HOST_NOT_ALLOWED_GUIDANCE = (
     "PostHog rejected this source's database host because it either couldn't be resolved, or "
     "resolves to a private/internal address. Check the host is spelled correctly and reachable "
@@ -53,15 +55,16 @@ DATABASE_HOST_NOT_ALLOWED_GUIDANCE = (
 )
 
 
-class TemporaryHostResolutionError(Exception):
+class TemporaryHostResolutionError(NonReportableError):
     """The resolver failed while the policy looked a host up, without answering about the name.
 
-    Not a policy decision, so it stays a plain retryable error: no non-retryable registry
-    matches its message and the CDC classifier leaves it unknown.
+    Not a policy decision, so no non-retryable registry matches its message and the CDC classifier
+    leaves it unknown: the work fails and is retried. `NonReportableError` keeps every retry of a
+    resolver outage out of error tracking, on the activities that do not classify it themselves.
     """
 
     def __init__(self, host: str) -> None:
-        super().__init__(f"Temporary failure resolving the host '{host}'. Try again in a moment.")
+        super().__init__(f"{TEMPORARY_HOST_RESOLUTION_PREFIX} '{host}'. Try again in a moment.")
 
 
 class HostNotAllowedError(NonReportableError):
@@ -269,10 +272,14 @@ def _is_single_host(host: str) -> bool:
     """
     normalized = _normalize_host(host)
     try:
-        ipaddress.ip_address(normalized.strip("[]"))
-        return True
+        parsed = ipaddress.ip_address(normalized.strip("[]"))
     except ValueError:
         pass
+    else:
+        # A scope id ("fe80::1%eth0") selects an interface and is not part of the address. CPython
+        # keeps whatever follows the "%" verbatim, commas and spaces included, so a host list can
+        # ride through here and be split by the driver.
+        return parsed.version != 6 or parsed.scope_id is None
     return 0 < len(normalized) <= 253 and all(_HOST_LABEL.match(label) for label in normalized.split("."))
 
 
@@ -456,7 +463,7 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     """
     resolution = resolve_safe_host(ssh_config.host, team_id)
     if resolution.connect_host is None:
-        raise HostNotAllowedError(f"SSH tunnel host not allowed: {resolution.error}")
+        raise HostNotAllowedError(f"{SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
     return resolution.connect_host
 
 

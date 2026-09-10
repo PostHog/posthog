@@ -119,6 +119,8 @@ class TestIsHostSafe(SimpleTestCase):
             ("leading_space_postwh", " x.postwh.com", 999),
             ("trailing_dot_postwh", "x.postwh.com.", 999),
             ("newline_label_postwh", "evil.example.com\n.postwh.com", 999),
+            ("ipv6_scope_id_hiding_a_host_list", "fe80::1%x,10.0.0.1,x.postwh.com", 999),
+            ("ipv6_scope_id", "fe80::1%eth0", 999),
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")

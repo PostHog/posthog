@@ -72,6 +72,11 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (
+                "ssh_tunnel_host_not_allowed_is_a_tunnel_failure",
+                HostNotAllowedError("SSH tunnel host not allowed: resolves to a private address"),
+                CDCErrorCategory.SSH_TUNNEL_FAILED,
+            ),
+            (
                 "slot_missing",
                 psycopg.errors.UndefinedObject('replication slot "posthog_slot" does not exist'),
                 CDCErrorCategory.SLOT_MISSING,

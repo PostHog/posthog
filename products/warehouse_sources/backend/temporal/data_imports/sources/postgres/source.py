@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -120,8 +121,17 @@ _INVALID_CREDENTIALS_VALIDATION_ERROR = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+_HOST_RESOLUTION_RETRY_MESSAGE = (
+    "PostHog couldn't resolve your database host right now. Check the host name, then try again in a moment."
+)
+
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # The bounded lookup in front of the connect reports a stalled resolver and a "try again"
+    # answer as psycopg errors. Neither is a verdict on the host, so validation asks for a retry
+    # rather than capturing a self-recovering failure.
+    HOST_RESOLUTION_TIMEOUT_ERROR: _HOST_RESOLUTION_RETRY_MESSAGE,
+    TEMPORARY_HOST_RESOLUTION_ERROR: _HOST_RESOLUTION_RETRY_MESSAGE,
     # libpq reports a bad password via SCRAM with a different wording than the line above.
     "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # Supabase/Supavisor poolers report a missing tenant/user during credential validation with
@@ -1390,6 +1400,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 return False, _SSL_UNSUPPORTED_ERROR
             return False, str(e)
         except HostNotAllowedError as e:
+            return False, str(e)
+        except TemporaryHostResolutionError as e:
             return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
