@@ -387,17 +387,20 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return values.toolCalls
                     }
+                    const sharedFilters = values.sharedQueryFilters
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
                         values.selectedSession?.session_start,
                         calls.length,
-                        values.sharedQueryFilters
+                        sharedFilters
                     )
                     // If the user switched sessions while this page was loading, drop it — appending
                     // one session's calls onto another's list would show the wrong data. The backend
                     // orders by (timestamp, event_id), so pages don't overlap and need no dedupe.
-                    if (sessionId !== values.selectedSessionId) {
+                    // Same for a shared-filter change: this page was fetched under the old filters,
+                    // and both it and the snapshot it appends to describe a set the user left.
+                    if (sessionId !== values.selectedSessionId || sharedFilters !== values.sharedQueryFilters) {
                         return values.toolCalls
                     }
                     return { sessionId, calls: [...calls, ...page.calls], hasNext: page.hasNext }
@@ -531,15 +534,15 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
         // The shared property / test-account filters change the result set the same way this tab's
-        // own filters do, and they also narrow an already-open session's calls, so reload both.
-        // Reloading only the list leaves the detail panel showing calls the list no longer counts.
+        // own filters do, and they also narrow an already-open session's calls, so the detail panel
+        // has to reload too. It cannot reload here: the filters move the session's aggregated
+        // session_start, which bounds the detail scan, so loadToolCalls has to wait for the
+        // refreshed row. loadSessionsSuccess does it once that arrives.
         const reloadForSharedFilters = (): void => {
+            cache.reloadSelectedToolCalls = true
             actions.loadSessions()
-            if (values.selectedSessionId) {
-                actions.loadToolCalls(values.selectedSessionId)
-            }
         }
         return {
             // A new filter or sort changes the result set — reload from the first page.
@@ -567,6 +570,8 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             // Only fires on a reset load (not on loadMore), so appending more pages doesn't
             // steal the user's selection. Auto-selects the first row when the set changes.
             loadSessionsSuccess: ({ sessions }) => {
+                const reloadSelected = cache.reloadSelectedToolCalls === true
+                cache.reloadSelectedToolCalls = false
                 if (sessions.length === 0) {
                     if (values.selectedSessionId) {
                         actions.selectSession(null)
@@ -577,7 +582,10 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     ? sessions.some((s) => s.session_id === values.selectedSessionId)
                     : false
                 if (!stillVisible) {
+                    // selectSession loads the new session's calls, so this covers both cases.
                     actions.selectSession(sessions[0].session_id)
+                } else if (reloadSelected && values.selectedSessionId) {
+                    actions.loadToolCalls(values.selectedSessionId)
                 }
             },
         }
