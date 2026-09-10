@@ -7028,6 +7028,7 @@ export namespace Schemas {
       Linear: 'linear',
       Github: 'github',
       Gitlab: 'gitlab',
+      Helpscout: 'helpscout',
       MetaAds: 'meta-ads',
       Instagram: 'instagram',
       Clickup: 'clickup',
@@ -48086,6 +48087,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -48138,6 +48140,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
       Intercom: 'intercom',
@@ -48190,6 +48193,7 @@ export namespace Schemas {
        * * `google-pubsub` - Google Pubsub
        * * `google-search-console` - Google Search Console
        * * `google-sheets` - Google Sheets
+       * * `helpscout` - Helpscout
        * * `hubspot` - Hubspot
        * * `instagram` - Instagram
        * * `intercom` - Intercom
@@ -62075,6 +62079,17 @@ export namespace Schemas {
       results: WizardRunArtifact[];
     }
 
+    export interface WizardRunCreator {
+      /** Unique ID of the user who created the Wizard run. */
+      readonly id: number;
+      /** First name of the user who created the Wizard run. */
+      readonly first_name: string;
+      /** Last name of the user who created the Wizard run. */
+      readonly last_name: string;
+      /** Email address of the user who created the Wizard run. */
+      readonly email: string;
+    }
+
     export type WizardWorkspace = LocalFolderWorkspace | GitRepositoryWorkspace;
 
     /**
@@ -62123,6 +62138,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly created_by_id: number | null;
+      /** User who created the Wizard run, or null if that user no longer exists. */
+      readonly created_by: WizardRunCreator | null;
       /** Where the setup agent runs.
        *
        * * `local` - local
@@ -99443,6 +99460,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -99506,6 +99524,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
       Intercom: 'intercom',
