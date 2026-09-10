@@ -1,19 +1,33 @@
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 
+import ViewRecordingButton, {
+    RecordingPlayerType,
+    ViewRecordingButtonVariant,
+} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-import type { _LogsImpactResponseApi } from 'products/logs/frontend/generated/api.schemas'
+import type { _LogsImpactResponseApi, _LogsImpactTopValueApi } from 'products/logs/frontend/generated/api.schemas'
 
 export interface LogsImpactCountsProps {
     impact: _LogsImpactResponseApi
+    /** Pivots the viewer to Group mode grouped by the dominant session ID key. */
+    onGroupBySessions?: () => void
+    /** Pivots the viewer to Group mode grouped by the dominant distinct ID key. */
+    onGroupByUsers?: () => void
 }
 
 /**
  * Sessions and users behind a set of logs, with how much of the set carries each ID.
  * The coverage figure is load-bearing: a session count over 3% of the logs means
- * something different from the same count over all of them.
+ * something different from the same count over all of them. Each count opens a
+ * popover with the top values behind it, linking into replay and person profiles.
  */
-export function LogsImpactCounts({ impact }: LogsImpactCountsProps): JSX.Element | null {
+export function LogsImpactCounts({
+    impact,
+    onGroupBySessions,
+    onGroupByUsers,
+}: LogsImpactCountsProps): JSX.Element | null {
     if (impact.total === 0) {
         return null
     }
@@ -41,26 +55,119 @@ export function LogsImpactCounts({ impact }: LogsImpactCountsProps): JSX.Element
         return percentage(fraction, 0)
     }
 
+    const sessionsCaption = `Estimated unique session IDs, by log count. ${percentOfLogs(
+        impact.logsWithSessionId
+    )} of the matching logs carry a session ID.`
+    const usersCaption = `Estimated unique people, by log count. ${percentOfLogs(
+        impact.logsWithDistinctId
+    )} of the matching logs carry a distinct ID.`
+
     return (
-        <span className="flex items-center gap-2 text-muted text-xs" data-attr="logs-impact-counts">
+        <span className="flex items-center gap-1 text-muted text-xs" data-attr="logs-impact-counts">
             {impact.logsWithSessionId > 0 && (
-                <Tooltip
-                    title={`Estimated unique session IDs on the matching logs. ${percentOfLogs(
-                        impact.logsWithSessionId
-                    )} of them carry a session ID.`}
+                <LemonDropdown
+                    placement="bottom-start"
+                    closeOnClickInside={false}
+                    overlay={
+                        <TopValuesOverlay
+                            caption={sessionsCaption}
+                            entries={impact.topSessions ?? []}
+                            renderValue={(value) => (
+                                <ViewRecordingButton
+                                    sessionId={value}
+                                    openPlayerIn={RecordingPlayerType.Modal}
+                                    label={value}
+                                    variant={ViewRecordingButtonVariant.Link}
+                                    checkRecordingExists
+                                    data-attr="logs-impact-top-session"
+                                />
+                            )}
+                            onGroupBy={onGroupBySessions}
+                            groupByLabel="Group logs by session ID"
+                            groupByDataAttr="logs-impact-group-by-sessions"
+                        />
+                    }
                 >
-                    <span data-attr="logs-impact-sessions">{humanFriendlyLargeNumber(impact.sessions)} sessions</span>
-                </Tooltip>
+                    <LemonButton size="xsmall" data-attr="logs-impact-sessions" tooltip={sessionsCaption}>
+                        <span className="text-muted text-xs font-normal">
+                            {/* The changing number gets its own element: a bare changing text
+                            node beside siblings breaks under in-page translation. */}
+                            <span>{humanFriendlyLargeNumber(impact.sessions)}</span> sessions
+                        </span>
+                    </LemonButton>
+                </LemonDropdown>
             )}
             {impact.logsWithDistinctId > 0 && (
-                <Tooltip
-                    title={`Estimated unique people on the matching logs. ${percentOfLogs(
-                        impact.logsWithDistinctId
-                    )} of them carry a distinct ID.`}
+                <LemonDropdown
+                    placement="bottom-start"
+                    closeOnClickInside={false}
+                    overlay={
+                        <TopValuesOverlay
+                            caption={usersCaption}
+                            entries={impact.topUsers ?? []}
+                            renderValue={(value) => (
+                                <span onClick={(e) => e.stopPropagation()}>
+                                    <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
+                                </span>
+                            )}
+                            onGroupBy={onGroupByUsers}
+                            groupByLabel="Group logs by distinct ID"
+                            groupByDataAttr="logs-impact-group-by-users"
+                        />
+                    }
                 >
-                    <span data-attr="logs-impact-users">{humanFriendlyLargeNumber(impact.users)} users</span>
-                </Tooltip>
+                    <LemonButton size="xsmall" data-attr="logs-impact-users" tooltip={usersCaption}>
+                        <span className="text-muted text-xs font-normal">
+                            <span>{humanFriendlyLargeNumber(impact.users)}</span> users
+                        </span>
+                    </LemonButton>
+                </LemonDropdown>
             )}
         </span>
+    )
+}
+
+interface TopValuesOverlayProps {
+    caption: string
+    entries: _LogsImpactTopValueApi[]
+    renderValue: (value: string) => JSX.Element
+    onGroupBy?: () => void
+    groupByLabel: string
+    groupByDataAttr: string
+}
+
+/** Top identity values behind one impact count, each with its approximate log count. */
+function TopValuesOverlay({
+    caption,
+    entries,
+    renderValue,
+    onGroupBy,
+    groupByLabel,
+    groupByDataAttr,
+}: TopValuesOverlayProps): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1 p-1 max-w-160">
+            <span className="text-muted text-xs">{caption}</span>
+            {entries.map(({ value, count }) => (
+                <div key={value} className="flex items-center justify-between gap-4 text-xs">
+                    <span className="font-mono truncate">{renderValue(value)}</span>
+                    <span className="text-muted whitespace-nowrap">
+                        <span>{humanFriendlyLargeNumber(count)}</span> logs
+                    </span>
+                </div>
+            ))}
+            {onGroupBy && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    fullWidth
+                    center
+                    onClick={onGroupBy}
+                    data-attr={groupByDataAttr}
+                >
+                    {groupByLabel}
+                </LemonButton>
+            )}
+        </div>
     )
 }
