@@ -2071,10 +2071,21 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 240)
         self.assertEqual(test_variant.number_of_samples, 3)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_query_runner_with_unique_users_metric(self):
+    def test_query_runner_with_unique_users_metric(self, name, use_precomputation):
         """Test that unique users metric correctly counts unique users, not total events."""
+        # The precomputed read embeds per-run job UUIDs; zero all numbers so the
+        # snapshot is stable across runs.
+        self.snapshot_replace_all_numbers = True
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 10)
@@ -2098,7 +2109,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         # Create test data with multiple events per user to verify unique counting
         # Control: 3 users, but user_0 has 3 events, user_1 has 2 events, user_2 has 1 event
@@ -2163,6 +2174,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
+
+        # A broken precomputed read silently falls back to the direct scan; assert the intended path ran.
+        assert query_runner._metric_events_precomputed is use_precomputation
+
         assert result.variant_results is not None
 
         self.assertEqual(len(result.variant_results), 1)
