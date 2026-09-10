@@ -1269,10 +1269,10 @@ class TestWebhookUpsertCollapse:
             # rows in arrival order, so the last row carries the newer state. Keeping the first
             # row left the invoice at `open` in the warehouse while Stripe showed `paid`, and
             # the sync still reported success.
-            ("tie broken by arrival order", [(1788677494, "open"), (1788677494, "paid")], "paid"),
+            ("tie broken by arrival order", [(1700000100, "open"), (1700000100, "paid")], "paid"),
             # A redelivery can arrive after a newer event, so a plain last-row-wins rule would
             # reinstate the older state.
-            ("older event delivered last", [(1788677494, "paid"), (1788677400, "open")], "paid"),
+            ("older event delivered last", [(1700000100, "paid"), (1700000050, "open")], "paid"),
         ]
     )
     def test_latest_state_per_object_wins(
@@ -1284,7 +1284,7 @@ class TestWebhookUpsertCollapse:
                     f"evt_{index}",
                     "invoice.updated",
                     event_created,
-                    {"id": "in_1", "object": "invoice", "created": 1788677439, "status": status},
+                    {"id": "in_1", "object": "invoice", "created": 1700000000, "status": status},
                 )
                 for index, (event_created, status) in enumerate(deliveries)
             ]
