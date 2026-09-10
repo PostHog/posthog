@@ -25,6 +25,7 @@ from posthog.temporal.tests.utils.events import generate_test_events, insert_eve
 
 from products.batch_exports.backend.api.file_download import (
     COUNT_ROWS_TIMEOUT_MESSAGE,
+    DEFAULT_MAX_SIZE_MB,
     _calculate_expiration_for_file_download,
     _generate_s3_pre_signed_url,
     _get_file_download_for_run,
@@ -806,6 +807,7 @@ class TestFileDownloadHogQL:
         batch_export_model = mock_start_file_download_export.call_args.kwargs["batch_export_model"]
         assert batch_export_model.name == "hogql"
         assert batch_export_model.hogql_query == hogql_query
+        assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
 
     @pytest.mark.usefixtures("override_file_download_settings", "enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)

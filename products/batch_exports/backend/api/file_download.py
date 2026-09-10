@@ -53,6 +53,7 @@ from products.batch_exports.backend.temporal.sql.common import get_user_hogql_ba
 
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
+DEFAULT_MAX_SIZE_MB = 1024
 LOGGER = structlog.get_logger(__name__)
 _FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
     # 4 ASCII bytes to fill 32-bit PostgreSQL lock key
@@ -83,10 +84,11 @@ class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
     )
     max_size_mb = serializers.IntegerField(
         required=False,
-        default=None,
+        default=DEFAULT_MAX_SIZE_MB,
         allow_null=True,
         min_value=0,
-        help_text="Split download into multiple files of at most this size in MB",
+        help_text="Split the download into files of at most this size in MB. Set it to null or 0 to "
+        "write a single file of any size.",
     )
 
 
