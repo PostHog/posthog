@@ -14,7 +14,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, ActivityLogUserName, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityLogItem,
+    ActivityLogUserName,
+    actorEmailForLogItem,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { ActivityScope } from '~/types'
@@ -71,7 +76,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                 <ProfilePicture
                                     user={{
                                         first_name: name,
-                                        email: logItem.user?.email ?? undefined,
+                                        email: actorEmailForLogItem(logItem) ?? undefined,
                                     }}
                                     type={logItem.is_system ? 'system' : 'person'}
                                     size="md"

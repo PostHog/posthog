@@ -74,6 +74,8 @@ export type HumanizedChange = { description: Description | null; extendedDescrip
 export type HumanizedActivityLogItem = {
     id?: string
     email?: string | null
+    /** The email to offer on hover, or null when the row already prints it as the actor's name. */
+    emailToReveal?: string | null
     name?: string
     isSystem?: boolean
     wasImpersonated?: boolean
@@ -121,6 +123,7 @@ export function humanize(
             logLines.push({
                 id: logItem.id,
                 email: actorEmailForLogItem(logItem),
+                emailToReveal: actorEmailToRevealForLogItem(logItem),
                 name: logItem.was_impersonated
                     ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
                     : impersonatedUserName,
@@ -164,11 +167,18 @@ function nameOrEmailForUser(
 // member who was impersonated and attributing it to Support would misread the audit trail. Every
 // surface that shows the email must use this, or a row can disclose it in one place and hide it
 // in another.
-export function actorEmailForLogItem(logItem: ActivityLogItem): string | undefined {
+export function actorEmailForLogItem(logItem: ActivityLogItem): string | null {
     if (logItem.is_system || logItem.was_impersonated) {
-        return undefined
+        return null
     }
-    return logItem.user?.email
+    return logItem.user?.email ?? null
+}
+
+// Kept apart from actorEmailForLogItem because that one also feeds the Gravatar lookup, and a
+// member whose name is their email still has a Gravatar to show.
+export function actorEmailToRevealForLogItem(logItem: ActivityLogItem): string | null {
+    const email = actorEmailForLogItem(logItem)
+    return email && email !== userNameForLogItem(logItem) ? email : null
 }
 
 /** The person who did the thing, with their email on hover. */

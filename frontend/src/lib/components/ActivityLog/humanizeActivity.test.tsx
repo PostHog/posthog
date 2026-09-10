@@ -76,11 +76,11 @@ describe('humanizeActivity', () => {
             ],
             ['stays plain when there is no user', {}, false],
         ])('%s', (_name, overrides: Partial<ActivityLogItem>, expectTooltip: boolean) => {
-            expect(renderName(overrides).hasAttribute('data-base-ui-tooltip-trigger')).toBe(expectTooltip)
-        })
-
-        it('masks the actor name from session replay', () => {
-            const element = renderName({ user: { first_name: 'Ada', last_name: 'Lovelace', email: 'ada@posthog.com' } })
+            const element = renderName(overrides)
+            expect(element.hasAttribute('data-base-ui-tooltip-trigger')).toBe(expectTooltip)
+            // The only visual cue that the name is hoverable.
+            expect(element.classList.contains('cursor-help')).toBe(expectTooltip)
+            // Dropping this on either branch sends every actor name into session replay.
             expect(element.classList.contains('ph-no-capture')).toBe(true)
         })
     })

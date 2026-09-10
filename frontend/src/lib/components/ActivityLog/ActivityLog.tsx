@@ -180,7 +180,13 @@ export const ActivityLogRow = ({
             >
                 {/* Tooltip merges the trigger props onto its child element, and ProfilePicture drops props
                     it does not declare, so the trigger must land on the span instead of the avatar. */}
-                <Tooltip title={logItem.email ? <span className="ph-no-capture">{logItem.email}</span> : undefined}>
+                <Tooltip
+                    title={
+                        logItem.emailToReveal ? (
+                            <span className="ph-no-capture">{logItem.emailToReveal}</span>
+                        ) : undefined
+                    }
+                >
                     <span className="flex shrink-0">
                         <ProfilePicture
                             showName={false}
