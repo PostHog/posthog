@@ -417,6 +417,9 @@ describe('useGroupList', () => {
             await waitFor(() => expect(result.current.totalResultCount).toBe(150))
             // "Needle cohort" is not in the first page — only a server search finds it.
             rerender({ q: 'needle' })
+            // While the server search waits for the debounce, the list must not read as "no results".
+            expect(result.current.isFetching).toBe(true)
+            expect(result.current.showEmptyState).toBe(false)
             await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort']))
         })
     })
