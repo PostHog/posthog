@@ -514,6 +514,35 @@ describe('experimentReplayTabLogic', () => {
         unavailable.unmount()
     })
 
+    it('moves the control on the verdict alone, while the linkability check is still in flight', async () => {
+        // Two independent requests open the tab, and either can finish first. The playlist's hold
+        // waits on both, but only the verdict decides the scope, so a control following the hold
+        // showed the refused scope as the selection, greyed out with its own refusal as the
+        // tooltip, until an unrelated request finished.
+        let resolveSeenTogether!: (map: Record<string, boolean>) => void
+        seenTogetherSpy.mockReturnValue(new Promise((resolve) => (resolveSeenTogether = resolve)))
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
+            available: false,
+            unavailable_reason: "This experiment's exposure event hasn't been captured yet.",
+        })
+        const verdictFirst = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 60 } as Experiment })
+        verdictFirst.mount()
+        await expectLogic(verdictFirst).toDispatchActions(['loadInSessionExposureSuccess'])
+
+        expect(verdictFirst.values.playlistHeldForChecks).toBe(true)
+        expect(verdictFirst.values.displayedExposureScope).toBe('all_exposed')
+        expect(verdictFirst.values.effectiveExposureScope).toBe('all_exposed')
+
+        // "All sessions" is the only option left enabled, and the control already shows it as
+        // selected, so a click there must not store an opt-out from a default nobody left.
+        verdictFirst.actions.setExposureScope('all_exposed')
+        expect(verdictFirst.values.exposureScope).toBe('in_session')
+
+        resolveSeenTogether(ALL_LINKABLE)
+        await expectLogic(verdictFirst).toFinishAllListeners()
+        verdictFirst.unmount()
+    })
+
     it('reports a scope change once per actual change, with the surface it came from', async () => {
         // The opt-out rate counts viewers who leave the default scope, so a repeated set of the
         // same scope must not inflate it, and the empty state's way back must not read as an

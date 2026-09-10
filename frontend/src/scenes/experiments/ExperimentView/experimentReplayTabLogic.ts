@@ -627,7 +627,7 @@ export interface experimentReplayTabLogicMeta {
             seenTogetherMapLoading: boolean
         ) => boolean
         displayedExposureScope: (
-            playlistHeldForChecks: boolean,
+            inSessionExposureLoading: boolean,
             exposureScope: ExperimentReplayExposureScope,
             effectiveExposureScope: ExperimentReplayExposureScope
         ) => ExperimentReplayExposureScope
@@ -1134,20 +1134,26 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 (inSessionExposureLoading || (!linkabilityLoaded && seenTogetherMapLoading)),
         ],
         // What the scope control shows, which is not always what the query runs on. The query holds
-        // at the all-sessions superset until the checks confirm, so rendering that would select
+        // at the all-sessions superset until the verdict confirms, so rendering that would select
         // "All sessions" on every tab open and snap to the stored scope a few hundred milliseconds
-        // later, next to a skeleton where the list should be. While the playlist is held there is
-        // no list to describe yet, so the control and its caption show the scope the tab is going
-        // to settle on. The two values may differ only for the length of that hold: once it ends
-        // this is `effectiveExposureScope`, including the move to all sessions that an unavailable
-        // verdict makes, which is a correction rather than flicker.
+        // later, next to a skeleton where the list should be. While the verdict is in flight there
+        // is no list to describe yet, so the control and its caption show the scope the tab is
+        // going to settle on. The two values may differ only for the length of that wait: once the
+        // verdict lands this is `effectiveExposureScope`, including the move to all sessions that
+        // an unavailable verdict makes, which is a correction rather than flicker.
+        //
+        // The verdict alone, not `playlistHeldForChecks`: that hold also waits on the linkability
+        // check, which has no say in which scope the query runs on. Reading it here left a refused
+        // scope rendering as the selection, greyed out and carrying its own refusal as the tooltip,
+        // next to a caption claiming evidence the server had just withheld. It stayed that way for
+        // as long as the unrelated request took.
         displayedExposureScope: [
-            (s) => [s.playlistHeldForChecks, s.exposureScope, s.effectiveExposureScope],
+            (s) => [s.inSessionExposureLoading, s.exposureScope, s.effectiveExposureScope],
             (
-                playlistHeldForChecks: boolean,
+                inSessionExposureLoading: boolean,
                 exposureScope: ExperimentReplayExposureScope,
                 effectiveExposureScope: ExperimentReplayExposureScope
-            ): ExperimentReplayExposureScope => (playlistHeldForChecks ? exposureScope : effectiveExposureScope),
+            ): ExperimentReplayExposureScope => (inSessionExposureLoading ? exposureScope : effectiveExposureScope),
         ],
         // Whether the exposure event is ever seen carrying a session id, off the shared linkability
         // check. Null until the check lands, and for an action exposure config, which matches
