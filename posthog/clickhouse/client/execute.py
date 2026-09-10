@@ -560,9 +560,9 @@ def sync_execute(
                 # A query killed mid-scan (timeout, memory limit) has already cost the read, so
                 # keep the progress the server reported before it died. The Redis write happens
                 # in the outer finally, once the connection is back in the pool.
-                # Endpoint runs are chargeable for billing but exempt from the read budget (see
-                # QueryRunner._call_with_rate_limits), so they are not debited either.
-                if tags.chargeable and tags.team_id and tags.feature != Feature.ENDPOINT_EXECUTION:
+                # Materialized endpoint runs are chargeable for billing but exempt from the read
+                # budget (see QueryRunner._call_with_rate_limits), so they are not debited either.
+                if tags.chargeable and tags.team_id and tags.workload != Workload.ENDPOINTS:
                     chargeable_query_info = _chargeable_query_info(client, query_info_before)
             if (
                 "INSERT INTO" in prepared_sql

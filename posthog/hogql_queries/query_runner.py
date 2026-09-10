@@ -129,7 +129,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
@@ -2075,11 +2075,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
-            # Endpoints are billed as API queries but keep their own throttles and mostly serve
-            # cached or materialized results, so they do not draw from the read budget. Keyed on
-            # the feature tag, which only the endpoint run view sets; the product tag is
-            # caller-supplied via query.tags.productKey, so it cannot gate an exemption.
-            if get_query_tag_value("feature") != Feature.ENDPOINT_EXECUTION:
+            # Materialized endpoint runs read a precomputed table on the endpoints workload, so
+            # they do not draw from the read budget. Inline endpoint runs cost the same bytes as
+            # /query and stay budgeted. Keyed on the workload tag, which only the endpoint run
+            # view sets; the product tag is caller-supplied via query.tags.productKey.
+            if not is_materialized_endpoint:
                 self._enforce_api_queries_budget()
 
         with (
