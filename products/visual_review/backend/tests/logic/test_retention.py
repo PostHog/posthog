@@ -1,6 +1,6 @@
 """Unit tests for logic/retention.py, the run and artifact retention sweep."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 
@@ -158,6 +158,20 @@ class TestRetentionSweep:
             == 1
         )
 
+    def test_protected_run_is_repointed_when_the_run_it_names_expires(self, repo, now):
+        latest = self._run(repo, now, age_days=5)
+        expired = self._run(repo, now, age_days=40, superseded_by=latest)
+        # No PR number counts as protected history, so this one keeps its 180
+        # days while the run it names goes at 30.
+        protected = self._run(repo, now, age_days=40, pr_number=None, superseded_by=expired)
+
+        result = retention.sweep_repo(repo, now=now)
+
+        assert result.runs_deleted == 1
+        assert not Run.objects.filter(id=expired.id).exists()
+        protected.refresh_from_db()
+        assert protected.superseded_by_id == latest.id
+
     @pytest.mark.parametrize(
         ("model", "extra_fields"),
         [
@@ -309,3 +323,21 @@ class TestRetentionSweep:
         sweep_visual_review_retention()
 
         assert sweep_repo.call_count == 0
+
+
+class TestRotateForDay:
+    def test_every_item_leads_the_list_once_over_a_full_cycle(self):
+        items = ["a", "b", "c", "d"]
+        first_day = date(2026, 9, 10)
+
+        leaders = [retention.rotate_for_day(items, first_day + timedelta(days=n))[0] for n in range(len(items))]
+
+        assert sorted(leaders) == sorted(items)
+
+    def test_rotation_keeps_every_item(self):
+        items = ["a", "b", "c", "d"]
+
+        assert sorted(retention.rotate_for_day(items, date(2026, 9, 10))) == sorted(items)
+
+    def test_an_empty_list_stays_empty(self):
+        assert retention.rotate_for_day([], date(2026, 9, 10)) == []

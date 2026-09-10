@@ -2424,12 +2424,15 @@ describe('Workflows E2E (postgres-v2)', () => {
                                 non_failure_status_codes: { value: [409] },
                             },
                         },
+                        output_variable: { key: 'task' },
                     },
+                    function_2: fetchAction('https://example.com/task-done'),
                     exit: exitAction(),
                 },
                 edges: [
                     { from: 'trigger', to: 'function_1', type: 'continue' },
-                    { from: 'function_1', to: 'exit', type: 'continue' },
+                    { from: 'function_1', to: 'function_2', type: 'continue' },
+                    { from: 'function_2', to: 'exit', type: 'continue' },
                 ],
             })
             flowId = flow.id
@@ -2487,13 +2490,51 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(claims.hog_flow_id).toEqual(flowId)
 
             // The step parks until Django wakes it with the task's outcome.
+            let originKey = ''
             await waitForExpect(async () => {
                 const { rows } = await cyclotronPool.query(`SELECT id, status, state FROM cyclotron_jobs`)
                 expect(rows).toHaveLength(1)
                 expect(rows[0].status).toEqual('available')
                 const state = parseJSON(rows[0].state.toString('utf-8')).state
                 expect(state.currentAction.awaitingResume.key).toEqual(`${rows[0].id}:function_1:0`)
+                originKey = state.currentAction.awaitingResume.key
             }, 10000)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(runMetricNames()).not.toContain('failed')
+
+            // Django reports the run finished: the same internal event it produces, through the
+            // matcher's own parser, wakes the parked step and the workflow moves on.
+            const matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+            const { resumes } = matcher._splitStepResumes([
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: {
+                                uuid: 'a5c2d9e1-3f4b-4c8d-9e0f-1a2b3c4d5e6f',
+                                event: '$workflow_step_resume',
+                                distinct_id: `team_${team.id}`,
+                                properties: {
+                                    origin_key: originKey,
+                                    status: 'completed',
+                                    result: { run_id: 'run-1', final_message: 'Found the cause' },
+                                },
+                                timestamp: '2024-01-01T00:00:00Z',
+                            },
+                        })
+                    ),
+                } as any,
+            ])
+            await matcher.processStepResumes(resumes)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(2)
+            }, 10000)
+            expect(mockFetch.mock.calls[1][0]).toEqual('https://example.com/task-done')
+            const logs = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                .map((m: any) => m.value.message as string)
+            expect(logs).toContainEqual(expect.stringContaining('[Action:function_1] The task finished'))
             expect(runMetricNames()).not.toContain('failed')
         })
 
@@ -2512,7 +2553,8 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(runMetricNames()).toContain('failed')
             }, 10000)
             // 409 is terminal for the step: one request, no retry burning the engine's budget.
-            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const taskCreates = mockFetch.mock.calls.filter(([url]) => (url as string).includes('/workflow_tasks/'))
+            expect(taskCreates).toHaveLength(1)
         })
     })
 
@@ -2647,6 +2689,12 @@ describe('Workflows E2E (email queue)', () => {
 
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
+        // Without a Valkey host the SES rate limiter pool is null and every sending
+        // limit in this block is silently disabled. Point it at the local test Redis.
+        hub.SES_RATE_LIMITER_VALKEY_HOST = hub.CDP_REDIS_HOST || '127.0.0.1'
+        if (hub.CDP_REDIS_PORT) {
+            hub.SES_RATE_LIMITER_VALKEY_PORT = hub.CDP_REDIS_PORT
+        }
 
         // `.invalid` domains are NXDOMAIN, everything else resolves as deliverable.
         const nxdomain = () => Promise.reject(Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' }))
@@ -3457,6 +3505,110 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             expect(emailsSent()).toBe(2)
         }, 15000)
+    })
+
+    it("a workflow over its sending limit does not hold up another workflow's emails", async () => {
+        // Two workflows on the same team and the same email queue. Workflow A has a
+        // sending limit of 2 per minute and gets 8 sends queued at once, so all but the
+        // first are denied. Workflow B has no limit and 3 sends. The whole pipeline is
+        // real: events consumer -> hogflow worker -> email queue -> email worker ->
+        // rate limiter -> reschedule. B's emails must go out while A's denied sends
+        // park on their own future slots, each dequeued once, with the job row's
+        // transition counter staying low.
+        const buildEmailFlow = (triggerEvent: string, recipient: string): HogFlow =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', ...eventNameFilter(triggerEvent) },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-workflows-e2e-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: recipient, name: 'Recipient' },
+                                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                                            subject: `To ${recipient}`,
+                                            text: 'Test text',
+                                            html: '<p>Test html</p>',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+        const flowA = buildEmailFlow('signup_a', 'recipient-a@example.com')
+        const flowB = buildEmailFlow('signup_b', 'recipient-b@example.com')
+        await insertHogFlow(hub.postgres, flowA)
+        await insertHogFlow(hub.postgres, flowB)
+        // 2 per minute: one burst send, then one slot every 30s. The denied sends park
+        // 30s+ out, far past this test's clock, so they stay parked.
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogflow SET email_sending_rate_limit = $1 WHERE id = $2`,
+            [JSON.stringify({ count: 2, period: 'minute' }), flowA.id],
+            'set-email-sending-rate-limit'
+        )
+
+        const events = [
+            ...Array.from({ length: 8 }, (_, i) =>
+                createGlobals({ event: 'signup_a', uuid: new UUIDT().toString(), distinct_id: `person_a_${i}` } as any)
+            ),
+            ...Array.from({ length: 3 }, (_, i) =>
+                createGlobals({ event: 'signup_b', uuid: new UUIDT().toString(), distinct_id: `person_b_${i}` } as any)
+            ),
+        ]
+        const { backgroundTask } = await eventsConsumer.processBatch(events)
+        await backgroundTask
+
+        // B's 3 runs finish end to end, and A gets its one in-budget send out: 4 sends total.
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const bJobs = jobs.filter((j: any) => j.function_id === flowB.id)
+            expect(bJobs.length).toBe(3)
+            expect(bJobs.every((j: any) => j.status === 'completed')).toBe(true)
+
+            const sent = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
+                .filter((m: any) => m.value.metric_name === 'email_sent')
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            expect(sent).toBe(4)
+        }, 15000)
+
+        // A's 7 denied sends are parked out of the way: still queued, each on its own
+        // future slot, each dequeued exactly once on the email queue.
+        const jobs = await queryCyclotronJobs()
+        const parkedA = jobs.filter(
+            (j: any) => j.function_id === flowA.id && j.queue_name === 'email' && j.status === 'available'
+        )
+        expect(parkedA.length).toBe(7)
+        const slots = parkedA.map((j: any) => new Date(j.scheduled).getTime())
+        expect(new Set(slots).size).toBe(7)
+        for (const slot of slots) {
+            expect(slot).toBeGreaterThan(Date.now() + 20_000)
+        }
+        // Trigger enqueue, hogflow pass (dequeue + route to email), email pass
+        // (dequeue + park) is at most 4 transitions. Anything higher means a
+        // denied send went around the loop again.
+        for (const job of parkedA) {
+            expect(job.transition_count).toBeLessThanOrEqual(4)
+        }
     })
 
     it('rate-limited variant processes emails end-to-end through the dedicated bucket', async () => {

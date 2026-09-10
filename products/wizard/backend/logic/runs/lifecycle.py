@@ -35,7 +35,7 @@ from products.wizard.backend.logic.runs import (
     cancellation as cancellation_service,
     store,
 )
-from products.wizard.backend.logic.runs.admission import enforce_cloud_run_creation_policy
+from products.wizard.backend.logic.runs.admission import enforce_cloud_run_creation_policy, lock_cloud_run_creation
 from products.wizard.backend.logic.runs.dispatch import dispatch_created_cloud_wizard_run_to_temporal_worker
 from products.wizard.backend.logic.runs.errors import WizardRunDispatchError
 from products.wizard.backend.logic.runs.fingerprints import create_run_request_fingerprint
@@ -99,6 +99,7 @@ def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationRes
 
     with database_transaction.atomic():
         if is_cloud_run:
+            lock_cloud_run_creation(params.team_id, params.created_by_id)
             enforce_cloud_run_creation_policy(params.team_id, params.created_by_id, params.idempotency_key)
 
         result = store.create_run(

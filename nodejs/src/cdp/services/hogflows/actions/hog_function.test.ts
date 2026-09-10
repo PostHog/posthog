@@ -773,7 +773,12 @@ describe('HogFunctionHandler', () => {
 
         it.each([
             ['clamps a wait past the ceiling', { max_wait: '99d', label: 'export' }, 24 * 60, 'Waiting for the export'],
-            ['ignores a wait it cannot parse', { max_wait: 'soon' }, null, null],
+            [
+                'continues and logs when it cannot parse the wait',
+                { max_wait: '190min' },
+                null,
+                `Ignored the template's wait request: await.max_wait must be a duration like '190m' or '2h', got "190min"`,
+            ],
         ])('%s', async (_, awaitRequest, expectedMinutes, expectedLog) => {
             jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
                 finished: true,
@@ -796,10 +801,8 @@ describe('HogFunctionHandler', () => {
             } else {
                 expect(Math.round(handlerResult.scheduledAt!.diff(before).as('minutes'))).toBe(expectedMinutes)
                 expect(handlerResult.result).toEqual({ id: 'x1' })
-                expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
-                    expect.stringContaining(expectedLog!)
-                )
             }
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(expect.stringContaining(expectedLog))
         })
 
         describe('on resume', () => {
@@ -881,6 +884,25 @@ describe('HogFunctionHandler', () => {
                 expect(
                     Buffer.byteLength(JSON.stringify({ ...invocation.state.variables, task_result: stored }))
                 ).toBeLessThanOrEqual(5120)
+            })
+
+            it('continues past a completed task whose output is off, and warns in the run log', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { output: { verdict: 'ship' }, warnings: ["'score' is a required property"] },
+                }
+
+                const { handlerResult, invocationResult } = await execute()
+
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(handlerResult.result).toMatchObject({ output: { verdict: 'ship' } })
+                expect(invocationResult.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'warn',
+                        message: expect.stringContaining("'score' is a required property"),
+                    })
+                )
             })
 
             it('fails the step when the task did not complete', async () => {

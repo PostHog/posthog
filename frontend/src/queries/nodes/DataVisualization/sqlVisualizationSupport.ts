@@ -19,7 +19,7 @@ const VISUALIZATION_SUPPORT: Record<ChartDisplayType, VisualizationSupport> = {
     [ChartDisplayType.ScatterPlot]: 'manual',
     [ChartDisplayType.TwoDimensionalHeatmap]: 'manual',
     [ChartDisplayType.ActionsBarValue]: 'manual',
-    [ChartDisplayType.Metric]: 'manual',
+    [ChartDisplayType.Metric]: 'axes',
     [ChartDisplayType.WorldMap]: 'manual',
     [ChartDisplayType.CalendarHeatmap]: 'manual',
     [ChartDisplayType.BoxPlot]: 'manual',
@@ -48,11 +48,12 @@ export function sqlVisualizationDisabledReason(
     }
 
     const nextQuery = applyVisualizationType(query, displayType, columns, rowCount)
-    if (nextQuery.chartSettings?.xAxis && nextQuery.chartSettings.yAxis?.length) {
+    const hasYAxis = !!nextQuery.chartSettings?.yAxis?.length
+    if (hasYAxis && (drawnAs === ChartDisplayType.Metric || nextQuery.chartSettings?.xAxis)) {
         return undefined
     }
 
-    return nextQuery.chartSettings?.yAxis?.length
+    return hasYAxis
         ? 'This insight has no column left to label the X-axis'
         : 'This insight has no numeric column to plot'
 }
