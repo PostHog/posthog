@@ -3,13 +3,9 @@ import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { dateOptionPlurals } from 'scenes/retention/constants'
-import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DateRange, RetentionFilter, RetentionQuery } from '~/queries/schema/schema-general'
-import { InsightLogicProps, RetentionPeriod } from '~/types'
-
 import type {
     FunnelsQuery,
     LifecycleQuery,
@@ -18,11 +14,15 @@ import type {
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '../../queries/schema/schema-general'
-import type { PathsV2Query } from '../../queries/schema/schema-general'
-import type { LabelGroupType } from '../../types'
+} from '~/queries/schema/schema-general'
+import type { PathsV2Query } from '~/queries/schema/schema-general'
+import { InsightLogicProps, RetentionPeriod } from '~/types'
+import type { LabelGroupType } from '~/types'
+
+import { dateOptionPlurals } from './constants'
 import { dateOptionToTimeIntervalMap } from './constants'
 import { MeanRetentionValue, retentionLogic } from './retentionLogic'
+import { ProcessedRetentionPayload, RetentionTrendPayload } from './types'
 import { formatRetentionCohortLabel } from './utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'

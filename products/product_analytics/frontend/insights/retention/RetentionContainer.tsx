@@ -12,7 +12,7 @@ import { RetentionEmptyResultsBanner } from './RetentionEmptyResultsBanner'
 import { RetentionGraph } from './RetentionGraph'
 import { retentionLogic } from './retentionLogic'
 import { RetentionModal } from './RetentionModal'
-import { RetentionTable } from './RetentionTable'
+import { RetentionTable } from './RetentionTable/RetentionTable'
 
 export function RetentionContainer({
     inCardView,

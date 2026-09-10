@@ -6,7 +6,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
+
+import { retentionLogic } from 'products/product_analytics/frontend/insights/retention/retentionLogic'
 
 import { MinimumOccurrencesInput } from '../filters/MinimumOccurrencesInput'
 import { RetentionAggregationSelector } from '../filters/RetentionAggregationSelector'

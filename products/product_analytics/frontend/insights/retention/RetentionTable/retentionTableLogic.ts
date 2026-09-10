@@ -1,20 +1,20 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import type { DataColorTheme } from 'lib/colors'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
+import type { DataNode, DateRange, RetentionFilter, VizSpecificOptions } from '~/queries/schema/schema-general'
 import { isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps, InsightType } from '~/types'
 
-import type { DataColorTheme } from '../../lib/colors'
-import type { DataNode, DateRange, RetentionFilter, VizSpecificOptions } from '../../queries/schema/schema-general'
-import { dateOptionPlurals } from './constants'
-import { retentionLogic } from './retentionLogic'
-import type { MeanRetentionValue } from './retentionLogic'
-import { NO_BREAKDOWN_VALUE, ProcessedRetentionPayload, RetentionTableRow } from './types'
-import { formatRetentionCohortLabel } from './utils'
+import { dateOptionPlurals } from '../constants'
+import { retentionLogic } from '../retentionLogic'
+import type { MeanRetentionValue } from '../retentionLogic'
+import { NO_BREAKDOWN_VALUE, ProcessedRetentionPayload, RetentionTableRow } from '../types'
+import { formatRetentionCohortLabel } from '../utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 

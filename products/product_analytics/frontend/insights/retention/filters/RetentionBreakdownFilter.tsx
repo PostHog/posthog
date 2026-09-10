@@ -4,7 +4,7 @@ import { LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { retentionLogic } from './retentionLogic'
+import { retentionLogic } from '../retentionLogic'
 
 export function RetentionBreakdownFilter(): JSX.Element | null {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
