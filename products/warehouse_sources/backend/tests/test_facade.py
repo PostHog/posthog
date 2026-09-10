@@ -235,6 +235,13 @@ class TestWarehouseSourcesFacade(BaseTest):
         with self.assertNumQueries(1):
             assert api.allowed_table_ids(self.team.id, access, required_level=required_level) == expected
 
+        narrowed = api.allowed_table_ids(
+            self.team.id, access, required_level=required_level, ids=[granted.id, ungranted.id]
+        )
+        assert narrowed == frozenset({granted.id})
+        with self.assertNumQueries(0):
+            assert api.allowed_table_ids(self.team.id, access, required_level=required_level, ids=[]) == frozenset()
+
         membership.level = OrganizationMembership.Level.ADMIN
         membership.save(update_fields=["level"])
         admin = UserAccessControl(member, team=self.team)

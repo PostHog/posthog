@@ -5,14 +5,12 @@ run after run is already known about; re-notifying every run is how an inbox get
 """
 
 from collections.abc import Sequence
-from typing import cast
 from urllib.parse import quote
 from uuid import UUID
 
 import structlog
 
 from posthog.models import Team, User
-from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade import api as data_modeling_facade
@@ -42,12 +40,7 @@ from .subjects import resolve_subject
 
 LOGGER = structlog.get_logger(__name__)
 
-# Object-level access controls for a warehouse table or view are keyed on the child resource; both
-# inherit from the `warehouse_objects` umbrella the built-in resource-level filter checks.
-_SUBJECT_RESOURCE: dict[SubjectType, APIScopeObject] = {
-    SubjectType.TABLE: cast(APIScopeObject, "warehouse_table"),
-    SubjectType.VIEW: cast(APIScopeObject, "warehouse_view"),
-}
+_OBJECT_GATED_SUBJECT_TYPES = frozenset({SubjectType.TABLE, SubjectType.VIEW})
 
 
 class _WarehouseSubjectResolver(RecipientsResolver):
@@ -108,8 +101,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         return self._filter_by_referenced_subject_access(user_ids)
 
     def _filter_by_object_access(self, user_ids: list[int]) -> list[int]:
-        resource = _SUBJECT_RESOURCE.get(SubjectType(self._subject_type))
-        if resource is None:
+        if SubjectType(self._subject_type) not in _OBJECT_GATED_SUBJECT_TYPES:
             return user_ids
         object_id = UUID(self._subject_uuid)
 
@@ -120,9 +112,9 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         for user in User.objects.filter(id__in=user_ids):
             access = self._access_of(user)
             allowed_ids = (
-                warehouse_facade.allowed_table_ids(self._team.id, access)
+                warehouse_facade.allowed_table_ids(self._team.id, access, ids=[object_id])
                 if self._subject_type == SubjectType.TABLE
-                else data_modeling_facade.allowed_saved_query_ids(self._team.id, access)
+                else data_modeling_facade.allowed_saved_query_ids(self._team.id, access, ids=[object_id])
             )
             if object_id in allowed_ids:
                 allowed.append(user.id)

@@ -385,12 +385,23 @@ def allowed_table_ids(
     user_access_control: "UserAccessControl",
     *,
     required_level: "AccessControlLevel" = "viewer",
+    ids: Collection[UUID] | None = None,
 ) -> frozenset[UUID]:
+    """The queryable tables this caller may reach at ``required_level``.
+
+    ``ids`` narrows the objects loaded before their access controls are read, so a caller asking
+    about one table does not pay for the whole warehouse. ``None`` asks about every table; an empty
+    collection asks about none.
+    """
+    if ids is not None and not ids:
+        return frozenset()
+    candidates = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
+    if ids is not None:
+        candidates = candidates.filter(id__in=ids)
     tables = list(
-        _DataWarehouseTable.raw_objects.queryable()
-        .filter(team_id=team_id)
-        .select_related("external_data_source")
-        .only("id", "created_by_id", "external_data_source_id", "external_data_source__id")
+        candidates.select_related("external_data_source").only(
+            "id", "created_by_id", "external_data_source_id", "external_data_source__id"
+        )
     )
     sources = {
         table.external_data_source_id: table.external_data_source

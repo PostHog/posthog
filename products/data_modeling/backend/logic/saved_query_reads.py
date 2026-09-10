@@ -1,6 +1,6 @@
 """Contract-shaped reads of saved queries for consumers outside this product."""
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -71,10 +71,20 @@ def allowed_saved_query_ids(
     user_access_control: "UserAccessControl",
     *,
     required_level: "AccessControlLevel" = "viewer",
+    ids: Collection[UUID] | None = None,
 ) -> frozenset[UUID]:
-    saved_queries = list(
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).only("id", "created_by_id")
-    )
+    """The saved queries this caller may reach at ``required_level``.
+
+    ``ids`` narrows the objects loaded before their access controls are read, so a caller asking
+    about one view does not pay for the whole project. ``None`` asks about every view; an empty
+    collection asks about none.
+    """
+    if ids is not None and not ids:
+        return frozenset()
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True)
+    if ids is not None:
+        candidates = candidates.filter(id__in=ids)
+    saved_queries = list(candidates.only("id", "created_by_id"))
     user_access_control.preload_object_access_controls(list(saved_queries))
     return frozenset(
         saved_query.id
