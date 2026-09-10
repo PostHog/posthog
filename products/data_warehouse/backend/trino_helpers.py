@@ -164,6 +164,102 @@ def get_trino_source_location_for_schema_model(
     )
 
 
+def _index_schema_models_by_location(
+    schema_models: dict[str, ExternalDataSchema],
+    *,
+    default_catalog: str | None,
+) -> dict[TrinoSourceLocation, ExternalDataSchema]:
+    by_location: dict[TrinoSourceLocation, ExternalDataSchema] = {}
+    for schema_model in schema_models.values():
+        location = get_trino_source_location_for_schema_model(
+            schema_name=schema_model.name,
+            sync_type_config=schema_model.sync_type_config,
+            table_options=schema_model.table.options if schema_model.table is not None else None,
+            default_catalog=default_catalog,
+        )
+        by_location.setdefault(location, schema_model)
+    return by_location
+
+
+def _persist_trino_schema_metadata(
+    matched: ExternalDataSchema,
+    source_schema: SourceSchema,
+    *,
+    source: ExternalDataSource,
+    location: TrinoSourceLocation,
+) -> None:
+    """Store the full column list and detected primary key, then drop dead columns from the
+    saved projection."""
+    resolved_catalog, resolved_schema, resolved_table = location
+
+    # Metadata holds the full column list (column-picker UI); projection lives on `enabled_columns`.
+    schema_metadata = sql_schema_metadata(
+        source_schema.columns,
+        source_schema.foreign_keys,
+        source_catalog=resolved_catalog,
+        source_schema=resolved_schema,
+        source_table_name=resolved_table,
+    )
+    new_sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
+    # Persist the detected primary key without clobbering a value already stored — e.g. an
+    # explicit override set during creation or a prior refresh.
+    if source_schema.detected_primary_keys and not new_sync_type_config.get("primary_key_columns"):
+        new_sync_type_config["primary_key_columns"] = source_schema.detected_primary_keys
+    matched.sync_type_config = new_sync_type_config
+    update_fields = ["sync_type_config", "updated_at"]
+
+    # Drop dead columns so the next projection doesn't reference `missing_col`.
+    available_names = extract_available_column_names(schema_metadata)
+    pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
+    if removed_columns:
+        log.info(
+            "trino.reconcile_schemas.pruned_enabled_columns",
+            source_id=str(source.id),
+            schema_id=str(matched.id),
+            schema_name=matched.name,
+            removed_columns=removed_columns,
+        )
+        matched.enabled_columns = pruned_enabled_columns
+        update_fields.append("enabled_columns")
+    matched.save(update_fields=update_fields)
+
+
+def _upsert_direct_trino_table_for_schema(
+    matched: ExternalDataSchema,
+    source_schema: SourceSchema,
+    *,
+    source: ExternalDataSource,
+    location: TrinoSourceLocation,
+) -> None:
+    if not matched.should_sync:
+        hide_direct_trino_table(matched.table)
+        return
+
+    resolved_catalog, resolved_schema, resolved_table = location
+    projected_columns = filter_dwh_columns_by_enabled_columns(
+        trino_columns_to_dwh_columns(source_schema.columns),
+        matched.enabled_columns,
+        source_schema.detected_primary_keys,
+        matched.incremental_field,
+        # Direct-Trino columns are keyed by raw, case-sensitive source names. The
+        # guarded helper falls back to all columns when a projection would empty out,
+        # so a stale selection can't leave the live table unqueryable.
+        normalize=False,
+    )
+    table_model = upsert_direct_trino_table(
+        matched.table,
+        schema_name=source_schema.name,
+        source=source,
+        columns=projected_columns,
+        source_catalog=resolved_catalog,
+        source_schema=resolved_schema,
+        source_table_name=resolved_table,
+    )
+    if matched.table_id != table_model.id:
+        matched.table = table_model
+        matched.save(update_fields=["table"])
+
+
 def reconcile_trino_schemas(
     *,
     source: ExternalDataSource,
@@ -175,27 +271,17 @@ def reconcile_trino_schemas(
     only)."""
 
     is_direct = source.is_direct_query
-    source_schema_names = [s.name for s in source_schemas]
     default_catalog = get_default_trino_catalog(source)
     reconciliation = get_schemas_for_direct_reconciliation(
         source_id=source.id,
         team_id=team_id,
-        current_schema_names=source_schema_names,
+        current_schema_names=[s.name for s in source_schemas],
     )
     schema_models = {schema.name: schema for schema in reconciliation.active_schemas}
-
-    schema_models_by_location: dict[TrinoSourceLocation, ExternalDataSchema] = {}
-    for schema_model in schema_models.values():
-        location = get_trino_source_location_for_schema_model(
-            schema_name=schema_model.name,
-            sync_type_config=schema_model.sync_type_config,
-            table_options=schema_model.table.options if schema_model.table is not None else None,
-            default_catalog=default_catalog,
-        )
-        schema_models_by_location.setdefault(location, schema_model)
+    schema_models_by_location = _index_schema_models_by_location(schema_models, default_catalog=default_catalog)
 
     for source_schema in source_schemas:
-        resolved = get_trino_source_location(
+        location = get_trino_source_location(
             schema_name=source_schema.name,
             schema_metadata={
                 "source_catalog": source_schema.source_catalog,
@@ -204,75 +290,14 @@ def reconcile_trino_schemas(
             },
             default_catalog=default_catalog,
         )
-        matched: ExternalDataSchema | None = schema_models.get(source_schema.name)
-        if matched is None:
-            matched = schema_models_by_location.get(resolved)
+        matched = schema_models.get(source_schema.name) or schema_models_by_location.get(location)
         if matched is None:
             continue
 
-        resolved_catalog, resolved_schema, resolved_table = resolved
+        _persist_trino_schema_metadata(matched, source_schema, source=source, location=location)
 
-        # Metadata holds the full column list (column-picker UI); projection lives on `enabled_columns`.
-        schema_metadata = sql_schema_metadata(
-            source_schema.columns,
-            source_schema.foreign_keys,
-            source_catalog=resolved_catalog,
-            source_schema=resolved_schema,
-            source_table_name=resolved_table,
-        )
-        new_sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
-        # Persist the detected primary key without clobbering a value already stored — e.g. an
-        # explicit override set during creation or a prior refresh.
-        if source_schema.detected_primary_keys and not new_sync_type_config.get("primary_key_columns"):
-            new_sync_type_config["primary_key_columns"] = source_schema.detected_primary_keys
-        matched.sync_type_config = new_sync_type_config
-        update_fields = ["sync_type_config", "updated_at"]
-
-        # Drop dead columns so the next projection doesn't reference `missing_col`.
-        available_names = extract_available_column_names(schema_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
-        if removed_columns:
-            log.info(
-                "trino.reconcile_schemas.pruned_enabled_columns",
-                source_id=str(source.id),
-                schema_id=str(matched.id),
-                schema_name=matched.name,
-                removed_columns=removed_columns,
-            )
-            matched.enabled_columns = pruned_enabled_columns
-            update_fields.append("enabled_columns")
-        matched.save(update_fields=update_fields)
-
-        if not is_direct:
-            # Warehouse mode: the ingestion workflow manages `DataWarehouseTable` itself.
-            continue
-
-        if not matched.should_sync:
-            hide_direct_trino_table(matched.table)
-            continue
-
-        projected_columns = filter_dwh_columns_by_enabled_columns(
-            trino_columns_to_dwh_columns(source_schema.columns),
-            matched.enabled_columns,
-            source_schema.detected_primary_keys,
-            matched.incremental_field,
-            # Direct-Trino columns are keyed by raw, case-sensitive source names. The
-            # guarded helper falls back to all columns when a projection would empty out,
-            # so a stale selection can't leave the live table unqueryable.
-            normalize=False,
-        )
-        table_model = upsert_direct_trino_table(
-            matched.table,
-            schema_name=source_schema.name,
-            source=source,
-            columns=projected_columns,
-            source_catalog=resolved_catalog,
-            source_schema=resolved_schema,
-            source_table_name=resolved_table,
-        )
-        if matched.table_id != table_model.id:
-            matched.table = table_model
-            matched.save(update_fields=["table"])
+        if is_direct:
+            _upsert_direct_trino_table_for_schema(matched, source_schema, source=source, location=location)
 
     if not is_direct:
         # Warehouse mode delegates add/delete to `sync_old_schemas_with_new_schemas`.
