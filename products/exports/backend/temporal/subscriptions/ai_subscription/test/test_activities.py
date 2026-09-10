@@ -1,7 +1,9 @@
 from datetime import datetime
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -13,6 +15,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _persist_ai_report,
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
+    enrich_ai_subscription_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
@@ -23,9 +26,20 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_RECOMMENDATION_INPUT_KEY,
+    AI_REPORT_RECOMMENDATIONS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
+    GenerateAIReportInputs,
 )
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.contracts import (
+    Recommendation,
+    RecommendationCitation,
+    RecommendationGenerationHandle,
+    RecommendationGenerationState,
+    RecommendationResult,
+)
+from products.subscriptions.backend.facade.proactive import RecommendationAppendixDTO, update_proactive_config
 
 _WINDOW_END_UTC = "2026-06-25T12:00:00+00:00"
 
@@ -55,6 +69,34 @@ def _create_delivery(team, user) -> SubscriptionDelivery:
 @sync_to_async
 def _snapshot(delivery_id) -> dict:
     return SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
+
+
+@sync_to_async
+def _create_proactive_delivery(team, user) -> SubscriptionDelivery:
+    subscription = Subscription.objects.create(
+        team=team,
+        prompt="Find the most useful product improvement",
+        created_by=user,
+        target_type=Subscription.SubscriptionTarget.EMAIL,
+        target_value="test@posthog.com",
+        frequency=Subscription.SubscriptionFrequency.WEEKLY,
+        start_date=datetime(2022, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+    )
+    update_proactive_config(
+        team_id=team.id,
+        subscription_id=subscription.id,
+        enabled=True,
+        allow_public_web_research=True,
+    )
+    return SubscriptionDelivery.objects.create(
+        subscription=subscription,
+        team=team,
+        status=SubscriptionDelivery.Status.STARTING,
+        content_snapshot={
+            AI_REPORT_SNAPSHOT_KEY: "# Weekly report\n\nActivation fell this week.",
+            AI_REPORT_PROMPT_SNAPSHOT_KEY: subscription.prompt,
+        },
+    )
 
 
 async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(team, user) -> None:
@@ -323,3 +365,214 @@ async def test_snapshot_diagnostic_counts_handles_missing_diagnostics(team, user
     empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, query_errors=[])
     assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == empty_counts
     assert _snapshot_diagnostic_counts(None) == empty_counts
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_appends_a_completed_result_once(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    settings.PULSE_PUBLIC_RESEARCH_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    handle = RecommendationGenerationHandle(staged_run_id=uuid4(), task_id=uuid4(), analysis_run_id=uuid4())
+    state = RecommendationGenerationState(
+        status="completed",
+        result=RecommendationResult(
+            recommendations=(
+                Recommendation(
+                    kind="investigation",
+                    title="Investigate the activation drop",
+                    rationale="Activation fell in the saved report.",
+                    target="activation",
+                    why_now="The latest period moved down.",
+                    confidence=0.8,
+                    effort="small",
+                    metric_name="activation rate",
+                    metric_direction="increase",
+                    expected_metric_movement="recover the recent decline",
+                    citation_ids=("report",),
+                    semantic_key="investigate-activation-drop",
+                ),
+            ),
+            citations=(RecommendationCitation(id="report", title="Subscription report"),),
+        ),
+    )
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.subscriptions.backend.facade.proactive.start_recommendation_generation",
+            return_value=handle,
+        ) as start_generation,
+        patch(
+            "products.subscriptions.backend.facade.proactive.read_recommendation_generation",
+            return_value=state,
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+        await enrich_ai_subscription_report(inputs)
+
+    snapshot = await _snapshot(delivery.id)
+    assert start_generation.call_count == 1
+    assert snapshot[AI_REPORT_SNAPSHOT_KEY].count("Investigate the activation drop") == 1
+    assert "## Recommendations" in snapshot[AI_REPORT_RECOMMENDATIONS_KEY]
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_failure_is_terminal_and_preserves_the_base_report(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    start_generation = MagicMock(side_effect=RuntimeError("generation unavailable"))
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.subscriptions.backend.facade.proactive.start_recommendation_generation",
+            start_generation,
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+        await enrich_ai_subscription_report(inputs)
+
+    snapshot = await _snapshot(delivery.id)
+    assert start_generation.call_count == 1
+    assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report\n\nActivation fell this week."
+    assert AI_REPORT_RECOMMENDATIONS_KEY not in snapshot
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_respects_the_existing_credit_gate(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix"
+        ) as generate_appendix,
+    ):
+        await enrich_ai_subscription_report(inputs)
+
+    assert generate_appendix.call_count == 0
+    snapshot = await _snapshot(delivery.id)
+    assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report\n\nActivation fell this week."
+    assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Find the most useful product improvement"
+    assert snapshot[AI_REPORT_RECOMMENDATION_INPUT_KEY]["prompt"] == snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY]
+    assert AI_REPORT_RECOMMENDATIONS_KEY not in snapshot
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_reuses_the_frozen_delivery_input(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    generate_appendix = MagicMock(
+        return_value=RecommendationAppendixDTO(
+            status="failed", recommendations=(), citations=(), failure_code="unavailable"
+        )
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix",
+            generate_appendix,
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+        await sync_to_async(Subscription.objects.filter(id=delivery.subscription_id).update)(prompt="new prompt")
+        await enrich_ai_subscription_report(inputs)
+
+    first_input = generate_appendix.call_args_list[0].kwargs["input"]
+    replay_input = generate_appendix.call_args_list[1].kwargs["input"]
+    assert first_input.prompt == "Find the most useful product improvement"
+    assert replay_input.prompt == first_input.prompt
+    assert replay_input.contexts == first_input.contexts
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_honors_a_research_opt_out_on_retry(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    settings.PULSE_PUBLIC_RESEARCH_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    generate_appendix = MagicMock(
+        return_value=RecommendationAppendixDTO(
+            status="failed", recommendations=(), citations=(), failure_code="unavailable"
+        )
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix",
+            generate_appendix,
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+        await sync_to_async(update_proactive_config)(
+            team_id=team.id,
+            subscription_id=delivery.subscription_id,
+            enabled=True,
+            allow_public_web_research=False,
+        )
+        await enrich_ai_subscription_report(inputs)
+
+    assert generate_appendix.call_count == 1
+    assert generate_appendix.call_args.kwargs["input"].public_web_research is True
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_requires_current_project_access(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._actor_has_project_access",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix"
+        ) as generate_appendix,
+    ):
+        await enrich_ai_subscription_report(inputs)
+
+    generate_appendix.assert_not_called()

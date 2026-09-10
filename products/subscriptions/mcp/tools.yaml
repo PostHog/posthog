@@ -47,6 +47,10 @@ tools:
             is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report
             runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.
 
+            Prompt subscriptions can also set `proactive_config` to request up to three recommendations after the base
+            report is saved. Recommendations are disabled by default. When enabled, bounded public web research is
+            allowed by default; set `allow_public_web_research: false` in `proactive_config` to opt out.
+
             Delivery is set by `target_type` — `email`, `slack`, or `teams` (a Microsoft Teams webhook URL in
             `target_value`). A Teams webhook URL is only ever read back as its host. Creating a Teams subscription
             requires the full webhook URL in `target_value`.
@@ -195,6 +199,7 @@ tools:
             For insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer
             it with `summary_prompt_guide`. Enabling a summary requires the organization to have approved AI data
             processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.
+            Prompt subscriptions can update `proactive_config`; omitted nested values keep their current setting.
         exclude_params:
             - contexts
             - deleted
@@ -216,8 +221,9 @@ tools:
         description:
             'Fetch a single subscription by numeric ID. Returns its kind (`resource_type`: insight, dashboard, or
             ai_prompt), target (`target_type`/`target_value`, host-only for a Teams webhook), schedule, enabled state,
-            and AI-summary settings. Metadata only — for the send history and delivered reports, use
-            `subscriptions-deliveries-list` / `subscriptions-deliveries-retrieve`.'
+            AI-summary settings, and proactive recommendation settings for prompt subscriptions. Metadata only — for the
+            send history and delivered reports, use `subscriptions-deliveries-list` /
+            `subscriptions-deliveries-retrieve`.'
         response:
             exclude:
                 - invite_message

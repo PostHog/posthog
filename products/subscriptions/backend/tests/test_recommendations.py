@@ -217,6 +217,44 @@ def test_read_recommendation_generation_accepts_only_bound_completed_evidence(mo
     assert state.result.citations == (RecommendationCitation(id="mcp:call-1", title="PostHog MCP: insight-query"),)
 
 
+def test_read_recommendation_generation_does_not_treat_memory_as_citable_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "products.subscriptions.backend.logic.recommendations.read_staged_task_result",
+        lambda **_: StagedTaskResult(
+            status="completed",
+            output={"recommendations": [_recommendation(citation_ids=["memory:prior-key"])]},
+        ),
+    )
+    input = RecommendationGenerationInput(
+        team_id=17,
+        subscription_id=23,
+        delivery_id=uuid4(),
+        actor_id=29,
+        idempotency_key="delivery-23",
+        report_markdown="Checkout completion declined.",
+        prompt="Find the most useful next step.",
+        contexts=(
+            RecommendationContext(
+                id="memory:prior-key",
+                content="Previously recommended: inspect checkout errors.",
+                citable=False,
+            ),
+        ),
+        public_web_research=False,
+    )
+
+    state = read_recommendation_generation(
+        input,
+        type("Handle", (), {"staged_run_id": uuid4(), "task_id": uuid4(), "analysis_run_id": uuid4()})(),
+    )
+
+    assert state.status == "completed"
+    assert state.result is not None
+    assert state.result.recommendations == ()
+
+
 def test_read_recommendation_generation_uses_completed_research_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "products.subscriptions.backend.logic.recommendations.read_staged_task_result",

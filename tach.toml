@@ -67,6 +67,7 @@ depends_on = [
     "products.replay_vision",
     "products.skills",
     "products.revenue_analytics",
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.business_knowledge",
@@ -1360,7 +1361,7 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control"]
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control", "products.subscriptions", "products.tasks"]
 layer = "modules"
 
 [[modules]]

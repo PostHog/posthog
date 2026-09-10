@@ -3737,6 +3737,122 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "ai_prompt_config" in str(response.json()), response.json()
 
+    def test_ai_subscription_proactive_config_round_trips_with_default_public_research(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(proactive_config={"enabled": True}),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["proactive_config"] == {
+            "enabled": True,
+            "allow_public_web_research": True,
+        }
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{response.json()['id']}")
+
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["proactive_config"] == {
+            "enabled": True,
+            "allow_public_web_research": True,
+        }
+
+    def test_ai_subscription_exposes_disabled_proactive_defaults(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(send_test_now=False),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["proactive_config"] == {
+            "enabled": False,
+            "allow_public_web_research": True,
+        }
+
+    def test_ai_subscription_proactive_config_patch_preserves_unspecified_values(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(proactive_config={"enabled": True, "allow_public_web_research": False}),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"proactive_config": {"allow_public_web_research": True}, "send_test_now": False},
+        )
+
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert updated.json()["proactive_config"] == {
+            "enabled": True,
+            "allow_public_web_research": True,
+        }
+
+    def test_proactive_config_is_rejected_on_an_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        payload = self._insight_payload()
+        payload["proactive_config"] = {"enabled": True}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            payload,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "proactive_config" in str(response.json()), response.json()
+
+        created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._insight_payload())
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"proactive_config": {"enabled": True}},
+        )
+        assert updated.status_code == status.HTTP_400_BAD_REQUEST, updated.json()
+        assert "proactive_config" in str(updated.json()), updated.json()
+
+    def test_proactive_config_failure_rolls_back_subscription_creation(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+
+        with patch("ee.api.subscription.update_proactive_config", side_effect=RuntimeError("config unavailable")):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions",
+                self._make_ai_payload(proactive_config={"enabled": True}),
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not Subscription.objects.filter(team_id=self.team.id, title="Weekly AI report").exists()
+
+    def test_proactive_config_failure_rolls_back_the_subscription_update(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(send_test_now=False),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        subscription_id = created.json()["id"]
+
+        with patch("ee.api.subscription.update_proactive_config", side_effect=RuntimeError("config unavailable")):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                {"title": "Changed title", "proactive_config": {"enabled": True}},
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        subscription = Subscription.objects.get(pk=subscription_id)
+        assert subscription.title == "Weekly AI report"
+
 
 class TestSubscriptionObjectAccessControl(APILicensedTest):
     def setUp(self):

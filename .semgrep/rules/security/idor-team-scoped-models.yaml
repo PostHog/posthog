@@ -295,6 +295,9 @@ rules:
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
+                              |ProactiveRecommendation
+                              |ProactiveRecommendationRun
+                              |ProactiveSubscriptionConfig
                               |ProductBrief
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -693,6 +696,9 @@ rules:
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
+                        |ProactiveRecommendation
+                        |ProactiveRecommendationRun
+                        |ProactiveSubscriptionConfig
                         |ProductBrief
                         |ProductTour
                         |ProjectSecretAPIKey

@@ -25,7 +25,10 @@ from products.exports.backend.temporal.subscriptions.activities import (
     update_delivery_record,
     validate_subscription_for_delivery,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    enrich_ai_subscription_report,
+    generate_ai_subscription_report,
+)
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_slack
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
@@ -175,17 +178,21 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
 
 
 @pytest.mark.parametrize("patch_active", [True, False], ids=["patched_v2", "pre_patch_v1"])
-async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_active) -> None:
+async def test_process_ai_subscription_picks_patch_gated_activities(patch_active) -> None:
     picked = None
+    activities: list[object] = []
 
     async def fake_execute_activity(activity, inputs, **_kwargs):
         nonlocal picked
+        activities.append(activity)
         if activity is create_delivery_record:
             return uuid.uuid4()
         if activity is validate_subscription_for_delivery:
             return None
         if activity is generate_ai_subscription_report:
             return GenerateAIReportResult(target_type="slack")
+        if activity is enrich_ai_subscription_report:
+            return None
         if activity in (deliver_subscription, deliver_subscription_v2):
             picked = activity
             return DeliverSubscriptionResult()
@@ -218,6 +225,50 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["target_type"] == "slack"
+    if not patch_active:
+        assert activities[:4] == [
+            create_delivery_record,
+            validate_subscription_for_delivery,
+            generate_ai_subscription_report,
+            deliver_subscription,
+        ]
+
+
+async def test_process_ai_subscription_delivers_when_pulse_adapter_fails() -> None:
+    delivered = False
+
+    async def fake_execute_activity(activity, _inputs, **_kwargs):
+        nonlocal delivered
+        if activity is create_delivery_record:
+            return uuid.uuid4()
+        if activity is validate_subscription_for_delivery:
+            return None
+        if activity is generate_ai_subscription_report:
+            return GenerateAIReportResult(target_type="email")
+        if activity is enrich_ai_subscription_report:
+            raise RuntimeError("pulse timeout")
+        if activity in (deliver_subscription, deliver_subscription_v2):
+            delivered = True
+            return DeliverSubscriptionResult()
+        if activity in (update_delivery_record, advance_next_delivery_date):
+            return None
+        raise AssertionError(f"unexpected activity {activity}")
+
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity),
+        patch(
+            "temporalio.workflow.patched",
+            side_effect=lambda patch_id: patch_id == "ai-subscription-proactive-enrichment-v1",
+        ),
+        patch("temporalio.workflow.info", return_value=MagicMock(workflow_id="wf-test-ai")),
+        patch("temporalio.workflow.uuid4", return_value=uuid.uuid4()),
+        patch("temporalio.workflow.logger", MagicMock()),
+    ):
+        await ProcessAISubscriptionWorkflow().run(
+            TrackedSubscriptionInputs(subscription_id=1, team_id=1, distinct_id="u1")
+        )
+
+    assert delivered
 
 
 @pytest.mark.parametrize(

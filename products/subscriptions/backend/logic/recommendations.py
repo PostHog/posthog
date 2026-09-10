@@ -189,6 +189,7 @@ def _citation_metadata(
         {
             context.id: RecommendationCitation(id=context.id, title=f"Context: {context.id}")
             for context in input.contexts
+            if context.citable
         }
     )
     for call in calls:

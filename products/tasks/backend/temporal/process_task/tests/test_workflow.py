@@ -1345,14 +1345,16 @@ async def test_completed_run_awaits_reserved_publication_child(monkeypatch) -> N
 
     await workflow._publish_staged_artifact_if_reserved()
 
-    assert execute_activity.await_args is not None
-    assert execute_activity.await_args.args == (process_task_workflow_module.resolve_completed_publication, "run-id")
-    assert execute_child_workflow.await_args is not None
-    assert execute_child_workflow.await_args.args == (
+    activity_await_args = execute_activity.await_args
+    child_workflow_await_args = execute_child_workflow.await_args
+    assert activity_await_args is not None
+    assert child_workflow_await_args is not None
+    assert activity_await_args.args == (process_task_workflow_module.resolve_completed_publication, "run-id")
+    assert child_workflow_await_args.args == (
         process_task_workflow_module.PublishTaskArtifactWorkflow.run,
         publication,
     )
-    assert execute_child_workflow.await_args.kwargs["id"] == f"task-draft-publication-{publication.publication_id}"
+    assert child_workflow_await_args.kwargs["id"] == f"task-draft-publication-{publication.publication_id}"
 
 
 async def test_completed_regular_run_skips_staged_publication(monkeypatch) -> None:

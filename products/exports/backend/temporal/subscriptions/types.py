@@ -102,6 +102,9 @@ AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
 AI_REPORT_SNAPSHOT_KEY = "ai_report"
 # The prompt that generated the report, captured at generation time so the delivery is reproducible.
 AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
+# Immutable, bounded input used by the optional recommendation pass. Persisting it beside the
+# report makes activity retries independent of later subscription edits.
+AI_REPORT_RECOMMENDATION_INPUT_KEY = "ai_report_recommendation_input"
 # Per-step query diagnostics (generated HogQL + failure type) so a degraded report is debuggable
 # after the fact. Written alongside the markdown; never shipped to recipients.
 AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
@@ -112,6 +115,7 @@ AI_REPORT_QUERY_FAILURE_TYPE = "AIReportQueryFailure"
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 AI_REPORT_CHARTS_KEY = "ai_report_charts"
+AI_REPORT_RECOMMENDATIONS_KEY = "ai_report_recommendations"
 
 
 class SubscriptionTriggerType:

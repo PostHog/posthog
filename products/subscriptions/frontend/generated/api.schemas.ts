@@ -66,6 +66,13 @@ export interface AIPromptConfigApi {
     window?: AIWindowConfigApi
 }
 
+export interface ProactiveConfigApi {
+    /** Whether this AI report generates up to three proactive recommendations after its base report is saved. Defaults to false. */
+    enabled?: boolean
+    /** Whether proactive recommendations may use bounded public web research. Defaults to true. */
+    allow_public_web_research?: boolean
+}
+
 export interface SubscriptionDashboardContextApi {
     /** Dashboard ID used to open the context dashboard. */
     dashboard_id: number
@@ -233,6 +240,8 @@ export interface SubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
+    /** Configuration for proactive recommendations on an AI report subscription. Only valid when resource_type is 'ai_prompt'. Omitted values preserve the existing setting on update. */
+    proactive_config?: ProactiveConfigApi
     /** Dashboards and insights that ground this AI report. Deleted resources are omitted. */
     readonly contexts: readonly SubscriptionContextApi[]
     /** Delivery channel: email, slack, or teams.
@@ -396,6 +405,8 @@ export interface SubscriptionWriteApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
+    /** Configuration for proactive recommendations on an AI report subscription. Only valid when resource_type is 'ai_prompt'. Omitted values preserve the existing setting on update. */
+    proactive_config?: ProactiveConfigApi
     /**
      * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
      * @maxItems 3
@@ -553,6 +564,8 @@ export interface PatchedSubscriptionWriteApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
+    /** Configuration for proactive recommendations on an AI report subscription. Only valid when resource_type is 'ai_prompt'. Omitted values preserve the existing setting on update. */
+    proactive_config?: ProactiveConfigApi
     /**
      * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
      * @maxItems 3

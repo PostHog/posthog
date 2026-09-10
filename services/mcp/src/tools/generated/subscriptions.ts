@@ -59,6 +59,9 @@ const subscriptionsCreate = (): ToolBase<ReturnType<typeof SubscriptionsCreateSc
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
         }
+        if (params.proactive_config !== undefined) {
+            body['proactive_config'] = params.proactive_config
+        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -282,6 +285,9 @@ const subscriptionsPartialUpdate = (): ToolBase<
         }
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
+        }
+        if (params.proactive_config !== undefined) {
+            body['proactive_config'] = params.proactive_config
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type

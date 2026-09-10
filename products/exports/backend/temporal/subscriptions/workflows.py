@@ -46,7 +46,10 @@ from products.exports.backend.temporal.subscriptions.activities import (
     update_delivery_record,
     validate_subscription_for_delivery,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    enrich_ai_subscription_report,
+    generate_ai_subscription_report,
+)
 from products.exports.backend.temporal.subscriptions.retry_policy import (
     SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT,
     SUBSCRIPTION_DELIVER_RETRY_POLICY,
@@ -721,6 +724,17 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 # credits reset; advance_next_delivery_date (finally) recomputes from the reschedule.
                 final_status = DeliveryStatus.SKIPPED
                 return
+
+            if temporalio.workflow.patched("ai-subscription-proactive-enrichment-v1"):
+                try:
+                    await temporalio.workflow.execute_activity(
+                        enrich_ai_subscription_report,
+                        GenerateAIReportInputs(subscription_id=inputs.subscription_id, delivery_id=delivery_id),
+                        start_to_close_timeout=dt.timedelta(minutes=12),
+                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception("proactive recommendations failed after report persistence")
 
             # Phase 2: ship the persisted report.
             delivery_activity = (
