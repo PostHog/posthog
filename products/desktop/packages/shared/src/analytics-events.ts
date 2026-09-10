@@ -286,6 +286,7 @@ export type SidebarNavItem =
   | "contexts"
   | "activity"
   | "canvases"
+  | "sketchpads"
   | "configure"
   | "loops"
   | "more";
