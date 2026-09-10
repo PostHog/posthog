@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -52,6 +52,13 @@ class CollectedBatch:
     object_keys: list[str] = field(default_factory=list)
 
 
+# A rolling deploy has the writer and the reader of one batch on different versions, so a batch can
+# carry a field this worker does not know yet. Temporal's own converter drops unknown fields for
+# every other payload in this pipeline; this hand-rolled decode has to do the same, because the
+# alternative is a failed grouping run that takes the batch and the buffered keys with it.
+_EMIT_SIGNAL_FIELDS = frozenset(f.name for f in fields(EmitSignalInputs))
+
+
 @activity.defn
 @scoped_temporal()
 async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
@@ -60,7 +67,9 @@ async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSi
         raise ValueError(f"Signal batch not found in S3: {input.object_key}")
 
     data = json.loads(raw)
-    signals = [EmitSignalInputs(**item) for item in data]
+    signals = [
+        EmitSignalInputs(**{key: value for key, value in item.items() if key in _EMIT_SIGNAL_FIELDS}) for item in data
+    ]
 
     return ReadSignalsFromS3Output(signals=signals)
 
