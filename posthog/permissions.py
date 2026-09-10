@@ -1213,6 +1213,13 @@ def posthog_feature_flag_enabled(
     )
 
 
+# DRF error code for a flag-gated 403, so a client can tell "not on this alpha yet" apart from a
+# plain access-control denial. Early access enrollment reaches the server as an ingested person
+# property, so a user who has just turned a feature preview on keeps getting denied for a few
+# seconds - the frontend treats this code as "access on its way", not as an error.
+FEATURE_FLAG_REQUIRED_ERROR_CODE = "feature_flag_required"
+
+
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
@@ -1250,6 +1257,7 @@ class PostHogFeatureFlagPermission(BasePermission):
                 self.message = (
                     f"This action requires feature flag {required_flag!r} to be enabled for your organization."
                 )
+                self.code = FEATURE_FLAG_REQUIRED_ERROR_CODE
                 return False
 
         return True
