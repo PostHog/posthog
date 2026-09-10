@@ -13,6 +13,7 @@ from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
@@ -670,6 +671,43 @@ INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE = (
 )
 
 
+# How many attempts one run spends on a credential the integration service could not resolve, and
+# how long it waits between them. Both are small on purpose, and much smaller than the activity's
+# own retry budget.
+#
+# Every failure of this kind is platform-side, so it is the same failure for every schema of every
+# team at the same moment. A budget sized for one customer's source therefore multiplies by the
+# number of schemas PostHog syncs: each schema spends its whole budget, about a minute apart,
+# against a dependency that is already down — thousands of failed extractions an hour, which slow
+# the recovery instead of helping it.
+#
+# Two attempts still absorb a dropped packet, because the credential client makes one 5-second
+# request and has no retry of its own. The delay makes the second attempt a fresh sample rather
+# than another poke at the same second. Past that the run fails and the next scheduled sync picks
+# it up, which is what the customer-facing message above promises. The schema is never disabled,
+# so recovery needs nothing from the customer.
+MAX_INTEGRATION_CREDENTIAL_ATTEMPTS = 2
+INTEGRATION_CREDENTIAL_RETRY_DELAY = dt.timedelta(minutes=5)
+
+
+class IntegrationCredentialUnavailable(NonReportableError, ApplicationError):
+    """A platform credential that could not be resolved, carrying its own retry decision.
+
+    ``NonReportableError`` keeps the activity interceptor from capturing it, once per schema per
+    attempt. ``ApplicationError`` is what carries a per-attempt decision at all — the activity's
+    retry policy is one policy for every failure the sync can hit.
+    """
+
+    def __init__(self, message: str, *, retry: bool) -> None:
+        # No `type` is passed: Temporal prepends it to the string repr, and this message is stored
+        # as the run's error and read by the customer.
+        super().__init__(
+            message,
+            non_retryable=not retry,
+            next_retry_delay=INTEGRATION_CREDENTIAL_RETRY_DELAY if retry else None,
+        )
+
+
 # What a customer reads when a lookup against PostHog's own app DB fails. It deliberately repeats
 # none of the driver wording: the workflow hands whatever message escapes an activity to the
 # finalization activity, which substring-matches it against every source's non-retryable patterns,
@@ -764,8 +802,14 @@ async def _handle_import_error(
             await logger.aexception(error_msg)
         else:
             await logger.awarning(error_msg)
-        await logger.adebug("Integration service credential unavailable - re-raising for Temporal retry")
-        raise NonReportableError(INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE) from error
+        attempt = current_activity_attempt()
+        retry = attempt < MAX_INTEGRATION_CREDENTIAL_ATTEMPTS
+        await logger.adebug(
+            "Integration service credential unavailable",
+            attempt=attempt,
+            will_retry=retry,
+        )
+        raise IntegrationCredentialUnavailable(INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE, retry=retry) from error
 
     # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
     # endpoint/resource doesn't exist — every retry replays the identical request against the same

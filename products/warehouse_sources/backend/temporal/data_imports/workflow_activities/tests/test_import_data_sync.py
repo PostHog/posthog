@@ -1098,6 +1098,47 @@ async def test_integration_failure_is_classified_before_the_bare_404_rule():
     handle_mock.assert_not_awaited()
 
 
+# A credential failure is platform-wide, so the budget one run spends is multiplied by every sync
+# PostHog runs — the reasoning sits on MAX_INTEGRATION_CREDENTIAL_ATTEMPTS. The cases below are
+# the attempt below the budget, the attempt that spends it, and one past it.
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "attempt,retryable",
+    [
+        (1, True),
+        (module.MAX_INTEGRATION_CREDENTIAL_ATTEMPTS, False),
+        (module.MAX_INTEGRATION_CREDENTIAL_ATTEMPTS + 1, False),
+    ],
+)
+async def test_credential_failure_stops_retrying_once_the_run_spends_its_budget(attempt, retryable):
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+        mock.patch.object(module, "capture_exception"),
+        mock.patch.object(module, "current_activity_attempt", return_value=attempt),
+    ):
+        with pytest.raises(module.IntegrationCredentialUnavailable) as exc_info:
+            await module._handle_import_error(
+                mock.MagicMock(), logger, IntegrationServiceUnreachableError("connection refused")
+            )
+
+    assert exc_info.value.non_retryable is not retryable
+    assert exc_info.value.next_retry_delay == (module.INTEGRATION_CREDENTIAL_RETRY_DELAY if retryable else None)
+
+    # An exhausted budget must fail the run and nothing else. Disabling the schema would make the
+    # customer re-enable a sync that a PostHog-side outage broke.
+    handle_mock.assert_not_awaited()
+
+
 # The retry budget can run out while the credential is still unavailable. When it does, the
 # customer-facing message above becomes the run's `internal_error`, and finalization
 # (update_external_data_job_model) matches that text against every non-retryable pattern — a
