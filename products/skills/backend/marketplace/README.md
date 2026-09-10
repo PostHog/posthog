@@ -32,7 +32,7 @@ unit-testable against the real `git` binary without booting the app
   instructions to fetch the real skill with `skill-get` / `skill-file-get` when it is invoked, so a
   sandbox gets discovery for a few KB and skill content only moves over MCP when a skill is used.
   `content=full` writes the rendered `SKILL.md`, bundled files and Codex sidecar. Newest first,
-  `limit` skills (default 20, at most 100; every skill in the zip costs the agent prompt context on
+  `limit` skills (default 50, at most 100; every skill in the zip costs the agent prompt context on
   each turn) and 5 MB uncompressed for `full`; the walk stops at the first skill that would cross a
   cap, and sizes are checked from column byte counts before any content loads.
   `X-Skills-Included`, `X-Skills-Dropped` (over the cap) and `X-Skills-Skipped` (failed the spec

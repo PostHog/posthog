@@ -131,4 +131,56 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "surprisePercentage": "Percentage EPS surprise (quarterly only).",
         },
     },
+    "time_series_daily_adjusted": {
+        "description": "Daily price bars for each configured symbol with the split/dividend-adjusted close and the split and dividend events behind it. Requires a paid Alpha Vantage plan.",
+        "docs_url": "https://www.alphavantage.co/documentation/#dailyadj",
+        # The adjusted columns are named from the docs prose; the endpoint is premium, so their exact
+        # response keys could not be confirmed against a live call.
+        "columns": {
+            "symbol": "The ticker symbol the bar belongs to.",
+            "date": "Trading day of the bar (YYYY-MM-DD).",
+            "open": "Raw as-traded opening price for the trading day.",
+            "high": "Raw as-traded highest price during the trading day.",
+            "low": "Raw as-traded lowest price during the trading day.",
+            "close": "Raw as-traded closing price for the trading day.",
+            "adjusted_close": "Closing price adjusted for splits and dividend payouts.",
+            "volume": "Number of shares traded during the day.",
+            "dividend_amount": "Dividend paid per share on this trading day, if any.",
+            "split_coefficient": "Split ratio applied on this trading day (1.0 when there was no split).",
+        },
+    },
+    "dividends": {
+        "description": "Historical and declared dividend distributions for each configured symbol; one row per distribution.",
+        "docs_url": "https://www.alphavantage.co/documentation/#dividends",
+        "columns": {
+            "symbol": "The ticker symbol the distribution belongs to.",
+            "ex_dividend_date": "Date the share started trading without the right to the dividend (YYYY-MM-DD).",
+            "declaration_date": "Date the dividend was announced. Empty for older distributions.",
+            "record_date": "Date shareholders had to be on the register to qualify. Empty for older distributions.",
+            "payment_date": "Date the dividend was paid out. Empty for older distributions.",
+            "amount": "Dividend amount paid per share.",
+        },
+    },
+    "splits": {
+        "description": "Historical stock split events for each configured symbol; one row per split.",
+        "docs_url": "https://www.alphavantage.co/documentation/#splits",
+        "columns": {
+            "symbol": "The ticker symbol the split belongs to.",
+            "effective_date": "Date the split took effect (YYYY-MM-DD).",
+            "split_factor": "Ratio of shares after the split to shares before it.",
+        },
+    },
+    "listing_status": {
+        "description": "Every active and delisted US stock and ETF, for asset-lifecycle and survivorship research. Covers the whole market rather than the configured symbols.",
+        "docs_url": "https://www.alphavantage.co/documentation/#listing-status",
+        "columns": {
+            "symbol": "The ticker symbol.",
+            "name": "Name of the company or fund.",
+            "exchange": "Exchange the asset trades on (e.g. NYSE, NASDAQ, BATS).",
+            "assetType": "Whether the asset is a Stock or an ETF.",
+            "ipoDate": "Date the asset was first listed (YYYY-MM-DD).",
+            "delistingDate": "Date the asset was delisted (YYYY-MM-DD). Empty while it is still listed.",
+            "status": "Whether the asset is 'Active' or 'Delisted'.",
+        },
+    },
 }

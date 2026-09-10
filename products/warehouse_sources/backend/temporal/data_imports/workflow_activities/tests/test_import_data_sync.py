@@ -1,5 +1,6 @@
 import uuid
 import contextlib
+import dataclasses
 from datetime import datetime
 from typing import Any, cast
 
@@ -686,11 +687,27 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
 
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value == expected_last_value
+    assert source_inputs.last_synced_at == schema.last_synced_at
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
     # The unshifted cursor travels alongside the shifted one. A consumer needs both to tell overlap
     # from new ground, and capturing it after the shift would make them equal and silently disarm
     # that rule with every test still passing.
     assert source_inputs.db_incremental_field_last_value_before_lookback == expected_before_lookback
+
+
+@pytest.mark.asyncio
+async def test_reset_run_drops_last_synced_at_with_the_cursor():
+    # A reset must re-walk the whole reconcile window, not only what changed since the last sync.
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=True))
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.db_incremental_field_last_value is None
+    assert source_inputs.last_synced_at is None
 
 
 @pytest.mark.asyncio

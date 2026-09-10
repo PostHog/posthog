@@ -53,11 +53,14 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
 from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_auc, train_head
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
+    LEGACY_POOL_NAME,
+    POOL_NAME,
     graded_rows,
     head_grades,
+    leaked_report_ids,
     report_grade_rows,
-    sample_unseen,
     score_event_rows,
+    scored_pool,
     unseen_pool,
 )
 
@@ -440,6 +443,7 @@ def test_train_head_returns_none_without_both_classes():
 class _FakeClient:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.client_kwargs: dict[str, Any] = {}
         self.shutdowns = 0
 
     def capture(self, **kwargs: Any) -> None:
@@ -451,7 +455,12 @@ class _FakeClient:
 
 def _patch_capture(monkeypatch, *, cloud: bool, debug: bool) -> _FakeClient:
     client = _FakeClient()
-    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.get_client", lambda region: client)
+
+    def build(region: str, **kwargs: Any) -> _FakeClient:
+        client.client_kwargs = kwargs
+        return client
+
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.get_client", build)
     monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.is_cloud", lambda: cloud)
     monkeypatch.setattr(settings, "DEBUG", debug)
     monkeypatch.setattr(settings, "CLOUD_DEPLOYMENT", "US" if cloud else None)
@@ -465,6 +474,7 @@ def _scores(report_ids: list[str], **overrides) -> pd.DataFrame:
         "team_id": [2] * n,
         "report_created_at": [pd.Timestamp("2026-08-09T12:00:00Z")] * n,
         "snapshot_date": [D0] * n,
+        "pool": [POOL_NAME] * n,
         "model_version": ["2026-08-10"] * n,
         "model_role": [CANDIDATE_ROLE] * n,
         "feature_schema_version": [1] * n,
@@ -477,26 +487,45 @@ def _scores(report_ids: list[str], **overrides) -> pd.DataFrame:
     return pd.DataFrame(base)
 
 
-def test_unseen_pool_excludes_every_report_the_examples_cover():
-    # The pool is the whole point of the unseen read: a report that appears in any example, for any
-    # head, in train or in holdout, is a report the shipped booster was refit on.
-    ids = ["a", "b", "c", "d", "e"]
-    state = _state(ids, signal_count=[3, 3, 3, None, 3])
-    examples = pd.DataFrame({"head": ["open", "action"], "report_id": ["a", "b"]})
-    pool = unseen_pool(state, D0, examples["report_id"])
-    # d carries no signal_count, so build_examples would have skipped it too.
-    assert pool.index.tolist() == ["c", "e"]
+def test_unseen_pool_is_the_reports_born_on_the_partition_day():
+    # A report born before D can already be a training example on D, so the pool must exclude it.
+    born_on_d0 = pd.Timestamp("2026-08-10T09:00:00Z")
+    pool = unseen_pool(
+        _state(
+            ["a", "b", "c", "d"],
+            report_created_at=[born_on_d0, pd.Timestamp("2026-08-09T23:59:59Z"), born_on_d0, born_on_d0],
+            signal_count=[3, 3, None, 3],
+            features_observed_at=[pd.Timestamp("2026-08-11T04:00:00Z")] * 3 + [pd.Timestamp("2026-08-20T04:00:00Z")],
+        ),
+        D0,
+    )
+    # b was born the day before; c has no signal_count and d is a backfill, which build_examples drops too.
+    assert pool.index.tolist() == ["a"]
 
 
-def test_unseen_sample_is_reproducible_for_a_partition():
-    # A re-run of the partition rewrites the scores object, so the sample must not move: a second
-    # sample would score reports whose outcomes are never graded, and drop ones already promised.
-    pool = _state([f"r{index}" for index in range(50)])
-    first = sample_unseen(pool, "2026-08-10", size=10)
-    second = sample_unseen(pool, "2026-08-10", size=10)
-    assert first.index.tolist() == second.index.tolist()
-    assert len(first) == 10
-    assert sample_unseen(pool, "2026-08-11", size=10).index.tolist() != first.index.tolist()
+def test_build_examples_never_covers_a_report_born_on_the_partition_day():
+    # What the newborn pool rests on: a builder change that reached the partition day would leak.
+    head = HEADS_BY_NAME["open"]
+    scoring_day = D0 - datetime.timedelta(days=head.horizon_days)
+    old, newborn = pd.Timestamp("2026-07-01T00:00:00Z"), pd.Timestamp("2026-08-10T09:00:00Z")
+    snapshots = {
+        scoring_day: assemble_snapshot(
+            scoring_day, _state(["old"], report_created_at=[old]), _labels(["old"], open_count=[0])
+        ),
+        D0: assemble_snapshot(
+            D0,
+            _state(["old", "newborn"], report_created_at=[old, newborn]),
+            _labels(["old", "newborn"], open_count=[1, 1]),
+        ),
+    }
+    assert set(build_examples(snapshots, head)["report_id"]) == {"old"}
+
+
+def test_leaked_report_ids_flags_a_pool_report_an_example_already_covers():
+    # The guard must fail the asset rather than publish an AUC measured on training data.
+    pool = _state(["a", "b"])
+    assert leaked_report_ids(pool, ["c"]) == []
+    assert leaked_report_ids(pool, ["b", "c"]) == ["b"]
 
 
 def test_grading_keeps_the_scoring_moment_rows_and_reads_the_outcome_later():
@@ -517,12 +546,15 @@ def test_head_grades_report_counts_and_a_null_auc_on_a_single_class():
     head = HEADS_BY_NAME["open"]
     labels = _labels(["a", "e"], open_count=[1, 0])
     two_classes = graded_rows(_scores(["a", "e"], score=[0.9, 0.1]), labels, head)
-    (grade,) = head_grades(two_classes, head, scoring_partition="2026-08-10")
+    (grade,) = head_grades(two_classes, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert (grade.rows, grade.positives, grade.auc, grade.base_rate) == (2, 1, 1.0, 0.5)
     assert grade.recency_auc == 0.5  # both reports are the same age, so newest-first cannot rank them
     # A head with rows but one outcome class still reports, so the daily series has no gap.
     (single_class,) = head_grades(
-        graded_rows(_scores(["e"]), _labels(["e"], open_count=[0]), head), head, scoring_partition="2026-08-10"
+        graded_rows(_scores(["e"]), _labels(["e"], open_count=[0]), head),
+        head,
+        pool=POOL_NAME,
+        scoring_partition="2026-08-10",
     )
     assert (single_class.rows, single_class.positives, single_class.auc) == (1, 0, None)
     # Counts are ints and the null AUC is dropped: the graded asset writes these as Dagster metadata.
@@ -530,6 +562,19 @@ def test_head_grades_report_counts_and_a_null_auc_on_a_single_class():
     assert metadata["open_candidate_rows"] == dagster.MetadataValue.int(2)
     assert metadata["open_candidate_auc"] == dagster.MetadataValue.float(1.0)
     assert "open_candidate_auc" not in grade_metadata([single_class])
+
+
+@pytest.mark.parametrize(
+    "scores,expected",
+    [
+        (_scores(["a"]), POOL_NAME),
+        # The grader reads scores up to 14 days old, so it still meets objects written before the
+        # column existed. Reading one as the current pool would mix two populations in one AUC.
+        (_scores(["a"]).drop(columns=["pool"]), LEGACY_POOL_NAME),
+    ],
+)
+def test_scored_pool_names_the_definition_a_scores_object_was_written_under(scores, expected):
+    assert scored_pool(scores) == expected
 
 
 @pytest.mark.parametrize(
@@ -555,6 +600,19 @@ def test_training_events_capture_gate_and_local_marking(
     assert call["properties"]["environment"] == expected_environment
 
 
+def test_capture_sizes_the_client_queue_to_the_batch(monkeypatch):
+    # The SDK drops an event that meets a full queue and reports it only on its own logger. A
+    # grading run enqueues one event per report, model and horizon, so a queue left at the
+    # 10,000-slot default would lose the tail of the per-report events with nothing in the log.
+    client = _patch_capture(monkeypatch, cloud=True, debug=False)
+    events = [
+        TrainingEvent(event="inbox_ranking_unseen_report_graded", properties={"report_id": str(index)})
+        for index in range(10_001)
+    ]
+    capture_training_events(dagster.build_asset_context(), "2026-08-25", events)
+    assert client.client_kwargs["max_queue_size"] >= len(events)
+
+
 def test_training_events_carry_the_dashboard_contract(monkeypatch):
     # The per-head events are what the project-2 insights break down on; dropping the head
     # property, the partition-day timestamp, or the person-profile opt-out breaks every chart.
@@ -573,7 +631,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     }
     scores = _scores(["a"], model_version=["2026-08-25"], score=[0.8])
     graded = graded_rows(scores, _labels(["a"], open_count=[1]), HEADS_BY_NAME["open"])
-    grades = head_grades(graded, HEADS_BY_NAME["open"], scoring_partition="2026-08-22")
+    grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-22")
     events = [
         *candidate_events(metadata),
         *examples_events(
@@ -592,11 +650,11 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             incumbent_champion_version="none",
             champion_aucs={"open": 0.6},
         ),
-        *unseen_score_events(run_id="run-1", rows=score_event_rows(scores, _state(["a"]), unseen_pool_size=40)),
+        *unseen_score_events(run_id="run-1", rows=score_event_rows(scores, _state(["a"]))),
         *unseen_head_graded_events(run_id="run-1", grades=grades),
         *unseen_report_graded_events(
             run_id="run-1",
-            rows=report_grade_rows({"open": graded}, horizon_days=3, scoring_partition="2026-08-22"),
+            rows=report_grade_rows({"open": graded}, pool=POOL_NAME, horizon_days=3, scoring_partition="2026-08-22"),
         ),
     ]
     client = _patch_capture(monkeypatch, cloud=True, debug=False)
@@ -633,8 +691,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "report_id": "a",
         "model_role": CANDIDATE_ROLE,
         "p_open": 0.8,
-        "unseen_pool": 40,
-        "sample_size": 1,
+        "pool": POOL_NAME,
+        "unseen_pool": 1,
         "signal_count": 3,
     }.items() <= scored_props.items()
     head_graded_props = by_event["inbox_ranking_unseen_head_graded"][0]["properties"]
@@ -642,6 +700,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "head": "open",
         "model_role": CANDIDATE_ROLE,
         "scoring_partition": "2026-08-22",
+        "pool": POOL_NAME,
         "horizon_days": 3,
         "rows": 1,
         "positives": 1,
@@ -652,6 +711,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "report_id": "a",
         "model_role": CANDIDATE_ROLE,
         "scoring_partition": "2026-08-22",
+        "pool": POOL_NAME,
         "horizon_days": 3,
         "in_cohort_open": True,
         "outcome_open": True,

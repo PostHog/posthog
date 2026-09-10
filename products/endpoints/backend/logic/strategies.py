@@ -340,8 +340,8 @@ class EndpointQueryStrategy(abc.ABC):
         """
 
     @abc.abstractmethod
-    def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
-        """Whether all requested variables can be answered by the materialized table."""
+    def materialized_variable_names(self) -> set[str]:
+        """Variables the materialized table can filter on; empty when it can answer none."""
 
     def materialized_filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
         """Whether ``data.filters_override`` actually supplies the required materialized filter.
@@ -426,13 +426,10 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
         return {v.get("code_name") for v in variables.values() if v.get("code_name")} if variables else set()
 
     def required_materialized_variables(self) -> set[str]:
-        return {v.code_name for v in self.materialized_variables}
+        return self.materialized_variable_names()
 
-    def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
-        materialized_codes = {v.code_name for v in self.materialized_variables}
-        if not materialized_codes:
-            return False
-        return requested.issubset(materialized_codes)
+    def materialized_variable_names(self) -> set[str]:
+        return {v.code_name for v in self.materialized_variables}
 
     def _parse_original_query(self) -> tuple[list | None, int | None, bool]:
         """Parse the original HogQL query and extract SELECT columns, LIMIT, and GROUP BY presence.
@@ -633,11 +630,8 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
             return all_breakdowns - optional
         return set()
 
-    def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
-        allowed_props = set(get_breakdown_properties(self._breakdown_filter))
-        if not allowed_props:
-            return False
-        return requested.issubset(allowed_props)
+    def materialized_variable_names(self) -> set[str]:
+        return set(get_breakdown_properties(self._breakdown_filter))
 
     def materialized_filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
         # apply_materialized_filters applies only the first property's value as a single positionless

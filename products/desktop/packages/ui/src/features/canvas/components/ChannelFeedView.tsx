@@ -28,7 +28,6 @@ import {
   PopoverContent,
   PopoverTrigger,
   Skeleton,
-  Spinner,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -89,6 +88,7 @@ import {
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
@@ -127,7 +127,7 @@ const PR_STATE_LABELS: Record<
 function statusBadge(status: TaskRunStatus) {
   return (
     <Badge variant={runStatusVariant(status)}>
-      {status === "in_progress" && <Spinner className="size-2.5" />}
+      {status === "in_progress" && <Spinner size="xs" />}
       {RUN_STATUS_LABELS[status]}
     </Badge>
   );
@@ -192,7 +192,7 @@ function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
         : "In progress";
     base = (
       <Badge variant="info">
-        <Spinner className="size-2.5" />
+        <Spinner size="xs" />
         {label}
       </Badge>
     );
@@ -590,7 +590,7 @@ function PrCiLine({ url }: { url: string }) {
     if (!checks.isPending) return null;
     return (
       <div className="flex items-center gap-1.5 text-(--gray-9) text-xs">
-        <Spinner className="size-3" />
+        <Spinner size="sm" />
         Checking CI…
       </div>
     );
@@ -628,7 +628,7 @@ function PrPopoverContent({ url }: { url: string }) {
         // The title resolves via gh after open; hold its line so the card
         // doesn't jump when it lands.
         <div className="flex h-5 items-center">
-          <Spinner className="size-3" />
+          <Spinner size="sm" />
         </div>
       )}
       <PrCiLine url={url} />
@@ -668,7 +668,7 @@ function PrPopoverRow({ url }: { url: string }) {
           style={{ backgroundColor: ci.color }}
         />
       ) : (
-        checks.isPending && <Spinner className="size-3 shrink-0" />
+        checks.isPending && <Spinner size="sm" className="shrink-0" />
       )}
     </button>
   );
@@ -1211,7 +1211,7 @@ function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
             New task
           </span>
           <Badge variant="info">
-            <Spinner className="size-2.5" />
+            <Spinner size="xs" />
             Starting…
           </Badge>
         </div>

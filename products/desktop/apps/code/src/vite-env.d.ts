@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly DEV: boolean;
   readonly PROD: boolean;
   readonly MODE: string;
+  readonly VITE_POSTHOG_CUSTOM_CLOUD_BUILD?: string;
 
   // PostHog Analytics
   readonly VITE_POSTHOG_API_KEY?: string;

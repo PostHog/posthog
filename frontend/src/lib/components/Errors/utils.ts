@@ -1,5 +1,7 @@
 import { P, match } from 'ts-pattern'
 
+import { isObject } from 'lib/utils/guards'
+
 import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import {
@@ -8,6 +10,7 @@ import {
     ErrorTrackingRelease,
     ErrorTrackingRuntime,
     ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
@@ -176,17 +179,25 @@ function processExceptionList(exceptionList: ErrorTrackingException[] = []): Err
 }
 
 function ensureFrameIdFormat(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
-    exceptionList = exceptionList.map((exception) => {
-        if (!exception.stacktrace || !exception.stacktrace.frames || !Array.isArray(exception.stacktrace.frames)) {
+    return exceptionList.map((exception) => {
+        const stacktrace = exception.stacktrace
+        if (!stacktrace || !Array.isArray(stacktrace.frames)) {
             return exception
         }
-        exception.stacktrace.frames = exception.stacktrace.frames.map((frame) => {
-            frame.raw_id = frame.raw_id ? coerceLegacyRawId(frame.raw_id) : frame.raw_id
-            return frame
-        })
-        return exception
+        const frames = stacktrace.frames.filter(isFrameObject).map((frame) => ({
+            ...frame,
+            raw_id: typeof frame.raw_id === 'string' && frame.raw_id ? coerceLegacyRawId(frame.raw_id) : frame.raw_id,
+        }))
+        return { ...exception, stacktrace: { ...stacktrace, frames } }
     })
-    return exceptionList
+}
+
+function isFrameObject(frame: unknown): frame is ErrorTrackingStackFrame {
+    return isObject(frame)
+}
+
+function isExceptionObject(exception: unknown): exception is ErrorTrackingException {
+    return isObject(exception)
 }
 
 function coerceLegacyRawId(rawId: string): string {
@@ -253,13 +264,41 @@ export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrac
     }
 }
 
+// Uploaded symbol sets without a release leave the SDK's `$release_id` as the only source of a release.
+// A symbol set fetched by URL never carries one, so it cannot signal a missing `$release_id`.
+// A frame with no loaded record still could, so the answer stays unknown until every frame has one.
+export function isReleaseIdMissingFromSDK(
+    properties: ErrorEventProperties,
+    frames: ErrorTrackingStackFrame[],
+    stackFrameRecords: Record<string, ErrorTrackingStackFrameRecord>
+): boolean {
+    if (!properties || properties['$release_id'] || getExceptionRelease(properties)) {
+        return false
+    }
+
+    const records = frames.map((frame) => stackFrameRecords[frame.raw_id])
+    if (records.some((record) => !record)) {
+        return false
+    }
+
+    const uploadedSymbolSets = records.filter(
+        (record) => !!record.symbol_set_ref && !isFetchedSymbolSetRef(record.symbol_set_ref)
+    )
+
+    return uploadedSymbolSets.length > 0 && uploadedSymbolSets.every((record) => !record.release)
+}
+
+function isFetchedSymbolSetRef(ref: string): boolean {
+    return ref.startsWith('http://') || ref.startsWith('https://')
+}
+
 // we had a bug where SDK was sending non-string values for exception value
 function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
     if (!Array.isArray(exceptionList)) {
         return []
     }
 
-    return exceptionList.map((exception) => ({
+    return exceptionList.filter(isExceptionObject).map((exception) => ({
         ...exception,
         value: stringify(exception.value),
     }))

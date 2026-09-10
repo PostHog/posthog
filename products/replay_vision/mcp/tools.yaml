@@ -176,6 +176,9 @@ tools:
     vision-observations-search-viewed-create:
         operation: vision_observations_search_viewed_create
         enabled: false
+    vision-observations-viewed-create:
+        operation: vision_observations_viewed_create
+        enabled: false
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -488,6 +491,9 @@ tools:
             distributions (`monitor` verdict counts, `classifier` tag rankings, `scorer` score summary and histogram).
             Use it to judge scanner quality and rating coverage, e.g. before generating a prompt suggestion with
             `vision-scanners-prompt-suggestions-generate`.
+    vision-scanners-observations-viewed-create:
+        operation: vision_scanners_observations_viewed_create
+        enabled: false
     vision-scanners-partial-update:
         operation: vision_scanners_partial_update
         enabled: false

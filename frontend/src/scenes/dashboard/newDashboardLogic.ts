@@ -342,7 +342,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    const queryBasedDashboard = getQueryBasedDashboard(result)
+                    const queryBasedDashboard = getQueryBasedDashboard(result, 'new_dashboard')
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
                     tryShowMCPHint('dashboards.create', {
@@ -403,7 +403,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 )
 
                 actions.resetNewDashboard()
-                const queryBasedDashboard = getQueryBasedDashboard(result)
+                const queryBasedDashboard = getQueryBasedDashboard(result, 'new_dashboard')
                 queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                 actions.submitNewDashboardSuccessWithResult(result, variables)
 

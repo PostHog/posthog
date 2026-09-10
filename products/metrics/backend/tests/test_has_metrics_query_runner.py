@@ -123,7 +123,12 @@ class TestHasMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
             assert mock_report.call_count == 2
 
-    def test_has_metrics_api_does_not_cache_negative_results(self):
+    def test_has_metrics_api_caches_negative_results_briefly(self):
+        # Negatives are cached with a short TTL: the activation check reaches
+        # this through the un-throttled add_product_intent request path, so an
+        # uncached False is a per-request ClickHouse query. The TTL stays under
+        # the setup prompt's 5s poll interval, so a team that just wired up
+        # OTel still sees the flip within one extra poll cycle.
         cache.clear()
 
         with patch("products.metrics.backend.has_metrics_query_runner.HasMetricsQueryRunner") as mock_runner:
@@ -134,7 +139,25 @@ class TestHasMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.json(), {"hasMetrics": False})
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
 
+            # Second call within the TTL hits the cache, not ClickHouse
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json(), {"hasMetrics": False})
+            self.assertEqual(mock_runner.return_value.run.call_count, 1)
+
+    def test_has_metrics_negative_cache_expires(self):
+        cache.clear()
+
+        with (
+            patch("products.metrics.backend.has_metrics_query_runner.HasMetricsQueryRunner") as mock_runner,
+            patch("products.metrics.backend.has_metrics_query_runner.HAS_METRICS_NEGATIVE_CACHE_TTL", 0),
+        ):
+            mock_runner.return_value.run.return_value = False
+
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
+            self.assertEqual(response.json(), {"hasMetrics": False})
+
+            # TTL of 0 means the negative is not held: the next call re-queries
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
             self.assertEqual(response.json(), {"hasMetrics": False})
             self.assertEqual(mock_runner.return_value.run.call_count, 2)

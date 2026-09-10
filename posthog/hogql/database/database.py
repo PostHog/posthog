@@ -151,6 +151,12 @@ from posthog.hogql.database.schema.web_stats_frustration_preaggregated import We
 from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
+from posthog.hogql.database.sources_cache import (
+    SOURCES_CACHE_EVENTS,
+    SourcesCacheKey,
+    get_or_fetch_sources,
+    modifiers_fingerprint,
+)
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 from posthog.hogql.editor_assist_metrics import HOGQL_DATABASE_BUILD_DURATION_SECONDS, HOGQL_DATABASE_BUILD_TOTAL
@@ -251,6 +257,41 @@ class HogQLDatabaseSources:
     # synced S3 copies, so the build derives virtual DirectSQLTables from these schema rows instead.
     virtual_source: Optional[ExternalDataSource] = None
     virtual_schemas: list[ExternalDataSchema] = dataclasses.field(default_factory=list)
+
+    def copy_for_request(
+        self,
+        team: Team,
+        user: Optional[User | SyntheticUser | SharedLinkUser],
+        *,
+        user_access_control: Optional[UserAccessControl],
+        denied_system_table_names: set[str],
+    ) -> HogQLDatabaseSources:
+        """A copy safe to hand out from the sources cache: the request's own team, user, and
+        freshly computed access-control decision, a private modifiers copy, and fresh top-level
+        containers so an in-place mutation downstream cannot leak into other requests. The
+        contained ORM rows stay shared — the build reads them only. Revenue views are the
+        exception: they are pre-built table objects the build installs directly and then mutates
+        (saved-expression fields land in their `fields` dicts), so each request gets deep copies."""
+        return dataclasses.replace(
+            self,
+            team=team,
+            user=user,
+            user_access_control=user_access_control,
+            denied_system_table_names=denied_system_table_names,
+            modifiers=self.modifiers.model_copy(deep=True),
+            direct_connection_metadata=(
+                dict(self.direct_connection_metadata) if self.direct_connection_metadata is not None else None
+            ),
+            group_types=list(self.group_types),
+            saved_queries=list(self.saved_queries),
+            endpoint_saved_queries=list(self.endpoint_saved_queries),
+            revenue_views=[view.model_copy(deep=True) for view in self.revenue_views],
+            warehouse_tables=list(self.warehouse_tables),
+            data_warehouse_joins=list(self.data_warehouse_joins),
+            data_warehouse_expressions=list(self.data_warehouse_expressions),
+            event_modifier_saved_queries=dict(self.event_modifier_saved_queries),
+            virtual_schemas=list(self.virtual_schemas),
+        )
 
 
 type DatabaseSchemaTable = (
@@ -1393,6 +1434,7 @@ class Database(BaseModel):
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
         build_postgres_foreign_keys: bool = True,
+        use_cached_sources: bool = False,
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
     ) -> Database:
@@ -1400,22 +1442,86 @@ class Database(BaseModel):
             timings = HogQLTimings()
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
-        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
-            sources = Database._fetch_sources(
-                team_id,
+
+        def fetch_fresh() -> HogQLDatabaseSources:
+            with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
+                return Database._fetch_sources(
+                    team_id,
+                    team=team,
+                    user=user,
+                    user_access_control=user_access_control,
+                    modifiers=modifiers,
+                    timings=timings,
+                    connection_id=connection_id,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    allowed_system_tables=allowed_system_tables,
+                )
+
+        cache_key = None
+        if use_cached_sources:
+            cache_key = Database._sources_cache_key(
                 team=team,
                 user=user,
                 user_access_control=user_access_control,
                 modifiers=modifiers,
-                timings=timings,
                 connection_id=connection_id,
                 bypass_warehouse_access_control=bypass_warehouse_access_control,
                 allowed_system_tables=allowed_system_tables,
             )
+            if cache_key is None:
+                SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
+
+        if cache_key is None:
+            sources = fetch_fresh()
+        else:
+            cached_sources = get_or_fetch_sources(cache_key, fetch_fresh)
+            # Entries are shared across users; the access-control decision is recomputed per
+            # request so a permission change applies immediately, never after the TTL.
+            fresh_access_control, fresh_denied = _compute_system_table_access_decision(cast("Team", team), user)
+            sources = cached_sources.copy_for_request(
+                cast("Team", team),
+                user,
+                user_access_control=fresh_access_control,
+                denied_system_table_names=fresh_denied,
+            )
+
         with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
             return Database._build_from_sources(
                 sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
             )
+
+    @staticmethod
+    def _sources_cache_key(
+        *,
+        team: Optional[Team],
+        user: Optional[User | SyntheticUser | SharedLinkUser],
+        user_access_control: Optional[UserAccessControl],
+        modifiers: HogQLQueryModifiers | None,
+        connection_id: str | None,
+        bypass_warehouse_access_control: bool,
+        allowed_system_tables: Collection[str] | None,
+    ) -> SourcesCacheKey | None:
+        """The cache key for this build, or None when the build must fetch fresh sources.
+
+        The key is team-scoped: entries hold only team-level catalog rows, and the per-user
+        access-control decision is recomputed on every handout. Only real users (or no user)
+        hit the cache: SyntheticUser/SharedLinkUser carry request-specific access semantics.
+        A preloaded user_access_control or an allowed_system_tables override is likewise
+        per-request state, so those bypass too.
+        """
+        from posthog.models.user import User  # noqa: PLC0415 — keeps the Django ORM off this module's import path
+
+        if team is None or user_access_control is not None or allowed_system_tables:
+            return None
+        if user is not None and not isinstance(user, User):
+            return None
+        normalized_modifiers = create_default_modifiers_for_team(team, modifiers)
+        return SourcesCacheKey(
+            team_id=team.pk,
+            connection_id=connection_id,
+            modifiers_fingerprint=modifiers_fingerprint(normalized_modifiers),
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+        )
 
     @staticmethod
     def create_for_posthog_tables(
