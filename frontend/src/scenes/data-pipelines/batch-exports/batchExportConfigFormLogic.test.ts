@@ -443,7 +443,7 @@ describe('batchExportConfigFormLogic', () => {
             get: {
                 ...getMocks,
                 '/api/environments/:team_id/batch_exports/test': { steps: [] },
-                '/api/environments/:team_id/integrations/': {
+                '/api/projects/:team_id/integrations/': {
                     count: 4,
                     results: [
                         AWS_REDSHIFT_INTEGRATION,
