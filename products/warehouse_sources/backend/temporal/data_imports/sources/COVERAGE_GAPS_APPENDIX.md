@@ -315,14 +315,14 @@ Note: Admin API coverage of the identity objects is good. The three per-seat tab
 
 ## ApifyDataset — **thin**
 
-Today (1): `dataset_items`
+Today (5): `actor_runs`, `actors`, `dataset_items`, `datasets`, `usage_monthly`
 
 Diffed against: <https://docs.apify.com/api/openapi.json>
 
-- [ ] `GET /v2/actor-runs` — run history with status, duration and compute units - the operational and cost table for everything Apify does (high)
-- [ ] `GET /v2/datasets` — dataset catalog lookup resolving the dataset IDs, item counts and owning actor for the items already synced (high)
-- [ ] `GET /v2/actors` — actor lookup resolving the actId carried on runs and datasets (high)
-- [ ] `GET /v2/users/me/usage/monthly` — monthly platform usage and spend breakdown (medium)
+- [x] `GET /v2/actor-runs` — run history with status, duration and compute units - the operational and cost table for everything Apify does (high)
+- [x] `GET /v2/datasets` — dataset catalog lookup resolving the dataset IDs, item counts and owning actor for the items already synced (high)
+- [x] `GET /v2/actors` — actor lookup resolving the actId carried on runs and datasets (high)
+- [x] `GET /v2/users/me/usage/monthly` — monthly platform usage and spend breakdown (medium)
 - [ ] `GET /v2/actor-tasks` — saved task definitions, the lookup between a schedule and the runs it produces (medium)
 - [ ] `GET /v2/datasets/{datasetId}/statistics` — per-field statistics for the dataset being synced (medium)
 - [ ] `GET /v2/actor-builds` — build history to correlate output changes with actor versions (low)
@@ -330,7 +330,7 @@ Diffed against: <https://docs.apify.com/api/openapi.json>
 - [ ] `GET /v2/request-queues and /v2/actor-runs/{runId}/request-queue/requests` — crawl request state per run for coverage and failure analysis (low)
 - [ ] `GET /v2/key-value-stores/{storeId}/keys and /records` — non-dataset run outputs stored as key-value records (low)
 
-Note: Deliberately scoped: the connector takes a single user-supplied dataset_id and syncs GET /v2/datasets/{id}/items into one user-named table, so it can cover any dataset but only one per configured source. It is not dynamic discovery - get_schemas returns the one configured endpoint. The rest of the Apify platform API (runs, actors, usage) is unreachable from this source, so the operational and cost side of Apify has no coverage at all.
+Note: Deliberately scoped: the connector takes a single user-supplied dataset_id and syncs GET /v2/datasets/{id}/items into one user-named table, so it can cover any dataset but only one per configured source. It is not dynamic discovery - get_schemas returns a static endpoint catalog. The account-level tables alongside it (runs, actors, datasets, monthly usage) are addressed by the API token alone and cover the operational and cost side of the platform.
 
 ## Apollo — gaps
 
