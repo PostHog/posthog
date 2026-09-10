@@ -71,15 +71,15 @@ describe('WorkflowDraftBanner', () => {
         logic?.unmount()
     })
 
-    const mountBanner = async (): Promise<void> => {
-        logic = workflowLogic({ id: WORKFLOW_ID })
+    const mountBanner = async (id: string = WORKFLOW_ID): Promise<void> => {
+        logic = workflowLogic({ id })
         logic.mount()
         await act(async () => {
             await logic.asyncActions.loadWorkflow()
         })
         render(
             <Provider>
-                <BindLogic logic={workflowLogic} props={{ id: WORKFLOW_ID }}>
+                <BindLogic logic={workflowLogic} props={{ id }}>
                     <WorkflowDraftBanner message={MESSAGE} />
                 </BindLogic>
             </Provider>
@@ -96,6 +96,14 @@ describe('WorkflowDraftBanner', () => {
         await mountBanner()
 
         expect(screen.queryByText(MESSAGE) !== null).toBe(expected)
+    })
+
+    // An unsaved workflow also reads as a draft, and enabling one creates a live workflow instead
+    // of changing it. The template editor runs on this same route.
+    it('stays out of the way of a workflow that does not exist yet', async () => {
+        await mountBanner('new')
+
+        expect(screen.queryByText(MESSAGE)).toBeNull()
     })
 
     it('holds the enable action until the in-progress edits are saved', async () => {

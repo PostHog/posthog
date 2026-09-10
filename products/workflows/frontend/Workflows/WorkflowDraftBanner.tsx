@@ -20,8 +20,16 @@ export function WorkflowDraftBanner({
     message: string
     className?: string
 }): JSX.Element | null {
-    const { originalWorkflow, hasUnsavedChanges, workflowUserAccessLevel } = useValues(workflowLogic)
+    const { originalWorkflow, hasUnsavedChanges, workflowLoading, workflowUserAccessLevel, logicProps } =
+        useValues(workflowLogic)
     const { saveWorkflowPartial } = useActions(workflowLogic)
+
+    // A new workflow and a template being edited both carry a draft status, and enabling either
+    // creates a live workflow rather than changing one. The header withholds Enable in exactly
+    // these modes, so this does too.
+    if (!logicProps.id || logicProps.id === 'new' || logicProps.editTemplateId) {
+        return null
+    }
 
     if (originalWorkflow?.status !== 'draft') {
         return null
@@ -41,6 +49,7 @@ export function WorkflowDraftBanner({
                         children: 'Enable workflow',
                         'data-attr': 'workflow-draft-banner-enable',
                         onClick: () => saveWorkflowPartial({ status: 'active' }),
+                        loading: workflowLoading,
                         disabledReason: disabledReason ?? (hasUnsavedChanges ? 'Save your changes first' : undefined),
                     }}
                 >

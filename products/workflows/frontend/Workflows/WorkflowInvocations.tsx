@@ -25,7 +25,7 @@ export function WorkflowInvocations({ id }: { id: string }): JSX.Element | null 
 
     return (
         <div className="flex flex-col gap-2">
-            <WorkflowDraftBanner message="This workflow is a draft, so it does not run. No runs appear here until you enable it." />
+            <WorkflowDraftBanner message="This workflow is a draft, so it does not run. No new runs appear here until you enable it." />
             {workflow?.trigger?.type === 'batch' ? (
                 <WorkflowBatchInvocations id={id} />
             ) : (

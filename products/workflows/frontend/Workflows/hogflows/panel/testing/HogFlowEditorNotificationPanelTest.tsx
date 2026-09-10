@@ -375,7 +375,7 @@ export function EmailActionTestContent(): JSX.Element | null {
                                       : 'Error: ' + testResult.errors?.join(', ')}
                             </LemonBanner>
 
-                            <WorkflowDraftBanner message="The test ran against your draft. This workflow is not live, so it does not run for your users yet." />
+                            <WorkflowDraftBanner message="This workflow is a draft, so it does not run for your users." />
 
                             <div className="flex flex-col gap-2">
                                 <LemonLabel>Logs</LemonLabel>

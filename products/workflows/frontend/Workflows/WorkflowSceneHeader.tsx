@@ -219,6 +219,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             })
                                         }
                                         size="small"
+                                        loading={workflowLoading}
                                         disabledReason={hasUnsavedChanges ? 'Save your changes first' : undefined}
                                         className="transition-colors duration-300 ease-in-out"
                                         data-attr="workflow-launch"

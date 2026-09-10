@@ -19,7 +19,7 @@ const PANEL_WORKFLOW: HogFlow = {
     ...NEW_WORKFLOW,
     id: LOGIC_PROPS.id!,
     name: 'Configuration panel examples',
-    user_access_level: AccessControlLevel.Admin,
+    user_access_level: AccessControlLevel.Editor,
     variables: [
         { type: 'string', key: 'account_owner', label: 'Account owner', default: '' },
         { type: 'number', key: 'trial_days', label: 'Trial days', default: 14 },
