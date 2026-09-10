@@ -1,10 +1,12 @@
 from collections.abc import Sequence
 
 import pytest
+from unittest.mock import patch
 
 from temporalio.converter import DataConverter
 
 from posthog.temporal.scheduler.payload import (
+    MAX_SCHEDULER_ITEMS_PER_PAGE,
     MAX_SCHEDULER_PAYLOAD_BYTES,
     select_items_within_temporal_payload,
     temporal_payload_size_bytes,
@@ -20,10 +22,25 @@ async def test_temporal_payload_size_matches_sdk_wire_payload_size() -> None:
     value = _build_payload(["one", "two"])
 
     encoded = await DataConverter.default.encode([value])
-    size = await temporal_payload_size_bytes(value)
+    size = await temporal_payload_size_bytes(value, data_converter=DataConverter.default)
 
     assert size == sum(payload.ByteSize() for payload in encoded)
     assert size > sum(len(payload.data) for payload in encoded)
+
+
+@pytest.mark.asyncio
+async def test_temporal_payload_size_uses_the_configured_client_converter_by_default() -> None:
+    value = _build_payload(["one", "two"])
+
+    with patch(
+        "posthog.temporal.scheduler.payload.build_data_converter",
+        return_value=DataConverter.default,
+    ) as build_converter:
+        size = await temporal_payload_size_bytes(value)
+
+    build_converter.assert_called_once_with()
+    encoded = await DataConverter.default.encode([value])
+    assert size == sum(payload.ByteSize() for payload in encoded)
 
 
 @pytest.mark.asyncio
@@ -91,9 +108,30 @@ async def test_select_items_reports_oversized_first_item_without_exceeding_budge
 
 
 @pytest.mark.asyncio
+async def test_select_items_does_not_encode_the_full_oversized_candidate_page() -> None:
+    largest_built_prefix = 0
+
+    def build_payload(items: Sequence[str]) -> dict[str, object]:
+        nonlocal largest_built_prefix
+        largest_built_prefix = max(largest_built_prefix, len(items))
+        return _build_payload(items)
+
+    result = await select_items_within_temporal_payload(
+        ["x" * 200_000 for _ in range(100)],
+        build_payload=build_payload,
+        max_items=100,
+        data_converter=DataConverter.default,
+    )
+
+    assert result.limited_by == "byte_limit"
+    assert largest_built_prefix < 100
+
+
+@pytest.mark.asyncio
 async def test_select_items_rejects_invalid_or_unsafe_limits() -> None:
     for max_items, payload_budget_bytes, error in [
         (0, MAX_SCHEDULER_PAYLOAD_BYTES, "max_items"),
+        (MAX_SCHEDULER_ITEMS_PER_PAGE + 1, MAX_SCHEDULER_PAYLOAD_BYTES, "hard maximum"),
         (1, 0, "payload_budget_bytes"),
         (1, MAX_SCHEDULER_PAYLOAD_BYTES + 1, "hard maximum"),
     ]:

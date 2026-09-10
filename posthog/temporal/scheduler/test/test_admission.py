@@ -94,6 +94,26 @@ class TestReserveSchedulerClaims(TestCase):
             1,
         )
 
+    def test_duplicate_deferred_requests_are_all_counted_as_deferred(self) -> None:
+        reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[_request("team:1", "existing")],
+            limits=_limits(global_limit=1, tenant_limit=1),
+        )
+        request = _request("team:2", "deferred")
+
+        result = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request, request],
+            limits=_limits(global_limit=1, tenant_limit=1),
+        )
+
+        self.assertEqual(result.reservations, ())
+        self.assertEqual(result.already_claimed, 0)
+        self.assertEqual(result.deferred_for_capacity, 2)
+
     def test_available_claim_is_reused_with_fresh_token(self) -> None:
         request = _request("team:1", "one")
         first = reserve_scheduler_claims(
@@ -126,6 +146,13 @@ class TestReserveSchedulerClaims(TestCase):
             requests=[request],
             limits=_limits(),
         ).reservations[0]
+        self.assertTrue(
+            confirm_scheduler_claim(
+                reservation.claim_id,
+                reservation.claim_token,
+                lease_duration=timedelta(minutes=5),
+            )
+        )
         self.assertTrue(complete_scheduler_claim(reservation.claim_id, reservation.claim_token))
 
         result = reserve_scheduler_claims(
@@ -263,10 +290,18 @@ class TestSchedulerClaimLifecycle(TestCase):
                 now=self.now,
             )
         )
-        self.assertFalse(
+        self.assertTrue(
             confirm_scheduler_claim(
                 self.reservation.claim_id,
                 self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+        self.assertFalse(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                wrong_token,
                 lease_duration=timedelta(minutes=10),
                 now=self.now,
             )
@@ -284,6 +319,66 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(claim.status, TemporalSchedulerClaim.Status.CONFIRMED)
         self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=15))
         self.assertEqual(self._global_in_flight(), 1)
+
+    def test_older_renewal_does_not_shorten_the_current_lease(self) -> None:
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=20),
+                now=self.now,
+            )
+        )
+        self.assertTrue(
+            renew_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=5),
+                now=self.now,
+            )
+        )
+
+        claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
+        self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=20))
+
+    def test_repeated_confirmation_does_not_shorten_a_renewed_lease(self) -> None:
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+        self.assertTrue(
+            renew_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=60),
+                now=self.now,
+            )
+        )
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+
+        claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
+        self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=60))
+
+    def test_unconfirmed_claim_cannot_be_completed(self) -> None:
+        self.assertFalse(
+            complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now)
+        )
+        self.assertEqual(self._global_in_flight(), 1)
+        self.assertEqual(
+            TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).status,
+            TemporalSchedulerClaim.Status.RESERVED,
+        )
 
     def test_metric_lookup_failure_does_not_turn_successful_transition_into_failure(self) -> None:
         with patch(
@@ -303,10 +398,16 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(claim.status, TemporalSchedulerClaim.Status.CONFIRMED)
 
     def test_terminal_transition_releases_each_permit_exactly_once(self) -> None:
-        self.assertTrue(complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now))
-        self.assertFalse(
-            complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now)
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
         )
+        self.assertTrue(complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now))
+        self.assertTrue(complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now))
 
         claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
         self.assertEqual(claim.status, TemporalSchedulerClaim.Status.COMPLETED)
@@ -421,6 +522,14 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(self._global_in_flight(), 1)
 
     def test_prune_removes_only_old_inactive_claims(self) -> None:
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=5),
+                now=self.now,
+            )
+        )
         self.assertTrue(complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now))
         available = reserve_scheduler_claims(
             scheduler=SCHEDULER,
@@ -447,6 +556,14 @@ class TestSchedulerClaimLifecycle(TestCase):
             limits=_limits(),
             now=self.now,
         ).reservations[0]
+        self.assertTrue(
+            confirm_scheduler_claim(
+                recent.claim_id,
+                recent.claim_token,
+                lease_duration=timedelta(minutes=5),
+                now=self.now,
+            )
+        )
         self.assertTrue(complete_scheduler_claim(recent.claim_id, recent.claim_token, now=self.now))
         old = self.now - timedelta(days=30)
         TemporalSchedulerClaim.objects.filter(
@@ -519,6 +636,13 @@ class TestSchedulerAdmissionConcurrency(TransactionTestCase):
             requests=[_request("team:1", "one")],
             limits=_limits(global_limit=1, tenant_limit=1),
         ).reservations[0]
+        self.assertTrue(
+            confirm_scheduler_claim(
+                reservation.claim_id,
+                reservation.claim_token,
+                lease_duration=timedelta(minutes=5),
+            )
+        )
         barrier = Barrier(2)
 
         def finish(transition: str) -> bool:

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from prometheus_client import CollectorRegistry
 
-from posthog.temporal.scheduler.metrics import SchedulerMetrics, record_scheduler_metrics_safely
+from posthog.temporal.scheduler.metrics import SchedulerMetrics, _should_record, record_scheduler_metrics_safely
 
 
 def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
@@ -60,6 +60,20 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
         )
         == 90
     )
+    assert (
+        registry.get_sample_value(
+            "posthog_temporal_scheduler_permits_snapshot_unixtime",
+            {"scheduler": "subscriptions", "region": "eu"},
+        )
+        > 0
+    )
+    assert (
+        registry.get_sample_value(
+            "posthog_temporal_scheduler_backlog_snapshot_unixtime",
+            {"scheduler": "subscriptions", "region": "eu"},
+        )
+        > 0
+    )
 
     for method_name in [
         "observe_payload",
@@ -71,6 +85,12 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
         parameters = inspect.signature(getattr(metrics, method_name)).parameters
         assert "tenant_key" not in parameters
         assert "occurrence_key" not in parameters
+
+    assert metrics._permits_in_flight._multiprocess_mode == "mostrecent"
+    assert metrics._backlog_items_lower_bound._multiprocess_mode == "mostrecent"
+    assert metrics._backlog_oldest_age_seconds._multiprocess_mode == "mostrecent"
+    assert metrics._permits_snapshot_unixtime._multiprocess_mode == "mostrecent"
+    assert metrics._backlog_snapshot_unixtime._multiprocess_mode == "mostrecent"
 
 
 @pytest.mark.parametrize(
@@ -101,3 +121,16 @@ def test_metric_backend_failure_is_best_effort(log_exception: MagicMock) -> None
     record_scheduler_metrics_safely(fail)
 
     log_exception.assert_called_once_with("temporal_scheduler.metric_recording_failed")
+
+
+@patch("temporalio.workflow.unsafe.is_replaying", return_value=True)
+@patch("temporalio.workflow.in_workflow", return_value=True)
+def test_metric_recording_is_suppressed_during_workflow_replay(
+    _in_workflow: MagicMock, _is_replaying: MagicMock
+) -> None:
+    operation = MagicMock()
+
+    assert not _should_record()
+    record_scheduler_metrics_safely(operation)
+
+    operation.assert_not_called()

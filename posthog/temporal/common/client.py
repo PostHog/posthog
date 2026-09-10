@@ -14,6 +14,26 @@ from temporalio.runtime import Runtime
 from posthog.temporal.common.codec import EncryptionCodec
 
 
+def build_data_converter(
+    *,
+    settings: Any | None = django_settings,
+    use_pydantic_converter: bool = False,
+) -> temporalio.converter.DataConverter:
+    """Build the converter used for Temporal client traffic.
+
+    Keeping this construction in one place lets payload guards measure the same encrypted wire
+    representation that the production client sends.
+    """
+
+    data_converter = pydantic_data_converter if use_pydantic_converter else temporalio.converter.default()
+    if settings is not None:
+        data_converter = dataclasses.replace(
+            data_converter,
+            payload_codec=EncryptionCodec.from_settings(settings=settings),
+        )
+    return data_converter
+
+
 async def connect(
     host: str,
     port: int | str,
@@ -37,13 +57,7 @@ async def connect(
         if server_root_ca_cert:
             tls.server_root_ca_cert = bytes(server_root_ca_cert, "utf-8")
 
-    data_converter = pydantic_data_converter if use_pydantic_converter else temporalio.converter.default()
-
-    if settings is not None:
-        data_converter = dataclasses.replace(
-            data_converter,
-            payload_codec=EncryptionCodec.from_settings(settings=settings),
-        )
+    data_converter = build_data_converter(settings=settings, use_pydantic_converter=use_pydantic_converter)
 
     # The classic TracingInterceptor injects trace context into workflow start headers (so a
     # caller's span becomes the parent of the workflow) AND creates spans for activity/workflow
