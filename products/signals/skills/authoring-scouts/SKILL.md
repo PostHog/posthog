@@ -2,18 +2,19 @@
 name: authoring-scouts
 description: >
   How to author, edit, and adapt PostHog Signals scouts — the scheduled agents that
-  scan a project and write reports into the Signals inbox. Use to customize a
+  scan a project and file what they find. Use to customize a
   canonical scout (narrow its scope, retune thresholds, add disqualifiers), tweak a
   scout's schedule or dry-run posture, write a new scout for a surface the fleet
   doesn't cover, build a measurement scout that records structured output (an
-  LLM-judge scoring a sample on a schedule — a custom metric no query can compute),
-  or steer a scout without editing it by leaving it a note. Covers the scout SKILL.md
-  anatomy, the report contract, the structured-output channel, the dedupe +
-  scratchpad-memory conventions, scout notes, the per-team skills-store path vs the
-  canonical in-repo path, and the test loop. Trigger on
+  LLM-judge scoring a sample on a schedule), or steer a scout without editing it by
+  leaving it a note. Covers the scout SKILL.md
+  anatomy, the report contract, the structured-output channel, Slack delivery, the
+  dedupe + scratchpad-memory conventions, scout notes, the per-team skills-store path
+  vs the canonical in-repo path, and the test loop. Trigger on
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
   "make a scout that watches <event>", "score/judge/measure X with a scout",
-  "structured output from a scout", "leave a note for / give feedback to a scout".
+  "structured output from a scout", "send a scout's output to Slack",
+  "leave a note for / give feedback to a scout".
 metadata:
   owner_team: signals
 ---
@@ -26,6 +27,8 @@ This skill helps you and your agent **adapt those canonical scouts to a specific
 
 A scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
 The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
+Where that output *lands* is a separate, per-scout config decision: a report goes to the Signals inbox, and the same report can be delivered to a Slack channel or DM at the same time (see `output_destinations` under Run posture).
+The inbox is the default, not the only destination — don't rule a scout out of a job because the user wants the result in Slack.
 (A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
 A scout is an `LLMSkill` that holds a `SignalScoutConfig`.
@@ -138,6 +141,12 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
   Applies from the scout's next run.
+- `output_destinations` — defaults to none.
+  Set `slack` to deliver every report the scout emits to Slack as well as the inbox: an `integration_id` for the workspace, plus either a `channel` (`channel_id|#channel-name`) or up to five `users` to DM (`member_id|@display-name`), never both.
+  `thread_reports: true` posts a channel report as a short lead message with the rest split into replies at the summary's section labels, which keeps a long report from being clipped — it does not change how findings post.
+  This is a firehose of that one scout's output: it carries no priority filter and no reviewer routing, so pair it with a scout whose bar is already tight rather than using it to triage a chatty one.
+  A Slack-delivered scout is exempt from the ignored-reports auto-pause, since consumption in Slack isn't measurable — which also means an uncalibrated one won't be switched off for you.
+  Reach for it when the user asks for a recurring update *in a channel or a DM* — a scout that stays quiet unless something clears its bar, with dedupe and memory across runs, is a better fit for that job than a subscription that fires every day regardless.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.
