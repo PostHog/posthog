@@ -204,9 +204,10 @@ export class HogFunctionHandler implements ActionHandler {
             )
         }
 
+        // A failed step keeps its variable untouched: execResult may still hold an earlier fetch response.
         return {
             nextAction: findContinueAction(invocation),
-            result: functionResult.execResult,
+            result: functionResult.error ? undefined : functionResult.execResult,
             error: functionResult.error,
         }
     }

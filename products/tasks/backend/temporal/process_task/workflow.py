@@ -417,6 +417,16 @@ _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
+# Replays of pre-rollout histories must keep recording an idle exit as completed.
+_PATCH_ID_TURN_OPENS_ON_DISPATCH = "tasks-turn-opens-on-dispatch"
+
+
+def _turn_opens_on_dispatch() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_TURN_OPENS_ON_DISPATCH)
+
+
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
 # the message's dedupe key so a retry can land; background runs keep the fail-fast
 # terminalization poll_for_turn callers rely on. Same cleanup lifecycle as above.
@@ -483,6 +493,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._client_activity_received: bool = False
         self._agent_active: Optional[bool] = None
         self._end_of_turn_received: Optional[bool] = None
+        self._turn_ended_received = False
         self._last_agent_heartbeat_at: Optional[datetime] = None
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
@@ -574,6 +585,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 or self._sandbox_gone
                 or self._heartbeat_received
                 or self._client_activity_received
+                or self._turn_ended_received
                 or self._has_dispatchable_followup()
                 or len(self._pending_permission_responses) > 0
             )
@@ -634,6 +646,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
+        # The turn opens on dispatch: the first heartbeat may lag or be throttled away.
+        if _turn_opens_on_dispatch():
+            self._end_of_turn_received = False
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -1213,6 +1228,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 self._pending_followups.append(input.initial_message)
                 await self._dispatch_next_followup()
             elif input.resumed_sandbox is None and self._should_forward_pending_user_message():
+                # A non-interactive agent starts its first turn on boot, before any event arrives.
+                if _turn_opens_on_dispatch():
+                    self._end_of_turn_received = False
                 await self._forward_pending_user_message()
 
             # Wait for completion signal or inactivity timeout.
@@ -1465,6 +1483,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 extra={"run_id": self.context.run_id},
                             )
                             self._client_activity_received = False
+                            continue
+
+                        # Re-arm the wait so the idle window drops back to the short one.
+                        if self._turn_ended_received:
+                            self._turn_ended_received = False
                             continue
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
@@ -3270,6 +3293,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def agent_state_changed(self, agent_active: bool) -> None:
         self._agent_active = agent_active
         self._end_of_turn_received = not agent_active
+        if not agent_active:
+            self._turn_ended_received = True
 
     @temporalio.workflow.signal
     async def agent_command_dispatched(self) -> None:

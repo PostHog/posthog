@@ -1723,6 +1723,31 @@ class TestProcessTaskWorkflowUnit:
         assert await workflow._wait_for_event() == process_task_workflow_module.TaskEvent.TIMEOUT_REACHED
         assert inactivity_mock.await_args.args[0] == timedelta(seconds=expected_seconds)
 
+    async def test_turn_end_wakes_the_wait_so_the_short_idle_window_re_arms(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        async def fake_wait_condition(condition):
+            assert condition()
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
+
+        await workflow.agent_state_changed(False)
+
+        assert await workflow._wait_for_task_external_event() == process_task_workflow_module.TaskEvent.SIGNAL_RECEIVED
+        assert workflow._end_of_turn_received is True
+
+    async def test_dispatching_a_followup_opens_the_turn_before_any_heartbeat(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._end_of_turn_received = True
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", AsyncMock(return_value="sent"))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+
+        await workflow._dispatch_followup(PendingFollowup(message="go", artifact_ids=[]))
+
+        assert workflow._end_of_turn_received is False
+
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
@@ -2013,7 +2038,6 @@ class TestProcessTaskWorkflowUnit:
     ):
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
-        workflow._end_of_turn_received = end_of_turn_received
         workflow._ci_repetitions = ci_repetitions
         context = _build_context(github_integration_id=123, origin_product=origin_product)
         update_task_run_status_mock = AsyncMock()
@@ -2053,9 +2077,13 @@ class TestProcessTaskWorkflowUnit:
         )
         monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
         monkeypatch.setattr(workflow, "_run_credential_refresh_until_sandbox_gone", AsyncMock())
-        monkeypatch.setattr(
-            workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.SANDBOX_GONE)
-        )
+
+        # Boot opens the turn, so the parametrized flag state is applied at wait time.
+        async def wait_for_event():
+            workflow._end_of_turn_received = end_of_turn_received
+            return process_task_workflow_module.TaskEvent.SANDBOX_GONE
+
+        monkeypatch.setattr(workflow, "_wait_for_event", wait_for_event)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
         # run() awaits the permission-response drainer on the completion path; outside a
@@ -2168,7 +2196,6 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
-        workflow._end_of_turn_received = end_of_turn_received
         context = _build_context(github_integration_id=123, origin_product=origin_product)
         update_task_run_status_mock = AsyncMock()
 
@@ -2205,7 +2232,12 @@ class TestProcessTaskWorkflowUnit:
             ),
         )
         monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
-        monkeypatch.setattr(workflow, "_wait_for_event", AsyncMock(return_value=event))
+
+        async def wait_for_event():
+            workflow._end_of_turn_received = end_of_turn_received
+            return event
+
+        monkeypatch.setattr(workflow, "_wait_for_event", wait_for_event)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
         # workflow.logger resolves the replay flag off the workflow event loop, which this
         # loop-free unit test doesn't have.
