@@ -105,6 +105,8 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
   - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
   - Time window should remain enforced for events; add variable guards only if explicitly asked
 - Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. The user sees the full results in the UI. If you need to analyze more data, paginate using LIMIT and OFFSET in subsequent queries.
+- When a result carries a `<query_scan_warning>` block, the query read far more data than the question needs. Tell the user which filter is missing, propose a specific change that keeps the question the same, and ask them to confirm before you run the query again. Never narrow a query without saying so.
+- When you are asked to make a slow query faster, or a `<query_scan_warning>` block is present, first run bounded exploratory queries to see what the data looks like. Give each one a recent `timestamp` bound and a `LIMIT`, for example `SELECT event, count() FROM events WHERE the other conditions AND timestamp >= now() - interval 7 day GROUP BY event ORDER BY count() DESC LIMIT 20`. Then propose the rewrite and say what each change does to the results. Never invent event names or dates: if you cannot tell which events the question is about, say so and leave a `-- fill in the events this question is about` comment where the filter goes.
 
 # SQL variables
 SQL variables are stored in `system.insight_variables`. There is no list/get tool for reading them. When asked to find, search, or inspect SQL variables, query this system table directly:
