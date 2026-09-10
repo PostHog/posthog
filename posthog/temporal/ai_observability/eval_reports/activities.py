@@ -1,6 +1,7 @@
 """Activities for evaluation reports workflow."""
 
 import time
+import random
 import datetime as dt
 from collections import defaultdict
 from itertools import batched
@@ -562,13 +563,21 @@ def _count_eval_results_over_range(
             transient_attempts_left -= 1
             if transient_attempts_left <= 0:
                 raise
+            # Jittered, because the coordinator starts COUNT_TRIGGER_MAX_CONCURRENT_CHECKS
+            # checks at once: a fixed pause re-fires every check that failed together into the
+            # same instant, at the slot pool that may be what refused them.
+            delay = random.uniform(
+                COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS / 2,
+                COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS,
+            )
             logger.warning(
                 "eval_report_count_query_transient_failure",
                 team_id=team.pk,
                 error=str(error),
                 error_type=type(error).__name__,
+                retry_delay_seconds=round(delay, 2),
             )
-            time.sleep(COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS)
+            time.sleep(delay)
         except _SPLITTABLE_COUNT_QUERY_ERRORS:
             if (until - since) <= COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE:
                 raise

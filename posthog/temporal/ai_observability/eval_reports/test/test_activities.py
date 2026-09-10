@@ -46,6 +46,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
     COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
+    COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
 from posthog.temporal.ai_observability.eval_reports.targets import target_event_predicate
@@ -870,7 +871,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         since = until - dt.timedelta(days=8)
 
         with (
-            patch("time.sleep"),
+            patch("time.sleep") as sleep,
             patch("posthog.hogql.query.execute_hogql_query", side_effect=[error, Mock(results=[[9]])]) as query,
         ):
             counts = _count_eval_results_for_reports_with_split_retry(self.team, self._entries(1, since), until=until)
@@ -878,6 +879,10 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         self.assertEqual(counts, {"r0": 9})
         # The same range twice: a failure that says nothing about the range must not split it.
         self.assertEqual([_scanned_window(call.kwargs["query"]) for call in query.call_args_list], [[since, until]] * 2)
+        # A pause inside the band: below it the checks that failed together re-fire in step,
+        # above it the wait eats the wall clock the remaining attempts need.
+        self.assertGreaterEqual(sleep.call_args.args[0], COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS / 2)
+        self.assertLessEqual(sleep.call_args.args[0], COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS)
 
     def test_surfaces_a_transient_failure_that_outlives_its_reattempt(self):
         # Catches a ladder that keeps re-attempting, or splits instead: a cluster that just

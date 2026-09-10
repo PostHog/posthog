@@ -62,7 +62,11 @@ COUNT_TRIGGER_QUERY_MAX_ATTEMPTS = 7
 # before it ran, a dropped connection, or a full slot budget. One re-attempt, so a blip does
 # not fail the activity and a saturated cluster is not asked several more times.
 COUNT_TRIGGER_QUERY_TRANSIENT_ATTEMPTS = 2
-# Pause before re-attempting the same range, so the re-attempt does not land in the same blip.
+# Longest pause before re-attempting the same range, so the re-attempt does not land in the same
+# blip. The ladder waits a random share of it, at least half, so concurrent checks that failed
+# together do not re-fire at the same instant. The pause is short because it runs inside the
+# activity and spends the ladder's own wall-clock budget; a saturated cluster is answered by
+# giving up the re-attempt and letting Temporal retry the activity later.
 COUNT_TRIGGER_QUERY_TRANSIENT_RETRY_DELAY_SECONDS = 1.0
 PREPARE_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 AGENT_ACTIVITY_TIMEOUT = timedelta(seconds=660)  # 11 minutes (agent timeout + buffer)
