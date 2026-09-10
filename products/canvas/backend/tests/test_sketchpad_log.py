@@ -68,6 +68,28 @@ class TestSketchpadLog(BaseTest):
         replay = append_ops(sketchpad, [ops[2]], "user", None, self.user, base_seq=0)
         assert replay.results[0].seq == 3
 
+    @patch("products.canvas.backend.sketchpad.log.SKETCHPAD_HISTORY_MAX_BYTES", 600)
+    def test_compacts_when_retained_ops_pass_the_byte_ceiling(self) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
+        sketchpad = Sketchpad.objects.for_team(self.team.id).create(
+            team_id=self.team.id, channel=channel, name="Byte test"
+        )
+        value = "x" * 250
+        for index in range(4):
+            append_ops(
+                sketchpad,
+                [{"op_id": f"state-{index}", "op": {"type": "set_state", "key": f"k{index}", "value": value}}],
+                "user",
+                None,
+                self.user,
+                base_seq=sketchpad.head_seq,
+            )
+        sketchpad.refresh_from_db()
+
+        assert sketchpad.history_start_seq > 0
+        assert sketchpad.history_bytes <= 600
+        assert sketchpad.history_snapshot["state"]["k0"] == value
+
     def test_compiled_sources_are_shared_and_removed_after_the_last_fragment(self) -> None:
         channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
         sketchpad = Sketchpad.objects.for_team(self.team.id).create(

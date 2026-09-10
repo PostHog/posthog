@@ -99,6 +99,14 @@ class TestSketchpadValidation(SimpleTestCase):
                 "invalid_field_entries",
                 {"schemaVersion": 1, "state": {"note": {"__field": "text", "entries": [], "removed": []}}},
             ),
+            (
+                "unknown_capability",
+                {"schemaVersion": 1, "fragments": [{**FRAGMENT, "capabilities": {"shell": True}}]},
+            ),
+            (
+                "unknown_state_scope",
+                {"schemaVersion": 1, "fragments": [{**FRAGMENT, "capabilities": {"state": ["user"]}}]},
+            ),
         ]
     )
     def test_invalid_restore_is_rejected(self, _name: str, snapshot: dict[str, Any]) -> None:
@@ -110,7 +118,10 @@ class TestSketchpadValidation(SimpleTestCase):
 
     def test_all_operation_types_preserve_their_data(self) -> None:
         ops = [
-            {"type": "add_fragment", "fragment": FRAGMENT},
+            {
+                "type": "add_fragment",
+                "fragment": {**FRAGMENT, "capabilities": {"inlineQueries": True, "state": ["shared"]}},
+            },
             {"type": "update_fragment", "id": "note", "patch": {"hidden": False, "title": ""}},
             {"type": "remove_fragment", "id": "note"},
             {"type": "bring_to_front", "id": "note"},

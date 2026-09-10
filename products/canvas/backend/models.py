@@ -286,6 +286,9 @@ class Sketchpad(TeamScopedRootMixin, UUIDModel):
     head_seq = models.IntegerField(default=0)
     history_start_seq = models.IntegerField(default=0, db_default=0)
     history_snapshot = models.JSONField(default=empty_sketchpad_snapshot, db_default=empty_sketchpad_snapshot())
+    # Serialized size of the ops after history_start_seq, so compaction can run
+    # on retained bytes without measuring the rows on every append.
+    history_bytes = models.BigIntegerField(default=0, db_default=0)
     pinned_at = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)

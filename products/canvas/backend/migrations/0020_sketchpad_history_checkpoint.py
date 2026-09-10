@@ -20,4 +20,9 @@ class Migration(migrations.Migration):
             name="history_start_seq",
             field=models.IntegerField(db_default=0, default=0),
         ),
+        migrations.AddField(
+            model_name="sketchpad",
+            name="history_bytes",
+            field=models.BigIntegerField(db_default=0, default=0),
+        ),
     ]

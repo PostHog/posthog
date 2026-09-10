@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any, cast
@@ -24,6 +25,9 @@ from products.canvas.backend.sketchpad.records import (
 
 SKETCHPAD_HISTORY_LIMIT = 10_000
 SKETCHPAD_COMPACTION_CHUNK = 1_000
+# A row cap alone does not bound the table: every retained op can hold a state
+# value up to MAX_SKETCHPAD_OP_BYTES. Retained bytes get their own ceiling.
+SKETCHPAD_HISTORY_MAX_BYTES = 32 * 1024 * 1024
 
 
 class SketchpadHistoryCompacted(APIException):
@@ -88,27 +92,62 @@ def append_ops(
         if appended:
             records.validate_limits()
             records.save()
+            locked.history_bytes += sum(_op_bytes(row.op) for row in appended)
             hydrate_ops(appended)
             _compact_history(locked)
-            locked.save(update_fields=["head_seq", "updated_at"])
+            locked.save(update_fields=["head_seq", "history_bytes", "updated_at"])
     sketchpad.head_seq = locked.head_seq
     return SketchpadAppendResult(results=results, replayed=list(replayed.values()), head_seq=locked.head_seq)
 
 
+def _op_bytes(op: Any) -> int:
+    return len(json.dumps(op, separators=(",", ":"), ensure_ascii=False).encode())
+
+
+def _byte_boundary_seq(sketchpad: Sketchpad) -> tuple[int, int]:
+    """The newest seq to fold away, and the bytes the ops after it hold.
+
+    Walks back from the head and keeps ops until the byte ceiling is reached,
+    so a board of few but large ops compacts as readily as a chatty one.
+    """
+    kept = 0
+    rows = (
+        SketchpadOp.objects.for_team(sketchpad.team_id)
+        .filter(sketchpad=sketchpad, seq__gt=sketchpad.history_start_seq)
+        .order_by("-seq")
+        .values_list("seq", "op")
+    )
+    for seq, op in rows.iterator(chunk_size=256):
+        size = _op_bytes(op)
+        if kept + size > SKETCHPAD_HISTORY_MAX_BYTES:
+            return seq, kept
+        kept += size
+    return sketchpad.history_start_seq, kept
+
+
 def _compact_history(sketchpad: Sketchpad) -> None:
     excess = sketchpad.head_seq - sketchpad.history_start_seq - SKETCHPAD_HISTORY_LIMIT
-    if excess <= 0:
+    kept_bytes: int | None = None
+    if excess > 0:
+        target_seq = sketchpad.history_start_seq + max(excess, SKETCHPAD_COMPACTION_CHUNK)
+    elif sketchpad.history_bytes > SKETCHPAD_HISTORY_MAX_BYTES:
+        target_seq, kept_bytes = _byte_boundary_seq(sketchpad)
+        if target_seq <= sketchpad.history_start_seq:
+            sketchpad.history_bytes = kept_bytes
+            return
+    else:
         return
-    target_seq = sketchpad.history_start_seq + max(excess, SKETCHPAD_COMPACTION_CHUNK)
     ops = list(
         SketchpadOp.objects.for_team(sketchpad.team_id)
         .filter(sketchpad=sketchpad, seq__gt=sketchpad.history_start_seq, seq__lte=target_seq)
         .order_by("seq")
     )
+    folded_bytes = sum(_op_bytes(row.op) for row in ops)
     hydrate_ops(ops)
     sketchpad.history_snapshot = fold_snapshot(cast(JsonObject, sketchpad.history_snapshot), ops)
     sketchpad.history_start_seq = target_seq
-    sketchpad.save(update_fields=["history_snapshot", "history_start_seq"])
+    sketchpad.history_bytes = kept_bytes if kept_bytes is not None else max(sketchpad.history_bytes - folded_bytes, 0)
+    sketchpad.save(update_fields=["history_snapshot", "history_start_seq", "history_bytes"])
     SketchpadOp.objects.for_team(sketchpad.team_id).filter(sketchpad=sketchpad, seq__lte=target_seq).delete()
     _remove_unused_sources(sketchpad)
 

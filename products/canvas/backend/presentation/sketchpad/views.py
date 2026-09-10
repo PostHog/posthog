@@ -2,7 +2,7 @@ from typing import Any
 from uuid import UUID
 
 from django.contrib.postgres.expressions import ArraySubquery
-from django.db.models import Count, Func, JSONField, OuterRef, QuerySet, Subquery
+from django.db.models import Count, Func, JSONField, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce, JSONObject
 from django.utils import timezone
 
@@ -42,6 +42,18 @@ class SketchpadAppendOpsThrottle(CanvasStateWriteThrottle):
     rate = "600/min"
 
 
+class SketchpadCompileThrottle(CanvasStateWriteThrottle):
+    """Per viewer, not per board: one compile call can queue a Celery job, so a
+    caller with many boards must not multiply the work by moving between them."""
+
+    scope = "sketchpad_compile"
+    rate = "120/min"
+
+    def get_cache_key(self, request: Request, view: Any) -> str:
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     scope_object = "canvas"
     queryset = Sketchpad.objects.unscoped().select_related("created_by")
@@ -49,9 +61,28 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     scope_object_read_actions = ["list", "retrieve", "ops", "compiled"]
     scope_object_write_actions = ["create", "partial_update", "destroy", "append_ops"]
+    # Editing the board is open to everyone who can see it, but renaming it,
+    # pinning it, or moving it to another channel stays with its creator and the
+    # members of a shared channel. Deleting stays with the creator alone.
+    _EDITOR_ACTIONS = {"partial_update"}
+    _CREATOR_ONLY_ACTIONS = {"destroy"}
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().safely_get_queryset(queryset)
+        user = self._request_user()
+        if not self._is_sandbox_authenticated(self.request) and self.action in {
+            *self._EDITOR_ACTIONS,
+            *self._CREATOR_ONLY_ACTIONS,
+        }:
+            if user is None:
+                return queryset.none()
+            queryset = (
+                queryset.filter(created_by_id=user.id)
+                if self.action in self._CREATOR_ONLY_ACTIONS
+                else queryset.filter(
+                    Q(created_by_id=user.id) | tasks_facade.visible_channels_q(None, relation="channel")
+                )
+            )
         if self.action in {"ops", "append_ops", "compiled"}:
             queryset = queryset.select_related(None)
         if self.action == "retrieve":
@@ -85,6 +116,8 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "append_ops":
             return [*super().get_throttles(), SketchpadAppendOpsThrottle()]
+        if self.action == "compiled":
+            return [*super().get_throttles(), SketchpadCompileThrottle()]
         return super().get_throttles()
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:

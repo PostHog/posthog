@@ -52,6 +52,21 @@ FRAGMENT_PROPERTIES = {
     "codeVersion": {"type": "integer"},
     "surface": {"type": "string", "enum": ["card", "plain"]},
     "hidden": {"type": "boolean"},
+    # What the fragment may reach through ph.*, in the shape canvases declare.
+    # The runtime denies anything a fragment does not declare here.
+    "capabilities": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "inlineQueries": {"type": "boolean"},
+            "insights": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {"type": "string", "minLength": 1, "maxLength": 128},
+            },
+            "state": {"type": "array", "maxItems": 1, "items": {"type": "string", "enum": ["shared"]}},
+        },
+    },
 }
 
 

@@ -195,11 +195,6 @@ class CanvasConnectorCallThrottle(CanvasStateWriteThrottle):
     rate = "120/min"
 
 
-class SketchpadAppendOpsThrottle(CanvasStateWriteThrottle):
-    scope = "sketchpad_append_ops"
-    rate = "600/min"
-
-
 class CanvasAccessMixin(TeamAndOrgViewSetMixin):
     """Team, channel, and sandbox visibility rules shared by every canvas-like resource."""
 
