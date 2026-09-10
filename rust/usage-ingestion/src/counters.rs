@@ -204,36 +204,6 @@ impl CounterAccumulator {
         (pending.scopes.len(), pending.entries)
     }
 
-    fn restore(&self, counters: Vec<ScopeCounters>) -> usize {
-        let mut pending = self.pending.lock().expect("usage counter mutex poisoned");
-        let mut dropped = 0;
-        for counters in counters {
-            for (entry, quantity) in counters.entries {
-                if let Some(current) = pending
-                    .scopes
-                    .get_mut(&counters.scope)
-                    .and_then(|entries| entries.get_mut(&entry))
-                {
-                    if let Some(total) = current.checked_add(quantity) {
-                        *current = total;
-                    } else {
-                        dropped += 1;
-                    }
-                } else if pending.entries < self.max_entries {
-                    pending
-                        .scopes
-                        .entry(counters.scope.clone())
-                        .or_default()
-                        .insert(entry, quantity);
-                    pending.entries += 1;
-                } else {
-                    dropped += 1;
-                }
-            }
-        }
-        dropped
-    }
-
     pub fn scope_count_for_records(records: &[KafkaBillingUsageRecord]) -> usize {
         records
             .iter()
@@ -253,14 +223,7 @@ pub struct FlushOutcome {
     pub commands: usize,
     /// Lost because a scope's transaction failed.
     pub dropped: usize,
-    pub requeued: usize,
     pub failed_scopes: usize,
-}
-
-#[derive(Default)]
-struct FlushResult {
-    outcome: FlushOutcome,
-    retry: Vec<ScopeCounters>,
 }
 
 #[async_trait]
@@ -361,50 +324,30 @@ fn usage_field(usage_key: &str, unit: &str) -> String {
 }
 
 pub async fn flush(store: Arc<dyn CounterStore>, counters: Vec<ScopeCounters>) -> FlushOutcome {
-    let mut result = flush_with_concurrency(store, counters, DEFAULT_FLUSH_CONCURRENCY).await;
-    result.outcome.dropped += result.outcome.requeued;
-    result.outcome.requeued = 0;
-    result.outcome
+    flush_with_concurrency(store, counters, DEFAULT_FLUSH_CONCURRENCY).await
 }
 
 async fn flush_with_concurrency(
     store: Arc<dyn CounterStore>,
     counters: Vec<ScopeCounters>,
     flush_concurrency: usize,
-) -> FlushResult {
+) -> FlushOutcome {
     let results = stream::iter(counters)
         .map(|counters| {
             let store = Arc::clone(&store);
             async move {
                 let entries = counters.entries.len();
                 match store.flush_scope(&counters).await {
-                    Ok(commands) => FlushResult {
-                        outcome: FlushOutcome {
-                            commands,
-                            ..FlushOutcome::default()
-                        },
-                        ..FlushResult::default()
+                    Ok(commands) => FlushOutcome {
+                        commands,
+                        ..FlushOutcome::default()
                     },
-                    Err(error) if should_retry(&error) => {
-                        warn!(%error, retrying_deltas = entries, "usage counter flush failed");
-                        FlushResult {
-                            outcome: FlushOutcome {
-                                requeued: entries,
-                                failed_scopes: 1,
-                                ..FlushOutcome::default()
-                            },
-                            retry: vec![counters],
-                        }
-                    }
                     Err(error) => {
-                        warn!(%error, dropped_deltas = entries, "usage counter flush failed after Redis responded");
-                        FlushResult {
-                            outcome: FlushOutcome {
-                                dropped: entries,
-                                failed_scopes: 1,
-                                ..FlushOutcome::default()
-                            },
-                            ..FlushResult::default()
+                        warn!(%error, dropped_deltas = entries, "usage counter write outcome is unknown");
+                        FlushOutcome {
+                            dropped: entries,
+                            failed_scopes: 1,
+                            ..FlushOutcome::default()
                         }
                     }
                 }
@@ -415,23 +358,12 @@ async fn flush_with_concurrency(
         .await;
     results
         .into_iter()
-        .fold(FlushResult::default(), |mut total, mut next| {
-            total.outcome.commands += next.outcome.commands;
-            total.outcome.dropped += next.outcome.dropped;
-            total.outcome.requeued += next.outcome.requeued;
-            total.outcome.failed_scopes += next.outcome.failed_scopes;
-            total.retry.append(&mut next.retry);
+        .fold(FlushOutcome::default(), |mut total, next| {
+            total.commands += next.commands;
+            total.dropped += next.dropped;
+            total.failed_scopes += next.failed_scopes;
             total
         })
-}
-
-fn should_retry(error: &redis::RedisError) -> bool {
-    !matches!(
-        error.kind(),
-        redis::ErrorKind::ResponseError
-            | redis::ErrorKind::ParseError
-            | redis::ErrorKind::TypeError
-    )
 }
 
 pub fn spawn_flush_task(
@@ -487,16 +419,12 @@ async fn flush_tick(
             .map(|counters| counters.entries.len())
             .sum::<usize>() as f64,
     );
-    let mut result = flush_with_concurrency(
+    let outcome = flush_with_concurrency(
         Arc::clone(store.as_ref().unwrap()),
         counters,
         config.flush_concurrency,
     )
     .await;
-    let failed_to_requeue = accumulator.restore(result.retry);
-    result.outcome.requeued -= failed_to_requeue;
-    result.outcome.dropped += failed_to_requeue;
-    let outcome = result.outcome;
     let (pending_scopes, pending_entries) = accumulator.counts();
     metrics::gauge!("usage_ingestion_redis_counter_accumulator_scopes").set(pending_scopes as f64);
     metrics::gauge!("usage_ingestion_redis_counter_accumulator_entries")
@@ -507,8 +435,6 @@ async fn flush_tick(
         .increment(outcome.commands as u64);
     metrics::counter!("usage_ingestion_redis_counter_dropped_deltas_total")
         .increment(outcome.dropped as u64);
-    metrics::counter!("usage_ingestion_redis_counter_requeued_deltas_total")
-        .increment(outcome.requeued as u64);
     if outcome.failed_scopes > 0 {
         metrics::gauge!("usage_ingestion_redis_counter_connected").set(0.0);
         metrics::counter!("usage_ingestion_redis_counter_errors_total").increment(1);
@@ -671,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn transport_failure_requeues_deltas_and_marks_the_store_disconnected() {
+    fn write_failure_drops_deltas_and_marks_the_store_disconnected() {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
         let accumulator = CounterAccumulator::default();
@@ -700,7 +626,7 @@ mod tests {
                 .iter()
                 .map(|counters| counters.entries.len())
                 .sum::<usize>(),
-            4
+            0
         );
         assert_eq!(
             gauge(&snapshotter, "usage_ingestion_redis_counter_connected"),
@@ -711,17 +637,7 @@ mod tests {
                 &snapshotter,
                 "usage_ingestion_redis_counter_accumulator_entries"
             ),
-            Some(4.0)
+            Some(0.0)
         );
-    }
-
-    #[test]
-    fn failures_after_a_redis_response_are_not_retried() {
-        let error = |kind| redis::RedisError::from((kind, "test failure"));
-
-        assert!(should_retry(&error(redis::ErrorKind::IoError)));
-        assert!(!should_retry(&error(redis::ErrorKind::ResponseError)));
-        assert!(!should_retry(&error(redis::ErrorKind::ParseError)));
-        assert!(!should_retry(&error(redis::ErrorKind::TypeError)));
     }
 }
