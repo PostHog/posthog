@@ -244,6 +244,31 @@ describe('scannerOverviewLogic', () => {
 
             expect(rejection).toBeUndefined()
         })
+
+        it('keeps a failure from the previous visit off the logic when the user comes back', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/:id/': { id: 'returning', name: 'r', scanner_type: 'monitor' },
+                    '/api/projects/:team/vision/scanners/:id/observations/stats/': () => [500, {}],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+
+            // Coming back builds on the same cache, so the logic is live again by the time the
+            // first visit's request rejects.
+            const logic = scannerOverviewLogic({ scannerId: 'returning' })
+            logic.mount()
+            logic.unmount()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Only the second visit's own check may count. Two would trip the panel's failure
+            // notice early and toast twice for one failed load.
+            expect(logic.values.overviewStatsFailureCount).toBe(1)
+            expect(toastSpy).toHaveBeenCalledTimes(1)
+
+            logic.unmount()
+        })
     })
 
     describe('firstScanPending', () => {
