@@ -1850,4 +1850,26 @@ mod tests {
             "the reported id is the truncated one that was actually ingested"
         );
     }
+
+    // Truncation is read from the first event of each session run, so a mixed
+    // request must charge the warning for every run that truncated.
+    #[tokio::test]
+    async fn truncated_distinct_ids_are_counted_once_per_session_run() {
+        let long_id = "a".repeat(201);
+        let recording = |session_id: &str| -> RawRecording {
+            serde_json::from_value(json!({
+                "event": "$snapshot",
+                "distinct_id": long_id,
+                "properties": {"$session_id": session_id, "$snapshot_data": [{"type": 1}]},
+            }))
+            .unwrap()
+        };
+
+        let emitted = warnings_from_replay(vec![recording("a"), recording("b")]).await;
+
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::DistinctIdTruncated);
+        assert_eq!(emitted[0].source, CAPTURE_REPLAY);
+        assert_eq!(emitted[0].count, 2);
+    }
 }
