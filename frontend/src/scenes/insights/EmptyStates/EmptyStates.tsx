@@ -2,7 +2,7 @@ import './EmptyStates.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
@@ -42,6 +42,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { InsightVizQueryEditableContext } from '~/queries/nodes/InsightViz/InsightVizQueryEditableContext'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
 import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
@@ -125,8 +126,7 @@ function QueryAwareInsightEmptyState(
         results.every((series) => Array.isArray(series.data) || Number.isFinite(series.aggregated_value)) &&
         !hasTrendsChartData(results)
     const filterTestAccounts = !!querySource && 'filterTestAccounts' in querySource && !!querySource.filterTestAccounts
-    // A dashboard tile renders a query it does not own, so editing it here would not stick.
-    const canEditQueryHere = insightVizProps.dashboardId == null
+    const canEditQueryHere = useContext(InsightVizQueryEditableContext)
 
     return (
         <InsightEmptyStateDisplay
