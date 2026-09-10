@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models import EventDefinition, PropertyDefinition
 from posthog.taxonomy import definition_search
-from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.definition_search import is_large_project, search_plan
 
 
 class TestSearchPlan(BaseTest):
@@ -28,6 +28,9 @@ class TestSearchPlan(BaseTest):
     def test_plan_follows_the_definition_count(self, _name: str, max_definitions: int, expected: str) -> None:
         with patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", max_definitions):
             assert search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) == expected
+            assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is (
+                expected == "trigram"
+            )
 
     def test_plan_is_cached_per_table_and_project(self) -> None:
         search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS)
