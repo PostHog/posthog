@@ -47,6 +47,12 @@ pub fn stl_map() -> HashMap<String, NativeFunction> {
     STL_NATIVE_FNS.clone()
 }
 
+/// The pristine builtin registry, for identity checks against a context's (possibly
+/// embedder-extended) function map without cloning it.
+pub(crate) fn stl_map_ref() -> &'static HashMap<String, NativeFunction> {
+    &STL_NATIVE_FNS
+}
+
 pub fn hog_stl_map() -> HashMap<String, Module> {
     HOG_STL_MODULES.clone()
 }

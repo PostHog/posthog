@@ -61,6 +61,12 @@ pub enum VmError {
     CaptureOutOfBounds(usize),
     #[error("Not enough arguments for function {0}: {1} available, {2} required")]
     NotEnoughArguments(String, usize, usize),
+    // These two must format exactly like the Python and TypeScript VMs' arity errors, so the
+    // cross-language corpus can diff error output byte for byte.
+    #[error("Function {0} requires at least {1} arguments")]
+    TooFewArguments(String, usize),
+    #[error("Function {0} requires at most {1} arguments")]
+    TooManyArguments(String, usize),
     #[error("Unknown function {0}")]
     UnknownFunction(String),
     #[error("Native call failed: {0}")]

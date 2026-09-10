@@ -1,0 +1,540 @@
+{
+  "$comment": "Shared HogVM standard library contract. Every VM (python, typescript, rust) validates its STL table against this file in its own test suite. minArgs/maxArgs are enforced at the CALL_GLOBAL dispatch site; maxArgs null means unbounded. A function missing an 'implementations' key is implemented by all three VMs.",
+  "functions": {
+    "Error": {
+      "minArgs": 0,
+      "maxArgs": 2
+    },
+    "HogError": {
+      "minArgs": 1,
+      "maxArgs": 3
+    },
+    "JSONExtract": {
+      "minArgs": 2,
+      "maxArgs": null
+    },
+    "JSONExtractArrayRaw": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "JSONExtractBool": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "JSONExtractFloat": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "JSONExtractInt": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "JSONExtractString": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "JSONHas": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "JSONLength": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "NotImplementedError": {
+      "minArgs": 0,
+      "maxArgs": 2
+    },
+    "RetryError": {
+      "minArgs": 0,
+      "maxArgs": 2
+    },
+    "addDays": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "and": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "arrayPopBack": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "arrayPopFront": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "arrayPushBack": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "arrayPushFront": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "arrayReverse": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "arrayReverseSort": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "arraySort": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "arrayStringConcat": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "assumeNotNull": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "base64Decode": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "base64Encode": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "coalesce": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "concat": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "dateAdd": {
+      "minArgs": 3,
+      "maxArgs": 3
+    },
+    "dateDiff": {
+      "minArgs": 3,
+      "maxArgs": 3
+    },
+    "dateTrunc": {
+      "minArgs": 2,
+      "maxArgs": 3
+    },
+    "decodeURLComponent": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "empty": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "encodeURLComponent": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "equals": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "extract": {
+      "minArgs": 2,
+      "maxArgs": 2,
+      "implementations": [
+        "python",
+        "typescript"
+      ]
+    },
+    "extractRegex": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "floor": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "formatDateTime": {
+      "minArgs": 2,
+      "maxArgs": 3
+    },
+    "fromUnixTimestamp": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "fromUnixTimestampMilli": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "generateUUIDv4": {
+      "minArgs": 0,
+      "maxArgs": 0
+    },
+    "greater": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "greaterOrEquals": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "has": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "if": {
+      "minArgs": 3,
+      "maxArgs": 3
+    },
+    "ifNull": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "ilike": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "in": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "indexOf": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "isIPAddressInRange": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "isNotNull": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "isNull": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "isValidJSON": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "jsonParse": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "jsonStringify": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "keys": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "length": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "less": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "lessOrEquals": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "like": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "lower": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "match": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "max2": {
+      "minArgs": 2,
+      "maxArgs": 2,
+      "implementations": [
+        "python",
+        "rust"
+      ]
+    },
+    "md5": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "md5Hex": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "min2": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "minus": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "multiIf": {
+      "minArgs": 3,
+      "maxArgs": null
+    },
+    "multiSearchAnyCaseInsensitive": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "not": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "notEmpty": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "notEquals": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "notILike": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "notLike": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "now": {
+      "minArgs": 0,
+      "maxArgs": 1
+    },
+    "or": {
+      "minArgs": 1,
+      "maxArgs": null
+    },
+    "plus": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "position": {
+      "minArgs": 2,
+      "maxArgs": 3
+    },
+    "positionCaseInsensitive": {
+      "minArgs": 2,
+      "maxArgs": 3
+    },
+    "print": {
+      "minArgs": 0,
+      "maxArgs": null,
+      "implementations": [
+        "python",
+        "typescript"
+      ]
+    },
+    "randomFloat": {
+      "minArgs": 0,
+      "maxArgs": 0
+    },
+    "range": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "replaceAll": {
+      "minArgs": 3,
+      "maxArgs": 3
+    },
+    "replaceOne": {
+      "minArgs": 3,
+      "maxArgs": 3
+    },
+    "reverse": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "round": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "run": {
+      "minArgs": 1,
+      "maxArgs": 1,
+      "implementations": [
+        "python"
+      ]
+    },
+    "sha1": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "sha1Hex": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "sha1HmacChain": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "sha1HmacChainHex": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "sha256": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "sha256Hex": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "sha256HmacChain": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "sha256HmacChainHex": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "sleep": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "splitByString": {
+      "minArgs": 2,
+      "maxArgs": 3
+    },
+    "startsWith": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "substring": {
+      "minArgs": 2,
+      "maxArgs": 3
+    },
+    "toDate": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toDateTime": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "toFloat": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toInt": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toIntervalDay": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toIntervalHour": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toIntervalMinute": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toIntervalMonth": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toMonth": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toStartOfDay": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "toStartOfHour": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toStartOfMonth": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toStartOfWeek": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "toString": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "toTimeZone": {
+      "minArgs": 2,
+      "maxArgs": 2
+    },
+    "toUUID": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toUnixTimestamp": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "toUnixTimestampMilli": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "toYYYYMM": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "toYear": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "today": {
+      "minArgs": 0,
+      "maxArgs": 0
+    },
+    "trim": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "trimLeft": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "trimRight": {
+      "minArgs": 1,
+      "maxArgs": 2
+    },
+    "tryBase64Decode": {
+      "minArgs": 1,
+      "maxArgs": 1,
+      "implementations": [
+        "typescript",
+        "rust"
+      ]
+    },
+    "tryDecodeURLComponent": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "tuple": {
+      "minArgs": 0,
+      "maxArgs": null
+    },
+    "typeof": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "upper": {
+      "minArgs": 1,
+      "maxArgs": 1
+    },
+    "values": {
+      "minArgs": 1,
+      "maxArgs": 1
+    }
+  }
+}

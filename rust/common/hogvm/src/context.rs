@@ -7,6 +7,7 @@ use crate::{
     error::VmError,
     program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
+    stl_spec::check_stl_arity,
     vm::HogVM,
     HogLiteral, HogValue,
 };
@@ -240,6 +241,17 @@ impl ExecutionContext {
         let Some(native_fn) = self.native_fns.get(name) else {
             return Err(VmError::UnknownFunction(name.to_string()));
         };
+        // The contract check runs at the dispatch site, like the reference VMs, so every builtin
+        // rejects an out-of-contract argument count with the same error in every language. An
+        // embedder-registered function escapes the check even under a builtin name (the Arc
+        // identity differs), matching the reference VM, which dispatches custom functions before
+        // it reaches the STL.
+        if crate::stl::stl_map_ref()
+            .get(name)
+            .is_some_and(|stock| Arc::ptr_eq(stock, native_fn))
+        {
+            check_stl_arity(name, args.len())?;
+        }
         let emplaced = walk_emplacing(vm, native_fn(vm, args)?)?;
         vm.push_stack(emplaced)
     }
