@@ -2,6 +2,7 @@ import datetime
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
@@ -10,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.schema import (
+    DateRange,
     ForecastConfig,
     InsightsThresholdBounds,
     InsightThreshold,
@@ -19,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.api.services.query import ExecutionMode
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
 from posthog.tasks.alerts.detector import _date_range_override_for_detector
 
@@ -35,6 +38,7 @@ from products.alerts.backend.evaluation.dispatcher import check_forecast_alert
 from products.alerts.backend.evaluation.forecast import (
     TrendsForecastExtractor,
     _forecast_extraction_contract,
+    _forecast_query_intervals,
     _index_for_target_date,
     _required_history_points,
     _target_projection,
@@ -488,17 +492,18 @@ class TestHistoryRequirements:
 
     @parameterized.expand(
         [
-            ("hourly carries a spare bucket", IntervalType.HOUR, 1),
-            ("daily needs no spare", IntervalType.DAY, 0),
+            ("hourly carries a spare bucket", IntervalType.HOUR, 7, 1),
+            ("daily needs no spare", IntervalType.DAY, 7, 0),
+            ("weekly carries a spare bucket", IntervalType.WEEK, 13, 1),
+            ("monthly carries a spare bucket", IntervalType.MONTH, 3, 1),
         ]
     )
-    def test_hourly_extraction_asks_for_more_history_than_the_evaluation_requires(
-        self, _name: str, interval: IntervalType, expected_spare: int
+    def test_extraction_asks_for_more_history_than_the_evaluation_requires(
+        self, _name: str, interval: IntervalType, horizon: int, expected_spare: int
     ) -> None:
-        # A relative -Nh range is wall-clock arithmetic, so an hourly window holding a
-        # spring-forward transition returns one bucket fewer. The evaluation needs exactly
-        # _required_history_points, so the request has to carry a spare one at that interval.
-        horizon = 7
+        # The evaluation needs exactly _required_history_points, and only a daily range starts on
+        # an interval boundary, so every other interval has to request a spare bucket for the
+        # partial leading one.
         forecast_config = {
             "type": "ForecastConfig",
             "engine": "prophet",
@@ -529,6 +534,32 @@ class TestHistoryRequirements:
             )
 
         assert extract.call_args.args[3] == _required_history_points(horizon, interval) + expected_spare
+
+    @parameterized.expand(
+        [
+            ("hourly", IntervalType.HOUR, 7),
+            ("daily", IntervalType.DAY, 7),
+            ("weekly", IntervalType.WEEK, 13),
+            ("monthly", IntervalType.MONTH, 3),
+        ]
+    )
+    def test_the_requested_range_holds_enough_buckets_when_the_insight_drops_partial_ones(
+        self, _name: str, interval: IntervalType, horizon: int
+    ) -> None:
+        # excludeIncompletePeriods survives the alert's date_from override, and it clips both the
+        # leading and the trailing partial bucket. A mid-interval start therefore has to leave the
+        # evaluation enough completed buckets on its own, without the current interval.
+        requested = _forecast_query_intervals(horizon, interval)
+        override = _date_range_override_for_detector(TrendsQuery(series=[], interval=interval), requested)
+        assert override is not None
+        query_date_range = QueryDateRange(
+            date_range=DateRange(date_from=override["date_from"], excludeIncompletePeriods=True),
+            team=cast(Team, SimpleNamespace(week_start_day=1, timezone_info=ZoneInfo("UTC"))),
+            interval=interval,
+            now=datetime.datetime(2026, 9, 3, 14, 37, tzinfo=datetime.UTC),
+        )
+
+        assert len(query_date_range.all_values()) >= _required_history_points(horizon, interval)
 
     @parameterized.expand([("scheduled check", False), ("preview", True)])
     def test_a_null_interval_asks_for_daily_history(self, _name: str, is_preview: bool) -> None:

@@ -145,19 +145,25 @@ def _forecast_min_samples(horizon: int, interval: IntervalType | None = None) ->
 
 
 def _forecast_query_intervals(horizon: int, interval: IntervalType | None) -> int:
-    """Intervals of history to ask the query for, which carries a spare one at an hourly interval.
+    """Intervals of history to ask the query for, which carries a spare one where the range starts
+    mid-interval.
 
-    A relative ``-Nh`` range is wall-clock arithmetic, so an hourly window that holds a
-    spring-forward transition covers one real hour less and the trends runner returns one bucket
-    fewer. The fit window is exactly the size the evaluation requires, so without the spare
-    interval an hourly alert reports not_enough_history for as long as the transition stays inside
-    the window. One spare is enough, because the widest hourly window is about six weeks and no
-    timezone springs forward twice that close together. A coarser interval snaps its range to
-    interval starts, so an hour of drift never changes its bucket count. ``_clean_points`` caps the
-    history it keeps either way, so the spare interval cannot push the fit past its point limit.
+    The fit window is exactly the size the evaluation requires, so a range that yields one bucket
+    fewer than requested makes the alert report not_enough_history on every check. Only a daily
+    range starts on an interval boundary. ``-Nw`` starts on today's weekday and ``-Nm`` on today's
+    day of the month, so the leading bucket covers part of its period. An insight that excludes
+    incomplete periods drops that bucket, which leaves the query one point short, and an insight
+    that keeps it hands the fit an undercounted point that the training window has to be able to
+    trim. An ``-Nh`` range starts mid-hour for the same reason, and it is also wall-clock
+    arithmetic, so an hourly window that holds a spring-forward transition covers one real hour
+    less.
+
+    One spare is enough, because a range loses at most its leading partial bucket. ``_clean_points``
+    and ``_training_window`` cap the history they keep, so the spare interval cannot push the fit
+    past its point limit.
     """
     samples = _forecast_min_samples(horizon, interval)
-    return samples + 1 if interval == IntervalType.HOUR else samples
+    return samples if interval in (None, IntervalType.DAY) else samples + 1
 
 
 def _with_resolved_interval(query: TrendsQuery) -> TrendsQuery:
