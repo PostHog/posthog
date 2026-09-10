@@ -14,6 +14,9 @@ const TOKEN_BUDGET = 10_000
 
 const TILE_COUNT = 11
 
+/** The `UserBasic` keys an agent cannot act on. Name and email stay. */
+const STRIPPED_USER_FIELDS = ['uuid', 'distinct_id', 'is_email_verified', 'hedgehog_config']
+
 function createUser(id: number, firstName: string, lastName: string): Record<string, unknown> {
     return {
         id,
@@ -201,6 +204,67 @@ function createDashboardResponse(): Record<string, unknown> {
     }
 }
 
+type TileContent = Record<string, unknown> & {
+    created_by: Record<string, unknown>
+    last_modified_by: Record<string, unknown>
+}
+
+/**
+ * A dashboard that mixes tile types. The all-insight fixture leaves `text` and `widget` null on
+ * every tile, and `strip_nulls` then removes both keys, so it never reaches what they nest.
+ */
+function createMixedDashboardResponse(): Record<string, unknown> {
+    const base = createDashboardResponse()
+    const tileBackReference = [{ id: 1100, dashboard_id: 42, deleted: false }]
+    return {
+        ...base,
+        tiles: [
+            (base.tiles as Record<string, unknown>[])[0]!,
+            {
+                id: 1100,
+                insight: null,
+                text: {
+                    id: 300,
+                    body: '## Adoption\n\nThe charts below track the widgets released this quarter.',
+                    created_by: createUser(1, 'Ada', 'Lovelace'),
+                    last_modified_at: '2026-06-19T07:10:12.181366Z',
+                    last_modified_by: createUser(2, 'Grace', 'Hopper'),
+                    team: 7,
+                    dashboard_tiles: tileBackReference,
+                },
+                widget: null,
+                layouts: { sm: { h: 2, i: '1100', w: 6, x: 0, y: 55, minH: 2, minW: 2 } },
+                filters_overrides: {},
+                order: TILE_COUNT,
+                last_refresh: null,
+                is_cached: false,
+            },
+            {
+                id: 1101,
+                insight: null,
+                text: null,
+                widget: {
+                    id: '00000000-0000-4000-8000-000000000abc',
+                    widget_type: 'error_tracking_list',
+                    name: 'Widget errors',
+                    description: 'Open issues raised by the widget surface',
+                    config: { limit: 5, order_by: null },
+                    created_by: createUser(1, 'Ada', 'Lovelace'),
+                    last_modified_at: '2026-06-19T07:10:12.181366Z',
+                    last_modified_by: createUser(2, 'Grace', 'Hopper'),
+                    team: 7,
+                    dashboard_tiles: tileBackReference,
+                },
+                layouts: { sm: { h: 5, i: '1101', w: 6, x: 0, y: 57, minH: 2, minW: 2 } },
+                filters_overrides: {},
+                order: TILE_COUNT + 1,
+                last_refresh: null,
+                is_cached: false,
+            },
+        ],
+    }
+}
+
 function createMockContext(result: Record<string, unknown>): Context {
     return {
         api: {
@@ -240,12 +304,35 @@ describe('dashboard-get response budget', () => {
 
         const creator = tiles[0]!.insight.created_by as Record<string, unknown>
         expect(creator.email).toBe('ada@example.com')
-        for (const field of ['uuid', 'distinct_id', 'is_email_verified', 'hedgehog_config']) {
+        for (const field of STRIPPED_USER_FIELDS) {
             expect(creator).not.toHaveProperty(field)
         }
         // The dashboard's own `filters` already carries what this per-tile copy repeated.
         expect(tiles[0]!.insight).not.toHaveProperty('filter_override_context')
         expect(shaped.filters).toBeTruthy()
+    })
+
+    it('strips the same creator metadata from text and widget tiles', async () => {
+        const shaped = (await tool.handler(createMockContext(createMixedDashboardResponse()), {
+            id: 42,
+        })) as unknown as Record<string, unknown>
+        const tiles = shaped.tiles as { text?: TileContent; widget?: TileContent }[]
+        const textTile = tiles[1]!.text!
+        const widgetTile = tiles[2]!.widget!
+
+        expect(textTile.body as string).toContain('The charts below track')
+        expect(widgetTile.name).toBe('Widget errors')
+        expect(widgetTile.config).toEqual({ limit: 5 })
+
+        for (const tile of [textTile, widgetTile]) {
+            expect(tile.created_by.email).toBe('ada@example.com')
+            expect(tile.last_modified_by.first_name).toBe('Grace')
+            for (const field of STRIPPED_USER_FIELDS) {
+                expect(tile.created_by).not.toHaveProperty(field)
+                expect(tile.last_modified_by).not.toHaveProperty(field)
+            }
+            expect(tile).not.toHaveProperty('dashboard_tiles')
+        }
     })
 
     it('carries no null-valued keys, which the serializer emits for every unset field', async () => {
