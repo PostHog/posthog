@@ -48,6 +48,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 import pandas as pd
+import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 
@@ -62,14 +63,21 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.autoresearch.backend.dataset.labeling import build_inference_features_sql, build_training_features_sql
+from products.autoresearch.backend.dataset.labeling import (
+    LABELER_QUERY_MODIFIERS,
+    build_inference_features_sql,
+    build_training_features_sql,
+)
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.query import run_hogql
 from products.autoresearch.backend.training.artifacts import (
     MAX_ARTIFACT_BYTES,
     ArtifactBundle,
+    BundleNotFound,
+    read_artifact,
     read_bundle,
     read_model,
+    write_artifact,
     write_model,
 )
 from products.autoresearch.backend.training.recipe_validation import (
@@ -117,6 +125,10 @@ _SCORES_PARQUET = "data/scores.parquet"
 _SCRIPT_LOG = "data/script.log"
 # The fitted model the train run produces and the predict run loads (relative to _WORKDIR).
 _MODEL_PKL = "model.pkl"
+# The feature columns the champion was fitted on, persisted next to model.pkl so every
+# predict run sends the same columns in the same order, whatever the scoring population
+# happens to contain.
+_FEATURE_COLUMNS_JSON = "feature_columns.json"
 _FILE_BEGIN = "<<<AUTORESEARCH_FILE_BEGIN>>>"
 _FILE_END = "<<<AUTORESEARCH_FILE_END>>>"
 # The scripts write files of any size inside the sandbox; the readback buffers the whole
@@ -187,6 +199,7 @@ def fit_champion_model(
 
     model_bytes, metrics = _run_train_in_sandbox(bundle=bundle, data=data, pipeline=pipeline)
     write_model(prefix, model_bytes)
+    write_artifact(prefix, _FEATURE_COLUMNS_JSON, json.dumps(data.feature_cols).encode("utf-8"))
     logger.info(
         "autoresearch_champion_fitted",
         pipeline_id=str(pipeline.pk),
@@ -236,7 +249,7 @@ def score_via_sandbox(
     score_rows = _materialize_score_data(
         team=team, pipeline=pipeline, feature_sql=bundle.features_sql, cutoff_ts=cutoff_ts, user=acting_user
     )
-    feature_cols = _numeric_feature_cols(score_rows)
+    feature_cols = _fitted_feature_cols(prefix) or _numeric_feature_cols(score_rows)
     # Cheap guards before paying for a sandbox.
     if not score_rows:
         raise SandboxInferenceError("No inference rows to score")
@@ -278,9 +291,9 @@ def _resolve_acting_user(*, team: Team, pipeline: AutoresearchPipeline, user: Us
 def _validate_bundle_feature_sql(bundle: ArtifactBundle) -> None:
     """
     The recipe snapshot was validated at upload; the bundle's ``features.sql`` is what
-    actually runs, so it goes through the same validator here. A trailing LIMIT or
-    OFFSET is refused as well: inference runs the feature SQL as the top-level query
-    and appends the framework's own LIMIT.
+    actually runs, so it goes through the same validator here. A trailing LIMIT, OFFSET,
+    or SETTINGS clause is refused as well: inference runs the feature SQL as the top-level
+    query and appends the framework's own LIMIT after it.
     """
     try:
         validate_feature_sql(bundle.features_sql)
@@ -289,10 +302,25 @@ def _validate_bundle_feature_sql(bundle: ArtifactBundle) -> None:
     node = parse_select(bundle.features_sql)
     if not isinstance(node, ast.SelectQuery):
         raise SandboxInferenceError("Bundle features.sql must be a single SELECT")
-    if node.limit is not None or node.offset is not None or node.limit_by is not None:
+    if node.limit is not None or node.offset is not None or node.limit_by is not None or node.settings is not None:
         raise SandboxInferenceError(
-            "Bundle features.sql must not end with LIMIT or OFFSET; the framework bounds the result"
+            "Bundle features.sql must not end with LIMIT, OFFSET, or SETTINGS; the framework bounds the result"
         )
+
+
+def _fitted_feature_cols(prefix: str) -> list[str] | None:
+    """The columns the champion was fitted on, or None for a champion fitted before they were persisted."""
+    try:
+        raw = read_artifact(prefix, _FEATURE_COLUMNS_JSON)
+    except BundleNotFound:
+        return None
+    try:
+        columns = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SandboxInferenceError(f"{_FEATURE_COLUMNS_JSON} at {prefix} is not readable: {exc}") from exc
+    if not isinstance(columns, list) or not all(isinstance(c, str) for c in columns):
+        raise SandboxInferenceError(f"{_FEATURE_COLUMNS_JSON} at {prefix} must be a list of column names")
+    return columns
 
 
 # ── Data materialization (framework-owned, reuses labeling.py) ───────────────────
@@ -399,7 +427,7 @@ def _materialize_rows(
         # cached result would score a stale population at a stale cutoff.
         result = run_hogql(
             team=team,
-            query=HogQLQuery(query=bounded_sql, values=values),
+            query=HogQLQuery(query=bounded_sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
             user=user,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         )
@@ -625,14 +653,7 @@ def _read_scores(sandbox: SandboxExecutor, *, expected_rows: int) -> dict[str, f
         parquet = pq.ParquetFile(io.BytesIO(raw))
     except Exception as exc:
         raise SandboxInferenceError(f"scores.parquet was not readable: {exc}") from exc
-    columns = set(parquet.schema_arrow.names)
-    if "distinct_id" not in columns or "p_y" not in columns:
-        raise SandboxInferenceError("scores.parquet must have columns distinct_id, p_y")
-    num_rows = parquet.metadata.num_rows
-    if num_rows > expected_rows:
-        raise SandboxInferenceError(
-            f"scores.parquet has {num_rows} rows for {expected_rows} input rows; predict.py must score each input once"
-        )
+    _check_scores_footer(parquet, expected_rows=expected_rows)
     try:
         df = parquet.read(columns=["distinct_id", "p_y"]).to_pandas()
     except Exception as exc:
@@ -648,6 +669,34 @@ def _read_scores(sandbox: SandboxExecutor, *, expected_rows: int) -> dict[str, f
     if not scores:
         raise SandboxInferenceError("scores.parquet produced no parseable rows")
     return scores
+
+
+def _check_scores_footer(parquet: pq.ParquetFile, *, expected_rows: int) -> None:
+    """Reject a scores.parquet from its metadata alone, before any column is decoded."""
+    schema = parquet.schema_arrow
+    if "distinct_id" not in schema.names or "p_y" not in schema.names:
+        raise SandboxInferenceError("scores.parquet must have columns distinct_id, p_y")
+    id_type, p_type = schema.field("distinct_id").type, schema.field("p_y").type
+    if not (pa.types.is_string(id_type) or pa.types.is_large_string(id_type)):
+        raise SandboxInferenceError(f"scores.parquet distinct_id must be a string column, got {id_type}")
+    if not (pa.types.is_floating(p_type) or pa.types.is_integer(p_type)):
+        raise SandboxInferenceError(f"scores.parquet p_y must be a numeric column, got {p_type}")
+    # The compressed file passed the readback cap; the decoded columns must fit it too, or
+    # a highly compressible table expands in the worker before any value is checked.
+    metadata = parquet.metadata
+    decoded_bytes = sum(
+        metadata.row_group(g).column(c).total_uncompressed_size
+        for g in range(metadata.num_row_groups)
+        for c in range(metadata.num_columns)
+        if metadata.row_group(g).column(c).path_in_schema in ("distinct_id", "p_y")
+    )
+    if decoded_bytes > _MAX_READBACK_BYTES:
+        raise SandboxInferenceError(f"scores.parquet decodes to {decoded_bytes} bytes, over the readback cap")
+    if metadata.num_rows > expected_rows:
+        raise SandboxInferenceError(
+            f"scores.parquet has {metadata.num_rows} rows for {expected_rows} input rows; "
+            "predict.py must score each input once"
+        )
 
 
 def _probability(did: str, p_y: Any) -> float:
@@ -666,12 +715,18 @@ def _readback_command(rel_path: str, *, encode: bool) -> str:
     """
     A shell command that emits the file between sentinels, or exits non-zero.
 
-    The file must exist and fit under the readback cap before a byte of it is emitted.
-    Without the guard a missing file would read back as empty output with exit 0, since
-    the trailing echo decides the exit code, and an oversized file would be buffered
-    whole in the worker.
+    The file must exist and fit under the readback cap before a byte of it is emitted,
+    and at most cap-plus-one bytes are emitted however large it becomes. Without the
+    guard a missing file would read back as empty output with exit 0, since the trailing
+    echo decides the exit code, and an oversized file would be buffered whole in the worker.
     """
-    emit = 'base64 -w0 "$f"; echo' if encode else 'cat "$f"'
+    # head bounds the bytes that leave the sandbox even if the file grows after the stat
+    # check; the caller rejects a readback that reaches the extra byte.
+    emit = (
+        f'head -c {_MAX_READBACK_BYTES + 1} "$f" | base64 -w0; echo'
+        if encode
+        else f'head -c {_MAX_READBACK_BYTES + 1} "$f"'
+    )
     return (
         f'f="{_WORKDIR}/{rel_path}"; '
         '[ -f "$f" ] || { echo "missing $f" >&2; exit 3; }; '
@@ -690,7 +745,10 @@ def _read_file(sandbox: SandboxExecutor, rel_path: str) -> str:
     result = sandbox.execute(_readback_command(rel_path, encode=False), timeout_seconds=60)
     if result.exit_code != 0:
         raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
-    return _between_sentinels(result.stdout)
+    body = _between_sentinels(result.stdout)
+    if len(body.encode("utf-8")) > _MAX_READBACK_BYTES:
+        raise SandboxInferenceError(f"{rel_path} is over the {_MAX_READBACK_BYTES}-byte readback cap")
+    return body
 
 
 def _read_binary_file(sandbox: SandboxExecutor, rel_path: str) -> bytes:
@@ -705,6 +763,8 @@ def _read_binary_file(sandbox: SandboxExecutor, rel_path: str) -> bytes:
         raise SandboxInferenceError(f"{rel_path} base64 readback was not decodable: {exc}") from exc
     if not content:
         raise SandboxInferenceError(f"{rel_path} is empty")
+    if len(content) > _MAX_READBACK_BYTES:
+        raise SandboxInferenceError(f"{rel_path} is over the {_MAX_READBACK_BYTES}-byte readback cap")
     return content
 
 

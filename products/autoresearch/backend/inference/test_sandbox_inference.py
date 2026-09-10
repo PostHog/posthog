@@ -1,4 +1,5 @@
 import io
+import json
 import base64
 from decimal import Decimal
 
@@ -15,6 +16,7 @@ from posthog.models.user import User
 
 from products.autoresearch.backend.inference import sandbox as sandbox_inference
 from products.autoresearch.backend.inference.sandbox import (
+    _FEATURE_COLUMNS_JSON,
     _FILE_BEGIN,
     _FILE_END,
     SandboxInferenceError,
@@ -35,7 +37,7 @@ from products.autoresearch.backend.inference.sandbox import (
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.query import HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
-from products.autoresearch.backend.training.artifacts import ArtifactBundle
+from products.autoresearch.backend.training.artifacts import ArtifactBundle, BundleNotFound
 from products.tasks.backend.facade.sandbox import ExecutionResult
 
 _VALID_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS events_total FROM {anchors} a GROUP BY a.person_id"
@@ -196,6 +198,7 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
 
         def _capture(*, team, query, **kwargs):
             captured["query"] = query.query
+            captured["modifiers"] = query.modifiers
             captured.update(kwargs)
             return HogQLResult(columns=[], rows=[])
 
@@ -207,6 +210,9 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
         assert captured["query"].rstrip().endswith(f"LIMIT {sandbox_inference._MATERIALIZE_ROW_LIMIT}")
         assert captured["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
         assert captured["user"] == self.user
+        # The anchor SQL reads person.is_identified, which only resolves under the labeler's
+        # persons-on-events mode.
+        assert captured["modifiers"] == sandbox_inference.LABELER_QUERY_MODIFIERS
 
     @parameterized.expand(
         [
@@ -283,8 +289,14 @@ class TestFileReadback(SimpleTestCase):
 
     def test_readback_command_gates_on_size_before_emitting(self):
         command = sandbox_inference._readback_command("model.pkl", encode=True)
-        assert command.index("stat -c %s") < command.index("base64")
+        assert command.index("stat -c %s") < command.index("head -c") < command.index("base64")
         assert str(sandbox_inference._MAX_READBACK_BYTES) in command
+
+    def test_read_binary_file_rejects_a_file_that_grew_past_the_cap_after_the_stat(self):
+        fake = _FakeSandbox(model_bytes=b"PICKLE")
+        with patch.object(sandbox_inference, "_MAX_READBACK_BYTES", 4):
+            with self.assertRaises(SandboxInferenceError):
+                _read_binary_file(fake, "model.pkl")
 
     @parameterized.expand(
         [
@@ -332,6 +344,7 @@ class TestFileReadback(SimpleTestCase):
             ("above_one", [("s1", 1.5)], 1),
             ("below_zero", [("s1", -0.01)], 1),
             ("non_numeric", [("s1", "not-a-probability")], 1),
+            ("non_string_ids", [(1, 0.5)], 1),
         ]
     )
     def test_read_scores_rejects_malformed_output(self, _name, rows, expected_rows):
@@ -341,6 +354,13 @@ class TestFileReadback(SimpleTestCase):
         fake = _FakeSandbox(scores_parquet=_scores_parquet(rows))
         with self.assertRaises(SandboxInferenceError):
             _read_scores(fake, expected_rows=expected_rows)
+
+    def test_read_scores_rejects_a_table_that_decodes_past_the_cap(self):
+        # A compressible parquet under the readback cap can still expand in the worker.
+        fake = _FakeSandbox(scores_parquet=_scores_parquet([("s" * 500, 0.5)]))
+        with patch.object(sandbox_inference, "_MAX_READBACK_BYTES", 200):
+            with self.assertRaises(SandboxInferenceError):
+                _read_scores(fake, expected_rows=1)
 
     def test_join_scores_fails_when_predictions_omit_rows(self):
         # A user missing from scores.parquet must fail the run — skipping them would
@@ -374,21 +394,31 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
     def _bundle(self, features_sql: str = _VALID_FEATURE_SQL) -> ArtifactBundle:
         return ArtifactBundle(train_py="# train", predict_py="# predict", features_sql=features_sql)
 
+    def _no_fitted_columns(self):
+        return patch.object(sandbox_inference, "read_artifact", side_effect=BundleNotFound("none"))
+
     def test_predict_run_uses_persisted_model_and_does_not_train(self):
         pipeline, model = self._pipeline_and_model()
         fake = _FakeSandbox(scores_parquet=_scores_parquet([("s1", 0.8), ("s2", 0.2)]))
         model.holdout_score = 0.73
         model.metrics = {"n_train": 5}
         model.save(update_fields=["holdout_score", "metrics"])
+        fitted_columns = json.dumps(["events_total", "pageviews", "signups"]).encode()
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
+            patch.object(sandbox_inference, "read_artifact", return_value=fitted_columns),
             patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
 
         assert isinstance(result, SandboxScoreResult)
+        # predict.py sees the columns the champion was fitted on, not whatever this
+        # population happens to contain; a column absent today is sent as zeros.
+        sent = pd.read_parquet(io.BytesIO(fake.written[f"{sandbox_inference._WORKDIR}/data/score_features.parquet"]))
+        assert list(sent.columns) == ["distinct_id", "events_total", "pageviews", "signups"]
+        assert list(sent["signups"]) == [0.0, 0.0]
         assert result.holdout_auc == 0.73  # comes from the persisted model, not recomputed
         assert {r["distinct_id"] for r in result.scored_rows} == {"s1", "s2"}
         assert fake.destroyed is True
@@ -429,6 +459,7 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
                 "SELECT a.person_id AS distinct_id, countIf(now() > a.cutoff_ts) AS n FROM {anchors} a GROUP BY a.person_id",
             ),
             ("trailing_limit", _VALID_FEATURE_SQL + " LIMIT 10"),
+            ("trailing_settings", _VALID_FEATURE_SQL + " SETTINGS max_threads=1"),
         ]
     )
     def test_bundle_feature_sql_is_validated_before_anything_runs(self, _name, features_sql):
@@ -455,6 +486,7 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
+            self._no_fitted_columns(),
             patch.object(sandbox_inference, "_materialize_score_data", return_value=[]) as materialize,
         ):
             with self.assertRaises(SandboxInferenceError):
@@ -477,6 +509,7 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
+            self._no_fitted_columns(),
             patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
@@ -491,6 +524,7 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
+            self._no_fitted_columns(),
             patch.object(sandbox_inference, "_materialize_score_data", return_value=[]),
             patch.object(sandbox_inference.Sandbox, "create", create_mock),
         ):
@@ -510,12 +544,18 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(
                 sandbox_inference, "write_model", side_effect=lambda prefix, content: stored.update(model=content)
             ),
+            patch.object(
+                sandbox_inference,
+                "write_artifact",
+                side_effect=lambda prefix, path, content: stored.update({path: content}),
+            ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             metrics = fit_champion_model(team=self.team, pipeline=pipeline, prefix=model.artifact_prefix)
 
         assert metrics["holdout_auc"] == 0.73
         assert stored["model"] == b"FITTED"  # the fitted model.pkl read back + persisted
+        assert json.loads(stored[_FEATURE_COLUMNS_JSON]) == ["events_total", "pageviews"]
         assert any(p.endswith("data/train_features.parquet") for p in fake.written)  # train run materializes training
         assert not any(p.endswith("data/score_features.parquet") for p in fake.written)
         assert fake.ran("train.py") and fake.ran("predict.py")  # predict.py exercised against the holdout
@@ -536,6 +576,7 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "materialize_training_data", return_value=_training_materialized()),
             patch.object(sandbox_inference, "write_model", write_model),
+            patch.object(sandbox_inference, "write_artifact", MagicMock()),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             with self.assertRaises(SandboxInferenceError):
