@@ -26,12 +26,9 @@ export interface PullRequestOptions {
     labels?: readonly string[]
     fork?: boolean
     headRef?: string
-    baseRef?: string
     action?: PullRequestAction
     /** The label the `labeled` / `unlabeled` event carries. */
     label?: string
-    actor?: string
-    number?: number
 }
 
 function repositoryPayload(fullName: string): JsonValue {
@@ -69,12 +66,11 @@ export function pullRequest(options: PullRequestOptions = {}): Context {
         labels = [],
         fork = false,
         headRef = 'feat/example',
-        baseRef = DEFAULT_BRANCH,
         action = 'synchronize',
         label,
-        actor = 'octocat',
-        number = 1,
     } = options
+    const actor = 'octocat'
+    const number = 1
     const headRepository = fork ? FORK_REPOSITORY : REPOSITORY
     const event: Record<string, JsonValue> = {
         action,
@@ -92,7 +88,7 @@ export function pullRequest(options: PullRequestOptions = {}): Context {
                 sha: FAKE_HEAD_SHA,
                 repo: { ...(repositoryPayload(headRepository) as object), fork },
             },
-            base: { ref: baseRef, sha: FAKE_BASE_SHA, repo: repositoryPayload(REPOSITORY) },
+            base: { ref: DEFAULT_BRANCH, sha: FAKE_BASE_SHA, repo: repositoryPayload(REPOSITORY) },
         },
     }
     if (label !== undefined) {
@@ -103,7 +99,7 @@ export function pullRequest(options: PullRequestOptions = {}): Context {
         ref: `refs/pull/${number}/merge`,
         ref_name: `${number}/merge`,
         head_ref: headRef,
-        base_ref: baseRef,
+        base_ref: DEFAULT_BRANCH,
         event,
     }
 }
@@ -113,15 +109,21 @@ export function mergeQueue(options: Omit<PullRequestOptions, 'headRef' | 'draft'
     return pullRequest({ ...options, draft: true, headRef: 'trunk-merge/abc123' })
 }
 
-export function push(branch = DEFAULT_BRANCH, actor = 'octocat'): Context {
+function branchContext(eventName: string, actor: string): Context {
     return {
-        ...baseContext('push', actor),
-        ref: `refs/heads/${branch}`,
-        ref_name: branch,
+        ...baseContext(eventName, actor),
+        ref: `refs/heads/${DEFAULT_BRANCH}`,
+        ref_name: DEFAULT_BRANCH,
         head_ref: '',
         base_ref: '',
+    }
+}
+
+export function push(): Context {
+    return {
+        ...branchContext('push', 'octocat'),
         event: {
-            ref: `refs/heads/${branch}`,
+            ref: `refs/heads/${DEFAULT_BRANCH}`,
             before: FAKE_BASE_SHA,
             after: FAKE_HEAD_SHA,
             repository: repositoryPayload(REPOSITORY),
@@ -130,25 +132,17 @@ export function push(branch = DEFAULT_BRANCH, actor = 'octocat'): Context {
     }
 }
 
-export function schedule(cron = '0 * * * *'): Context {
+export function schedule(): Context {
     return {
-        ...baseContext('schedule', 'github-actions[bot]'),
-        ref: `refs/heads/${DEFAULT_BRANCH}`,
-        ref_name: DEFAULT_BRANCH,
-        head_ref: '',
-        base_ref: '',
-        event: { schedule: cron, repository: repositoryPayload(REPOSITORY) },
+        ...branchContext('schedule', 'github-actions[bot]'),
+        event: { schedule: '0 * * * *', repository: repositoryPayload(REPOSITORY) },
     }
 }
 
-export function workflowDispatch(inputs: Record<string, JsonValue> = {}, branch = DEFAULT_BRANCH): Context {
+export function workflowDispatch(): Context {
     return {
-        ...baseContext('workflow_dispatch', 'octocat'),
-        ref: `refs/heads/${branch}`,
-        ref_name: branch,
-        head_ref: '',
-        base_ref: '',
-        event: { inputs, ref: `refs/heads/${branch}`, repository: repositoryPayload(REPOSITORY) },
+        ...branchContext('workflow_dispatch', 'octocat'),
+        event: { inputs: {}, ref: `refs/heads/${DEFAULT_BRANCH}`, repository: repositoryPayload(REPOSITORY) },
     }
 }
 
@@ -217,15 +211,14 @@ const SCRIPT_STUBS: Record<string, ScriptStubs> = {
 
 export function defaultScenarios(workflow: Workflow, workflowPath: string): Scenario[] {
     const steps = allFiltersChanged(workflow)
-    const stubs = SCRIPT_STUBS[path.relative(REPO_ROOT, workflowPath).split(path.sep).join('/')] ?? {}
-    const scenarios: Scenario[] = [
-        { name: 'draft', github: pullRequest({ draft: true }), steps },
-        { name: 'ready', github: pullRequest(), steps },
-        { name: 'fork', github: pullRequest({ fork: true }), steps },
-        { name: 'queued', github: mergeQueue(), steps },
-        { name: 'merged', github: push(), steps },
-        { name: 'scheduled', github: schedule(), steps },
-        { name: 'dispatched', github: workflowDispatch(), steps },
+    const common = { steps, ...SCRIPT_STUBS[path.relative(REPO_ROOT, workflowPath).split(path.sep).join('/')] }
+    return [
+        { name: 'draft', github: pullRequest({ draft: true }), ...common },
+        { name: 'ready', github: pullRequest(), ...common },
+        { name: 'fork', github: pullRequest({ fork: true }), ...common },
+        { name: 'queued', github: mergeQueue(), ...common },
+        { name: 'merged', github: push(), ...common },
+        { name: 'scheduled', github: schedule(), ...common },
+        { name: 'dispatched', github: workflowDispatch(), ...common },
     ]
-    return scenarios.map((scenario) => ({ ...scenario, ...stubs }))
 }

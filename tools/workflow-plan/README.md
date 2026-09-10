@@ -31,10 +31,13 @@ Add a row when you add or change a condition.
 A row needs three things:
 
 ```ts
-expectation(backend({ name: 'draft PR', github: pullRequest({ draft: true }) }), {
-  runs: ['changes', 'django', 'django_tests'],
-  skipped: ['turbo-tests'],
-})
+backend(
+  { name: 'draft PR', github: pullRequest({ draft: true }) },
+  {
+    runs: ['changes', 'django', 'django_tests'],
+    skipped: ['turbo-tests'],
+  }
+)
 ```
 
 - `github`: the event, from `pullRequest()`, `mergeQueue()`, `push()`, `schedule()`, or `workflowDispatch()` in `src/scenarios.ts`.

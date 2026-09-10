@@ -5,7 +5,6 @@ import {
     type Context,
     type FunctionMap,
     type JsonValue,
-    containsExpression,
     evaluateCondition,
     evaluateTemplate,
     evaluateValue,
@@ -23,15 +22,10 @@ export interface Scenario {
     name: string
     github: Context
     vars?: Record<string, string>
-    env?: Record<string, string>
-    inputs?: Record<string, JsonValue>
-    secrets?: Record<string, string>
     /** Stubbed step results by job id, then step id (or name). Steps the plan skips lose their stubbed outputs. */
     steps?: Record<string, Record<string, StepStub>>
     /** Overrides a job's evaluated outputs, for reusable-workflow calls and script-driven outputs. */
     jobOutputs?: Record<string, Record<string, string>>
-    matrix?: Record<string, Record<string, JsonValue>>
-    failJobs?: readonly string[]
     /** The run was cancelled before any job started, except those in `completedBeforeCancel`. */
     cancelled?: boolean
     completedBeforeCancel?: readonly string[]
@@ -82,7 +76,6 @@ export interface JobPlan {
     steps: StepPlan[]
     /** Number of matrix cells the job expands to; undefined when there is no matrix or it could not be evaluated. */
     matrixCells: number | undefined
-    reusable: boolean
 }
 
 export interface PlanError {
@@ -117,20 +110,6 @@ export function loadWorkflow(path: string): Workflow {
 
 export function flattenSteps(steps: RawStep[] | undefined): RawStep[] {
     return (steps ?? []).flatMap((step) => (Array.isArray(step.parallel) ? flattenSteps(step.parallel) : [step]))
-}
-
-export function triggerNames(workflow: Workflow): string[] {
-    const on = workflow.on
-    if (typeof on === 'string') {
-        return [on]
-    }
-    if (Array.isArray(on)) {
-        return on.map(String)
-    }
-    if (typeof on === 'object' && on !== null) {
-        return Object.keys(on)
-    }
-    return []
 }
 
 function needIds(job: RawJob): string[] {
@@ -169,15 +148,11 @@ function evaluateEnv(
     return env
 }
 
-function resolveMatrixValue(raw: unknown, context: Context, functions: FunctionMap): unknown {
-    return containsExpression(raw) ? evaluateValue(raw, context, functions) : raw
-}
-
 export function countMatrixCells(rawMatrix: unknown, context: Context, functions: FunctionMap): number | undefined {
     if (rawMatrix === undefined || rawMatrix === null) {
         return undefined
     }
-    const matrix = resolveMatrixValue(rawMatrix, context, functions)
+    const matrix = evaluateValue(rawMatrix, context, functions)
     if (Array.isArray(matrix)) {
         return matrix.length
     }
@@ -185,14 +160,14 @@ export function countMatrixCells(rawMatrix: unknown, context: Context, functions
         return undefined
     }
     const entries = matrix as Record<string, unknown>
-    const include = resolveMatrixValue(entries['include'], context, functions)
+    const include = evaluateValue(entries['include'], context, functions)
     if (include === null) {
         return undefined
     }
     const includeCount = Array.isArray(include) ? include.length : 0
     const axes = Object.entries(entries)
         .filter(([key]) => key !== 'include' && key !== 'exclude')
-        .map(([, value]) => resolveMatrixValue(value, context, functions))
+        .map(([, value]) => evaluateValue(value, context, functions))
     if (axes.some((value) => value === null)) {
         return undefined
     }
@@ -212,7 +187,8 @@ function planSteps(
     steps: RawStep[],
     context: Context,
     env: Record<string, string>,
-    scenario: Scenario,
+    stubs: Record<string, StepStub>,
+    cancelled: boolean,
     errors: PlanError[]
 ): { steps: StepPlan[]; stepContexts: Record<string, StepContext>; failed: boolean } {
     const stepContexts: Record<string, StepContext> = {}
@@ -222,7 +198,7 @@ function planSteps(
         const stepStatus = planFunctions({
             dependenciesSucceeded: !failed,
             dependenciesFailed: failed,
-            cancelled: !!scenario.cancelled,
+            cancelled,
         })
         const stepContext: Context = { ...context, steps: stepContexts as unknown as JsonValue }
         let runs = false
@@ -232,8 +208,7 @@ function planSteps(
         } catch (error) {
             errors.push({ job: jobId, step: step.id ?? `#${index}`, where: 'if', message: String(error) })
         }
-        const jobStubs = scenario.steps?.[jobId]
-        const stub = (step.id ? jobStubs?.[step.id] : undefined) ?? (step.name ? jobStubs?.[step.name] : undefined)
+        const stub = stubs[step.id ?? ''] ?? stubs[step.name ?? '']
         const outcome: Outcome = runs ? (stub?.outcome ?? 'success') : 'skipped'
         const continueOnError = evaluateTemplate(step['continue-on-error'], stepContext, stepStatus) === 'true'
         const conclusion: Outcome = outcome === 'failure' && continueOnError ? 'success' : outcome
@@ -255,8 +230,9 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
     const baseContext: Context = {
         github: scenario.github,
         vars: scenario.vars ?? {},
-        inputs: scenario.inputs ?? {},
-        secrets: { GITHUB_TOKEN: 'stub-token', ...scenario.secrets },
+        inputs: {},
+        secrets: { GITHUB_TOKEN: 'stub-token' },
+        matrix: {},
         runner: { os: 'Linux', arch: 'X64', name: 'workflow-plan' },
         strategy: {},
     }
@@ -270,24 +246,23 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
         const job = workflow.jobs[jobId]!
         const cancelled = !!scenario.cancelled && !completed.has(jobId)
         const needs = needIds(job)
-        const needResults = needs.map((need) => jobs[need]?.result ?? 'success')
+        const needsContext = Object.fromEntries(
+            needs.map((need) => [need, { result: jobs[need]?.result ?? 'success', outputs: jobs[need]?.outputs ?? {} }])
+        )
+        const needResults = Object.values(needsContext).map((need) => need.result)
         const status = planFunctions({
             dependenciesSucceeded: needResults.every((result) => result === 'success'),
             dependenciesFailed: needResults.some((result) => result === 'failure'),
             cancelled,
         })
-        const needsContext: Record<string, JsonValue> = Object.fromEntries(
-            needs.map((need) => [need, { result: jobs[need]?.result ?? 'success', outputs: jobs[need]?.outputs ?? {} }])
-        )
         const contextWithoutEnv: Context = {
             ...baseContext,
             needs: needsContext,
-            matrix: scenario.matrix?.[jobId] ?? {},
             job: { status: 'success' },
         }
         let env: Record<string, string> = { ...workflowEnv }
         try {
-            env = { ...env, ...evaluateEnv(job.env, contextWithoutEnv, status), ...scenario.env }
+            env = { ...env, ...evaluateEnv(job.env, contextWithoutEnv, status) }
         } catch (error) {
             errors.push({ job: jobId, where: 'env', message: String(error) })
         }
@@ -300,7 +275,6 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
             errors.push({ job: jobId, where: 'if', message: String(error) })
         }
 
-        const reusable = typeof job.uses === 'string'
         const allSteps = flattenSteps(job.steps)
         if (!runs) {
             jobs[jobId] = {
@@ -309,7 +283,6 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
                 outputs: {},
                 steps: allSteps.map((step, index) => toStepPlan(step, index, false)),
                 matrixCells: undefined,
-                reusable,
             }
             continue
         }
@@ -321,8 +294,7 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
             errors.push({ job: jobId, where: 'matrix', message: String(error) })
         }
 
-        const stepPlan = planSteps(jobId, allSteps, context, env, { ...scenario, cancelled }, errors)
-        const failed = stepPlan.failed || (scenario.failJobs ?? []).includes(jobId)
+        const stepPlan = planSteps(jobId, allSteps, context, env, scenario.steps?.[jobId] ?? {}, cancelled, errors)
         let outputs: Record<string, string> = {}
         try {
             outputs = evaluateEnv(
@@ -338,11 +310,10 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
         }
         jobs[jobId] = {
             id: jobId,
-            result: failed ? 'failure' : 'success',
+            result: stepPlan.failed ? 'failure' : 'success',
             outputs: { ...outputs, ...scenario.jobOutputs?.[jobId] },
             steps: stepPlan.steps,
             matrixCells,
-            reusable,
         }
     }
     return { jobs, errors }

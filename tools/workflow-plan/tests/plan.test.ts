@@ -13,12 +13,13 @@ const scenario = (overrides: Partial<Scenario> = {}, github: Context = pullReque
 // Workflows write `!cancelled()` in a block scalar because a bare `!` starts a YAML tag.
 const block = (condition: string): string => `>-\n      ${condition.split('\n').join('\n      ')}`
 
-const twoJobs = (condition: string | undefined): string => `
+const twoJobs = (condition: string | undefined, upstreamRuns = true): string => `
 on: push
 jobs:
   a:
+    if: ${upstreamRuns}
     runs-on: ubuntu-latest
-    steps: [{ run: echo }]
+    steps: [{ id: s, run: echo }]
   b:
     needs: a
     ${condition === undefined ? '' : `if: ${block(condition)}`}
@@ -38,13 +39,10 @@ describe('planWorkflow', () => {
     ])(
         'applies success() implicitly: if=$condition after upstream=$upstream gives $expected',
         ({ condition, upstream, expected }) => {
-            const source = twoJobs(condition).replace(
-                'runs-on: ubuntu-latest\n    steps: [{ run: echo }]\n  b:',
-                `if: ${upstream === 'skipped' ? 'false' : 'true'}\n    runs-on: ubuntu-latest\n    steps: [{ run: echo }]\n  b:`
-            )
+            const upstreamSteps = upstream === 'failure' ? { a: { s: { outcome: 'failure' as const } } } : {}
             const plan = planWorkflow(
-                parseWorkflow(source),
-                scenario({ failJobs: upstream === 'failure' ? ['a'] : [] }, push())
+                parseWorkflow(twoJobs(condition, upstream !== 'skipped')),
+                scenario({ steps: upstreamSteps }, push())
             )
             expect(plan.jobs['b']?.result).toBe(expected)
         }

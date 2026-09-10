@@ -53,18 +53,6 @@ const frontendSelectors: Stubs = {
     },
 }
 
-type ScenarioBuilder = (overrides: Partial<Scenario> & { name: string }) => [string, Scenario]
-
-const suite = (file: string, selectors: Stubs): ScenarioBuilder => {
-    const filters = allFiltersChanged(workflow(file))
-    return (overrides) => [
-        file,
-        { github: pullRequest(), ...overrides, steps: { ...filters, ...selectors, ...overrides.steps } },
-    ]
-}
-const backend = suite('ci-backend.yml', backendSelectors)
-const frontend = suite('ci-frontend.yml', frontendSelectors)
-
 interface Expectation {
     file: string
     scenario: Scenario
@@ -73,14 +61,21 @@ interface Expectation {
     results?: Record<string, Outcome>
 }
 
-const expectation = (
-    [file, scenario]: [string, Scenario],
+type ExpectationBuilder = (
+    overrides: Partial<Scenario> & { name: string },
     rest: Omit<Expectation, 'file' | 'scenario'>
-): Expectation => ({
-    file,
-    scenario,
-    ...rest,
-})
+) => Expectation
+
+const suite = (file: string, selectors: Stubs): ExpectationBuilder => {
+    const filters = allFiltersChanged(workflow(file))
+    return (overrides, rest) => ({
+        file,
+        scenario: { github: pullRequest(), ...overrides, steps: { ...filters, ...selectors, ...overrides.steps } },
+        ...rest,
+    })
+}
+const backend = suite('ci-backend.yml', backendSelectors)
+const frontend = suite('ci-frontend.yml', frontendSelectors)
 
 const frontendOnlyFilters: Stubs = {
     changes: {
@@ -98,59 +93,86 @@ const frontendOnlyFilters: Stubs = {
 }
 
 const EXPECTATIONS: Expectation[] = [
-    expectation(backend({ name: 'draft PR', github: pullRequest({ draft: true }) }), {
-        runs: [
-            'changes',
-            'turbo-discover',
-            'django',
-            'repo-checks',
-            'check-migrations',
-            'check-openapi-types',
-            'django_tests',
-        ],
-        skipped: ['turbo-tests', 'backend-coverage-report'],
-    }),
-    expectation(
-        backend({
+    backend(
+        { name: 'draft PR', github: pullRequest({ draft: true }) },
+        {
+            runs: [
+                'changes',
+                'turbo-discover',
+                'django',
+                'repo-checks',
+                'check-migrations',
+                'check-openapi-types',
+                'django_tests',
+            ],
+            skipped: ['turbo-tests', 'backend-coverage-report'],
+        }
+    ),
+    backend(
+        {
             name: 'draft PR labeled run-ci-backend',
             github: pullRequest({ draft: true, labels: ['run-ci-backend'] }),
-        }),
+        },
         {
             runs: ['turbo-tests', 'django'],
         }
     ),
-    expectation(backend({ name: 'ready PR' }), {
-        runs: ['turbo-tests', 'django', 'backend-coverage-report', 'django_tests'],
-    }),
-    expectation(backend({ name: 'merge queue', github: mergeQueue() }), {
-        runs: ['turbo-tests', 'django', 'django_tests'],
-        skipped: ['backend-coverage-report'],
-    }),
-    expectation(backend({ name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) }), {
-        runs: ['django_tests'],
-        skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'check-migrations'],
-    }),
-    expectation(backend({ name: 'fork PR', github: pullRequest({ fork: true }) }), {
-        runs: ['changes', 'django', 'django_tests'],
-        skipped: ['validate-product-yamls', 'calculate-running-time', 'report-test-timings'],
-    }),
-    expectation(backend({ name: 'frontend-only PR', steps: frontendOnlyFilters }), {
-        runs: ['changes', 'django_tests'],
-        skipped: ['detect-snapshot-mode', 'turbo-tests', 'django'],
-    }),
-    expectation(backend({ name: 'master push', github: push() }), {
-        runs: ['changes', 'repo-checks', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
-        skipped: ['detect-snapshot-mode', 'turbo-tests', 'django'],
-    }),
-    expectation(backend({ name: 'hourly schedule', github: schedule() }), {
-        runs: ['changes', 'turbo-tests', 'django', 'django_tests'],
-        skipped: ['repo-checks', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
-    }),
-    expectation(backend({ name: 'ready PR, superseded and cancelled', cancelled: true }), {
-        results: { django_tests: 'cancelled' },
-    }),
-    expectation(
-        backend({
+    backend(
+        { name: 'ready PR' },
+        {
+            runs: ['turbo-tests', 'django', 'backend-coverage-report', 'django_tests'],
+        }
+    ),
+    backend(
+        { name: 'merge queue', github: mergeQueue() },
+        {
+            runs: ['turbo-tests', 'django', 'django_tests'],
+            skipped: ['backend-coverage-report'],
+        }
+    ),
+    backend(
+        { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
+        {
+            runs: ['django_tests'],
+            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'check-migrations'],
+        }
+    ),
+    backend(
+        { name: 'fork PR', github: pullRequest({ fork: true }) },
+        {
+            runs: ['changes', 'django', 'django_tests'],
+            skipped: ['validate-product-yamls', 'calculate-running-time', 'report-test-timings'],
+        }
+    ),
+    backend(
+        { name: 'frontend-only PR', steps: frontendOnlyFilters },
+        {
+            runs: ['changes', 'django_tests'],
+            skipped: ['detect-snapshot-mode', 'turbo-tests', 'django'],
+        }
+    ),
+    backend(
+        { name: 'master push', github: push() },
+        {
+            runs: ['changes', 'repo-checks', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
+            skipped: ['detect-snapshot-mode', 'turbo-tests', 'django'],
+        }
+    ),
+    backend(
+        { name: 'hourly schedule', github: schedule() },
+        {
+            runs: ['changes', 'turbo-tests', 'django', 'django_tests'],
+            skipped: ['repo-checks', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
+        }
+    ),
+    backend(
+        { name: 'ready PR, superseded and cancelled', cancelled: true },
+        {
+            results: { django_tests: 'cancelled' },
+        }
+    ),
+    backend(
+        {
             name: 'ready PR, self-cancelled after a deterministic repo-checks failure',
             cancelled: true,
             completedBeforeCancel: ['changes', 'repo-checks'],
@@ -160,11 +182,11 @@ const EXPECTATIONS: Expectation[] = [
                     'deterministic-failure': { outputs: { deterministic_failure: 'true' } },
                 },
             },
-        }),
+        },
         { runs: ['django_tests'], results: { 'repo-checks': 'failure' } }
     ),
-    expectation(
-        backend({
+    backend(
+        {
             name: 'ready PR, cancelled after repo-checks failed during setup',
             cancelled: true,
             completedBeforeCancel: ['changes', 'repo-checks'],
@@ -174,42 +196,63 @@ const EXPECTATIONS: Expectation[] = [
                     'deterministic-failure': { outputs: { deterministic_failure: 'true' } },
                 },
             },
-        }),
+        },
         { results: { 'repo-checks': 'failure', django_tests: 'cancelled' } }
     ),
-    expectation(frontend({ name: 'draft PR', github: pullRequest({ draft: true }) }), {
-        runs: ['changes', 'select-jest-tests', 'jest', 'frontend-typescript-checks', 'frontend_tests'],
-    }),
-    expectation(frontend({ name: 'merge queue', github: mergeQueue() }), {
-        runs: ['jest', 'frontend_tests'],
-        skipped: ['select-jest-tests'],
-    }),
-    expectation(
-        frontend({ name: 'ready PR labeled run-ci-frontend', github: pullRequest({ labels: ['run-ci-frontend'] }) }),
+    frontend(
+        { name: 'draft PR', github: pullRequest({ draft: true }) },
+        {
+            runs: ['changes', 'select-jest-tests', 'jest', 'frontend-typescript-checks', 'frontend_tests'],
+        }
+    ),
+    frontend(
+        { name: 'merge queue', github: mergeQueue() },
+        {
+            runs: ['jest', 'frontend_tests'],
+            skipped: ['select-jest-tests'],
+        }
+    ),
+    frontend(
+        { name: 'ready PR labeled run-ci-frontend', github: pullRequest({ labels: ['run-ci-frontend'] }) },
         {
             runs: ['jest'],
             skipped: ['select-jest-tests'],
         }
     ),
-    expectation(frontend({ name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) }), {
-        runs: ['frontend_tests'],
-        skipped: ['changes', 'jest', 'frontend-format', 'frontend-typescript-checks'],
-    }),
-    expectation(frontend({ name: 'fork PR', github: pullRequest({ fork: true }) }), {
-        runs: ['jest', 'frontend_tests'],
-        skipped: ['capture-jest-selection', 'report-test-signals', 'calculate-running-time'],
-    }),
-    expectation(frontend({ name: 'master push', github: push() }), {
-        runs: ['frontend-format', 'frontend-typescript-checks', 'frontend_tests'],
-        skipped: ['jest', 'select-jest-tests'],
-    }),
-    expectation(frontend({ name: 'hourly schedule', github: schedule() }), {
-        runs: ['jest', 'jest-replay-shared', 'frontend_tests'],
-        skipped: ['frontend-format', 'frontend-bundle-size', 'frontend-typescript-checks'],
-    }),
-    expectation(frontend({ name: 'ready PR, superseded and cancelled', cancelled: true }), {
-        results: { frontend_tests: 'cancelled' },
-    }),
+    frontend(
+        { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
+        {
+            runs: ['frontend_tests'],
+            skipped: ['changes', 'jest', 'frontend-format', 'frontend-typescript-checks'],
+        }
+    ),
+    frontend(
+        { name: 'fork PR', github: pullRequest({ fork: true }) },
+        {
+            runs: ['jest', 'frontend_tests'],
+            skipped: ['capture-jest-selection', 'report-test-signals', 'calculate-running-time'],
+        }
+    ),
+    frontend(
+        { name: 'master push', github: push() },
+        {
+            runs: ['frontend-format', 'frontend-typescript-checks', 'frontend_tests'],
+            skipped: ['jest', 'select-jest-tests'],
+        }
+    ),
+    frontend(
+        { name: 'hourly schedule', github: schedule() },
+        {
+            runs: ['jest', 'jest-replay-shared', 'frontend_tests'],
+            skipped: ['frontend-format', 'frontend-bundle-size', 'frontend-typescript-checks'],
+        }
+    ),
+    frontend(
+        { name: 'ready PR, superseded and cancelled', cancelled: true },
+        {
+            results: { frontend_tests: 'cancelled' },
+        }
+    ),
 ]
 
 interface StepExpectation {

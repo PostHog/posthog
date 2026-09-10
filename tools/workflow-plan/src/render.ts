@@ -98,7 +98,7 @@ export function renderSteps(scenarioPlans: ScenarioPlan[], jobId: string, style?
     const columns = scenarioPlans.map(({ scenario, plan }) => ({
         name: scenario.name,
         cells: job.steps.map((_, stepIndex) =>
-            plan.jobs[jobId]?.steps[stepIndex]?.runs ? MARKS.success : MARKS.skipped
+            plan.jobs[jobId]!.steps[stepIndex]!.runs ? MARKS.success : MARKS.skipped
         ),
     }))
     return [...renderGrid('step', labels, columns, style), '', LEGEND].join('\n')
