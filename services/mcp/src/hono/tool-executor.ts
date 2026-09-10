@@ -26,6 +26,7 @@ import {
     describeExecCommand,
     describeValidationError,
     formatInputValidationError,
+    markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
     rewrapFlattenedArguments,
@@ -309,7 +310,13 @@ export class ToolExecutor {
                 ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
-            const handlerResult = await tool.handler(state.context, validation.data)
+            // The exec dispatcher marks a noncanonical metric run in its own loop. Mark it here
+            // too, so the canonicality contract does not depend on which mode the client uses:
+            // a tools-mode client would otherwise read a proposed or drifted metric as settled.
+            const handlerResult = markNoncanonicalMetricRun(
+                tool.name,
+                await tool.handler(state.context, validation.data)
+            )
 
             if (isContextSwitch) {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
