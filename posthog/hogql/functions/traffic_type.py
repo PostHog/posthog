@@ -48,6 +48,9 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
 
+COOKIELESS_MODE_FIELD = "$cookieless_mode"
+
+
 def _custom_groups(modifiers: Optional["HogQLQueryModifiers"]) -> list[CustomBotGroup]:
     if modifiers is None:
         return []
@@ -95,6 +98,22 @@ def _property_expr(key: str, args: list[ast.Expr]) -> Optional[ast.Expr]:
     ):
         return ast.Field(chain=[*user_agent_expr.chain[:-1], key])
     return None
+
+
+def _cookieless_condition(args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"]) -> Optional[ast.Expr]:
+    if modifiers is None or not modifiers.cookielessTrafficIsRegular:
+        return None
+    cookieless_expr = _property_expr(COOKIELESS_MODE_FIELD, args)
+    if cookieless_expr is None:
+        return None
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Call(
+            name="ifNull",
+            args=[ast.Call(name="toString", args=[cookieless_expr]), ast.Constant(value="")],
+        ),
+        right=ast.Constant(value="true"),
+    )
 
 
 @frozen
@@ -236,13 +255,14 @@ def _build_bot_array_lookup(
 
     builtin_labels = [getattr(bot_def, attr) for bot_def in BOT_DEFINITIONS.values()]
     groups = _custom_groups(modifiers)
+    cookieless = _cookieless_condition(args, modifiers)
 
     if not groups:
         # No project rules: one pass over the built-in patterns plus the empty-user-agent sentinel.
         patterns_array = _string_array([*BOT_DEFINITIONS.keys(), "^$"])
         labels_array = _string_array([*builtin_labels, empty_ua_value])
         index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
-        return ast.Call(
+        lookup = ast.Call(
             name="if",
             args=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
@@ -250,12 +270,15 @@ def _build_bot_array_lookup(
                 ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
             ],
         )
+        if cookieless is None:
+            return lookup
+        return ast.Call(name="if", args=[cookieless, ast.Constant(value=default), lookup])
 
     # With project rules the checks become an ordered chain, in this order: the project's own
-    # rules, then the built-ins, then the empty user agent, then the built-in IP ranges. A rule
-    # someone wrote by hand says more about what they want counted than a default we shipped, so
-    # it wins — that also makes the setting predictable, since a rule that matches always names
-    # the event.
+    # rules, then the cookieless check, then the built-ins, then the empty user agent, then the
+    # built-in IP ranges. A rule someone wrote by hand says more about what they want counted
+    # than a default we shipped, so it wins — that also makes the setting predictable, since a
+    # rule that matches always names the event.
     #
     # It has to be a branch per group rather than one shared pattern array: multiMatchAnyIndex
     # reports whichever pattern matches earliest in the string rather than earliest in the array,
@@ -265,6 +288,8 @@ def _build_bot_array_lookup(
         branch = _custom_group_branch(group, args, attr)
         if branch is not None:
             branches.extend([branch.matched, branch.label])
+    if cookieless is not None:
+        branches.extend([cookieless, ast.Constant(value=default)])
     builtin_index = ast.Call(
         name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
     )
@@ -357,7 +382,12 @@ def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQuery
     patterns_array = _string_array([*BOT_DEFINITIONS.keys(), "^$"])
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
-    conditions: list[ast.Expr] = [_matched(index_call)]
+    builtin_matched: ast.Expr = _matched(index_call)
+    cookieless = _cookieless_condition(args, modifiers)
+    if cookieless is not None:
+        builtin_matched = ast.And(exprs=[ast.Not(expr=cookieless), builtin_matched])
+
+    conditions: list[ast.Expr] = [builtin_matched]
     for group in _custom_groups(modifiers):
         branch = _custom_group_branch(group, args, "name")
         if branch is not None:

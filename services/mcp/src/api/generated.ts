@@ -996,6 +996,8 @@ export namespace Schemas {
       bounceRateDurationSeconds?: number | null;
       bounceRatePageViewMode?: BounceRatePageViewMode | null;
       convertToProjectTimezone?: boolean | null;
+      /** Classify cookieless-mode events as regular traffic instead of automation. Cookieless ingestion strips the user agent the bot classifier reads, so without this every cookieless event is reported as a bot. Resolved server-side; not intended to be set by clients. */
+      cookielessTrafficIsRegular?: boolean | null;
       customBotDefinitions?: CustomBotDefinition[] | null;
       customChannelTypeRules?: CustomChannelRule[] | null;
       dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null;
