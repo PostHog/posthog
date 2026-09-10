@@ -14,13 +14,15 @@
     },
     "devDependencies": {
         "@testing-library/jest-dom": "^5.17.0",
-        "@testing-library/react": "^14.3.1"
+        "@testing-library/react": "^14.3.1",
+        "@testing-library/user-event": "^14.6.1"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "react": "*"
     }

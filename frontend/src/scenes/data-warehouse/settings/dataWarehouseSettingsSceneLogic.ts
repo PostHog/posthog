@@ -39,6 +39,7 @@ export interface dataWarehouseSettingsSceneLogicValues {
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
+    databaseLoadError: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     externalDataSourceTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     posthogTables: DatabaseSchemaTable[] // databaseTableListLogic
@@ -232,6 +233,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
                 'dataWarehouseTables',
                 'externalDataSourceTables',
                 'databaseLoading',
+                'databaseLoadError',
                 'views',
                 'viewsMapById',
             ],
@@ -277,15 +279,15 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
                         return state
                     }
 
-                    const newState = { ...state }
-
-                    const column = newState?.fields[columnKey]
+                    const column = state.fields[columnKey]
                     if (!column) {
                         return state
                     }
 
-                    column.type = columnType
-                    return newState
+                    // `selectedRow` is the same object the shared schema store holds, so writing
+                    // into `fields` would change what every other schema consumer reads, and would
+                    // outlive a cancel because cancel restores from that same store.
+                    return { ...state, fields: { ...state.fields, [columnKey]: { ...column, type: columnType } } }
                 },
                 loadDatabaseSuccess: (state, { database }) => {
                     if (!state || !database) {
@@ -324,6 +326,10 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
                     return newState
                 },
                 toggleEditSchemaMode: () => ({}),
+                // Pending types belong to the row they were picked on. `saveSchema` posts them
+                // against whichever row is selected at save time, so they must not survive a move
+                // to another row.
+                selectRow: () => ({}),
             },
         ],
         isEditingSavedQuery: [
@@ -342,6 +348,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
 
                     return !state
                 },
+                selectRow: () => false,
             },
         ],
         editSchemaIsLoading: [
@@ -461,6 +468,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             try {
                 await api.dataWarehouseTables.updateSchema(tableId, schemaUpdates)
                 actions.refreshDatabaseSchema()
+                lemonToast.success('Column types updated')
 
                 if (values.selectedRow) {
                     posthog.capture('source schema saved', {
