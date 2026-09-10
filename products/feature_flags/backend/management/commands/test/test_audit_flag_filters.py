@@ -46,9 +46,10 @@ class TestAuditFlagFilters(BaseTest):
         return next((rule for rule in report["rules"] if rule["rule_id"] == rule_id), None)
 
     def _divergence_counts(self, report: dict[str, Any]) -> dict[str, int]:
-        # A clean violations run is the enforcement gate, so a divergence must never be a violation.
-        assert [rule for rule in report["rules"] if rule["rule_id"].startswith("roundtrip.")] == []
         return {entry["shape_id"]: entry["flags_affected"] for entry in report["roundtrip_divergences"]}
+
+    def _divergence(self, report: dict[str, Any], shape_id: str) -> dict[str, Any]:
+        return next(entry for entry in report["roundtrip_divergences"] if entry["shape_id"] == shape_id)
 
     def test_clean_flags_report_no_violations(self) -> None:
         self._create_flag("clean", {"groups": [{"properties": [], "rollout_percentage": 50}]})
@@ -137,11 +138,18 @@ class TestAuditFlagFilters(BaseTest):
         limited = self._run("--limit", "1")
         assert limited["scanned"] == 1
 
+        self._create_flag("diverging-first", {"payloads": {}})
+        self._create_flag("diverging-second", {"payloads": {}})
         sampled = self._run("--samples", "1")
         rule = self._rule(sampled, "cross_field.variant_rollout_sum_not_100")
         assert rule is not None
         assert rule["flags_affected"] == 2
         assert len(rule["sample_flag_ids"]) == 1
+
+        divergence = self._divergence(sampled, DIVERGENCE_ABSENT_GROUPS)
+        assert divergence["flags_affected"] == 2
+        assert len(divergence["sample_flag_ids"]) == 1
+        assert len(divergence["sample_details"]) == 1
 
     def test_team_id_restricts_scan(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -255,7 +263,12 @@ class TestAuditFlagFilters(BaseTest):
     def test_console_output_escapes_control_sequences(self) -> None:
         self._create_flag(
             "escape-junk",
-            {"groups": [], "payloads": {"\x1b]0;evil\x07": "1"}, "junk\x1b[31mkey": 1},
+            {
+                "groups": [],
+                "holdout": {"id": 1, "exclusion_percentage": 0, "junk\x1b[31mkey": 1},
+                "payloads": {"\x1b]0;evil\x07": "1"},
+                "junk\x1b[31mkey": 1,
+            },
         )
         out = StringIO()
 
@@ -349,6 +362,14 @@ class TestAuditFlagFilters(BaseTest):
             ),
             ("absent_groups", {"payloads": {"true": '"x"'}}, [DIVERGENCE_ABSENT_GROUPS]),
             (
+                "null_valued_dropped_key",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100, "description": None}]},
+                },
+                [],
+            ),
+            (
                 "unknown_keys_at_round_tripped_levels",
                 {
                     "junk_f": 1,
@@ -404,6 +425,49 @@ class TestAuditFlagFilters(BaseTest):
         assert self._divergence_counts(report)[DIVERGENCE_NUMERIC_PROPERTY_KEY] == 1
         assert report["flags_with_roundtrip_divergences"] == 1
 
+    def test_divergence_only_flag_reports_no_violations(self) -> None:
+        # A clean violations run gates flipping #50084 enforcement on.
+        flag = self._create_flag(
+            "divergence-only",
+            {
+                "groups": [
+                    {
+                        "properties": [{"key": 7, "type": "person", "operator": "min", "value": "18"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        report = self._run()
+
+        assert report["clean"] is True
+        assert report["flags_with_violations"] == 0
+        counts = self._divergence_counts(report)
+        assert counts[DIVERGENCE_NUMERIC_PROPERTY_KEY] == 1
+        assert counts[DIVERGENCE_OPERATOR_ALIAS] == 1
+        assert report["flags_with_roundtrip_divergences"] == 1
+        assert report["live_flags_with_roundtrip_divergences"] == 1
+        detail = self._divergence(report, DIVERGENCE_NUMERIC_PROPERTY_KEY)["sample_details"][0]
+        assert f"flag={flag.id} team={self.team.id}" in detail
+        assert "groups[0].properties[0].key" in detail
+
+    @parameterized.expand([("inactive", {"active": False}), ("soft_deleted", {"deleted": True})])
+    def test_unevaluable_flag_counts_in_the_total_but_not_the_live_count(
+        self, _name: str, flag_kwargs: dict[str, Any]
+    ) -> None:
+        # Both builders blank an unevaluable flag's filters, so its stored shape never gets cached.
+        self._create_flag("unevaluable", {"payloads": {}}, **flag_kwargs)
+
+        report = self._run()
+
+        entry = self._divergence(report, DIVERGENCE_ABSENT_GROUPS)
+        assert entry["flags_affected"] == 1
+        assert entry["live_flags_affected"] == 0
+        assert report["flags_with_roundtrip_divergences"] == 1
+        assert report["live_flags_with_roundtrip_divergences"] == 0
+        assert "[not live]" in entry["sample_details"][0]
+
     def test_console_output_reports_divergences_and_their_meaning(self) -> None:
         self._create_flag("absent-groups", {"payloads": {"true": '"x"'}})
         out = StringIO()
@@ -411,6 +475,16 @@ class TestAuditFlagFilters(BaseTest):
         call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
 
         output = out.getvalue()
-        assert "Cache-write round-trip divergences (1 flags affected):" in output
-        assert re.search(rf"{re.escape(DIVERGENCE_ABSENT_GROUPS)}\s+1 flags", output)
+        assert "Cache-write round-trip divergences (1 flags, 1 of them live):" in output
+        assert re.search(rf"{re.escape(DIVERGENCE_ABSENT_GROUPS)}\s+1 flags, 1 live", output)
         assert "not enforcement violations" in output
+
+    def test_console_output_omits_the_divergence_note_on_a_clean_scan(self) -> None:
+        self._create_flag("clean", {"groups": []})
+        out = StringIO()
+
+        call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
+
+        output = out.getvalue()
+        assert "Cache-write round-trip divergences (0 flags, 0 of them live):" in output
+        assert "not enforcement violations" not in output

@@ -11,7 +11,9 @@ seconds — it's an offline command.
 
 A third section counts the `filters` round-trip divergences between the two flags-cache
 builders: shapes the Rust builder writes back narrower than the stored JSONB holds. They are
-never violations, because a clean violations run gates flipping enforcement on.
+never violations, because a clean violations run gates flipping enforcement on. Each count is
+reported over all stored flags and over the live ones alone, because only a live flag's stored
+filters reach the cache.
 """
 
 import re
@@ -47,12 +49,12 @@ def _sanitize_for_console(text: str) -> str:
     return _CONTROL_CHARS_RE.sub("�", text)
 
 
-def _iter_flag_rows(queryset: Any, *, limit: int, chunk_size: int = 500) -> Iterator[tuple[int, int, Any]]:
+def _iter_flag_rows(queryset: Any, *, limit: int, chunk_size: int = 500) -> Iterator[tuple[int, int, Any, bool, bool]]:
     # Keyset pagination instead of .iterator(): prod runs behind PgBouncer with server-side
     # cursors disabled, so .iterator() buffers the entire result set client-side on execute
     # and a full scan would hold every flag's filters JSON in memory at once. Repeated
     # id-bounded LIMIT queries keep memory bounded on any connection.
-    base = queryset.order_by("id").values_list("id", "team_id", "filters")
+    base = queryset.order_by("id").values_list("id", "team_id", "filters", "active", "deleted")
     last_id, yielded = 0, 0
     while True:
         page = chunk_size if not limit else min(chunk_size, limit - yielded)
@@ -106,16 +108,18 @@ class UnknownKeyAggregator:
                 samples.append(flag_id)
 
 
-# The only three Rust structs without `#[serde(flatten)] extra`
-# (rust/feature-flags/src/flags/flag_models.rs), so Rust drops every other key at these levels
-# on cache write. Every other level has `extra` and round-trips unknown keys unchanged.
-# `description` on a variant is dropped even though filters_schema.py declares and keeps it.
+# MultivariateFlagOptions, MultivariateFlagVariant and Holdout
+# (rust/feature-flags/src/flags/flag_models.rs) are the only three Rust structs without
+# `#[serde(flatten)] extra`, so Rust drops every other key at these levels on cache write. Every
+# other level has `extra` and round-trips unknown keys unchanged. `description` on a variant is
+# dropped even though filters_schema.py declares and keeps it. A field added to one of these three
+# structs belongs here too, or this audit counts a divergence that no longer happens.
 RUST_MULTIVARIATE_FIELDS = frozenset({"variants"})
 RUST_VARIANT_FIELDS = frozenset({"key", "name", "rollout_percentage"})
 RUST_HOLDOUT_FIELDS = frozenset({"id", "exclusion_percentage"})
 
 DIVERGENCE_NUMERIC_PROPERTY_KEY = "roundtrip.numeric_property_key"
-DIVERGENCE_DROPPED_KEY = "roundtrip.dropped_unknown_key"
+DIVERGENCE_DROPPED_KEY = "roundtrip.dropped_key"
 DIVERGENCE_OPERATOR_ALIAS = "roundtrip.operator_alias"
 DIVERGENCE_ABSENT_GROUPS = "roundtrip.absent_groups"
 
@@ -129,17 +133,20 @@ DIVERGENCE_SHAPES: tuple[str, ...] = (
 
 DIVERGENCE_NOTE_LINES: tuple[str, ...] = (
     "These are cache-write divergences, not enforcement violations, and they do not affect the",
-    "clean-run gate above. Both builders evaluate the flag the same way. The Rust builder writes",
-    "the field back in a narrower form than the stored JSONB holds, so the Python cache verifier",
-    "reports the entry as a filters mismatch and repairs it on every pass.",
-    "Use these counts to size a data fix.",
+    "clean-run gate above. Both builders evaluate the flag the same way.",
+    "On a live flag, the Rust builder writes the field back in a narrower form than the stored",
+    "JSONB holds. The Python cache verifier reports that entry as a filters mismatch and repairs",
+    "it on every pass.",
+    "An inactive or deleted flag never reaches the cache with its stored filters, because both",
+    "builders blank them first. Such a flag counts in the flags total and not in the live count.",
+    "Size a verifier fix from the live count, and a stored-data rewrite from the total.",
 )
 
 
 def _iter_divergences(filters: Any) -> Iterator[tuple[str, str]]:
     """Yield (shape id, detail) per round-trip divergence in one stored filters blob."""
-    # Every level is type-guarded because a blob Rust cannot deserialize at all belongs to the
-    # violations tier, not here.
+    # Every level is type-guarded because a blob Rust cannot deserialize at all is reported by
+    # collect_filters_violations, not counted here.
     if not isinstance(filters, dict):
         return
     if "groups" not in filters:
@@ -187,34 +194,47 @@ def _iter_property_divergences(property_filter: dict[str, Any], path: str) -> It
         yield DIVERGENCE_OPERATOR_ALIAS, f"{path}.operator: {operator} becomes {canonical}"
 
 
-def _iter_dropped_keys(level: dict[str, Any], declared: frozenset[str], path: str) -> Iterator[tuple[str, str]]:
-    for key in level:
-        if key not in declared:
+def _iter_dropped_keys(level: dict[str, Any], kept_by_rust: frozenset[str], path: str) -> Iterator[tuple[str, str]]:
+    # The verifier's _strip_null_values drops a null-valued key from the stored side too, so both
+    # sides come out equal even though Rust never wrote the key.
+    for key, value in level.items():
+        if key not in kept_by_rust and value is not None:
             yield DIVERGENCE_DROPPED_KEY, f"{path}.{key} is dropped"
 
 
 class RoundTripDivergenceAggregator:
-    """Counts flags per divergence shape. A flag counts once per shape however often it recurs."""
+    """Counts flags per divergence shape, once per shape however often it recurs.
+
+    Both builders blank an inactive or deleted flag's filters before the cache write, so only a
+    live flag's stored shape can reach the cache. Hence the second count.
+    """
 
     def __init__(self, max_samples: int) -> None:
         self.max_samples = max_samples
         self.flag_counts: dict[str, int] = dict.fromkeys(DIVERGENCE_SHAPES, 0)
+        self.live_flag_counts: dict[str, int] = dict.fromkeys(DIVERGENCE_SHAPES, 0)
         self.sample_flag_ids: dict[str, list[int]] = {shape_id: [] for shape_id in DIVERGENCE_SHAPES}
         self.sample_details: dict[str, list[str]] = {shape_id: [] for shape_id in DIVERGENCE_SHAPES}
-        self.flags_affected = 0
+        self.flags_with_any_divergence = 0
+        self.live_flags_with_any_divergence = 0
 
-    def record(self, *, flag_id: int, team_id: int, found: Iterable[tuple[str, str]]) -> None:
+    def record(self, *, flag_id: int, team_id: int, live: bool, found: Iterable[tuple[str, str]]) -> None:
         counted: set[str] = set()
         for shape_id, detail in found:
             if shape_id in counted:
                 continue
             counted.add(shape_id)
             self.flag_counts[shape_id] += 1
+            if live:
+                self.live_flag_counts[shape_id] += 1
             if len(self.sample_flag_ids[shape_id]) < self.max_samples:
                 self.sample_flag_ids[shape_id].append(flag_id)
-                self.sample_details[shape_id].append(f"flag={flag_id} team={team_id} {detail}")
+                marker = "" if live else " [not live]"
+                self.sample_details[shape_id].append(f"flag={flag_id} team={team_id} {detail}{marker}")
         if counted:
-            self.flags_affected += 1
+            self.flags_with_any_divergence += 1
+            if live:
+                self.live_flags_with_any_divergence += 1
 
 
 class Command(BaseCommand):
@@ -229,7 +249,12 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--json", action="store_true", help="Emit a machine-readable JSON report instead")
         parser.add_argument("--limit", type=int, default=0, help="Max flags to scan (0 = all)")
-        parser.add_argument("--samples", type=int, default=5, help="Sample flag ids to record per rule / unknown key")
+        parser.add_argument(
+            "--samples",
+            type=int,
+            default=5,
+            help="Sample flag ids to record per rule / unknown key / divergence shape",
+        )
         parser.add_argument("--team-id", type=int, default=None, help="Restrict the scan to one team (debugging)")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -265,9 +290,14 @@ class Command(BaseCommand):
         # collect_filters_violations runs CROSS_FIELD_CHECKS, which deliberately excludes
         # check_groups_non_empty_for_create: non-empty groups is a POST-only rule (#50084) —
         # stored flags with empty groups are valid state and must never show up in this report.
-        for flag_id, flag_team_id, filters in _iter_flag_rows(queryset, limit=limit):
+        for flag_id, flag_team_id, filters, active, deleted in _iter_flag_rows(queryset, limit=limit):
             scanned += 1
-            divergences.record(flag_id=flag_id, team_id=flag_team_id, found=_iter_divergences(filters))
+            divergences.record(
+                flag_id=flag_id,
+                team_id=flag_team_id,
+                live=active and not deleted,
+                found=_iter_divergences(filters),
+            )
             try:
                 violations = collect_filters_violations(
                     filters, context={UNKNOWN_KEYS_SINK_CONTEXT_KEY: sink, FLAG_ID_CONTEXT_KEY: flag_id}
@@ -340,11 +370,13 @@ class Command(BaseCommand):
                 for (level, key), count in sorted(sink.flag_counts.items())
             ],
             "untracked_unknown_keys": sink.untracked_keys,
-            "flags_with_roundtrip_divergences": divergences.flags_affected,
+            "flags_with_roundtrip_divergences": divergences.flags_with_any_divergence,
+            "live_flags_with_roundtrip_divergences": divergences.live_flags_with_any_divergence,
             "roundtrip_divergences": [
                 {
                     "shape_id": shape_id,
                     "flags_affected": divergences.flag_counts[shape_id],
+                    "live_flags_affected": divergences.live_flag_counts[shape_id],
                     "sample_flag_ids": divergences.sample_flag_ids[shape_id],
                     "sample_details": divergences.sample_details[shape_id],
                 }
@@ -403,12 +435,18 @@ class Command(BaseCommand):
 
     def _emit_divergences_console(self, divergences: RoundTripDivergenceAggregator) -> None:
         self.stdout.write("")
-        self.stdout.write(f"Cache-write round-trip divergences ({divergences.flags_affected} flags affected):")
+        self.stdout.write(
+            f"Cache-write round-trip divergences ({divergences.flags_with_any_divergence} flags, "
+            f"{divergences.live_flags_with_any_divergence} of them live):"
+        )
         for shape_id in sorted(DIVERGENCE_SHAPES, key=lambda shape: (-divergences.flag_counts[shape], shape)):
             ids = ", ".join(str(flag_id) for flag_id in divergences.sample_flag_ids[shape_id])
             count = divergences.flag_counts[shape_id]
-            self.stdout.write(f"  {shape_id:<34} {count} flags  sample ids: {ids}")
+            live = divergences.live_flag_counts[shape_id]
+            self.stdout.write(f"  {shape_id:<30} {count} flags, {live} live  sample ids: {ids}")
             for detail in divergences.sample_details[shape_id]:
                 self.stdout.write(f"      {_sanitize_for_console(detail)}")
+        if not divergences.flags_with_any_divergence:
+            return
         for line in DIVERGENCE_NOTE_LINES:
             self.stdout.write(f"  {line}")
