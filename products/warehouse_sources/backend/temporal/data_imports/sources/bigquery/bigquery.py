@@ -173,14 +173,14 @@ BIGQUERY_INVALID_KEY_FILE_ERROR = (
     "corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file."
 )
 
-# `token_uri` comes from the uploaded key file, and google-auth POSTs the service-account grant to
-# whatever URL that field names. The field therefore decides where a worker sends an outbound
-# request, so it must name an endpoint we accept rather than one the file supplies. Google issues
-# service-account keys with only these two endpoints, so any other value is hand-edited.
-# Shared with the sync-path classifier for lockstep.
+# `token_uri` comes from the uploaded key file, and google-auth posts the service-account grant to
+# whatever URL it names, so the field decides where a worker sends an outbound request. Google
+# issues service-account keys with only these two endpoints, so any other value is hand-edited.
 GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS = frozenset(
     {"https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/token"}
 )
+
+# Matched in `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data.
 BIGQUERY_INVALID_TOKEN_URI_ERROR = (
     "The token_uri in your Google Cloud JSON key file is not Google's OAuth token endpoint. Please download "
     "a fresh service account key from Google Cloud and re-upload the JSON file without editing it."

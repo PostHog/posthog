@@ -76,9 +76,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
             # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
             "Unable to load PEM file": BIGQUERY_INVALID_KEY_FILE_ERROR,
-            # Raised from `bigquery_client` before any request is made when the key file's `token_uri`
-            # is not one of Google's token endpoints. The key file is the problem, so retrying can't
-            # help; the user must re-upload an unedited key.
+            # Raised before any request when the key file's token endpoint is not Google's. The key
+            # file is the problem, so retrying cannot help; the user must re-upload an unedited key.
             BIGQUERY_INVALID_TOKEN_URI_ERROR: BIGQUERY_INVALID_TOKEN_URI_ERROR,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /

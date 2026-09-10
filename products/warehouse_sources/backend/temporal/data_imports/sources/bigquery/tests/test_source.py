@@ -1148,6 +1148,22 @@ _NON_GOOGLE_TOKEN_URIS = [
 ]
 
 
+@pytest.mark.parametrize(
+    "token_uri",
+    ["https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/token"],
+)
+def test_bigquery_validate_credentials_accepts_both_google_token_endpoints(token_uri):
+    key_file = {**_valid_key_file(), "token_uri": token_uri}
+
+    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
+        ok, message = validate_bigquery_credentials(
+            dataset_id="my_dataset", key_file=key_file, dataset_project_id=None, location=None
+        )
+
+    assert (ok, message) == (True, None)
+    assert mock_client.call_args.args[5] == token_uri
+
+
 @pytest.mark.parametrize("token_uri", _NON_GOOGLE_TOKEN_URIS)
 def test_bigquery_validate_credentials_rejects_non_google_token_uri_before_any_request(token_uri):
     key_file = {**_valid_key_file(), "token_uri": token_uri}
