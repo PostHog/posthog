@@ -135,6 +135,9 @@ SURVEY_TRANSLATION_HTML_FIELDS = (
     "thankYouMessageHeader",
     "thankYouMessageDescription",
     "thankYouMessageCloseButtonText",
+    "introScreenHeader",
+    "introScreenDescription",
+    "introScreenButtonText",
     *SURVEY_QUESTION_HTML_FIELDS,
 )
 
