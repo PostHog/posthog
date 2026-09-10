@@ -137,7 +137,9 @@ class TestActivityLogsSqlRestrictions(BaseTest):
 
         hogql, _ = self._print(dialect="hogql")
 
-        self.assertIn("NOT(and(equals(scope, 'Canvas'), notIn(item_id, (SELECT id FROM canvases", hogql)
+        # toString keeps the set String-typed. Canvas ids are UUIDs, item_id is a String holding
+        # mostly numeric ids, and ClickHouse coerces item_id to the set's type for every row.
+        self.assertIn("NOT(and(equals(scope, 'Canvas'), notIn(item_id, (SELECT toString(id) FROM canvases", hogql)
         # The canvases subquery keeps that table's own guards, so its access control carries over.
         self.assertIn("_task_public_channels", hogql)
 

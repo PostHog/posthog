@@ -7,7 +7,8 @@ import {
   isContentEmpty,
   textToContent,
 } from "@posthog/core/message-editor/content";
-import { Button, Spinner, Textarea } from "@posthog/quill";
+import { Button, Textarea } from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
@@ -21,17 +22,27 @@ import {
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
+import { SessionStartupStatus } from "@posthog/ui/features/sessions/components/SessionStartupStatus";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
+const loadingConversation = (
+  <SessionStartupStatus
+    label="Loading conversation..."
+    className="h-full justify-center"
+  />
+);
+
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
 interface ReportChatSidebarProps {
   report: SignalReport;
+  surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 /**
@@ -43,7 +54,11 @@ interface ReportChatSidebarProps {
  * to the existing discussion; only the first question on a task-less report
  * creates one. The full task page stays one click away in the header.
  */
-export function ReportChatSidebar({ report }: ReportChatSidebarProps) {
+export function ReportChatSidebar({
+  report,
+  surface = "detail_pane",
+  triageId,
+}: ReportChatSidebarProps) {
   const width = useReportChatPanelStore((s) => s.width);
   const setWidth = useReportChatPanelStore((s) => s.setWidth);
   const setOpen = useReportChatPanelStore((s) => s.setOpen);
@@ -115,11 +130,13 @@ export function ReportChatSidebar({ report }: ReportChatSidebarProps) {
           ) : tasksLoading ? (
             // Offering the starter before the task lookup resolves invites a
             // duplicate conversation on a report that already has one.
-            <div className="flex h-full items-center justify-center">
-              <Spinner />
-            </div>
+            loadingConversation
           ) : (
-            <ReportChatStarter report={report} />
+            <ReportChatStarter
+              report={report}
+              surface={surface}
+              triageId={triageId}
+            />
           )}
         </div>
       </div>
@@ -170,11 +187,7 @@ function ReportChatConversation({
   ]);
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return loadingConversation;
   }
 
   return <EmbeddedSessionView task={task} />;
@@ -182,9 +195,17 @@ function ReportChatConversation({
 
 // The report has no conversation yet: one question starts it, with the full
 // report and its evidence inlined as the agent's context.
-function ReportChatStarter({ report }: { report: SignalReport }) {
+function ReportChatStarter({
+  report,
+  surface,
+  triageId,
+}: {
+  report: SignalReport;
+  surface: InboxReportActionSurface;
+  triageId?: string;
+}) {
   const queryClient = useQueryClient();
-  const fireAction = useReportActionTracker(report);
+  const fireAction = useReportActionTracker(report, surface, triageId);
   const rememberStartedTask = useReportChatPanelStore(
     (s) => s.rememberStartedTask,
   );
@@ -220,6 +241,8 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
     report,
     channelId: taskChannelId,
     redirectOnSuccess: false,
+    surface,
+    triageId,
     onTaskCreated: (task) => {
       // Seed the detail cache with the task we already hold so the panel's
       // useQuery resolves from cache instead of firing a GET that can 404 while

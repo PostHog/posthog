@@ -1,4 +1,5 @@
 import uuid
+from typing import NoReturn
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -28,6 +29,14 @@ class ErrorResponseSerializer(serializers.Serializer):
     type = serializers.CharField()
     code = serializers.CharField()
     detail = serializers.CharField()
+
+
+# Raises a non-DRF error while parsing, as a DataclassSerializer can for a valid response.
+class RaisingResponseSerializer(serializers.Serializer):
+    value = serializers.CharField()
+
+    def to_internal_value(self, data: object) -> NoReturn:
+        raise RuntimeError("boom")
 
 
 class TestValidatedRequestDecorator(APIBaseTest):
@@ -199,6 +208,56 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["wrong_field"] == "value"
+
+    def test_response_serializer_that_raises_while_parsing_logs_warning(self):
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=RaisingResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request):
+            return Response({"value": "ok"}, status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
+
+        with patch("posthog.api.mixins.settings") as mock_settings:
+            mock_settings.DEBUG = True
+            with patch("posthog.api.mixins.logger") as mock_logger:
+                response = mock_endpoint(view_instance, mock_request)
+
+                mock_logger.warning.assert_called_once()
+                call_args = mock_logger.warning.call_args
+                assert "Response serializer could not parse the response it declared" in call_args[0][0]
+                assert call_args[1]["serializer_class"] == "RaisingResponseSerializer"
+                assert "boom" in call_args[1]["error"]
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["value"] == "ok"
+
+    def test_strict_response_validation_reraises_a_parsing_exception(self):
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=RaisingResponseSerializer),
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response({"value": "ok"}, status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
+
+        with pytest.raises(RuntimeError, match="boom"):
+            mock_endpoint(view_instance, mock_request)
 
     def test_no_response_serializers_bypasses_validation(self):
         """No response serializers, should bypass validation"""

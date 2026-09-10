@@ -33,6 +33,11 @@ export class MlMirrorMetrics {
         labelNames: ['impl'],
     })
 
+    private static readonly mlJsonLdEvents = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_json_ld_events',
+        help: 'JSON-LD custom replay events observed during ML mirror anonymization',
+    })
+
     private static readonly mlImagesCollected = new Counter({
         name: 'recording_blob_ingestion_v2_ml_images_collected',
         help: 'Images through the out-of-band scrub lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed; refs un-marked for natural retry)',
@@ -121,6 +126,12 @@ export class MlMirrorMetrics {
         this.mlAnonymizeFailed.labels(impl).inc()
     }
 
+    public static incrementMlJsonLdEvents(count: number): void {
+        if (count > 0) {
+            this.mlJsonLdEvents.inc(count)
+        }
+    }
+
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
     }
@@ -192,6 +203,23 @@ const PARTITION_DAY_BUCKETS = [0, 1, 2, 3, 7, 14, 30, 90, 365]
  * buffer stays empty, so flush advances offsets without a write. Kafka lag alone can't see that state.
  */
 export class MlParquetSinkMetrics {
+    private static readonly replayIndexRows = new Counter({
+        name: 'ml_mirror_replay_index_rows_written_total',
+        help: 'Replay index rows uploaded by event kind, including retries',
+        labelNames: ['kind'],
+    })
+    private static readonly replayIndexSkipped = new Counter({
+        name: 'ml_mirror_replay_index_skipped_total',
+        help: 'Replay index blocks or entries omitted by reason',
+        labelNames: ['reason'],
+    })
+    public static incReplayIndexRows(kind: string, count: number): void {
+        this.replayIndexRows.labels(kind).inc(count)
+    }
+    public static incReplayIndexSkipped(reason: 'session_start' | 'invalid_entry' | 'truncated_block'): void {
+        this.replayIndexSkipped.labels(reason).inc()
+    }
+
     private static readonly rowsParsed = new Counter({
         name: 'ml_mirror_parquet_sink_rows_parsed_total',
         help: 'Block-metadata rows parsed from Kafka and accepted into the Parquet buffer',

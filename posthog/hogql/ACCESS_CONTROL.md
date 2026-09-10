@@ -57,6 +57,7 @@ The MCP `execute-sql` tool goes through the same path (`posthog/api/query.py` ru
 **Fail closed:** if you forget to pass the user, all access-controlled system tables are removed (`_compute_system_table_access_decision` in `posthog/hogql/database/database.py` returns every scoped table as denied for `user=None`), and all warehouse tables/views are denied (`_is_warehouse_table_denied` / `_is_warehouse_view_denied` fail closed when `user_access_control is None`).
 This is deliberate: if someone forgets to pass the user, the query fails outright and makes the mistake obvious, instead of silently falling back to a permissive "default access" that would leak data.
 In practice the user is available anywhere system tables are queried; for user-initiated background work, see [contexts without a request user](#contexts-without-a-request-user).
+`Database.create_for_posthog_tables`, the cheaper build for Python-built queries over built-in tables, has no user at all and removes every scoped and entitlement-gated system table up front without the access-control lookups, so it fails closed the same way.
 
 ## 1. System tables
 
@@ -149,12 +150,14 @@ Without a user, warehouse access control denies every warehouse table and view, 
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
-3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Used by materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`). **Be very skeptical before adding a new bypass** — only do it when the job genuinely has no acting user and the output isn't served to a specific user with narrower access.
+3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
 
 ```python
-# Background materialization job — no user exists, bypass explicitly
+# Background materialization job: no user exists, so bypass explicitly.
 execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 ```
+
+Data Modeling materialized views are project-owned. Refreshes do not run as `created_by` and do not inherit account, ticket, or object-level access. Data Modeling passes `allowed_system_tables` to declassify approved system tables into warehouse data. The allowlist accepts exact table names and denies every other system table. Warehouse-view permissions protect the materialized result. Billing entitlements still apply, and only userless database builds can use the allowlist.
 
 4. **Public dashboards / notebooks / shared insights:** the viewer is anonymous, so queries run as `SharedLinkUser` (`posthog/shared_link_user.py`, built in `SharingViewerPageViewSet`).
    `Database.create_for` doesn't restrict any warehouse tables or views for a shared-link viewer; the access gate is at publish time instead.

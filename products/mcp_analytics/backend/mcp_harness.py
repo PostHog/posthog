@@ -5,13 +5,13 @@ A "harness" is the friendly product label for the MCP client that made a call �
 self-reported identity signals; resolving them to a label is a two-step,
 query-time computation:
 
-  1. Resolve a normalized token from the strongest available signal (the
-     x-anthropic-client vendor header, then Claude Code's User-Agent surface,
-     then the Grok User-Agent surface,
-     then the clientInfo.name — `$mcp_client_name` as reported by the posthog-node
-     MCP analytics SDK, or `mcp_session_client_name` as reported by PostHog's hosted
-     MCP server — then the User-Agent product token, then the OAuth client name) —
-     `HARNESS_TOKEN_SQL`.
+  1. Resolve a normalized token from the strongest available signal, over exactly
+     three properties — the ones the `@posthog/mcp` / `posthog.mcp` SDK schemas can
+     emit: the x-anthropic-client vendor header (`$mcp_vendor_client`, with the
+     legacy server-stamped `mcp_vendor_client` as a fallback for historical rows),
+     then Claude Code's User-Agent surface, then the Grok User-Agent surface, then
+     the clientInfo.name (`$mcp_client_name`), then the generic User-Agent product
+     token (`$mcp_client_user_agent`) — `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql` when the result must
      stay inside `HARNESS_LABELS`, or `harness_label_or_token_sql` when an unrecognized
      client is better named by its own self-report than collapsed into "Other".
@@ -43,13 +43,26 @@ _UA_PRODUCT = "extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')"
 # (step 2, to keep the CLI/SDK/IDE split) and as the generic fallback (step 4).
 _UA_TOKEN = f"trim(concat({_UA_PRODUCT}, ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')))"
 
-# The ordered resolution steps, mirroring HARNESS_ROWS_QUERY in the frontend.
+# The x-anthropic-client vendor header, coalesced across both wire keys it is
+# captured under: `$mcp_vendor_client` (the SDK name) and the unprefixed
+# `mcp_vendor_client` (PostHog's own server). The unprefixed arm is load-bearing,
+# not cosmetic: rows carrying only it often self-report a wrong clientInfo.name
+# (Claude Code as "Anthropic/ClaudeAI"), so without it they misattribute.
+_VENDOR = (
+    "lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''),"
+    " nullIf(toString(properties.mcp_vendor_client), '')))"
+)
+
+# The ordered resolution steps: vendor header, then the two User-Agent surfaces
+# that outrank clientInfo.name, then clientInfo.name, then the generic UA token.
 _RAW_TOKEN = f"""coalesce(
     multiIf(
-        lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
-        lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
-        lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
-        lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
+        -- The header is captured verbatim and its value arrives in both spellings
+        -- ('ClaudeCode' and 'claude-code'), so each vendor matches both.
+        {_VENDOR} IN ('claudecode', 'claude-code'), 'claude-code',
+        {_VENDOR} IN ('claudeai', 'claude-ai'), 'claude-ai',
+        {_VENDOR} = 'cowork', 'cowork',
+        {_VENDOR} IN ('claudedesign', 'claude-design'), 'claude-design',
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
@@ -60,9 +73,7 @@ _RAW_TOKEN = f"""coalesce(
     -- clientInfo.name and buckets to Grok without help.)
     if(startsWith(lower({_UA_PRODUCT}), 'grok'), {_UA_TOKEN}, NULL),
     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
-    nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
     nullIf({_UA_TOKEN}, ''),
-    nullIf(toString(properties.$mcp_oauth_client_name), ''),
     ''
 )"""
 

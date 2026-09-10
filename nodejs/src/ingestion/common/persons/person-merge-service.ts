@@ -1,9 +1,7 @@
 import { DateTime } from 'luxon'
-import { Counter, Histogram } from 'prom-client'
+import { Counter } from 'prom-client'
 
-import { personMergeFailureCounter } from '~/common/persons/metrics'
-import { PersonMessage } from '~/common/persons/person-message'
-import { isDistinctIdIllegal } from '~/common/persons/person-utils'
+import { isDistinctIdUnmergeable } from '~/common/persons/person-utils'
 import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
@@ -13,15 +11,12 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { promiseRetry } from '~/common/utils/retries'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { Properties } from '~/plugin-scaffold'
-import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
-import { PersonCreateService } from './person-create-service'
-import type { MergeFoldPair, MergeFoldPlan } from './person-merge-fold'
 import {
+    PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
-    PersonMergeRaceConditionError,
+    PersonMergeResponseMismatchError,
     PersonMergeResult,
     SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
@@ -29,30 +24,20 @@ import {
     mergeError,
     mergeSuccess,
 } from './person-merge-types'
-import { applyEventPropertyUpdates, extractEventOps, refineEventOps } from './person-update'
-import { lifecycleOpIdFromEvent } from './person-uuid'
-import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
+import { extractEventOps } from './person-update'
+import {
+    MergeFoldAbortReason,
+    MergePersonsRequest,
+    MergePersonsResult,
+    MergePersonsSourceResult,
+} from './persons-store'
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
     help: 'Number of person merge final failures.',
-})
-
-export const mergeTxnAttemptCounter = new Counter({
-    name: 'person_merge_txn_attempt_total',
-    help: 'Number of person merge attempts.',
-    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
-})
-
-export const mergeTxnSuccessCounter = new Counter({
-    name: 'person_merge_txn_success_total',
-    help: 'Number of person merges that succeeded.',
-    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
-})
-
-export const mergeFoldExecutedCounter = new Counter({
-    name: 'person_merge_fold_executed_total',
-    help: 'Number of folded merge transactions executed.',
+    // The error class is the constructor name rather than the message, so a
+    // failure carrying team ids or distinct ids cannot inflate cardinality.
+    labelNames: ['backend', 'call', 'error'],
 })
 
 export const mergeFoldFallbackCounter = new Counter({
@@ -61,10 +46,15 @@ export const mergeFoldFallbackCounter = new Counter({
     labelNames: ['reason'],
 })
 
-export const mergeFoldSizeHistogram = new Histogram({
-    name: 'person_merge_fold_size',
-    help: 'Number of merge pairs folded into one transaction.',
-    buckets: [2, 5, 10, 25, 50, 100, 250, 500],
+export const mergeSettledFailureCounter = new Counter({
+    name: 'person_merge_settled_failure_total',
+    help: 'Merges the merge backend settled on a verdict that merged nothing.',
+})
+
+export const mergeMoveLimitDroppedCounter = new Counter({
+    name: 'person_merge_move_limit_dropped_total',
+    help: 'Merges lost to the saga move limit, by the path that hit it.',
+    labelNames: ['path'],
 })
 
 export const mergeClaimDroppedCounter = new Counter({
@@ -73,28 +63,9 @@ export const mergeClaimDroppedCounter = new Counter({
     labelNames: ['call'],
 })
 
-export const mergeDistinctIdOverrideCounter = new Counter({
-    name: 'person_merge_distinct_id_override_total',
-    help: 'Distinct id mapping rows written during merges, each writing a ClickHouse override row.',
-    labelNames: ['call'],
-})
-
-/** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
-class MergeFoldLimitError extends Error {}
-
-/** Thrown inside the fold transaction to roll it back when a concurrent merge invalidated the fetched sources. */
-class MergeFoldConflictError extends Error {}
-
-/** Maps a fold failure to the fallback counter's reason label. */
-function foldFallbackReason(error: unknown): 'limit' | 'conflict' | 'deadlock' | 'error' {
-    if (error instanceof MergeFoldLimitError) {
-        return 'limit'
-    }
-    if (
-        error instanceof MergeFoldConflictError ||
-        error instanceof PersonTombstoneBlockedError ||
-        error instanceof PersonClaimedByLifecycleOpError
-    ) {
+/** Maps a thrown fold failure to the fallback counter's reason label. */
+function foldAbandonReason(error: unknown): MergeFoldAbortReason {
+    if (error instanceof PersonClaimedByLifecycleOpError || error instanceof PersonTombstoneBlockedError) {
         return 'conflict'
     }
     if ((error as { code?: string })?.code === '40P01') {
@@ -104,14 +75,13 @@ function foldFallbackReason(error: unknown): 'limit' | 'conflict' | 'deadlock' |
 }
 
 /**
- * Service responsible for handling person merging operations (identify, alias, merge).
- * Extracted from PersonState to focus on merge-specific logic.
+ * Service responsible for handling person merging operations (identify,
+ * alias, merge). Backend-agnostic: it validates the request, hands the
+ * whole merge to the store's own machinery via mergePersons, and maps
+ * the per-source outcomes onto one result and warning vocabulary.
  */
 export class PersonMergeService {
-    private personCreateService: PersonCreateService
-    constructor(private context: PersonContext) {
-        this.personCreateService = new PersonCreateService(context)
-    }
+    constructor(private context: PersonContext) {}
 
     async handleIdentifyOrAlias(): Promise<PersonMergeResult> {
         /**
@@ -181,6 +151,11 @@ export class PersonMergeService {
                 })
                 return mergeSuccess(undefined, warningAck, true)
             }
+            // Both carry no settled verdict; their class docs explain why the
+            // batch must fail and redeliver rather than ack.
+            if (e instanceof PersonMergeResponseMismatchError || e instanceof PersonMergeCallFailedError) {
+                throw e
+            }
             captureException(e, {
                 tags: { team_id: this.context.team.id, pipeline_step: 'processPersonsStep' },
                 extra: {
@@ -190,7 +165,13 @@ export class PersonMergeService {
                     alias: String(this.context.eventProperties['alias']),
                 },
             })
-            mergeFinalFailuresCounter.inc()
+            mergeFinalFailuresCounter
+                .labels({
+                    backend: this.context.personStore.backend,
+                    call: this.context.event.event,
+                    error: e instanceof Error ? e.constructor.name : 'unknown',
+                })
+                .inc()
             logger.error('handleIdentifyOrAlias failed', {
                 error: e,
                 team_id: this.context.team.id,
@@ -217,163 +198,61 @@ export class PersonMergeService {
             // Create a success result with undefined person to indicate no merge was needed
             return mergeSuccess(undefined, Promise.resolve(), true)
         }
-        if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            const warningAck = emitIngestionWarning(this.context.outputs, teamId, {
-                type: 'cannot_merge_with_illegal_distinct_id',
-                details: {
-                    illegalDistinctId: mergeIntoDistinctId,
-                    otherDistinctId: otherPersonDistinctId,
-                    distinctId: mergeIntoDistinctId,
-                    eventUuid: this.context.event.uuid,
-                },
-                pipelineStep: 'person-merge',
-                alwaysSend: true,
-            }).then(() => undefined)
+        if (isDistinctIdUnmergeable(mergeIntoDistinctId)) {
+            const warningAck = this.emitIllegalDistinctIdWarning(
+                mergeIntoDistinctId,
+                otherPersonDistinctId,
+                this.context.event.uuid
+            )
             return mergeSuccess(undefined, warningAck, true)
         }
-        if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            const warningAck = emitIngestionWarning(this.context.outputs, teamId, {
-                type: 'cannot_merge_with_illegal_distinct_id',
-                details: {
-                    illegalDistinctId: otherPersonDistinctId,
-                    otherDistinctId: mergeIntoDistinctId,
-                    distinctId: mergeIntoDistinctId,
-                    eventUuid: this.context.event.uuid,
-                },
-                pipelineStep: 'person-merge',
-                alwaysSend: true,
-            }).then(() => undefined)
+        if (isDistinctIdUnmergeable(otherPersonDistinctId)) {
+            const warningAck = this.emitIllegalDistinctIdWarning(
+                otherPersonDistinctId,
+                mergeIntoDistinctId,
+                this.context.event.uuid
+            )
             return mergeSuccess(undefined, warningAck, true)
         }
 
-        const result = await promiseRetry(
-            () => this.mergeDistinctIds(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp),
-            'merge_distinct_ids'
+        this.context.updateIsIdentified = true
+        const request = this.buildRequest(
+            mergeIntoDistinctId,
+            [{ distinctId: otherPersonDistinctId, eventUuid: this.context.event.uuid }],
+            timestamp
         )
-        return result
+        // The store owns the whole merge, its own record-escape retries
+        // included: retryable conflicts surface here as throws, and each
+        // re-entry runs against fresh state.
+        const result = await promiseRetry(() => this.context.personStore.mergePersons(request), 'merge_distinct_ids')
+        return this.mapSingleSourceResult(result, otherPersonDistinctId, mergeIntoDistinctId)
     }
 
-    private async mergeDistinctIds(
-        otherPersonDistinctId: string,
-        mergeIntoDistinctId: string,
-        teamId: number,
-        timestamp: DateTime
-    ): Promise<PersonMergeResult> {
-        this.context.updateIsIdentified = true
-
-        const otherPerson = await this.context.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
-        const mergeIntoPerson = await this.context.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
-
-        // A note about the `distinctIdVersion` logic you'll find below:
-        //
-        // Overrides are only created for `posthog_persondistinctid` rows with version > 0, see:
-        //   https://github.com/PostHog/posthog/blob/92e17ce307a577c4233d4ab252eebc6c2207a5ee/posthog/models/person/sql.py#L269-L287
-        //
-        // With $process_person_profile=false, events can exist in ClickHouse stamped with the
-        // deterministic implied person uuid even though no `posthog_persondistinctid` or
-        // `posthog_person` rows exist. So every merge-added mapping for a distinct id without a
-        // person gets version 1: the override either re-points real personless events or is a
-        // harmless transient row the squash job deletes within days. The exception is the distinct
-        // id whose uuid a newly created person is born on — its events already point at the right
-        // person, so it keeps version 0 and stays out of the overrides join.
-
-        if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
-            // Only one of the two Distinct IDs points at an existing Person
-
-            const [existingPerson, distinctIdToAdd] = (() => {
-                if (otherPerson) {
-                    return [otherPerson!, mergeIntoDistinctId]
-                } else {
-                    return [mergeIntoPerson!, otherPersonDistinctId]
-                }
-            })()
-
-            this.discardOverrideCounts()
-            const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
-            const result = await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
-                // New-world merges claim the person's lifecycle mark, which keeps a concurrent
-                // tombstone from landing between this check and the distinct id insert (an
-                // orphaned mapping); old-world merges rely on the delete's FK violation instead.
-                if (this.context.mergeTombstoneEnabled) {
-                    await tx.claimLifecycleMarks(
-                        lifecycleOpId,
-                        existingPerson.team_id,
-                        [{ personId: existingPerson.id, personUuid: existingPerson.uuid, role: 'target' }],
-                        this.context.distinctId
-                    )
-                    if (!(await tx.isPersonLive(existingPerson, this.context.distinctId))) {
-                        // Purge the stale cache entries so the promiseRetry attempt
-                        // re-fetches from Postgres instead of replaying the cached,
-                        // now-tombstoned person into the same failure.
-                        this.context.personStore.removeDistinctIdFromCache(teamId, otherPersonDistinctId)
-                        this.context.personStore.removeDistinctIdFromCache(teamId, mergeIntoDistinctId)
-                        throw new TargetPersonNotFoundError(
-                            'Person was deleted before the merge could add a distinct id'
-                        )
-                    }
-                }
-                // See comment above about `distinctIdVersion`
-                const distinctIdVersion = 1
-                this.recordOverrideCount('oneExists')
-
-                const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
-                await this.context.produceMessages(kafkaMessages)
-                if (this.context.mergeTombstoneEnabled) {
-                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
-                }
-                return mergeSuccess(existingPerson, Promise.resolve(), true)
-            })
-            this.flushOverrideCounts()
-            return result
-        } else if (otherPerson && mergeIntoPerson) {
-            // Both Distinct IDs point at an existing Person
-
-            if (otherPerson.id == mergeIntoPerson.id) {
-                // Nothing to do, they are the same Person
-                return mergeSuccess(mergeIntoPerson, Promise.resolve(), true)
-            }
-
-            const result = await this.mergePeople({
-                mergeInto: mergeIntoPerson,
-                mergeIntoDistinctId: mergeIntoDistinctId,
-                otherPerson: otherPerson,
-                otherPersonDistinctId: otherPersonDistinctId,
-            })
-
-            return result
-        } else {
-            // Neither Distinct ID points at an existing Person
-
-            const distinctId1 = mergeIntoDistinctId
-            const distinctId2 = otherPersonDistinctId
-
-            this.discardOverrideCounts()
-            const result = await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
-                // See comment above about `distinctIdVersion`: the first Distinct ID derives the
-                // new Person's UUID so it never needs an override; the second always gets one.
-                const distinctId1Version = 0
-                const distinctId2Version = 1
-                this.recordOverrideCount('neitherExist')
-
-                const [person, wasCreated] = await this.personCreateService.createPerson(
-                    timestamp,
-                    this.context.eventProperties['$set'] || {},
-                    this.context.eventProperties['$set_once'] || {},
-                    teamId,
-                    null,
-                    true,
-                    this.context.event.uuid,
-                    { distinctId: distinctId1, version: distinctId1Version },
-                    [{ distinctId: distinctId2, version: distinctId2Version }],
-                    tx
-                )
-                // If person was not created (creation conflict) and is not identified,
-                // we need to update it later
-                const needsPersonUpdate = !wasCreated && !person.is_identified
-                return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
-            })
-            this.flushOverrideCounts()
-            return result
+    /**
+     * One request for either backend, single-source or folded. The event
+     * uuid doubles as the op id: retries re-enter with the same id and
+     * must not merge twice.
+     */
+    private buildRequest(
+        targetDistinctId: string,
+        sources: { distinctId: string; eventUuid: string }[],
+        timestamp: DateTime,
+        triggerSourceDistinctId?: string
+    ): MergePersonsRequest {
+        return {
+            teamId: this.context.team.id,
+            targetDistinctId,
+            sources,
+            triggerSourceDistinctId,
+            eventOps: extractEventOps(this.context.event, this.context.updateAllProperties),
+            eventUuid: this.context.event.uuid,
+            allowIdentifiedSources: this.context.event.event === '$merge_dangerously',
+            mergeMode: this.context.mergeMode,
+            // Passed as the event stated it, pre-epoch values included: what a
+            // backend can store is the backend's constraint, and clamping here
+            // would rewrite the created_at Postgres records for a person born
+            // from a merge.
+            createdAtMs: timestamp.toMillis(),
         }
     }
 
@@ -401,805 +280,372 @@ export class PersonMergeService {
             return mergeSuccess(plan.mergedPerson, Promise.resolve(), true)
         }
 
-        if (isDistinctIdIllegal(plan.targetDistinctId)) {
+        if (isDistinctIdUnmergeable(plan.targetDistinctId)) {
             // The sequential path emits the per-event warning.
             plan.status = 'abandoned'
             mergeFoldFallbackCounter.labels({ reason: 'illegal_target' }).inc()
             return null
         }
 
+        this.context.updateIsIdentified = true
+        const request = this.buildRequest(
+            plan.targetDistinctId,
+            plan.pairs.map((pair) => ({ distinctId: pair.anonDistinctId, eventUuid: pair.eventUuid })),
+            this.context.timestamp,
+            anonDistinctId
+        )
+
+        let result: MergePersonsResult
         try {
-            return await this.executeFoldedMerge(plan, anonDistinctId)
+            result = await this.context.personStore.mergePersons(request)
         } catch (error) {
-            // Any failure falls back to the sequential path: the current event
-            // re-runs its own merge (a no-op if the fold partially landed), and
-            // later events in the run process individually with full retries.
-            plan.status = 'abandoned'
-            const reason = foldFallbackReason(error)
-            mergeFoldFallbackCounter.labels({ reason }).inc()
-            // The batch store's caches were updated optimistically inside the
-            // rolled-back transaction (distinct id → target mappings); purge
-            // them so the sequential fallback re-reads committed state.
-            this.context.personStore.removeDistinctIdFromCache(this.context.team.id, plan.targetDistinctId)
-            for (const pair of plan.pairs) {
-                this.context.personStore.removeDistinctIdFromCache(this.context.team.id, pair.anonDistinctId)
+            if (error instanceof PersonMergeResponseMismatchError) {
+                // A malformed response is not a fold-shaped failure the
+                // sequential path can retry around, so it has to reach the
+                // batch instead of being absorbed by the fallback.
+                throw error
             }
+            // Any other failure falls back to the sequential path: the current
+            // event re-runs its own merge (a no-op if the fold partially
+            // landed), and later events process individually with full retries.
+            this.abandonFold(plan, foldAbandonReason(error))
             logger.warn('🤔', 'folded merge failed, falling back to sequential merges', {
                 team_id: this.context.team.id,
                 distinct_id: plan.targetDistinctId,
                 pairs: plan.pairs.length,
-                reason,
                 error,
             })
             return null
         }
+        if (result.foldAborted) {
+            // The store already logged its abort with the underlying error.
+            this.abandonFold(plan, result.foldAborted)
+            return null
+        }
+        if (!result.survivor) {
+            const reason = result.results[0]?.outcome === 'skipped_move_limit' ? 'limit' : 'error'
+            this.abandonFold(plan, reason)
+            logger.warn('🤔', 'folded merge settled without a survivor, falling back to sequential merges', {
+                team_id: this.context.team.id,
+                distinct_id: plan.targetDistinctId,
+                pairs: plan.pairs.length,
+                reason,
+            })
+            return null
+        }
+
+        plan.status = 'executed'
+        plan.mergedPerson = result.survivor
+        // Warning acks ride the result's kafkaAck to the batch-end await
+        // rather than blocking here. Warnings are diagnostics; a committed
+        // fold must still return its result and ack when they fail.
+        const warningsAck = this.emitFoldWarnings(result.results, request).catch((error) => {
+            logger.warn('🤔', 'fold warning emission failed', { team_id: this.context.team.id, error })
+        })
+        return mergeSuccess(
+            result.survivor,
+            Promise.all([result.kafkaAck ?? Promise.resolve(), warningsAck]).then(() => undefined),
+            true
+        )
+    }
+
+    private abandonFold(plan: NonNullable<PersonContext['mergeFoldPlan']>, reason: MergeFoldAbortReason): void {
+        plan.status = 'abandoned'
+        mergeFoldFallbackCounter.labels({ reason }).inc()
     }
 
     /**
-     * Counts each folded source's distinct ids inside the transaction and
-     * aborts the fold (rolling it back) when:
-     * - a source is missing entirely — it was merged away between the locked
-     *   fetch (whose locks were released at statement end) and the transaction,
-     *   so its already-computed property contribution would be stale;
-     * - a source's count exceeds the LIMIT/ASYNC move limit — those events
-     *   need their own per-event DLQ/redirect decision;
-     * - the total exceeds batched SYNC's per-statement batch size.
-     * Returns the expected total so the caller can verify the move touched
-     * exactly that many rows. One cheap indexed GROUP BY that rarely trips.
+     * Maps a single-source merge's outcome onto the caller's result and
+     * warning vocabulary, so callers see one merge behavior from both
+     * backends.
      */
-    private async assertFoldSourcesWithinMoveBounds(
-        tx: PersonsStoreTransactionForBatch,
-        mergeSources: InternalPerson[]
-    ): Promise<number> {
-        if (mergeSources.length === 0) {
-            return 0
-        }
-        const mergeMode = this.context.mergeMode
-        const limit = mergeMode.type === 'SYNC' ? undefined : mergeMode.limit
-        const batchSize = mergeMode.type === 'SYNC' ? mergeMode.batchSize : undefined
-
-        const counts = await tx.countDistinctIdsForPersons(
-            this.context.team.id,
-            mergeSources.map((source) => source.id),
-            this.context.distinctId
-        )
-        let total = 0
-        for (const source of mergeSources) {
-            const count = counts.get(source.id)
-            if (count === undefined) {
-                throw new MergeFoldConflictError('folded merge source lost its distinct ids concurrently')
-            }
-            if (limit !== undefined && count > limit) {
-                throw new MergeFoldLimitError('folded merge source exceeds distinct id move limit')
-            }
-            total += count
-        }
-        if (batchSize !== undefined && total > batchSize) {
-            throw new MergeFoldLimitError('folded merge move exceeds sync batch size')
-        }
-        return total
-    }
-
-    private async executeFoldedMerge(plan: MergeFoldPlan, currentAnonDistinctId: string): Promise<PersonMergeResult> {
-        const teamId = this.context.team.id
-        this.context.updateIsIdentified = true
-
-        let target = await this.context.personStore.fetchForUpdate(teamId, plan.targetDistinctId)
-        let pairsToFold = plan.pairs
-
-        if (!target) {
-            // Cold start: no target person yet. Bootstrap it through the
-            // sequential path for the current event's pair (which creates the
-            // person or attaches the distinct_id), then fold the remaining pairs.
-            const bootstrap = await promiseRetry(
-                () =>
-                    this.mergeDistinctIds(currentAnonDistinctId, plan.targetDistinctId, teamId, this.context.timestamp),
-                'merge_distinct_ids'
-            )
-            if (!bootstrap.success || !bootstrap.person) {
-                throw new Error('merge fold bootstrap did not produce a target person')
-            }
-            target = bootstrap.person
-            pairsToFold = plan.pairs.filter((pair) => pair.anonDistinctId !== currentAnonDistinctId)
-        }
-
-        const sources = await this.context.personStore.fetchPersonsForUpdateByDistinctIds(
-            teamId,
-            pairsToFold.map((pair) => pair.anonDistinctId)
-        )
-        const sourceByDistinctId = new Map(sources.map((source) => [source.distinct_id, source]))
-
-        // Partition pairs, preserving pair order for property-merge precedence.
-        const mergeSources: InternalPerson[] = []
-        const seenSourceIds = new Set<string>([target.id])
-        const missingPairs: MergeFoldPair[] = []
-        // Warning produces are awaited at batch end through the result's kafkaAck,
-        // not here, so a plan full of refused pairs does not serialize round-trips.
-        const warningAcks: Promise<boolean>[] = []
-        for (const pair of pairsToFold) {
-            if (isDistinctIdIllegal(pair.anonDistinctId)) {
-                warningAcks.push(
-                    emitIngestionWarning(this.context.outputs, teamId, {
-                        type: 'cannot_merge_with_illegal_distinct_id',
-                        details: {
-                            illegalDistinctId: pair.anonDistinctId,
-                            otherDistinctId: plan.targetDistinctId,
-                            distinctId: plan.targetDistinctId,
-                            eventUuid: pair.eventUuid,
-                        },
-                        pipelineStep: 'person-merge',
-                        alwaysSend: true,
-                    })
-                )
-                continue
-            }
-            const source = sourceByDistinctId.get(pair.anonDistinctId)
-            if (!source) {
-                missingPairs.push(pair)
-                continue
-            }
-            if (seenSourceIds.has(source.id)) {
-                continue
-            }
-            if (source.is_identified) {
-                // $identify never merges an already-identified source. One
-                // warning per folded pair (pairs are deduped), not per event.
-                warningAcks.push(
-                    emitIngestionWarning(this.context.outputs, teamId, {
-                        type: 'cannot_merge_already_identified',
-                        details: {
-                            sourcePersonDistinctId: pair.anonDistinctId,
-                            targetPersonDistinctId: plan.targetDistinctId,
-                            distinctId: plan.targetDistinctId,
-                            eventUuid: pair.eventUuid,
-                            personId: target.uuid,
-                            otherPersonId: source.uuid,
-                        },
-                        pipelineStep: 'person-merge',
-                        alwaysSend: true,
-                    })
-                )
-                continue
-            }
-            seenSourceIds.add(source.id)
-            mergeSources.push(source)
-        }
-        const warningsAck = Promise.all(warningAcks).then(() => undefined)
-
-        if (mergeSources.length === 0 && missingPairs.length === 0) {
-            plan.status = 'executed'
-            plan.mergedPerson = target
-            return mergeSuccess(target, warningsAck, true)
-        }
-
-        // Sequential property precedence: each pair merges source properties
-        // under the accumulated target's (target wins, earlier sources win
-        // over later ones). Event $set/$set_once apply on top, as in mergePeople.
-        let mergedProperties: Properties = target.properties
-        for (const source of mergeSources) {
-            mergedProperties = { ...source.properties, ...mergedProperties }
-        }
-        const propertyUpdates = refineEventOps(
-            extractEventOps(this.context.event, this.context.updateAllProperties),
-            mergedProperties,
-            this.context.updateAllProperties
-        )
-        const [updatedTempPerson] = applyEventPropertyUpdates(propertyUpdates, {
-            ...target,
-            properties: mergedProperties,
-        })
-
-        const createdAt = DateTime.min(target.created_at, ...mergeSources.map((source) => source.created_at))
-        const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
-
-        const currentTarget = target
-        this.discardOverrideCounts()
-        const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
-        const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
-            'mergePeopleFold',
-            async (tx) => {
-                // New-world folds claim every person, keeping concurrent lifecycle operations
-                // (other merges, the delete saga) off the targets and sources until commit.
-                if (this.context.mergeTombstoneEnabled) {
-                    await tx.claimLifecycleMarks(
-                        lifecycleOpId,
-                        currentTarget.team_id,
-                        [
-                            { personId: currentTarget.id, personUuid: currentTarget.uuid, role: 'target' },
-                            ...mergeSources.map((source, index) => ({
-                                personId: source.id,
-                                personUuid: source.uuid,
-                                role: 'source' as const,
-                                ordinal: index,
-                            })),
-                        ],
-                        this.context.distinctId
-                    )
-                    if (!(await tx.isPersonLive(currentTarget, this.context.distinctId))) {
-                        throw new MergeFoldConflictError('Fold target was deleted concurrently')
-                    }
-                }
-                const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
-
-                let person = currentTarget
-                let updateMessages: PersonMessage[] = []
-                if (mergeSources.length > 0) {
-                    ;[person, updateMessages] = await tx.updatePersonForMerge(
-                        currentTarget,
-                        {
-                            created_at: createdAt,
-                            properties: updatedTempPerson.properties,
-                            is_identified: true,
-                            version,
-                        },
-                        this.context.distinctId
-                    )
-                }
-
-                const moveResult = await tx.moveDistinctIdsFromPersons(
-                    mergeSources,
-                    currentTarget,
-                    this.context.distinctId
-                )
-                if (!moveResult.success) {
-                    throw new TargetPersonNotFoundError('Target person no longer exists')
-                }
-                // A mismatch means a concurrent merge touched the sources
-                // between the count and the move; abort so the sequential path
-                // (whose zero-moved handling retries with fresh persons) takes
-                // over rather than merging stale source properties.
-                if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
-                    throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
-                }
-                this.recordOverrideCount('bothExistMove', moveResult.distinctIdsMoved.length)
-
-                const addMessages: PersonMessage[] = []
-                for (const pair of missingPairs) {
-                    // See mergeDistinctIds for the distinctIdVersion logic.
-                    const distinctIdVersion = 1
-                    this.recordOverrideCount('fold')
-                    addMessages.push(...(await tx.addDistinctId(person, pair.anonDistinctId, distinctIdVersion)))
-                }
-
-                let deleteMessages: PersonMessage[] = []
-                if (mergeSources.length > 0) {
-                    await tx.updateCohortsAndFeatureFlagsForMergeBatch(
-                        teamId,
-                        mergeSources.map((source) => source.id),
-                        currentTarget.id,
-                        this.context.distinctId
-                    )
-                    deleteMessages = await tx.deletePersons(mergeSources, this.context.distinctId)
-                }
-
-                if (this.context.mergeTombstoneEnabled) {
-                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
-                }
-                return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
-            }
-        )
-
-        this.flushOverrideCounts()
-        plan.status = 'executed'
-        plan.mergedPerson = mergedPerson
-        mergeFoldExecutedCounter.inc()
-        mergeFoldSizeHistogram.observe(plan.pairs.length)
-
-        const kafkaAck = Promise.all([this.context.produceMessages(kafkaMessages), warningsAck]).then(() => undefined)
-        for (const source of mergeSources) {
-            // Same fire-and-forget contract as executeTransaction.
-            void this.context.producePersonMergeEvent(source, mergedPerson).catch(() => {})
-        }
-        return mergeSuccess(mergedPerson, kafkaAck, true)
-    }
-
-    public async mergePeople({
-        mergeInto,
-        mergeIntoDistinctId,
-        otherPerson,
-        otherPersonDistinctId,
-    }: {
-        mergeInto: InternalPerson
+    private mapSingleSourceResult(
+        result: MergePersonsResult,
+        otherPersonDistinctId: string,
         mergeIntoDistinctId: string
-        otherPerson: InternalPerson
-        otherPersonDistinctId: string
-    }): Promise<PersonMergeResult> {
-        const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
-        const mergeAllowed = this.isMergeAllowed(otherPerson)
-
-        // If merge isn't allowed, we will ignore it, log an ingestion warning and return success with original person
-        if (!mergeAllowed) {
-            const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
-                type: 'cannot_merge_already_identified',
-                details: {
-                    sourcePersonDistinctId: otherPersonDistinctId,
-                    targetPersonDistinctId: mergeIntoDistinctId,
-                    distinctId: mergeIntoDistinctId,
-                    eventUuid: this.context.event.uuid,
-                    personId: mergeInto.uuid,
-                    otherPersonId: otherPerson.uuid,
-                },
-                pipelineStep: 'person-merge',
-                alwaysSend: true,
-            }).then(() => undefined)
-            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
-                team_id: this.context.team.id,
-            })
-            return mergeSuccess(mergeInto, warningAck, true)
-        }
-
-        // How the merge works:
-        // Merging properties:
-        //   on key conflict we use the properties from the person provided as the first argument in identify or alias calls (mergeInto person),
-        //   Note it's important for us to compute this before potentially swapping the persons for personID merging purposes in PoEEmbraceJoin mode
-        // In case of PoE Embrace the join mode:
-        //   we want to keep using the older person to reduce the number of partitions that need to be updated during squash
-        //   to do that we'll swap otherPerson and mergeInto person (after properties merge computation!)
-        //   additionally update person overrides table in postgres and clickhouse
-        //   TODO: ^
-        // If the merge fails:
-        //   we'll roll back the transaction and then try from scratch in the origial order of persons provided for property merges
-        //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
-        //   we're calling aliasDeprecated as we need to refresh the persons info completely first
-
-        const mergedProperties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        const propertyUpdates = refineEventOps(
-            extractEventOps(this.context.event, this.context.updateAllProperties),
-            mergedProperties,
-            this.context.updateAllProperties
-        )
-
-        // Create a temporary person object to apply property updates to
-        const tempPerson: InternalPerson = { ...mergeInto, properties: mergedProperties }
-        const [updatedTempPerson, _] = applyEventPropertyUpdates(propertyUpdates, tempPerson)
-        const properties = updatedTempPerson.properties
-
-        const result = await this.handleMergeTransaction(
-            mergeInto,
-            mergeIntoDistinctId,
-            otherPerson,
-            otherPersonDistinctId,
-            olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
-            properties
-        )
-
-        if (result.success) {
-            return result
-        }
-
-        // Handle specific error types
-        if (result.error instanceof PersonMergeRaceConditionError) {
-            const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
-                type: 'merge_race_condition',
-                details: {
-                    sourcePersonDistinctId: otherPersonDistinctId,
-                    targetPersonDistinctId: mergeIntoDistinctId,
-                    distinctId: mergeIntoDistinctId,
-                    eventUuid: this.context.event.uuid,
-                    personId: mergeInto.uuid,
-                    otherPersonId: otherPerson.uuid,
-                },
-                pipelineStep: 'person-merge',
-                alwaysSend: true,
-            }).then(() => undefined)
-            logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
-                team_id: this.context.team.id,
-            })
-            return mergeSuccess(mergeInto, warningAck, true)
-        }
-
-        // For other errors (PersonMergeLimitExceededError, etc.), return the error result
-        return result
-    }
-
-    private isMergeAllowed(mergeFrom: InternalPerson): boolean {
-        // $merge_dangerously has no restrictions
-        // $create_alias and $identify will not merge a user who's already identified into anyone else
-        return this.context.event.event === '$merge_dangerously' || !mergeFrom.is_identified
-    }
-
-    private async executeTransaction(
-        currentTargetPerson: InternalPerson,
-        currentSourcePerson: InternalPerson,
-        createdAt: DateTime,
-        properties: Properties
-    ): Promise<PersonMergeResult> {
-        try {
-            mergeTxnAttemptCounter
-                .labels({
-                    call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
-                    oldPersonIdentified: String(currentSourcePerson.is_identified),
-                    newPersonIdentified: String(currentTargetPerson.is_identified),
-                })
-                .inc()
-
-            this.discardOverrideCounts()
-            const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
-            const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
-                'mergePeople',
-                async (tx) => {
-                    // New-world merges claim both persons in the lifecycle mark table: at
-                    // most one live operation (merge or delete saga) may hold a person, so
-                    // neither can be tombstoned under this transaction. The marks say
-                    // nothing about tombstones committed before the claim, so assert both
-                    // persons are still live while holding them. Liveness checks are
-                    // separate statements because a claim that waited on the mark index
-                    // resumes with a stale snapshot.
-                    if (this.context.mergeTombstoneEnabled) {
-                        await tx.claimLifecycleMarks(
-                            lifecycleOpId,
-                            currentTargetPerson.team_id,
-                            [
-                                {
-                                    personId: currentTargetPerson.id,
-                                    personUuid: currentTargetPerson.uuid,
-                                    role: 'target',
-                                },
-                                {
-                                    personId: currentSourcePerson.id,
-                                    personUuid: currentSourcePerson.uuid,
-                                    role: 'source',
-                                    ordinal: 0,
-                                },
-                            ],
-                            this.context.distinctId
-                        )
-                        if (!(await tx.isPersonLive(currentTargetPerson, this.context.distinctId))) {
-                            throw new TargetPersonNotFoundError('Target person was deleted concurrently')
-                        }
-                        if (!(await tx.isPersonLive(currentSourcePerson, this.context.distinctId))) {
-                            throw new SourcePersonNotFoundError('Source person was deleted concurrently')
-                        }
-                    }
-                    const [person, updatePersonMessages] = await tx.updatePersonForMerge(
-                        currentTargetPerson,
-                        {
-                            created_at: createdAt,
-                            properties: properties,
-                            is_identified: true,
-
-                            // By using the max version between the two Persons, we ensure that if
-                            // this Person is later split, we can use `this_person.version + 1` for
-                            // any split-off Persons and know that *that* version will be higher than
-                            // any previously deleted Person, and so the new Person row will "win" and
-                            // "undelete" the Person.
-                            //
-                            // For example:
-                            //  - Merge Person_1(version:7) into Person_2(version:2)
-                            //      - Person_1 is deleted
-                            //      - Person_2 attains version 8 via this code below
-                            //  - Person_2 is later split, which attempts to re-create Person_1 by using
-                            //    its `distinct_id` to generate the deterministic Person UUID.
-                            //    That new Person_1 will have a version _at least_ as high as 8, and
-                            //    so any previously existing rows in CH or otherwise from
-                            //    Person_1(version:7) will "lose" to this new Person_1.
-                            version: Math.max(currentTargetPerson.version, currentSourcePerson.version) + 1,
-                        },
-                        this.context.distinctId
-                    )
-
-                    // Move distinct IDs first to establish ownership of the source person quickly.
-                    // This reduces contention when multiple concurrent merges target the same source,
-                    // as subsequent lookups via distinct ID will fail faster.
-                    const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(
-                        tx,
-                        currentSourcePerson,
-                        currentTargetPerson
-                    )
-
-                    // Update cohorts and feature flags after distinct IDs are moved.
-                    // The source person row still exists (deleted below), so FK constraints are satisfied.
-                    // TODO: Doesn't this table need to add updates to CH too?
-                    await tx.updateCohortsAndFeatureFlagsForMerge(
-                        currentSourcePerson.team_id,
-                        currentSourcePerson.id,
-                        currentTargetPerson.id,
-                        this.context.distinctId
-                    )
-
-                    const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
-                    if (this.context.mergeTombstoneEnabled) {
-                        await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
-                    }
-                    return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
-                }
+    ): PersonMergeResult {
+        // The verdict is looked up by source rather than taken positionally,
+        // so a multi-source response can never be read as this source's
+        // answer.
+        const sourceResult = result.results.find((source) => source.sourceDistinctId === otherPersonDistinctId)
+        if (sourceResult === undefined) {
+            // A malformed response rather than a settled answer, so it must
+            // not take the settled-failure path below.
+            throw new PersonMergeResponseMismatchError(
+                `merge response for team ${this.context.team.id} carried no verdict for its requested source`
             )
-
-            this.flushOverrideCounts()
-            mergeTxnSuccessCounter
-                .labels({
-                    call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
-                    oldPersonIdentified: String(currentSourcePerson.is_identified),
-                    newPersonIdentified: String(currentTargetPerson.is_identified),
+        }
+        const outcome = sourceResult.outcome
+        const survivor = result.survivor ?? undefined
+        const kafkaAck = result.kafkaAck ?? Promise.resolve()
+        switch (outcome) {
+            case 'merged':
+            case 'attached':
+            case 'noop_same_person':
+                return mergeSuccess(survivor, kafkaAck, result.survivorNeedsUpdate ?? true)
+            case 'skipped_already_identified': {
+                // Warning acks ride the result's kafkaAck to the batch-end
+                // await rather than blocking the merge here.
+                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                    type: 'cannot_merge_already_identified',
+                    details: {
+                        sourcePersonDistinctId: otherPersonDistinctId,
+                        targetPersonDistinctId: mergeIntoDistinctId,
+                        distinctId: mergeIntoDistinctId,
+                        eventUuid: this.context.event.uuid,
+                        personId: survivor?.uuid,
+                        otherPersonId: sourceResult?.sourcePersonUuid,
+                    },
+                    pipelineStep: 'person-merge',
+                    alwaysSend: true,
                 })
-                .inc()
-
-            // Fire-and-forget after commit: the person_merge_events emission is detached from the ack
-            // chain, so a produce failure can never block, replay, or crash ingestion.
-            // producePersonMergeEvent is best-effort and never throws; the call-site catch is a safety
-            // net that swallows an escaped rejection so a broken never-throws contract can't reach the
-            // unhandledRejection handler and stop the service.
-            const kafkaAck = this.context.produceMessages(kafkaMessages)
-            void this.context.producePersonMergeEvent(currentSourcePerson, mergedPerson).catch(() => {})
-            return mergeSuccess(mergedPerson, kafkaAck, true)
-        } catch (error) {
-            // Map exceptions to result types - these will cause transaction rollback
-            if (error instanceof SourcePersonNotFoundError) {
-                return mergeError(error)
-            } else if (error instanceof TargetPersonNotFoundError) {
-                return mergeError(error)
-            } else if (error instanceof PersonMergeLimitExceededError) {
-                return mergeError(error)
-            } else if (error.code === '23503' || error instanceof PersonTombstoneBlockedError) {
-                // A concurrent merge added a distinct ID to the source person after we've already
-                // moved the distinct IDs we knew about, but before the delete executed — surfaced
-                // as a foreign key violation by the hard delete, or as PersonTombstoneBlockedError
-                // by the tombstone's live-mapping guard. The retry mechanism will:
-                // 1. Refresh the source person data to see all distinct IDs (including newly added ones)
-                // 2. Move ALL distinct IDs to the target person
-                // 3. Successfully delete the now-empty source person
+                logger.warn(
+                    '🤔',
+                    'refused to merge an already identified user via an $identify or $create_alias call',
+                    { team_id: this.context.team.id }
+                )
+                return mergeSuccess(
+                    survivor,
+                    Promise.all([kafkaAck, warningAck]).then(() => undefined),
+                    true
+                )
+            }
+            case 'skipped_illegal': {
+                // Both ids are pre-checked in merge(); the saga's own list
+                // can be wider, so honor its verdict with the same warning.
+                const warningAck = this.emitIllegalDistinctIdWarning(
+                    otherPersonDistinctId,
+                    mergeIntoDistinctId,
+                    this.context.event.uuid
+                )
+                return mergeSuccess(
+                    survivor,
+                    Promise.all([kafkaAck, warningAck]).then(() => undefined),
+                    true
+                )
+            }
+            case 'skipped_race': {
+                // A concurrent merge kept winning the persons through every
+                // retry; the merge drops and the target stays the survivor.
+                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                    type: 'merge_race_condition',
+                    details: {
+                        sourcePersonDistinctId: otherPersonDistinctId,
+                        targetPersonDistinctId: mergeIntoDistinctId,
+                        distinctId: mergeIntoDistinctId,
+                        eventUuid: this.context.event.uuid,
+                        personId: survivor?.uuid,
+                        otherPersonId: sourceResult?.sourcePersonUuid,
+                    },
+                    pipelineStep: 'person-merge',
+                    alwaysSend: true,
+                })
+                logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
+                    team_id: this.context.team.id,
+                })
+                return mergeSuccess(
+                    survivor,
+                    Promise.all([kafkaAck, warningAck]).then(() => undefined),
+                    true
+                )
+            }
+            case 'skipped_conflict':
+                // Normally converted into a throw inside the retry loop;
+                // this backstop keeps the claim-dropped semantics for any
+                // path that maps the outcome directly.
+                throw new PersonClaimedByLifecycleOpError(
+                    'merge saga: a live lifecycle operation holds a person in this merge',
+                    this.context.team.id
+                )
+            case 'skipped_move_limit':
+                // The over-limit path: the caller's merge-mode policy
+                // (redirect, DLQ) decides what happens to the event.
+                return mergeError(new PersonMergeLimitExceededError('person_merge_move_limit_hit'))
+            case 'failed_source_not_found':
+                return mergeError(new SourcePersonNotFoundError('Source person no longer exists'))
+            case 'failed_target_not_found':
+                return mergeError(new TargetPersonNotFoundError('Target person no longer exists'))
+            case 'failed_source_has_distinct_ids':
                 return mergeError(
                     new SourcePersonHasDistinctIdsError(
                         'Cannot delete source person due to concurrent distinct ID additions'
                     )
                 )
-            } else {
-                // Re-throw unexpected errors
-                throw error
-            }
-        }
-    }
-
-    // Override-counter increments are buffered and flushed only after the enclosing
-    // transaction commits: merges retry and roll back, and rolled-back rows must not
-    // inflate a metric used for override-inflow capacity planning.
-    private pendingOverrideCounts: { call: string; count: number }[] = []
-
-    private recordOverrideCount(call: string, count: number = 1): void {
-        if (count > 0) {
-            this.pendingOverrideCounts.push({ call, count })
-        }
-    }
-
-    private discardOverrideCounts(): void {
-        this.pendingOverrideCounts = []
-    }
-
-    private flushOverrideCounts(): void {
-        for (const { call, count } of this.pendingOverrideCounts) {
-            mergeDistinctIdOverrideCounter.labels({ call }).inc(count)
-        }
-        this.pendingOverrideCounts = []
-    }
-
-    private async moveDistinctIdsBasedOnMode(
-        tx: PersonsStoreTransactionForBatch,
-        currentSourcePerson: InternalPerson,
-        currentTargetPerson: InternalPerson
-    ): Promise<PersonMessage[]> {
-        if (this.context.mergeMode.type === 'SYNC') {
-            if (!this.context.mergeMode.batchSize) {
-                return await this.moveDistinctIdsWithLimit(tx, currentSourcePerson, currentTargetPerson, undefined)
-            }
-            return await this.moveDistinctIdsInBatches(
-                tx,
-                currentSourcePerson,
-                currentTargetPerson,
-                this.context.mergeMode.batchSize
-            )
-        } else {
-            const limit = this.context.mergeMode.limit
-            return await this.moveDistinctIdsWithLimit(tx, currentSourcePerson, currentTargetPerson, limit)
-        }
-    }
-
-    private async moveDistinctIdsInBatches(
-        tx: PersonsStoreTransactionForBatch,
-        currentSourcePerson: InternalPerson,
-        currentTargetPerson: InternalPerson,
-        batchSize: number
-    ): Promise<PersonMessage[]> {
-        const allDistinctIdMessages: PersonMessage[] = []
-        let hasMore = true
-        let hasProcessedAnyDistinctIds = false
-
-        while (hasMore) {
-            const distinctIdResult = await tx.moveDistinctIds(
-                currentSourcePerson,
-                currentTargetPerson,
-                this.context.distinctId,
-                batchSize
-            )
-
-            if (!distinctIdResult.success) {
-                if (distinctIdResult.error === 'SourceNotFound') {
-                    if (hasProcessedAnyDistinctIds) {
-                        // Source person not found after we've already moved some distinct IDs
-                        // This means we've moved all distinct IDs
-                        hasMore = false
-                        break
-                    } else {
-                        // Source person not found on first attempt - this is a real error
-                        throw new SourcePersonNotFoundError('Source person no longer exists')
-                    }
-                } else if (distinctIdResult.error === 'TargetNotFound') {
-                    throw new TargetPersonNotFoundError('Target person no longer exists')
-                }
-            } else {
-                allDistinctIdMessages.push(...distinctIdResult.messages)
-                hasProcessedAnyDistinctIds = true
-                this.recordOverrideCount('bothExistMove', distinctIdResult.distinctIdsMoved.length)
-
-                // Check if we moved fewer than the batch size, indicating we're done
-                hasMore = distinctIdResult.distinctIdsMoved.length >= batchSize
-            }
-        }
-
-        return allDistinctIdMessages
-    }
-
-    private async moveDistinctIdsWithLimit(
-        tx: PersonsStoreTransactionForBatch,
-        currentSourcePerson: InternalPerson,
-        currentTargetPerson: InternalPerson,
-        limit: number | undefined
-    ): Promise<PersonMessage[]> {
-        // Original behavior for LIMIT mode or SYNC without batchSize
-        const distinctIdResult = await tx.moveDistinctIds(
-            currentSourcePerson,
-            currentTargetPerson,
-            this.context.distinctId,
-            limit
-        )
-
-        if (!distinctIdResult.success) {
-            if (distinctIdResult.error === 'SourceNotFound') {
-                throw new SourcePersonNotFoundError('Source person no longer exists')
-            } else if (distinctIdResult.error === 'TargetNotFound') {
-                throw new TargetPersonNotFoundError('Target person no longer exists')
-            }
-        }
-
-        const allDistinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
-
-        // If moved count equals the per-call limit, verify if it's a partial move by checking remaining IDs
-        const movedCount = distinctIdResult.success ? distinctIdResult.distinctIdsMoved.length : 0
-        const hitLimit = limit ? movedCount >= limit : false
-
-        if (hitLimit) {
-            const remaining = await tx.fetchPersonDistinctIds(currentSourcePerson, this.context.distinctId, 1)
-            if (remaining.length > 0) {
-                personMergeFailureCounter.labels({ call: this.context.event.event }).inc()
-                // Drop the event by throwing an error that the pipeline will map to DLQ/no-retry
-                logger.error('🤔', 'person merge move limit hit', {
-                    team_id: this.context.team.id,
-                    distinct_id: this.context.distinctId,
+            case 'error':
+            default: {
+                // A verdict, not a transient fault: the merge backend records it
+                // against the op id and replays it for the retention window, so
+                // neither this event's retry nor its redelivery can reach a
+                // different answer, and failing the batch would stall the
+                // partition instead of healing. The merge is lost; the event's
+                // property updates still apply, and the customer's next
+                // $identify carries a fresh op id that can succeed. Acked, but
+                // never silently.
+                mergeSettledFailureCounter.inc()
+                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                    type: 'merge_settled_failure',
+                    details: {
+                        sourcePersonDistinctId: otherPersonDistinctId,
+                        targetPersonDistinctId: mergeIntoDistinctId,
+                        distinctId: mergeIntoDistinctId,
+                        eventUuid: this.context.event.uuid,
+                        // The Postgres backend names the person by uuid; the saga
+                        // reports a row id and no uuid, so both travel and
+                        // whichever exists identifies the person.
+                        otherPersonId: sourceResult.sourcePersonUuid,
+                        sourcePersonId: sourceResult.sourcePersonId,
+                        outcome,
+                    },
+                    pipelineStep: 'person-merge',
                 })
-                throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
+                logger.warn('🤔', 'merge settled without merging; the pair stays unmerged', {
+                    team_id: this.context.team.id,
+                    outcome,
+                    event_uuid: this.context.event.uuid,
+                })
+                return mergeSuccess(
+                    undefined,
+                    Promise.all([kafkaAck, warningAck]).then(() => undefined),
+                    true
+                )
             }
         }
-        this.recordOverrideCount('bothExistMove', movedCount)
-
-        return allDistinctIdMessages
     }
 
-    private async handleMergeTransaction(
-        targetPerson: InternalPerson,
-        targetDistinctId: string,
-        sourcePerson: InternalPerson,
-        sourceDistinctId: string,
-        createdAt: DateTime,
-        properties: Properties,
-        maxRetries: number = 5
-    ): Promise<PersonMergeResult> {
-        let currentTargetPerson = targetPerson
-        let currentSourcePerson = sourcePerson
-
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const result = await this.executeTransaction(
-                currentTargetPerson,
-                currentSourcePerson,
-                createdAt,
-                properties
-            )
-
-            if (result.success) {
-                return result
-            }
-
-            // Handle retryable errors
-            if (attempt < maxRetries) {
-                if (
-                    result.error instanceof SourcePersonNotFoundError ||
-                    result.error instanceof SourcePersonHasDistinctIdsError
-                ) {
-                    const refreshedPerson = await this.refreshPersonData(
-                        sourceDistinctId,
-                        currentSourcePerson.id,
-                        attempt,
-                        'source'
+    /**
+     * Per-source warnings for an executed fold, from the same vocabulary
+     * the single-source mapper uses. Merge-shaped outcomes warn nothing;
+     * conflicts surface as the race-condition warning rather than a
+     * throw, because one held source must not fail the whole fold.
+     */
+    private async emitFoldWarnings(results: MergePersonsSourceResult[], request: MergePersonsRequest): Promise<void> {
+        const eventUuidBySource = new Map(request.sources.map((source) => [source.distinctId, source.eventUuid]))
+        // Produces are collected and awaited together so a plan full of
+        // refused pairs does not serialize warning round-trips.
+        const warningAcks: Promise<unknown>[] = []
+        for (const sourceResult of results) {
+            const eventUuid = eventUuidBySource.get(sourceResult.sourceDistinctId) ?? this.context.event.uuid
+            switch (sourceResult.outcome) {
+                case 'skipped_already_identified':
+                    warningAcks.push(
+                        emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                            type: 'cannot_merge_already_identified',
+                            details: {
+                                sourcePersonDistinctId: sourceResult.sourceDistinctId,
+                                targetPersonDistinctId: request.targetDistinctId,
+                                distinctId: request.targetDistinctId,
+                                eventUuid,
+                                personId: this.context.mergeFoldPlan?.mergedPerson?.uuid,
+                                otherPersonId: sourceResult.sourcePersonUuid,
+                            },
+                            pipelineStep: 'person-merge',
+                            alwaysSend: true,
+                        })
                     )
-
-                    if (!refreshedPerson) {
-                        return mergeSuccess(currentTargetPerson, Promise.resolve(), true)
-                    }
-
-                    currentSourcePerson = refreshedPerson
-                    continue
-                } else if (result.error instanceof TargetPersonNotFoundError) {
-                    const refreshedPerson = await this.refreshPersonData(
-                        targetDistinctId,
-                        currentTargetPerson.id,
-                        attempt,
-                        'target'
+                    break
+                case 'skipped_illegal':
+                    warningAcks.push(
+                        this.emitIllegalDistinctIdWarning(
+                            sourceResult.sourceDistinctId,
+                            request.targetDistinctId,
+                            eventUuid
+                        )
                     )
-
-                    if (!refreshedPerson) {
-                        return mergeSuccess(currentTargetPerson, Promise.resolve(), true)
-                    }
-
-                    currentTargetPerson = refreshedPerson
-                    continue
-                } else {
-                    // Non-retryable error, return the failure result
-                    return result
-                }
-            } else {
-                // Max retries reached, return the failure result
-                return result
+                    break
+                case 'skipped_conflict':
+                case 'skipped_race':
+                    warningAcks.push(
+                        emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                            type: 'merge_race_condition',
+                            details: {
+                                sourcePersonDistinctId: sourceResult.sourceDistinctId,
+                                targetPersonDistinctId: request.targetDistinctId,
+                                distinctId: request.targetDistinctId,
+                                eventUuid,
+                                otherPersonId: sourceResult.sourcePersonUuid,
+                            },
+                            pipelineStep: 'person-merge',
+                            alwaysSend: true,
+                        })
+                    )
+                    break
+                case 'skipped_move_limit':
+                    // Only the saga answers this inside an executed fold; the
+                    // Postgres merge aborts the whole fold instead. The
+                    // source's event acks without its merge (and without the
+                    // ASYNC redirect the sequential path would give it), so
+                    // the warning is what keeps the loss identifiable.
+                    mergeMoveLimitDroppedCounter.labels({ path: 'fold' }).inc()
+                    warningAcks.push(
+                        emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                            type: 'merge_move_limit_exceeded',
+                            details: {
+                                sourcePersonDistinctId: sourceResult.sourceDistinctId,
+                                targetPersonDistinctId: request.targetDistinctId,
+                                distinctId: request.targetDistinctId,
+                                eventUuid,
+                                otherPersonId: sourceResult.sourcePersonUuid,
+                                eventDropped: false,
+                            },
+                            pipelineStep: 'person-merge',
+                        })
+                    )
+                    logger.warn('🤔', 'fold skipped an over-limit source; its merge is dropped', {
+                        team_id: this.context.team.id,
+                        source_distinct_id: sourceResult.sourceDistinctId,
+                        target_distinct_id: request.targetDistinctId,
+                        event_uuid: eventUuid,
+                    })
+                    break
+                case 'error':
+                    // The merge for this source did not happen and the op is
+                    // terminal, so redelivery cannot reach a different
+                    // answer. The single-source path treats this as a
+                    // settled failure; a fold has to say so too, or the
+                    // loss is invisible.
+                    mergeSettledFailureCounter.inc()
+                    warningAcks.push(
+                        emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                            type: 'merge_settled_failure',
+                            details: {
+                                distinctId: this.context.distinctId,
+                                eventUuid,
+                                sourcePersonDistinctId: sourceResult.sourceDistinctId,
+                                targetPersonDistinctId: request.targetDistinctId,
+                            },
+                            pipelineStep: 'person-merge',
+                        })
+                    )
+                    logger.warn('🤔', 'fold settled a source as failed; its merge did not happen', {
+                        team_id: this.context.team.id,
+                        source_distinct_id: sourceResult.sourceDistinctId,
+                        target_distinct_id: request.targetDistinctId,
+                        event_uuid: eventUuid,
+                    })
+                    break
+                default:
+                    break
             }
         }
-
-        // This should never be reached, but add fallback for race condition
-        return mergeError(
-            new PersonMergeRaceConditionError(
-                `Failed to merge persons due to concurrent merges, ` +
-                    `source person: ${sourcePerson.id}, target person: ${targetPerson.id}, team: ${this.context.team.id} ` +
-                    `source distinct id: ${sourceDistinctId}, target distinct id: ${targetDistinctId}`
-            )
-        )
+        await Promise.all(warningAcks)
     }
 
-    public async addDistinctId(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx?: PersonsStoreTransactionForBatch
+    private emitIllegalDistinctIdWarning(
+        illegalDistinctId: string,
+        otherDistinctId: string,
+        eventUuid: string
     ): Promise<void> {
-        const kafkaMessages = await (tx || this.context.personStore).addDistinctId(person, distinctId, version)
-        await this.context.produceMessages(kafkaMessages)
-    }
-
-    private async refreshPersonData(
-        distinctId: string,
-        currentPersonId: string,
-        attempt: number,
-        personType: 'source' | 'target'
-    ): Promise<InternalPerson | null> {
-        logger.info(`${personType} person not found, retrying with fresh data`, {
-            [`${personType}PersonId`]: currentPersonId,
-            teamId: this.context.team.id,
-            attempt,
-            distinctId,
-        })
-
-        // Remove the distinct ID from the cache so that we don't try to use it again, if the store is the batch writing store
-        // TODO: this should be removed once we clean up the person store code
-        this.context.personStore.removeDistinctIdFromCache(this.context.team.id, distinctId)
-
-        // Fetch the refreshed person data using the new distinct ID
-        const refreshedPerson = await this.context.personStore.fetchForUpdate(this.context.team.id, distinctId)
-
-        if (!refreshedPerson) {
-            logger.info(`${personType} person no longer exists after refresh, skipping merge`, {
-                [`${personType}PersonId`]: currentPersonId,
-                teamId: this.context.team.id,
-                attempt,
-            })
-            return null
-        }
-
-        return refreshedPerson
+        return emitIngestionWarning(this.context.outputs, this.context.team.id, {
+            type: 'cannot_merge_with_illegal_distinct_id',
+            details: {
+                illegalDistinctId,
+                otherDistinctId,
+                distinctId: this.context.distinctId,
+                eventUuid,
+            },
+            pipelineStep: 'person-merge',
+            alwaysSend: true,
+        }).then(() => undefined)
     }
 
     public getUpdateIsIdentified(): boolean {

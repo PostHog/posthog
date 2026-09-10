@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Planned user interview topics: who we want to target and what we want to ask about.
  */
-export const UserInterviewTopicsListParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,7 +19,7 @@ export const UserInterviewTopicsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const UserInterviewTopicsListQueryParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
@@ -28,7 +28,7 @@ export const UserInterviewTopicsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Planned user interview topics: who we want to target and what we want to ask about.
  */
-export const UserInterviewTopicsCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -44,7 +44,7 @@ export const userInterviewTopicsCreateBodyInviteSubjectMax = 255
 
 export const userInterviewTopicsCreateBodyInviteMessageMax = 1000
 
-export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsCreateBody = () => zod.object({
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsCreateBodyIntervieweeEmailsItemMax))
         .optional()
@@ -81,7 +81,7 @@ export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Planned user interview topics: who we want to target and what we want to ask about.
  */
-export const UserInterviewTopicsRetrieveParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -93,7 +93,7 @@ export const UserInterviewTopicsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Planned user interview topics: who we want to target and what we want to ask about.
  */
-export const UserInterviewTopicsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -110,7 +110,7 @@ export const userInterviewTopicsPartialUpdateBodyInviteSubjectMax = 255
 
 export const userInterviewTopicsPartialUpdateBodyInviteMessageMax = 1000
 
-export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsPartialUpdateBody = () => zod.object({
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax))
         .optional()
@@ -147,7 +147,7 @@ export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Add a single interviewee to this topic. Email-shaped identifiers (including the `Display Name <email@host>` form) are appended to `interviewee_emails`; everything else is appended to `interviewee_distinct_ids`. Idempotent — adding an identifier that's already present leaves the topic unchanged. Returns the updated topic.
  */
-export const UserInterviewTopicsAddIntervieweeCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsAddIntervieweeCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -158,7 +158,7 @@ export const UserInterviewTopicsAddIntervieweeCreateParams = /* @__PURE__ */ zod
 
 export const userInterviewTopicsAddIntervieweeCreateBodyIdentifierMax = 400
 
-export const UserInterviewTopicsAddIntervieweeCreateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsAddIntervieweeCreateBody = () => zod.object({
     identifier: zod
         .string()
         .max(userInterviewTopicsAddIntervieweeCreateBodyIdentifierMax)
@@ -170,7 +170,7 @@ export const UserInterviewTopicsAddIntervieweeCreateBody = /* @__PURE__ */ zod.o
 /**
  * Generate one public interview link per targeted interviewee. Materializes an IntervieweeContext row for every identifier on the topic (without overwriting existing per-person context), and an enabled SharingConfiguration with a unique access token. The URL resolves to the public interview viewer with no PostHog auth required.
  */
-export const UserInterviewTopicsGenerateLinksCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsGenerateLinksCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -182,7 +182,7 @@ export const UserInterviewTopicsGenerateLinksCreateParams = /* @__PURE__ */ zod.
 /**
  * Same materialization as generate_links, returned as a downloadable CSV. Intended for users who want to mail-merge the per-person interview links into their own email tooling.
  */
-export const UserInterviewTopicsLinksCsvCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsLinksCsvCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -194,7 +194,7 @@ export const UserInterviewTopicsLinksCsvCreateParams = /* @__PURE__ */ zod.objec
 /**
  * Render the invite email exactly as a specific targeted interviewee would receive it — personalized subject and body — without sending anything and without creating or reading any share links. Pass `interviewee_identifier` to preview for a particular person, or omit it to preview for the first targeted interviewee. The body always shows an illustrative placeholder link (`is_preview_link: true`), never a live interview URL.
  */
-export const UserInterviewTopicsPreviewInviteCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsPreviewInviteCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -205,7 +205,7 @@ export const UserInterviewTopicsPreviewInviteCreateParams = /* @__PURE__ */ zod.
 
 export const userInterviewTopicsPreviewInviteCreateBodyIntervieweeIdentifierMax = 400
 
-export const UserInterviewTopicsPreviewInviteCreateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsPreviewInviteCreateBody = () => zod.object({
     interviewee_identifier: zod
         .string()
         .max(userInterviewTopicsPreviewInviteCreateBodyIntervieweeIdentifierMax)
@@ -218,7 +218,7 @@ export const UserInterviewTopicsPreviewInviteCreateBody = /* @__PURE__ */ zod.ob
 /**
  * Remove an interviewee from this topic. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration linked to an IntervieweeContext for that identifier on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.
  */
-export const UserInterviewTopicsRemoveIntervieweeCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsRemoveIntervieweeCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -229,7 +229,7 @@ export const UserInterviewTopicsRemoveIntervieweeCreateParams = /* @__PURE__ */ 
 
 export const userInterviewTopicsRemoveIntervieweeCreateBodyIdentifierMax = 400
 
-export const UserInterviewTopicsRemoveIntervieweeCreateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsRemoveIntervieweeCreateBody = () => zod.object({
     identifier: zod
         .string()
         .max(userInterviewTopicsRemoveIntervieweeCreateBodyIdentifierMax)
@@ -241,7 +241,7 @@ export const UserInterviewTopicsRemoveIntervieweeCreateBody = /* @__PURE__ */ zo
 /**
  * Generate (if needed) and email a personalized public interview link to every targeted interviewee on this topic whose identifier is an email address. Distinct-ID-only interviewees are skipped and surfaced in the response. Each invite is keyed on the underlying SharingConfiguration so re-runs after token rotation produce a fresh send.
  */
-export const UserInterviewTopicsSendInvitesCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsSendInvitesCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -254,7 +254,7 @@ export const userInterviewTopicsSendInvitesCreateBodySubjectMax = 200
 
 export const userInterviewTopicsSendInvitesCreateBodySendAsyncDefault = true
 
-export const UserInterviewTopicsSendInvitesCreateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsSendInvitesCreateBody = () => zod.object({
     subject: zod
         .string()
         .max(userInterviewTopicsSendInvitesCreateBodySubjectMax)
@@ -277,7 +277,7 @@ export const UserInterviewTopicsSendInvitesCreateBody = /* @__PURE__ */ zod.obje
 /**
  * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
  */
-export const UserInterviewTopicsIntervieweesListParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -286,7 +286,7 @@ export const UserInterviewTopicsIntervieweesListParams = /* @__PURE__ */ zod.obj
     topic_id: zod.string(),
 })
 
-export const UserInterviewTopicsIntervieweesListQueryParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -294,7 +294,7 @@ export const UserInterviewTopicsIntervieweesListQueryParams = /* @__PURE__ */ zo
 /**
  * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
  */
-export const UserInterviewTopicsIntervieweesCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -307,7 +307,7 @@ export const userInterviewTopicsIntervieweesCreateBodyIntervieweeIdentifierMax =
 
 export const userInterviewTopicsIntervieweesCreateBodyAgentContextMax = 10000
 
-export const UserInterviewTopicsIntervieweesCreateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesCreateBody = () => zod.object({
     interviewee_identifier: zod
         .string()
         .max(userInterviewTopicsIntervieweesCreateBodyIntervieweeIdentifierMax)
@@ -325,7 +325,7 @@ export const UserInterviewTopicsIntervieweesCreateBody = /* @__PURE__ */ zod.obj
 /**
  * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
  */
-export const UserInterviewTopicsIntervieweesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this interviewee context.'),
     project_id: zod
         .string()
@@ -339,7 +339,7 @@ export const userInterviewTopicsIntervieweesPartialUpdateBodyIntervieweeIdentifi
 
 export const userInterviewTopicsIntervieweesPartialUpdateBodyAgentContextMax = 10000
 
-export const UserInterviewTopicsIntervieweesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesPartialUpdateBody = () => zod.object({
     interviewee_identifier: zod
         .string()
         .max(userInterviewTopicsIntervieweesPartialUpdateBodyIntervieweeIdentifierMax)
@@ -359,7 +359,7 @@ export const UserInterviewTopicsIntervieweesPartialUpdateBody = /* @__PURE__ */ 
 /**
  * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
  */
-export const UserInterviewTopicsIntervieweesDestroyParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this interviewee context.'),
     project_id: zod
         .string()
@@ -372,7 +372,7 @@ export const UserInterviewTopicsIntervieweesDestroyParams = /* @__PURE__ */ zod.
 /**
  * Create up to 500 interviewee context rows for a topic in a single request. Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces an `inserted_count`, a `skipped_count`, and the `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch.
  */
-export const UserInterviewTopicsIntervieweesBulkCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesBulkCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -385,7 +385,7 @@ export const userInterviewTopicsIntervieweesBulkCreateBodyItemsItemIntervieweeId
 
 export const userInterviewTopicsIntervieweesBulkCreateBodyItemsItemAgentContextMax = 10000
 
-export const UserInterviewTopicsIntervieweesBulkCreateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsIntervieweesBulkCreateBody = () => zod.object({
     items: zod
         .array(
             zod.object({
@@ -408,7 +408,7 @@ export const UserInterviewTopicsIntervieweesBulkCreateBody = /* @__PURE__ */ zod
         ),
 })
 
-export const UserInterviewsListParams = /* @__PURE__ */ zod.object({
+export const UserInterviewsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -416,7 +416,7 @@ export const UserInterviewsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const UserInterviewsListQueryParams = /* @__PURE__ */ zod.object({
+export const UserInterviewsListQueryParams = () => zod.object({
     classifications: zod
         .string()
         .optional()
@@ -428,7 +428,7 @@ export const UserInterviewsListQueryParams = /* @__PURE__ */ zod.object({
     topic: zod.string().optional(),
 })
 
-export const UserInterviewsRetrieveParams = /* @__PURE__ */ zod.object({
+export const UserInterviewsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview.'),
     project_id: zod
         .string()
@@ -437,7 +437,7 @@ export const UserInterviewsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const UserInterviewsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview.'),
     project_id: zod
         .string()
@@ -448,7 +448,7 @@ export const UserInterviewsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax = 254
 
-export const UserInterviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewsPartialUpdateBody = () => zod.object({
     interviewee_emails: zod.array(zod.string().max(userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax)).optional(),
     summary: zod.string().optional(),
     classifications: zod
@@ -464,7 +464,7 @@ export const UserInterviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Embed `query` with the same model used to index interview transcripts and summaries, then return the top matches by cosine distance. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Useful for surfacing relevant interview snippets in natural language, without exact keyword matches.
  * @summary Search interview responses by semantic similarity
  */
-export const UserInterviewsSearchCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewsSearchCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -476,7 +476,7 @@ export const userInterviewsSearchCreateBodyQueryMax = 2000
 
 export const userInterviewsSearchCreateBodyLimitMax = 50
 
-export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
+export const UserInterviewsSearchCreateBody = () => zod.object({
     query: zod
         .string()
         .max(userInterviewsSearchCreateBodyQueryMax)

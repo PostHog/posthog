@@ -12,7 +12,8 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
-import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
+import { canResolveReport } from '../../utils/reportActions'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
 import { useReportResolve } from './useReportResolve'
@@ -35,33 +36,6 @@ export interface ReportDetailAction {
     primary?: boolean
 }
 
-/**
- * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
- * the server-side autostart rules: only when ready & actionable, or blocked on user input.
- */
-export function canCreateImplementationPr(report: SignalReport): boolean {
-    if (report.implementation_pr_url) {
-        return false
-    }
-    if (report.already_addressed === true) {
-        return false
-    }
-    if (report.status === 'pending_input') {
-        return true
-    }
-    if (report.status === 'ready') {
-        return report.actionability != null && ACTIONABLE_ACTIONABILITY_VALUES.includes(report.actionability)
-    }
-    return false
-}
-
-/**
- * Detail-pane actions as data: Resolve, Dismiss/Restore, and Refund. Create PR and Discuss are each
- * rendered separately as a standalone dropdown button (`CreatePrButton`, `DiscussReportButton`)
- * since they open a note popover rather than firing on click; rating a report lives at the end of
- * the body (`ReportFeedbackFooter`). Dismissing and resolving reuse the shared `useReportDismiss` /
- * `useReportResolve` dialog flows. Callers render these inline or inside a menu.
- */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
@@ -134,7 +108,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         })
         if (dismissedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
-            dismissedList.actions.restoreReport(report.id)
+            dismissedList.actions.restoreReport(report.id, 'detail_pane')
             router.actions.push(urls.inbox(activeTab))
             return
         }
@@ -183,11 +157,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         ]
     }
 
-    // Offer Resolve only where the backend accepts a direct transition to RESOLVED — a researched
-    // report (ready or pending_input). Other live statuses (potential, candidate, in_progress,
-    // failed) return 409, so don't show a dead-end affordance. Mirrors `canCreateImplementationPr`
-    // and the server transition guard.
-    const canResolve = report.status === SignalReportStatus.READY || report.status === SignalReportStatus.PENDING_INPUT
+    const canResolve = canResolveReport(report)
 
     const resolve: ReportDetailAction = {
         key: 'resolve',

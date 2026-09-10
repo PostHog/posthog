@@ -2,22 +2,22 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    ManagedMigrationsSupportListQueryParams,
-    ManagedMigrationsSupportRetrieveParams,
-} from '@/generated/managed_migrations/api'
+import * as orvalSchemas from '@/generated/managed_migrations/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ManagedMigrationsSupportGetSchema = ManagedMigrationsSupportRetrieveParams
+const ManagedMigrationsSupportGetSchema = () => {
+    const ManagedMigrationsSupportRetrieveParams = orvalSchemas.ManagedMigrationsSupportRetrieveParams()
+    return ManagedMigrationsSupportRetrieveParams
+}
 
 const managedMigrationsSupportGet = (): ToolBase<
-    typeof ManagedMigrationsSupportGetSchema,
+    ReturnType<typeof ManagedMigrationsSupportGetSchema>,
     Schemas.BatchImportSupportDetail
 > => ({
     name: 'managed-migrations-support-get',
-    schema: ManagedMigrationsSupportGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ManagedMigrationsSupportGetSchema>) => {
+    schema: ManagedMigrationsSupportGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ManagedMigrationsSupportGetSchema>>) => {
         const result = await context.api.request<Schemas.BatchImportSupportDetail>({
             method: 'GET',
             path: `/api/managed_migrations_support/${encodeURIComponent(String(params.id))}/`,
@@ -26,15 +26,18 @@ const managedMigrationsSupportGet = (): ToolBase<
     },
 })
 
-const ManagedMigrationsSupportListSchema = ManagedMigrationsSupportListQueryParams
+const ManagedMigrationsSupportListSchema = () => {
+    const ManagedMigrationsSupportListQueryParams = orvalSchemas.ManagedMigrationsSupportListQueryParams()
+    return ManagedMigrationsSupportListQueryParams
+}
 
 const managedMigrationsSupportList = (): ToolBase<
-    typeof ManagedMigrationsSupportListSchema,
+    ReturnType<typeof ManagedMigrationsSupportListSchema>,
     WithPostHogUrl<Schemas.PaginatedBatchImportSupportListList>
 > => ({
     name: 'managed-migrations-support-list',
-    schema: ManagedMigrationsSupportListSchema,
-    handler: async (context: Context, params: z.infer<typeof ManagedMigrationsSupportListSchema>) => {
+    schema: ManagedMigrationsSupportListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ManagedMigrationsSupportListSchema>>) => {
         const result = await context.api.request<Schemas.PaginatedBatchImportSupportListList>({
             method: 'GET',
             path: `/api/managed_migrations_support/`,
