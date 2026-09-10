@@ -36,7 +36,8 @@ function MetaSeparator(): JSX.Element {
  */
 export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts } = useValues(scoutFleetLogic)
+    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts, expensiveRunCostThreshold } =
+        useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
@@ -95,7 +96,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                 {/* A fixed strip width on wide rows keeps every row's newest run on one vertical line. */}
                 <div className="flex min-w-0 justify-end @lg:w-52">
                     {runs.length > 0 ? (
-                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} />
+                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
                         // loaded", not "never ran"; the poll retries a failed load on its own.
