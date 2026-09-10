@@ -407,6 +407,24 @@ pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
 pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
 /// Keys the sweep evicted, labelled by `variant` (counter).
 pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
+/// Wall-clock duration of one sweep **batch** inside the partition worker: read, produce, commit and
+/// Stage 2 composition (histogram, seconds). This is the number that says how long live traffic waits
+/// behind eviction. [`SWEEP_CYCLE_DURATION_SECONDS`] does not: it times the dispatch that hands each
+/// worker a request, and returns before any worker starts.
+pub const SWEEP_BATCH_DURATION_SECONDS: &str = "sweep_batch_duration_seconds";
+/// Keys one sweep batch claimed out of the queue (histogram). Bounded by the batch target, except
+/// where one person's leaves exceed it and run alone, so the upper quantiles are the wide-person
+/// signal.
+pub const SWEEP_BATCH_KEYS_CLAIMED: &str = "sweep_batch_keys_claimed";
+/// Raw value bytes one batched `cf_behavioral` read returned inside a sweep batch (histogram, bytes).
+/// **A key limit does not bound bytes**, because behavioral values grow with window length, so read
+/// this before assuming the batch target is a memory ceiling.
+pub const SWEEP_READ_CHUNK_BYTES: &str = "sweep_read_chunk_bytes";
+/// How far a partition's soonest queued deadline sits behind the newest cutoff the sweep was asked
+/// for, labelled by `partition` (gauge, seconds). Zero when nothing is overdue. A level that grows
+/// across ticks means eviction is not keeping up with the wave, which the evicted counter alone
+/// cannot show.
+pub const SWEEP_QUEUE_LAG_SECONDS: &str = "sweep_queue_lag_seconds";
 /// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter).
 pub const MERGE_HANDLED_TOTAL: &str = "merge_handled_total";
 /// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter).
@@ -484,8 +502,14 @@ pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_unde
 /// `cf_stage2` keys a cohort-prefix scan could not decode and skipped (counter).
 pub const STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL: &str = "stage2_scan_undecodable_keys_total";
 
-/// Keys the sweep popped but did not evict, labelled by `reason` (counter). Conservation:
-/// `popped == evicted + dropped`.
+/// Keys the sweep selected but did not evict, labelled by `reason` (counter). Over a pass whose
+/// batches all settle, every selected key lands here or under [`SWEEP_KEYS_EVICTED_TOTAL`]; a batch
+/// that fails its produce or commit is counted under neither until the request that retries it.
+///
+/// `not_due` is the one reason that is not a lost eviction: the key was selected as due, then an
+/// event rescheduled it past the cutoff (it stays queued on its new deadline) or a merge cancelled
+/// it (it was retired deliberately). Both are healthy on an active partition, so do not sum this
+/// counter across `reason` to size an eviction backlog — read [`SWEEP_QUEUE_LAG_SECONDS`] instead.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
 
 /// Seed payloads consumed and decoded — tiles and ordered skips both (counter).
