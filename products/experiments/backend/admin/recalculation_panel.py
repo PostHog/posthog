@@ -163,8 +163,10 @@ def start_recalculation_for_experiment(
     try:
         start_metrics_recalculation_workflow(recalculation_id, str(experiment.team.organization_id))
     except Exception as e:
-        # start_workflow can raise after the server accepted the start, so only roll back a row the
-        # workflow provably never touched: still PENDING with no query_to (mirrors the API rollback).
+        # start_workflow can raise after the server accepted the start, so only roll back a row that is
+        # still PENDING with no query_to; a run past mark_started proceeds untouched, and one caught in
+        # the discovery window is terminated cleanly by the mark_started/mark_completed guards
+        # (mirrors the API rollback).
         ExperimentMetricsRecalculation.objects.for_team(experiment.team_id).filter(
             id=recalculation_id,
             status=ExperimentMetricsRecalculation.Status.PENDING,
