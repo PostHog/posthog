@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.
     DEFAULT_BASE_URL,
     REPEATED_CURSOR_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
+    RETRYABLE_API_ERROR,
     RUNS_PAGE_TOO_LARGE_ERROR,
     LangSmithResumeConfig,
     langsmith_source,
@@ -109,6 +110,27 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
             REPEATED_CURSOR_ERROR: "LangSmith kept returning the same pagination cursor, so the import was stopped to avoid looping. This usually means the host is misconfigured. Check the Host field, then reconnect.",
             RESPONSE_TOO_LARGE_ERROR: "A page of data from the LangSmith API exceeded 256 MB. This usually means individual records contain very large inputs or outputs. Contact PostHog support for next steps.",
             RUNS_PAGE_TOO_LARGE_ERROR: "A single LangSmith trace was too large to import, so the runs sync stopped. This usually means one trace has an unusually large input or output. Contact support so we can help unblock the sync.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page` already retries a 429/5xx (the RETRYABLE_API_ERROR sentinel), a dropped
+        # connection, and a read timeout up to 5 attempts. Once that budget exhausts, Temporal
+        # retries the whole activity from the saved pagination checkpoint, so the failure is
+        # transient and self-recovering. The host is customer-controlled (self-hosted LangSmith),
+        # so match only the stable, host-independent parts of the message.
+        return {
+            RETRYABLE_API_ERROR,
+            # A read timeout, plus the wrapper urllib3 puts around one it retried itself, which
+            # leaves the timeout nested inside as the cause.
+            "Read timed out",
+            "Max retries exceeded with url",
+            # A dropped connection arrives without that wrapper in both places it can happen. The
+            # shared retry policy retries GET/HEAD/OPTIONS only, so urllib3 re-raises the drop bare
+            # on the runs/query POST and requests reports "Connection aborted". A drop after the
+            # headers, while `_read_capped_body` streams the body, is past the retry path already
+            # and reports "Connection broken".
+            "Connection aborted",
+            "Connection broken",
         }
 
     def get_schemas(
