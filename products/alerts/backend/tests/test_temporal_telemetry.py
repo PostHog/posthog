@@ -107,14 +107,8 @@ async def test_telemetry_failure_preserves_activity_outcome(error, failure_point
     activity_input = ExecuteActivityInput(fn=downstream.execute_activity, args=[], executor=None, headers={})
     telemetry_error = RuntimeError("telemetry unavailable")
     if failure_point in ("start", "finish"):
-        calls = 0
-
-        def failing_log(*args, **kwargs):
-            nonlocal calls
-            calls += 1
-            if calls == (1 if failure_point == "start" else 2):
-                raise telemetry_error
-
+        outcomes = [telemetry_error, None] if failure_point == "start" else [None, telemetry_error]
+        failing_log = Mock(side_effect=outcomes)
         monkeypatch.setattr(telemetry, "LOGGER", SimpleNamespace(info=failing_log, warning=failing_log))
     elif failure_point == "trace":
         monkeypatch.setattr(telemetry, "trace", SimpleNamespace(get_current_span=Mock(side_effect=telemetry_error)))
