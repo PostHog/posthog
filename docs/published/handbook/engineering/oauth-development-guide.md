@@ -322,6 +322,21 @@ tokens = token_response.json()
 print(tokens)
 ```
 
+## Signed-out visitors
+
+`/oauth/authorize/` needs a session. A visitor without one is redirected to `/login?next=<the authorize URL>`. The login, signup, and email verification screens keep `next`, so the visitor lands on the consent screen once they have a session, and `/oauth` paths are exempt from the onboarding redirect.
+
+The redirect also sets the `ph_pending_oauth_connection` cookie so those screens can name the application:
+
+- Value: percent-encoded JSON with `client_name` and `client_id`, plus `logo_uri` and `redirect_host` (host of the registered redirect URI, web redirects only) when known. It holds public application metadata only, the same the consent screen shows.
+- Scope: `Domain=posthog.com` on PostHog Cloud, so the website can read it too. Host-only on any other host. `SameSite=Lax`, readable by JavaScript, lifetime 60 minutes.
+- Cleared when the person grants or denies the authorization.
+- A CIMD client seen for the first time has no application row yet, so the cookie carries the host of its `client_id` URL as the name.
+
+While the cookie is present, the signup form pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
+
+Analytics: the frontend captures `oauth pending connection viewed` with a `screen` property (`login`, `signup`, or `verify_email`). `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it.
+
 ## Endpoints
 
 - **Authorization**: `/oauth/authorize/`
