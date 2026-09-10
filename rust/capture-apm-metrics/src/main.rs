@@ -130,8 +130,20 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
     gate
 }
 
-#[tokio::main]
-async fn main() {
+/// Build the runtime that serves the probes and `/metrics`. It owns one OS
+/// thread that the data plane never uses. When request decoding saturates the
+/// data-plane workers, the kernel still schedules this thread, so the probes
+/// answer inside the kubelet timeout.
+fn build_management_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_name("management")
+        .enable_all()
+        .build()
+        .expect("failed to build management runtime")
+}
+
+fn main() {
     // Without this, the first TLS handshake to Valkey panics the task that made it.
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -142,6 +154,46 @@ async fn main() {
 
     let config = Config::init_with_defaults().unwrap();
 
+    let management_runtime = build_management_runtime();
+
+    // The registry spawns its status task on the current runtime. The task
+    // must live on the management runtime, so the probe result stays current
+    // when the data plane is busy.
+    let health_registry = {
+        let _guard = management_runtime.enter();
+        HealthRegistry::new("liveness")
+    };
+
+    // Bind here so a port conflict still stops the process at startup.
+    let management_bind = format!(
+        "{}:{}",
+        config.base.management_host, config.base.management_port
+    );
+    let management_listener = management_runtime
+        .block_on(tokio::net::TcpListener::bind(&management_bind))
+        .expect("could not bind management port");
+
+    let data_runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build data-plane runtime");
+
+    data_runtime.block_on(run(
+        config,
+        health_registry,
+        management_runtime.handle().clone(),
+        management_listener,
+        management_bind,
+    ));
+}
+
+async fn run(
+    config: Config,
+    health_registry: HealthRegistry,
+    management_runtime: tokio::runtime::Handle,
+    management_listener: tokio::net::TcpListener,
+    management_bind: String,
+) {
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     let _profiling_agent = match config.base.continuous_profiling.start_agent() {
         Ok(agent) => agent,
@@ -150,8 +202,6 @@ async fn main() {
             None
         }
     };
-
-    let health_registry = HealthRegistry::new("liveness");
 
     // The shared sink owns one producer per signal. This binary only sends
     // metrics, but the sink constructor is unchanged, so the other producers
@@ -183,14 +233,20 @@ async fn main() {
             get(move || ready(health_registry.get_status())),
         );
     let management_router = setup_metrics_routes(management_router);
-    let management_bind = format!(
-        "{}:{}",
-        config.base.management_host, config.base.management_port
-    );
     info!("Healthcheck and metrics listening on {}", management_bind);
-    let management_listener = tokio::net::TcpListener::bind(management_bind)
+
+    // The management server runs on its own runtime. Its connection tasks
+    // never wait behind the data-plane handlers.
+    let mgmt_server = management_runtime.spawn(async move {
+        if let Err(e) = axum::serve(
+            management_listener,
+            management_router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
         .await
-        .expect("could not bind management port");
+        {
+            error!("Management server failed: {}", e);
+        }
+    });
 
     let series_label_gate = start_series_label_gate(&config).await;
     let token_dropper =
@@ -262,17 +318,6 @@ async fn main() {
         .await
         {
             error!("HTTP server failed: {}", e);
-        }
-    });
-
-    let mgmt_server = tokio::spawn(async move {
-        if let Err(e) = axum::serve(
-            management_listener,
-            management_router.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
-        {
-            error!("Management server failed: {}", e);
         }
     });
 
