@@ -1189,7 +1189,7 @@ CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
 def csp_enforcement_enabled(request: HttpRequest) -> bool:
     user = getattr(request, "user", None)
     distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
-    if not distinct_id:
+    if user is None or not distinct_id:
         # An anonymous page has nobody to bucket, so login, signup and the OAuth pages keep the
         # report-only header until enforcement covers everyone.
         return False
