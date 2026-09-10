@@ -1,0 +1,86 @@
+name: Toolbar CSP checks
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-toolbar-csp.yml'
+            - 'bin/**'
+            - 'common/esbuilder/**'
+            - 'ee/frontend/**'
+            - 'frontend/**'
+            - 'packages/**'
+            - 'products/**/*.json'
+            - 'products/**/*.ts'
+            - 'products/**/*.tsx'
+            - '.nvmrc'
+            - 'package.json'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
+            - 'tsconfig*.json'
+            - 'turbo.json'
+    push:
+        branches:
+            - master
+        paths:
+            - '.github/workflows/ci-toolbar-csp.yml'
+            - 'bin/**'
+            - 'common/esbuilder/**'
+            - 'ee/frontend/**'
+            - 'frontend/**'
+            - 'packages/**'
+            - 'products/**/*.json'
+            - 'products/**/*.ts'
+            - 'products/**/*.tsx'
+            - '.nvmrc'
+            - 'package.json'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
+            - 'tsconfig*.json'
+            - 'turbo.json'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
+jobs:
+    toolbar-csp:
+        name: Toolbar CSP checks
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Prepare frontend
+              run: bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build products
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Build frontend
+              run: pnpm --filter=@posthog/frontend build
+
+            - name: Check toolbar for CSP eval violations
+              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
