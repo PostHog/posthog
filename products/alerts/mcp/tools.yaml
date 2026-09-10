@@ -177,11 +177,10 @@ tools:
         description: >
             Update an existing alert by ID. Can update name, threshold, condition, config, detector_config,
             forecast_config, subscribed users, enabled state, calculation_interval, schedule_start_time, and weekend
-            skipping.
-            calculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or
-            monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise
-            add-on. Set detector_config to switch to anomaly detection (trends and SQL insights), or set it to null to
-            switch back to threshold mode (threshold mode requires at least one of lower or upper in
+            skipping. calculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily,
+            weekly, or monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or
+            Enterprise add-on. Set detector_config to switch to anomaly detection (trends and SQL insights), or set it
+            to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in
             threshold.configuration.bounds). Set forecast_config to switch to forecast mode (time-series trends insights
             with no breakdown and an hour, day, week, or month interval), or set it to null to switch back to threshold
             mode. detector_config and forecast_config are mutually exclusive, so send the other one as null in the same
