@@ -11,7 +11,7 @@ from time import monotonic
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import DatabaseError
+from django.db import DatabaseError, close_old_connections
 
 from asgiref.sync import sync_to_async
 from prometheus_client import start_http_server
@@ -22,6 +22,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 from posthog.user_permissions import UserPermissions
 
@@ -113,6 +114,10 @@ class Command(BaseCommand):
                     )
                 except DatabaseError:
                     logger.exception("Task workflow dispatcher database poll failed")
+                    # Nothing recycles this thread's connection between polls, so a connection
+                    # that Postgres dropped stays in place and fails every later poll. Discard
+                    # it on the same thread that owns it, so the next poll reconnects.
+                    await sync_to_async(close_old_connections)()
                     try:
                         await asyncio.wait_for(stop.wait(), timeout=settings.TASKS_DISPATCHER_POLL_INTERVAL_SECONDS)
                     except TimeoutError:
@@ -208,7 +213,10 @@ class Command(BaseCommand):
                     )
                     WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
                     return
-                await sync_to_async(_capture_run_feature_flags, thread_sensitive=False)(str(run.id))
+                # Threads in the shared pool keep their Django connection between dispatches and
+                # nothing closes it, so a plain sync_to_async here fails on every later dispatch
+                # once Postgres drops the idle connection. This wrapper recycles it each call.
+                await database_sync_to_async_pool(_capture_run_feature_flags)(str(run.id))
                 if is_restart:
                     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
                     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
