@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import {
   isRestorableVisitHref,
   RAIL_PANE_ROOT,
@@ -6,6 +9,25 @@ import {
   railPaneForPath,
   railPaneHasSidebar,
 } from "./railPane";
+
+const routing = vi.hoisted(() => ({ href: "/inbox", channelsLayout: true }));
+
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
+  useChannelsLayout: () => routing.channelsLayout,
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  useRouterState: ({
+    select,
+  }: {
+    select: (state: {
+      location: { href: string; pathname: string };
+    }) => unknown;
+  }) =>
+    select({
+      location: { href: routing.href, pathname: routing.href.split("?")[0] },
+    }),
+}));
 
 describe("railPaneForPath", () => {
   it.each([
@@ -94,6 +116,39 @@ describe("isRestorableVisitHref", () => {
 });
 
 describe("railPaneHasSidebar", () => {
+  it.each([true, false])(
+    "hides the sidebar only on triage with channels layout %s",
+    (channelsLayout) => {
+      routing.channelsLayout = channelsLayout;
+      routing.href = "/inbox/triage";
+      useSidebarStore.setState({
+        open: true,
+        hasUserSetOpen: true,
+        width: 320,
+      });
+      const { result, rerender } = renderHook(() => useRailSurface());
+      expect(result.current.hasSidebar).toBe(false);
+      expect(result.current.pane).toBe("inbox");
+
+      for (const [href, hasSidebar] of [
+        ["/inbox", true],
+        ["/inbox/triage/", false],
+        ["/reports/report-1?from=%2Finbox%2Ftriage", true],
+        ["/inbox/triage?reportId=report-1", false],
+        ["/inbox/reports", true],
+      ] as const) {
+        routing.href = href;
+        rerender();
+        expect(result.current.hasSidebar).toBe(hasSidebar);
+      }
+      expect(useSidebarStore.getState()).toMatchObject({
+        open: true,
+        hasUserSetOpen: true,
+        width: 320,
+      });
+    },
+  );
+
   it.each(["home", "reports", "command-center", "loops"] as const)(
     "gives %s the whole screen",
     (pane) => {

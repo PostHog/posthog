@@ -22,6 +22,7 @@ Unread reports show a small blue dot in the list. Open a report to mark it as re
 Select the dot or use the right-click menu to mark a report as read or unread. Read reports stay in the list.
 Read state is saved on this device for the current user and project. It does not sync across devices or recover earlier report visits.
 Select Triage mode to review reports in sequence.
+Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
 To filter reports for a user, open Filter reports, then hover over Scope.

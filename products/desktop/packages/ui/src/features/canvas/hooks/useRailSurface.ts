@@ -4,6 +4,7 @@ import {
   railPaneForHref,
   railPaneHasSidebar,
 } from "@posthog/ui/features/canvas/railPane";
+import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import { useRouterState } from "@tanstack/react-router";
 
 export interface RailSurface {
@@ -28,10 +29,13 @@ export function useRailPane(): NavRailPane {
 export function useRailSurface(): RailSurface {
   const channelsLayout = useChannelsLayout();
   const pane = useRailPane();
+  const inTriage = useRouterState({
+    select: (state) => isInboxTriagePath(state.location.pathname),
+  });
 
   return {
     pane,
-    hasSidebar: !channelsLayout || railPaneHasSidebar(pane),
+    hasSidebar: !inTriage && (!channelsLayout || railPaneHasSidebar(pane)),
     showsActivityDetail: channelsLayout && pane === "activity",
   };
 }
