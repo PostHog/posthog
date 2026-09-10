@@ -59,3 +59,5 @@ Scheduled executions skip an occurrence when the previous scheduled workflow is 
 A reconciler runs every 15 minutes, processing bounded pages of checks and product-filtered Temporal schedules. It repairs missing schedules without changing existing intervals or pause states, and deletes schedules whose metrics no longer exist. Deleting or disabling all checks retains the metric's schedule preferences and executes no check queries. Deleted metrics stop producing check queries immediately, even if schedule cleanup needs a retry.
 
 In the metric Tests tab, a failed schedule edit refreshes the persisted state and offers Reload before another edit. Schedule controls stay disabled while a request is pending or its outcome is uncertain.
+
+The Playwright environment registers Temporal search attributes before starting the web server and workers. Schedule creation requires `PostHogTeamId` and `PostHogScheduleType` to be registered.
