@@ -2,7 +2,7 @@ version: 1
 owners: []
 # Slack channel per team, declared once for the whole repo (root-only registry).
 # A team only needs an entry where the derived '#<slug>' is wrong or missing; the
-# other 23 slugs in use derive correctly and are deliberately absent.
+# other 22 slugs in use derive correctly and are deliberately absent.
 teams:
     # GitHub team slugs that predate the 'team-' convention: the slug is right,
     # the channel just doesn't match it.
@@ -24,7 +24,7 @@ teams:
     team-data-stack:
         slack: '#group-data-stack'
     # PostHog Desktop's channel kept the name it was created under.
-    team-posthog-code:
+    team-posthog-desktop:
         slack: '#team-desktop'
     # The derived '#team-replay' is right; the entry exists only to drop the daily
     # stamphog digest, which the team reads on the PRs themselves.

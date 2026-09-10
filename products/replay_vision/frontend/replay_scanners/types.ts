@@ -47,6 +47,28 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'order_by',
 ]
 
+/**
+ * The observations table's state as it lives in the scanner page URL: filters, sort, and page.
+ * Links into the Observations tab build from these keys, and an observation page carries them back
+ * so returning to the list restores the view the reader left.
+ */
+export const OBSERVATION_LIST_URL_PARAM_KEYS = [
+    'page',
+    'sort',
+    'status',
+    'triggered_by',
+    'verdict',
+    'tags',
+    'min_score',
+    'max_score',
+    'recording_subject',
+    'date_from',
+    'date_to',
+    'backfill_id',
+] as const
+
+export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>
+
 export type EnabledFilter = 'enabled' | 'disabled'
 
 export type IneligibleKind =
@@ -139,8 +161,9 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
         retryHint: "A retry runs the scanner's current prompt. Edit the prompt first if you haven't changed it yet.",
     },
     infra_transient: {
-        label: 'PostHog timed out',
-        description: 'A PostHog service took too long while preparing this recording. Retry the scan in a few minutes.',
+        label: 'PostHog service unavailable',
+        description:
+            'A PostHog service was slow or unavailable while preparing this recording. Retry the scan in a few minutes.',
         retryWorthwhile: true,
     },
     internal_error: {
@@ -226,6 +249,10 @@ export function observationRetryOffer(
 
 export function ineligibleKindDescription(kind: IneligibleKind): string {
     return INELIGIBLE_KINDS[kind].description
+}
+
+export function ineligibleKindLabel(kind: IneligibleKind): string {
+    return INELIGIBLE_KINDS[kind].label
 }
 
 export const DEFAULT_PROVIDER = 'google'

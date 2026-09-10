@@ -12,7 +12,7 @@ schemas below are rendered from the backend Pydantic models at build time, so th
 | `evaluation_type`     | yes            | `"hog"`, `"llm_judge"`, or `"sentiment"`.                                            |
 | `evaluation_config`   | yes            | Shape depends on `evaluation_type` (below).                                           |
 | `output_type`         | yes            | `"boolean"` for `hog`/`llm_judge`; `"sentiment"` for `sentiment`.                    |
-| `output_config`       | no             | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                             |
+| `output_config`       | no             | `{ "allows_na": bool, "true_is_failure": bool }` for boolean; `{}` for sentiment. |
 | `model_configuration` | llm_judge only | Provider + model; key ID optional. Rejected on `hog`/`sentiment`.                     |
 | `target`              | no             | `"generation"` (default), `"trace"`, or `"session"`. Sentiment supports only `"generation"`. |
 | `target_config`       | trace/session only | Settle config discriminated on `strategy` (below); defaults to a 30-minute fixed window for `trace`, and to a 1-hour inactivity window for `session`. |
@@ -81,6 +81,8 @@ Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boo
 ```
 
 `allows_na: true` lets the evaluator return N/A (skip) in addition to pass/fail.
+`true_is_failure: true` treats a raw `true` result as a failure and a raw `false` result as a pass.
+Leave it `false` for the default mapping.
 
 ### sentiment output
 

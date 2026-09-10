@@ -8,9 +8,10 @@ from parameterized import parameterized
 from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
-from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment, SignalReportTask
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.tasks import close_dismissed_report_pr
+from products.tasks.backend.models import Task, TaskRun
 
 _PR_URL = "https://github.com/PostHog/posthog/pull/123"
 
@@ -104,6 +105,38 @@ class TestClosePrWhenReportDismissed(BaseTest):
             self._save_transition(report, SignalReport.Status.RESOLVED)
         mock_task.delay.assert_not_called()
 
+    def test_pr_merge_enqueues_completed_tracker_close(self):
+        report = self._create_report()
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            pr_url=_PR_URL,
+            repository="posthog/posthog",
+            pr_number=123,
+            pr_state=SignalReportAssignment.PrState.OPEN,
+        )
+
+        with patch("products.signals.backend.receivers.close_report_tracker_issue") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                update_assignments_for_pull_request(
+                    team_ids=[self.team.id],
+                    repository="posthog/posthog",
+                    pr_number=123,
+                    pr_state=SignalReportAssignment.PrState.MERGED,
+                )
+
+        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, completed=True)
+
+    def test_deleting_a_report_enqueues_a_tracker_close(self):
+        # A deleted report never returns to the inbox, so its tracker issue would otherwise stay
+        # open with nothing left to answer it.
+        report = self._create_report()
+
+        with patch("products.signals.backend.receivers.close_report_tracker_issue") as mock_task:
+            self._save_transition(report, SignalReport.Status.DELETED)
+
+        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, completed=False)
+
     def test_pr_closed_webhook_does_not_enqueue_for_any_linked_report(self):
         reports = [self._create_report(), self._create_report()]
         for report in reports:
@@ -147,6 +180,11 @@ class TestCloseDismissedReportPrTask(BaseTest):
 
 
 class TestCloseImplementationPrForReport(BaseTest):
+    def _link_task_pr(self, report: SignalReport, pr_url: str = _PR_URL) -> None:
+        task = Task.objects.create(team=report.team, title="Implementation", description="Fix a bug")
+        TaskRun.objects.create(team=report.team, task=task, output={"pr_url": pr_url})
+        SignalReportTask.objects.create(team=report.team, report=report, task=task, relationship="implementation")
+
     def setUp(self):
         super().setUp()
         self.report = SignalReport.objects.create(
@@ -173,6 +211,7 @@ class TestCloseImplementationPrForReport(BaseTest):
         ]
     )
     def test_does_not_touch_pr_without_trusted_claim_actor(self, _name: str, actor_kind: str | None):
+        self._link_task_pr(self.report, "https://github.com/PostHog/posthog/pull/456")
         self.assignment.actor_kind = actor_kind
         self.assignment.save(update_fields=["actor_kind", "updated_at"])
 
@@ -200,12 +239,23 @@ class TestCloseImplementationPrForReport(BaseTest):
 
     @parameterized.expand(
         [
-            ("suppressed", "suppressed"),
-            ("snoozed", "snoozed"),
-            ("resolved", "resolved"),
+            ("suppressed", "suppressed", "assignment"),
+            ("snoozed", "snoozed", "assignment"),
+            ("resolved", "resolved", "assignment"),
+            ("legacy_suppressed", "suppressed", "legacy"),
+            ("legacy_snoozed", "snoozed", "legacy"),
+            ("legacy_resolved", "resolved", "legacy"),
+            ("claim_without_pr", "suppressed", "claim"),
         ]
     )
-    def test_comments_on_and_closes_linked_pr(self, _name: str, reason: PrCloseReason):
+    def test_comments_on_and_closes_linked_pr(self, _name: str, reason: PrCloseReason, source: str):
+        if source != "assignment":
+            self.assignment.delete()
+            self._link_task_pr(self.report)
+            if source == "claim":
+                SignalReportAssignment.objects.for_team(self.team.id).create(
+                    team=self.team, report=self.report, actor_kind=SignalActorKind.AGENT, actor_agent="test-agent"
+                )
         github = MagicMock()
         github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
         github.comment_on_pull_request.return_value = {"success": True}
@@ -220,9 +270,10 @@ class TestCloseImplementationPrForReport(BaseTest):
         comment_body = github.comment_on_pull_request.call_args.args[2]
         assert reason in comment_body
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
-        self.assignment.refresh_from_db()
-        assert self.assignment.pr_state == SignalReportAssignment.PrState.CLOSED
-        assert self.assignment.pr_merged is False
+        if source == "assignment":
+            self.assignment.refresh_from_db()
+            assert self.assignment.pr_state == SignalReportAssignment.PrState.CLOSED
+            assert self.assignment.pr_merged is False
 
     def test_returns_false_and_skips_github_without_linked_pr(self):
         self.assignment.pr_url = None
@@ -248,7 +299,11 @@ class TestCloseImplementationPrForReport(BaseTest):
         self.assignment.refresh_from_db()
         assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
 
-    def test_does_not_close_a_report_pr_from_another_team(self):
+    @parameterized.expand([("assignment",), ("legacy",)])
+    def test_does_not_close_a_report_pr_from_another_team(self, source: str):
+        if source == "legacy":
+            self.assignment.delete()
+            self._link_task_pr(self.report)
         other_team = Team.objects.create(organization=self.organization, name="Other team")
 
         with patch(
@@ -257,8 +312,10 @@ class TestCloseImplementationPrForReport(BaseTest):
             assert close_implementation_pr_for_report(other_team.id, str(self.report.id)) is False
 
         mock_resolve.assert_not_called()
-        self.assignment.refresh_from_db()
-        assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
+
+        if source == "assignment":
+            self.assignment.refresh_from_db()
+            assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
 
     def _other_report_sharing_the_pr(self, report_status: str) -> SignalReport:
         other_report = SignalReport.objects.create(
@@ -277,8 +334,12 @@ class TestCloseImplementationPrForReport(BaseTest):
         )
         return other_report
 
-    def test_does_not_close_a_pr_another_live_report_still_uses(self):
-        self._other_report_sharing_the_pr(SignalReport.Status.READY)
+    @parameterized.expand([("assignment",), ("legacy",)])
+    def test_does_not_close_a_pr_another_live_report_still_uses(self, source: str):
+        other_report = self._other_report_sharing_the_pr(SignalReport.Status.READY)
+        if source == "legacy":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=other_report).delete()
+            self._link_task_pr(other_report)
 
         with patch(
             "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository"

@@ -1,0 +1,85 @@
+{% load i18n %}
+<fieldset style="margin: 20px 0;
+                 padding: 16px;
+                 border: 1px solid #ccc;
+                 border-radius: 4px">
+    <h2>Latest recalculation</h2>
+    {% if panel %}
+        <table style="margin: 8px 0 16px; border-collapse: collapse;">
+            <tbody>
+                <tr>
+                    <th style="text-align: left; padding: 2px 16px 2px 0;">Status</th>
+                    <td>{{ panel.status }} <span style="color: #666;">({{ panel.trigger }})</span></td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 2px 16px 2px 0;">Metrics</th>
+                    <td>{{ panel.completed_metrics }} completed, {{ panel.failed_metrics }} failed of {{ panel.total_metrics }}</td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 2px 16px 2px 0;">Started</th>
+                    <td>{{ panel.started_at|default:"—" }}</td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 2px 16px 2px 0;">Ended</th>
+                    <td>{{ panel.completed_at|default:"—" }}</td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 2px 16px 2px 0;">Execution time</th>
+                    <td>{{ panel.duration_human|default:"—" }}</td>
+                </tr>
+            </tbody>
+        </table>
+        {% if panel.has_failures %}
+            <h3 style="margin: 8px 0;">Failures</h3>
+            <table style="border-collapse: collapse; width: 100%; max-width: 900px;">
+                <thead>
+                    <tr>
+                        <th style="text-align: left;
+                                   padding: 6px 12px;
+                                   border-bottom: 1px solid #ccc">Metric</th>
+                        <th style="text-align: left;
+                                   padding: 6px 12px;
+                                   border-bottom: 1px solid #ccc">Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for failure in panel.failures %}
+                        <tr>
+                            <td style="padding: 6px 12px;
+                                       border-bottom: 1px solid #eee;
+                                       vertical-align: top">{{ failure.metric_name }}</td>
+                            <td style="padding: 6px 12px;
+                                       border-bottom: 1px solid #eee;
+                                       white-space: pre-wrap">{{ failure.error }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+        <div style="margin-top: 12px;
+                    display: flex;
+                    gap: 8px;
+                    align-items: center;
+                    flex-wrap: wrap">
+            {% if panel.has_failures %}
+                <button type="submit"
+                        formaction="{{ panel.retry_url }}"
+                        formmethod="post"
+                        formnovalidate
+                        class="button"
+                        style="padding: 8px 14px;
+                               background: #417690">Retry latest failures</button>
+            {% endif %}
+            <a href="{{ panel.all_recalculations_url }}"
+               class="button"
+               style="padding: 8px 14px">All recalculations</a>
+            <a href="{{ panel.temporal_url }}"
+               target="_blank"
+               rel="noopener"
+               class="button"
+               style="padding: 8px 14px">Temporal workflow</a>
+        </div>
+    {% else %}
+        <p style="color: #666; margin: 4px 0;">No recalculation has run for this experiment yet.</p>
+    {% endif %}
+</fieldset>

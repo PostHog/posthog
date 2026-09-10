@@ -15,3 +15,14 @@ TICKET_SEARCH_DURATION_SECONDS = Histogram(
     labelnames=["search_path"],  # ticket_number | text
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, float("inf")),
 )
+
+INBOUND_ATTEMPTS_TOTAL = Counter(
+    "posthog_conversations_inbound_attempts_total",
+    "Inbound receipt processing attempts by source and result",
+    labelnames=["source", "result"],  # processed | retry | failed | claimed
+)
+INBOUND_LEASES_TOTAL = Counter(
+    "posthog_conversations_inbound_leases_total",
+    "Inbound receipt lease outcomes",
+    labelnames=["result"],  # claimed | expired_reclaim | busy
+)

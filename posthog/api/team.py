@@ -14,7 +14,7 @@ from django.utils.dateparse import parse_datetime
 import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import (
     RootModel as PydanticRootModel,
@@ -125,7 +125,9 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     MAX_CUSTOM_BOT_DEFINITIONS,
     assert_patterns_compile as assert_custom_bot_patterns_compile,
     compiled_patterns as compiled_custom_bot_patterns,
-    validate_definition as validate_custom_bot_definition,
+    parse_rules as parse_custom_bot_rules,
+    validate_rule as validate_custom_bot_rule,
+    validate_rule_set as validate_custom_bot_rule_set,
 )
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
@@ -746,6 +748,12 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
         required=False,
         help_text="How credit is split across touchpoints when a person saw several campaigns before converting.",
     )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether marketing analytics drops traffic matching the project's test-account filters. Off by default."
+        ),
+    )
     campaign_name_mappings = MarketingAnalyticsCampaignNameMappingsField(
         required=False,
         help_text=(
@@ -775,6 +783,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "conversion_goals",
             "attribution_window_days",
             "attribution_mode",
+            "filter_test_accounts",
             "campaign_name_mappings",
             "custom_source_mappings",
             "campaign_field_preferences",
@@ -817,6 +826,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
         if "attribution_mode" in validated_data:
             instance.attribution_mode = validated_data["attribution_mode"]
+
+        if "filter_test_accounts" in validated_data:
+            instance.filter_test_accounts = validated_data["filter_test_accounts"]
 
         if "campaign_name_mappings" in validated_data:
             instance.campaign_name_mappings = validated_data["campaign_name_mappings"]
@@ -1873,26 +1885,44 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                         {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
                     )
 
+        if "customBotDefinitions" in value and isinstance(value["customBotDefinitions"], list):
+            # Cap before parsing, so an oversized list is rejected without instantiating a model
+            # per entry.
+            if len(value["customBotDefinitions"]) > MAX_CUSTOM_BOT_DEFINITIONS:
+                raise exceptions.ValidationError(
+                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
+                )
+            # Strict, so a malformed rule is rejected with a specific error rather than the
+            # generic "Invalid modifier key.", and the stored list is normalized.
+            try:
+                parsed = parse_custom_bot_rules(value["customBotDefinitions"], strict=True)
+            except ValueError as error:
+                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
+            value = {**value, "customBotDefinitions": [rule.model_dump(exclude_none=True) for rule in parsed]}
+
         try:
             modifiers = HogQLQueryModifiers(**value)
         except Exception:
             raise exceptions.ValidationError(f"Invalid modifier key.")
 
         if "customBotDefinitions" in value:
-            definitions = modifiers.customBotDefinitions or []
-            if len(definitions) > MAX_CUSTOM_BOT_DEFINITIONS:
+            rules = modifiers.customBotDefinitions or []
+            if len(rules) > MAX_CUSTOM_BOT_DEFINITIONS:
                 raise exceptions.ValidationError(
                     {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
                 )
-            for definition in definitions:
+            for rule in rules:
                 # An unusable pattern would break every query that reads $virt_is_bot for this
                 # project, so it is rejected here rather than dropped silently at query time.
                 try:
-                    validate_custom_bot_definition(definition)
+                    validate_custom_bot_rule(rule)
                 except ValueError as error:
-                    raise exceptions.ValidationError({"customBotDefinitions": f"{definition.name}: {error}"})
+                    # An empty name would render as an orphaned leading colon.
+                    message = f"{rule.name}: {error}" if rule.name else str(error)
+                    raise exceptions.ValidationError({"customBotDefinitions": message})
             try:
-                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(definitions))
+                validate_custom_bot_rule_set(rules)
+                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(rules))
             except ValueError as error:
                 raise exceptions.ValidationError({"customBotDefinitions": str(error)})
 
@@ -2143,6 +2173,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             ),
             "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
             "attribution_mode": instance.marketing_analytics_config.attribution_mode,
+            "filter_test_accounts": instance.marketing_analytics_config.filter_test_accounts,
             # Add other fields as they're added to the model
             # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
         }
@@ -2163,6 +2194,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "sources_map": validated_data.get("sources_map", {}),
             "attribution_window_days": validated_data.get("attribution_window_days"),
             "attribution_mode": validated_data.get("attribution_mode"),
+            "filter_test_accounts": validated_data.get("filter_test_accounts"),
             # Add other fields as they're added to the model
             # "conversion_goals": validated_data.get("conversion_goals", []),
         }
@@ -2829,16 +2861,13 @@ class RootTeamViewSet(TeamViewSet):
     hide_api_docs = True
 
 
-@extend_schema_view(
-    list=extend_schema(deprecated=True),
-    retrieve=extend_schema(deprecated=True),
-    create=extend_schema(deprecated=True),
-    update=extend_schema(deprecated=True),
-    partial_update=extend_schema(deprecated=True),
-    destroy=extend_schema(deprecated=True),
-)
 class ProjectEnvironmentsViewSet(TeamViewSet):
-    """Deprecated: use /api/environments/{id}/ instead."""
+    """Deprecated: use /api/environments/{id}/ instead.
+
+    Hidden from the API docs, so the actions it inherits from TeamViewSet do not reach the
+    generated types and MCP tools under a route that rejects every request."""
+
+    hide_api_docs = True
 
     def initial(self, request: request.Request, *args, **kwargs) -> None:
         raise exceptions.PermissionDenied(

@@ -11,7 +11,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
-import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
+import { loginLogic, redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -257,8 +257,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
                     useBrowserAutofill: true,
                 })
                 await api.create('api/webauthn/login/complete/', assertion)
-                handleLoginRedirect()
-                window.location.reload()
+                redirectAfterLogin()
             } catch (e: unknown) {
                 // The autofill passkey prompt is routinely dismissed — the user types a password
                 // instead, or navigates away. Swallow those; surface anything genuinely wrong.
@@ -284,14 +283,9 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 return
             }
 
-            // For regular login, redirect and reload
-            if (values.redirectLink) {
-                router.actions.push(values.redirectLink)
-            } else {
-                handleLoginRedirect()
-            }
-
-            window.location.reload()
+            // For regular login, load the destination as a fresh document so its app context is the
+            // logged-in one. `redirectLink` is guarded against other origins by `redirectAfterLogin`.
+            redirectAfterLogin(values.redirectLink)
         },
         startPasskeyAuthenticationFailure: () => {
             // Reset state on real authentication failures so the user can fall

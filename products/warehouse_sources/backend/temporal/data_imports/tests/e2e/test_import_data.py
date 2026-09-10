@@ -26,7 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 
 
 @sync_to_async
-def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
+def _setup(
+    team: Team,
+    job_inputs: dict[Any, Any],
+    sync_type: str | None = None,
+    sync_type_config: dict[str, Any] | None = None,
+) -> ImportDataActivityInputs:
     source = ExternalDataSource.objects.create(
         team=team,
         source_id="source_id",
@@ -54,6 +59,8 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
         should_sync=True,
         status=ExternalDataSchema.Status.COMPLETED,
         last_synced_at="2024-01-01",
+        sync_type=sync_type,
+        sync_type_config=sync_type_config or {},
     )
     job = ExternalDataJob.objects.create(
         team=team,
@@ -66,6 +73,52 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
     )
 
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rebuild_trigger",
+    [
+        {"reset_pipeline": True},
+        {
+            "delta_revive_required": {
+                "reason": "hollow",
+                "missing_path": "p",
+                "detected_at": "2026-01-01T00:00:00+00:00",
+            }
+        },
+    ],
+    ids=["reset", "corrupt_delta_revive"],
+)
+async def test_table_rebuild_drops_the_xmin_cursor(activity_environment, team, rebuild_trigger, **kwargs):
+    # Both triggers delete the Delta table before the read. Keeping the cursor makes that read the
+    # window since the last run, and the overwrite collapses the table to that slice.
+    activity_inputs = await _setup(
+        team,
+        {"host": "host.com", "port": 5432, "user": "u", "password": "p", "database": "db", "schema": "public"},
+        sync_type=ExternalDataSchema.SyncType.XMIN,
+        sync_type_config={**rebuild_trigger, "xmin_last_value": 100, "xmin_ceiling": 100, "xmin_num_wraparound": 0},
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+        ) as mock_postgres_source,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync._run"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins._is_host_safe",
+            return_value=(True, None),
+        ),
+    ):
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
+
+    called_with = mock_postgres_source.call_args.kwargs
+    assert called_with["is_xmin"] is True
+    assert called_with["xmin_last_value"] is None
+    assert called_with["xmin_num_wraparound"] is None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -119,6 +172,7 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             xmin_last_value=None,
             xmin_num_wraparound=None,
             byte_bounded_extraction=False,
+            activity_attempt=1,
         )
 
 
@@ -173,6 +227,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             xmin_last_value=None,
             xmin_num_wraparound=None,
             byte_bounded_extraction=False,
+            activity_attempt=1,
         )
 
 
@@ -239,6 +294,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             xmin_last_value=None,
             xmin_num_wraparound=None,
             byte_bounded_extraction=False,
+            activity_attempt=1,
         )
 
 
@@ -320,6 +376,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             xmin_last_value=None,
             xmin_num_wraparound=None,
             byte_bounded_extraction=False,
+            activity_attempt=1,
         )
 
 

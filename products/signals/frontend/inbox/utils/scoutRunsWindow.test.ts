@@ -15,6 +15,7 @@ import {
     SCOUT_WEEKLY_ON_SCHEDULE_MODE,
     ScoutRunOutcome,
     scoutCronScheduleError,
+    scoutDisplayName,
     scoutReportActivityLabel,
     weeklyCronToDayTime,
 } from './scoutRunsWindow'
@@ -41,6 +42,14 @@ function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRun
 }
 
 describe('scoutRunsWindow report channel', () => {
+    it.each([
+        ['Checkout / daily digest', 'Checkout / daily digest'],
+        ['', 'Daily digest'],
+        [undefined, 'Daily digest'],
+    ])('uses the display name %s with a default for existing scouts', (display_name, expected) => {
+        expect(scoutDisplayName({ skill_name: 'signals-scout-daily-digest', display_name })).toBe(expected)
+    })
+
     // The report channel (emit_report/edit_report) is invisible to emitted_count, so a report-authoring
     // run used to read as "quiet / 0 signals emitted". These lock in that report activity counts as output.
     describe('deriveRunOutcome', () => {
