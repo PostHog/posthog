@@ -598,7 +598,7 @@ jobs:
 
                       healthCheck:
                         - 'posthog/temporal/health_checks/**'
-                        - 'products/.*/backend/temporal/health_checks/**'
+                        - 'products/*/backend/temporal/health_checks/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - 'posthog/clickhouse/migrations/**'
