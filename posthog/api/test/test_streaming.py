@@ -38,6 +38,24 @@ def _reserve_slot() -> streaming._StreamSlotReservation:
 
 
 class TestSSEStreamingResponse:
+    @override_settings(SERVER_GATEWAY_INTERFACE="WSGI")
+    def test_closing_wsgi_response_finishes_async_cleanup(self):
+        closed = []
+
+        async def events():
+            try:
+                yield b"data: hello\n\n"
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                closed.append(True)
+
+        response = sse_streaming_response(events)
+        assert next(_sync_content(response)) == b"data: hello\n\n"
+        assert closed == []
+        response.close()
+        assert closed == [True]
+
     def test_releases_db_connections_before_streaming(self):
         idle = mock.Mock(in_atomic_block=False)
         with mock.patch("posthog.api.streaming.connections") as connections:
