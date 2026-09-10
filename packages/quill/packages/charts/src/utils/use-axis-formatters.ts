@@ -82,8 +82,11 @@ export function useTimeSeriesTooltipConfig(
         if (tooltip?.labelFormatter || !timezone || !interval) {
             return tooltip
         }
-        return { ...tooltip, labelFormatter: createTooltipDateFormatter({ interval, timezone }) }
-    }, [tooltip, timezone, interval])
+        return {
+            ...tooltip,
+            labelFormatter: createTooltipDateFormatter({ interval, timezone, allDays: xAxis?.allDays }),
+        }
+    }, [tooltip, timezone, interval, xAxis?.allDays])
 }
 
 /** Non-hook resolution of a {@link YAxisConfig} into a tick formatter. An explicit `tickFormatter`

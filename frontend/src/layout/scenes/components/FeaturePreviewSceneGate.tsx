@@ -56,6 +56,8 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
 
     // Concept ("Coming Soon") features never enable their flag, so the enrollment toggle is a
     // dead end there. When the feature carries a waitlist survey, collect an email instead.
+    // Alpha and beta enrollments do enable their flag, so those stages keep the self-serve
+    // toggle even when a legacy waitlist survey id is still attached to the payload.
     if (feature?.stage === 'concept' && feature.payload?.survey_id) {
         return (
             <SceneContent>
@@ -67,7 +69,6 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                     />
                 )}
                 <ProductIntroduction
-                    productName={config.title}
                     thingName="feature"
                     titleOverride={config.title}
                     description={config.description}
@@ -89,7 +90,6 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                 />
             )}
             <ProductIntroduction
-                productName={config.title}
                 thingName="feature"
                 titleOverride={config.title}
                 description={config.description}

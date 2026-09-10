@@ -1,3 +1,5 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
@@ -30,6 +32,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.PasswordResetComplete]: sceneImport,
     [Scene.Settings]: sceneImport,
 }
 
@@ -59,6 +62,13 @@ describe('sceneLogic', () => {
                     Object.keys(obj).filter((key) => preloadedScenes.includes(key as Scene)).length === 3
             ),
         })
+    })
+
+    it('keeps teamLogic mounted after every other mount reference is released', () => {
+        // openScene and activeSceneId read teamLogic.values directly. Without a mount reference of
+        // its own, navigation throws as soon as nothing else holds teamLogic up.
+        teamLogic.unmount()
+        expect(teamLogic.isMounted()).toBe(true)
     })
 
     it('changing URL runs openScene, loadScene and setScene', async () => {
@@ -120,6 +130,15 @@ describe('sceneLogic', () => {
         // carries global side-panel state, so it has to survive the redirect too.
         expect(router.values.searchParams.review).toEqual('r-9')
         expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
+    // The change password form emails this link to a user who is already signed in.
+    it('keeps a signed-in user on the password reset link instead of redirecting them away', async () => {
+        const resetLink = urls.passwordResetComplete(MOCK_USER_UUID, 'a-token')
+        router.actions.push(resetLink)
+        await expectLogic(logic).delay(1)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
     })
 
     it('persists the loaded scenes', async () => {

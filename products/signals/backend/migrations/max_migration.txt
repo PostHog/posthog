@@ -1,1 +1,1 @@
-0119_squash_2026_09_07_schema_addons
+0121_signalscoutconfig_display_name

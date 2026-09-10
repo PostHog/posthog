@@ -567,6 +567,7 @@ describe("PostHogAPIClient", () => {
     ["pinned", { pinned: true }, "pinned", "true"],
     ["commented-by", { commentedBy: 17 }, "commented_by", "17"],
     ["mentions", { mentions: 19 }, "mentions", "19"],
+    ["basic summary", { basic: true }, "basic", "true"],
   ])("sends the %s task-list filter", async (_name, options, param, value) => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ results: [], count: 0 }), {
@@ -587,6 +588,29 @@ describe("PostHogAPIClient", () => {
     expect(url.pathname).toBe("/api/projects/42/tasks/");
     expect(url.searchParams.get(param)).toBe(value);
   });
+
+  it.each([undefined, { basic: false }])(
+    "omits basic unless the caller asks for the summary payload (%o)",
+    async (options) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ results: [], count: 0 }), {
+          status: 200,
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await client.getTasksPage(options);
+
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.searchParams.has("basic")).toBe(false);
+    },
+  );
 
   it.each([
     "user_message",
