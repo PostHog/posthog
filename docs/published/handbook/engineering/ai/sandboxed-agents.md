@@ -412,7 +412,8 @@ Every Modal sandbox is created with a [readiness probe](https://modal.com/docs/g
 Provisioning waits on that probe before it runs anything else in the sandbox, because a sandbox can come up dead with every RPC succeeding.
 That happens most often after a filesystem snapshot restore: a resume snapshot, or the prebaked dev-stack image, which is itself a snapshot.
 A sandbox whose probe has not passed within `READINESS_PROBE_TIMEOUT_SECONDS` (`products/tasks/backend/logic/services/modal_sandbox.py`) is terminated and recreated from the next image candidate in the downgrade chain: resume snapshot, then custom or dev-stack image, then the plain base.
-The run log records each downgrade as "Sandbox image downgraded: ...".
+The run log records the last downgrade as "Sandbox image downgraded: ...", because each recreation replaces `config.image_fallback`.
+The application log keeps a warning for every recreation.
 When no candidate remains, provisioning fails with a transient error and Temporal retries the activity.
 
 ### Network access
