@@ -6,11 +6,11 @@ It preserves raw identifiers in metadata so data preparation can join recordings
 
 ## Identifiers and joins
 
-| Field | Stored value | Present in |
-| --- | --- | --- |
-| `team_id` | Team ID as a decimal string | Block metadata, replay index, inline image index, surfacing scores |
-| `session_id` | Original session ID | Block metadata, replay index, surfacing scores |
-| `distinct_id` | Original distinct ID | Block metadata |
+| Field         | Stored value                | Present in                                                         |
+| ------------- | --------------------------- | ------------------------------------------------------------------ |
+| `team_id`     | Team ID as a decimal string | Block metadata, replay index, inline image index, surfacing scores |
+| `session_id`  | Original session ID         | Block metadata, replay index, surfacing scores                     |
+| `distinct_id` | Original distinct ID        | Block metadata                                                     |
 
 Join session data on both `team_id` and `session_id`.
 Include `team_id` when joining analytics events by `distinct_id`.
@@ -21,15 +21,15 @@ Resolve inline image references to image content before training because the ref
 
 ## Storage paths
 
-| Dataset | Default prefix |
-| --- | --- |
-| Replay blocks | `rrweb_2/` |
-| Block metadata | `block-metadata/v2/` |
-| Replay index | `block-metadata-replay-index/v2/` |
-| Inline image shards | `scrubbed-images/v2/shards/` |
-| Inline image index | `scrubbed-images/v2/index/` |
-| URL images | `scrubbed-images/url/` |
-| Surfacing scores | `score/v2/` |
+| Dataset             | Default prefix                    |
+| ------------------- | --------------------------------- |
+| Replay blocks       | `rrweb_2/`                        |
+| Block metadata      | `block-metadata/v2/`              |
+| Replay index        | `block-metadata-replay-index/v2/` |
+| Inline image shards | `scrubbed-images/v2/shards/`      |
+| Inline image index  | `scrubbed-images/v2/index/`       |
+| URL images          | `scrubbed-images/url/`            |
+| Surfacing scores    | `score/v2/`                       |
 
 `SESSION_RECORDING_ML_S3_PREFIX` sets the replay block prefix and defaults to `rrweb_2`.
 `SESSION_RECORDING_V2_S3_PREFIX` configures ordinary replay storage independently.
@@ -45,7 +45,7 @@ The image index contains the raw `team_id` and `format_version = 2`.
 Image content hashes use a key derived for each team.
 
 URL image references use `imageurl:<hash>` in a global namespace.
-Their objects and crawl-history cache use `scrubbed-images/url/`.
+Their objects use `scrubbed-images/url/`.
 Keep the image hash key stable so references and cache lookups continue to resolve.
 
 ## Legacy records
@@ -53,7 +53,7 @@ Keep the image hash key stable so references and cache lookups continue to resol
 Block metadata with `format_version: 2` contains raw identifiers.
 Records without a format version contain pseudonyms and use `block-metadata/` and `block-metadata-replay-index/v1/`.
 The consumer writes the formats separately, including when they arrive in the same Kafka batch.
-Legacy pseudonyms cannot be converted back to raw IDs.
+Legacy records cannot join directly to raw identifiers.
 
 Legacy inline image references contain a 32-character hexadecimal team pseudonym.
 Their shards and index use `scrubbed-images/shards/` and `scrubbed-images/index/`.
