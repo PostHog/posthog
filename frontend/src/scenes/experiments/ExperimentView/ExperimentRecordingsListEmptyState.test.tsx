@@ -334,6 +334,9 @@ describe('ExperimentRecordingsListEmptyState', () => {
             } as Experiment
             const logic = experimentReplayTabLogic({ experiment })
             logic.mount()
+            // The unattributed residue is the reason this setting could account for, and under the
+            // in-session default an otherwise unexplained empty list names the narrowing instead.
+            logic.actions.setExposureScope('all_exposed')
             await expectLogic(logic).toFinishAllListeners()
 
             renderEmptyState(experiment)

@@ -521,7 +521,7 @@ describe('experimentReplayTabLogic', () => {
         const scopeChanges = (): any[] =>
             captureSpy.mock.calls.filter(([event]) => event === 'experiment recordings exposure scope changed')
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.recordingsLoaded([{ id: 'rec-1' } as SessionRecordingType], true)
+        logic.actions.recordingsLoaded(loadedPage(['rec-1']), true)
 
         logic.actions.setExposureScope('all_exposed')
         await expectLogic(logic).toFinishAllListeners()
