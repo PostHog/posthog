@@ -175,14 +175,14 @@ Note: AirOps has repositioned around AI search visibility; the entire brand-kit 
 
 ## Aiven — gaps
 
-Today (9): `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `projects`, `services`, `user_groups`
+Today (13): `billing_group_projects`, `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `project_events`, `project_users`, `projects`, `services`, `user_group_members`, `user_groups`
 
 Diffed against: <https://api.aiven.io/doc/openapi.json>
 
-- [ ] `GET /project/{project}/users` — project membership join - who can access each project we already sync (high)
-- [ ] `GET /organization/{organization_id}/user-groups/{user_group_id}/members` — membership rows for the user_groups table already synced (high)
-- [ ] `GET /billing-group/{billing_group_id}/projects` — lookup mapping projects to billing groups, needed to attribute invoice_lines to projects (high)
-- [ ] `GET /project/{project}/events` — project/service audit and state-change history (high)
+- [x] `GET /project/{project}/users` — project membership join - who can access each project we already sync (high)
+- [x] `GET /organization/{organization_id}/user-groups/{user_group_id}/members` — membership rows for the user_groups table already synced (high)
+- [x] `GET /billing-group/{billing_group_id}/projects` — lookup mapping projects to billing groups, needed to attribute invoice_lines to projects (high)
+- [x] `GET /project/{project}/events` — project/service audit and state-change history (high)
 - [ ] `GET /billing-group/{billing_group_id}/credits` — credit transactions that offset the invoices already synced (medium)
 - [ ] `GET /project/{project}/service-types and /project/{project}/service-types/{service_type}/plans` — lookup resolving the service_type/plan identifiers carried on services (medium)
 - [ ] `GET /project/{project}/service/{service_name}/tags and /project/{project}/tags` — tag dimensions used for cost and ownership attribution (medium)
