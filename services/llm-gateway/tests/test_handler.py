@@ -155,6 +155,11 @@ class TestProviderFailureClassification:
             # The signatures only apply to auth-shaped statuses.
             (500, "invalid_organization", "Internal server error"),
             (400, None, "Model 'invalid_organization' is not supported"),
+            # A caller-selected model name echoed into a 400 must not pose as a credential
+            # rejection: the unquoted prose signatures are trusted only on the 401/403 the
+            # provider sends directly.
+            (400, None, "litellm.BadRequestError: model 'incorrect api key provided' not found"),
+            (400, None, "litellm.BadRequestError: model 'no such organization' not found"),
         ],
     )
     def test_other_failures_pass_the_upstream_message_through(
