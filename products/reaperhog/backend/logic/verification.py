@@ -11,7 +11,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.reaperhog.backend.facade.enums import ClusterRank, ClusterStatus, Confidence, RootKind
-from products.reaperhog.backend.logic.artefacts import EvidenceValue, Hit, Verdict, VerdictRecord
+from products.reaperhog.backend.logic.artefacts import Hit, Verdict, VerdictRecord
 from products.reaperhog.backend.logic.constants import (
     MAX_VERIFICATIONS_PER_RUN,
     VERIFICATION_INITIAL_PERMISSION_MODE,
@@ -19,6 +19,7 @@ from products.reaperhog.backend.logic.constants import (
     VERIFICATION_REASONING_EFFORT,
     VERIFICATION_RUNTIME_ADAPTER,
 )
+from products.reaperhog.backend.logic.redaction import sanitize_scout_text
 from products.reaperhog.backend.logic.sandbox import MultiTurnSession, continue_session, end_session, start_session
 from products.reaperhog.backend.logic.skill import PinnedSkill, sync_verification_skill
 from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
@@ -33,15 +34,6 @@ _HARD_FLOORS = (
     "migrations, anything under .github/, CODEOWNERS, dependency manifests and lockfiles, generated files, "
     "and public API serializers or URL confs must never appear in files_to_delete"
 )
-
-# Scout text carries values that people outside this product write: experiment names, cleanup rationales
-# built from variant keys, and git commit subjects and addresses. The values go into a delimited block in
-# the prompt of an agent that holds repository credentials. Remove control characters and angle brackets,
-# so that a crafted value cannot close </candidate_root> and open a block that imitates the prompt's own
-# control channel, and cap the length so one value cannot fill the turn. No escaping stops plain-text
-# influence, so _UNTRUSTED_EVIDENCE_RULE also labels the block as data.
-_UNSAFE_EVIDENCE_CHARS = re.compile(r"[\x00-\x1f\x7f<>]")
-_MAX_EVIDENCE_CHARS = 500
 
 # The deletion plan is handed to a write-capable agent, so these paths are refused in code and not
 # only asked for in the prompt.
@@ -149,20 +141,13 @@ def build_verification_followup_prompt(view: ClusterView) -> str:
     )
 
 
-def _sanitize_evidence(value: EvidenceValue) -> EvidenceValue:
-    if not isinstance(value, str):
-        return value
-    cleaned = re.sub(r"\s+", " ", _UNSAFE_EVIDENCE_CHARS.sub(" ", value)).strip()
-    return cleaned[:_MAX_EVIDENCE_CHARS] + "…" if len(cleaned) > _MAX_EVIDENCE_CHARS else cleaned
-
-
 def _cluster_block(view: ClusterView) -> str:
     hits = [
         {
             "scout": hit.scout.value,
-            "summary": _sanitize_evidence(hit.summary),
+            "summary": sanitize_scout_text(hit.summary),
             "decisive": hit.decisive,
-            "evidence": {key: _sanitize_evidence(value) for key, value in hit.evidence.items()},
+            "evidence": {key: sanitize_scout_text(value) for key, value in hit.evidence.items()},
         }
         for hit in view.hits
     ]
