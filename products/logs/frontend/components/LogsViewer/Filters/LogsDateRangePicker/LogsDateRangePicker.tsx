@@ -46,8 +46,9 @@ export const LogsDateRangePicker = ({ dateRange, setDateRange }: LogsDateRangePi
                 onZoom={zoomDateRange}
                 dataAvailabilityNotice={
                     <>
-                        Your logs are kept for <span translate="no">{retentionDays}</span> days, back to{' '}
-                        <span translate="no">{windowStart}</span>. Older logs have been deleted.{' '}
+                        Your logs are kept for <span translate="no">{retentionDays}</span> days by default, back to{' '}
+                        <span translate="no">{windowStart}</span>. Older logs have been deleted, unless a retention rule
+                        keeps them longer.{' '}
                         <Link to={logsRetentionSettingsUrl()} data-attr="logs-date-picker-retention">
                             Change retention
                         </Link>
@@ -56,7 +57,7 @@ export const LogsDateRangePicker = ({ dateRange, setDateRange }: LogsDateRangePi
             />
             {beyondRetention && (
                 <Tooltip
-                    title={`This range starts before ${windowStart}, which is outside your ${retentionDays}-day log retention. Logs from before then have been deleted.`}
+                    title={`This range starts before ${windowStart}, which is outside your default log retention of ${retentionDays} days. Logs from before then have been deleted, unless a retention rule keeps them longer.`}
                 >
                     <IconWarning className="text-warning self-center text-base" data-attr="logs-retention-warning" />
                 </Tooltip>
