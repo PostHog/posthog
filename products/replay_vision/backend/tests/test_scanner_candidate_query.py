@@ -820,6 +820,43 @@ class TestWindowedCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         )
 
     @pytest.mark.django_db
+    def test_exclusion_reads_succeeded_observations_only(self, team) -> None:
+        # Every terminal outcome emits `$recording_observed` now. A backfill retakes a failed
+        # observation, so pruning on a failed row would quote less work than the backfill runs.
+        window_end = _NOW - dt.timedelta(hours=1)
+        window_start = window_end - dt.timedelta(days=1)
+        observed_at = window_end - dt.timedelta(minutes=30)
+        for session_id, status in (("ok-sess", "succeeded"), ("failed-sess", "failed"), ("inelig-sess", "ineligible")):
+            end = window_end - dt.timedelta(hours=2)
+            self._produce(team.id, session_id, end - dt.timedelta(minutes=10), end)
+            _create_event(
+                team=team,
+                event="$recording_observed",
+                distinct_id="d1",
+                timestamp=observed_at,
+                properties={"session_id": session_id, "scanner_id": "scanner-1", "status": status},
+            )
+        # A row from before the event carried a status: it must keep pruning its session.
+        legacy_end = window_end - dt.timedelta(hours=2)
+        self._produce(team.id, "legacy-sess", legacy_end - dt.timedelta(minutes=10), legacy_end)
+        _create_event(
+            team=team,
+            event="$recording_observed",
+            distinct_id="d1",
+            timestamp=observed_at,
+            properties={"session_id": "legacy-sess", "scanner_id": "scanner-1"},
+        )
+
+        candidates = self._query(
+            team=team,
+            window_start=window_start,
+            window_end=window_end,
+            exclude_observed_by_scanner="scanner-1",
+        ).run()
+
+        assert sorted(c.session_id for c in candidates) == ["failed-sess", "inelig-sess"]
+
+    @pytest.mark.django_db
     def test_rejects_inverted_window(self, team) -> None:
         with pytest.raises(ValueError, match="window_start must be before window_end"):
             self._query(team=team, window_start=_NOW, window_end=_NOW - dt.timedelta(days=1))

@@ -24,6 +24,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 )
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import GROUP_KEY_RESOLUTION_QUERY_TYPE
 
+from products.replay_vision.backend.models.replay_observation import ObservationStatus
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -72,7 +73,8 @@ DEFAULT_CANDIDATE_LIMIT = 5_000
 CANDIDATE_SCAN_LIMIT = 2_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
-# Emitted by `emit_observation_event_activity` once an observation succeeds.
+# Emitted by `emit_observation_event_activity` once an observation reaches a terminal state;
+# `properties.status` says which one.
 OBSERVATION_EVENT_NAME = "$recording_observed"
 
 # Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
@@ -689,9 +691,13 @@ class WindowedCandidateQuery:
 
         Reads the event rather than shipping observation ids over from Postgres, so the exclusion is
         a plain ClickHouse join with no cross-database list and no size ceiling. The trade-off is that
-        the event is only emitted on the success path, and fail-soft even there, so ineligible,
-        failed, and in-flight observations stay in the count. Those cannot produce a second
-        observation (the unique constraint blocks it), which is why the total is an upper bound.
+        only succeeded rows are read, and fail-soft even there, so ineligible, failed, and in-flight
+        observations stay in the count. Those cannot produce a second observation (the unique
+        constraint blocks it), which is why the total is an upper bound.
+
+        Terminal non-success outcomes emit the same event, so the status filter below holds the
+        selected set to exactly what it was before they did. It must stay: a backfill retakes a
+        failed observation, so pruning on a failed row would quote less work than the backfill runs.
         """
         observed = ast.SelectQuery(
             select=[ast.Field(chain=["properties", "session_id"])],
@@ -707,6 +713,13 @@ class WindowedCandidateQuery:
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["properties", "scanner_id"]),
                         right=ast.Constant(value=scanner_id),
+                    ),
+                    # Rows emitted before the event carried a status have none; `NOT IN` keeps them,
+                    # which is what holds the pre-existing selection fixed.
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotIn,
+                        left=ast.Field(chain=["properties", "status"]),
+                        right=ast.Constant(value=[ObservationStatus.FAILED.value, ObservationStatus.INELIGIBLE.value]),
                     ),
                     # An observation is always emitted after its session ended, so the window's own
                     # lower bound prunes partitions without ever excluding a relevant event.

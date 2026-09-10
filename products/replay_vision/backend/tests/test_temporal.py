@@ -1500,6 +1500,85 @@ class TestEmitObservationEventActivity:
         assert properties["$group_0"] == "acme-inc"
         assert "$groups" not in properties
 
+    def test_failed_observation_emits_its_outcome_with_no_model_output(self) -> None:
+        # Without this row the events table only ever holds the scans that worked, so no query can
+        # report a failure rate, per trigger or otherwise.
+        scanner = _make_scanner()
+        observation = _make_observation(
+            scanner,
+            status=ObservationStatus.FAILED,
+            error_reason="provider_rejected:Gemini file files/abc123 reached non-ACTIVE state 'FAILED'",
+            completed_at=timezone.now(),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(EmitObservationEventInputs(observation_id=observation.id))
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["status"] == ObservationStatus.FAILED
+        assert properties["error_kind"] == "provider_rejected"
+        assert properties["triggered_by"] == ObservationTrigger.ON_DEMAND
+        assert not [key for key in properties if key.startswith("scanner_output_")]
+
+    def test_the_message_half_of_the_reason_stays_out_of_the_event(self) -> None:
+        # `error_reason` quotes provider file ids and other internals; the kind is the whole
+        # aggregation axis, so only the kind is published.
+        scanner = _make_scanner()
+        observation = _make_observation(
+            scanner,
+            status=ObservationStatus.FAILED,
+            error_reason="provider_rejected:Gemini file files/abc123 reached non-ACTIVE state 'FAILED'",
+            completed_at=timezone.now(),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(EmitObservationEventInputs(observation_id=observation.id))
+
+        assert "files/abc123" not in str(capture.call_args.kwargs["properties"])
+
+    def test_ineligible_observation_emits_its_kind(self) -> None:
+        # Ineligible is a normal outcome, and telling it apart from a failure is what stops a healthy
+        # scanner reading as a broken one.
+        scanner = _make_scanner()
+        observation = _make_observation(
+            scanner,
+            status=ObservationStatus.INELIGIBLE,
+            error_reason="too_long:4004.2s of active interaction; max is 3600s",
+            completed_at=timezone.now(),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(EmitObservationEventInputs(observation_id=observation.id))
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["status"] == ObservationStatus.INELIGIBLE
+        assert properties["error_kind"] == "too_long"
+
+    def test_succeeded_observation_carries_its_status_and_no_error_kind(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(
+                EmitObservationEventInputs(
+                    observation_id=observation.id,
+                    model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+                )
+            )
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["status"] == ObservationStatus.SUCCEEDED
+        assert "error_kind" not in properties
+        assert properties["scanner_output_verdict"] == "yes"
+
 
 def _counter_value(metric_name: str, **labels: str) -> float:
     return REGISTRY.get_sample_value(metric_name, labels) or 0.0
@@ -2537,7 +2616,7 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     assert mark_observation_failed_activity in called
     assert mocks.child_calls == []
 
-    failed_input = mocks.activity_calls[-1][1]
+    failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
     assert failed_input.observation_id == new_observation_id
     assert "no events" in failed_input.error_reason.lower()
 
@@ -2591,7 +2670,8 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     other = mark_observation_failed_activity if expect_ineligible else mark_observation_ineligible_activity
     assert terminal in called
     assert other not in called
-    assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
+    terminal_input = next(arg for fn, arg in mocks.activity_calls if fn is terminal)
+    assert terminal_input.error_reason.startswith(f"{expected_kind}:")
     # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
     assert upload_video_to_gemini_activity not in called
 
@@ -2643,7 +2723,8 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
     called = {fn for fn, _ in mocks.activity_calls}
     assert mark_observation_failed_activity in called
     assert mark_observation_ineligible_activity not in called
-    assert mocks.activity_calls[-1][1].error_reason == expected_reason
+    failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
+    assert failed_input.error_reason == expected_reason
 
     if expected_kind is FailureKind.INFRA_TRANSIENT:
         # `from None` keeps the volatile cause out of the chain error tracking serializes, so the outage
@@ -2765,6 +2846,54 @@ async def test_apply_scanner_workflow_marks_failed_when_mark_running_fails() -> 
 
     failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
     assert failed_input.observation_id == new_observation_id
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_emits_the_event_for_a_failed_observation() -> None:
+    # The failure path published nothing before, which is why an inline scan that only ever failed
+    # left no trace anywhere: it belongs to no saved scanner, so no scanner page shows it either.
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        activity_errors={upload_video_to_gemini_activity: ApplicationError("provider rejected", non_retryable=True)},
+    )
+
+    with pytest.raises(ApplicationError, match="provider rejected"):
+        await _run_workflow(_build_inputs(session_id="sess-failed"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_failed_activity in called
+    emit_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_event_activity)
+    assert emit_input.observation_id == new_observation_id
+    # The event is read back from the row the mark activity wrote, so the payload carries no output.
+    assert emit_input.model_output is None
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_keeps_its_own_failure_when_the_terminal_event_fails() -> None:
+    # Emission is advisory on this path too: an events outage must not replace the reason the scan failed.
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        activity_errors={
+            upload_video_to_gemini_activity: ApplicationError("provider rejected", non_retryable=True),
+            emit_observation_event_activity: RuntimeError("kafka down"),
+        },
+    )
+
+    with pytest.raises(ApplicationError, match="provider rejected"):
+        await _run_workflow(_build_inputs(session_id="sess-failed-flaky"), mocks)
+
+    assert mark_observation_failed_activity in {fn for fn, _ in mocks.activity_calls}
 
 
 @pytest.mark.asyncio

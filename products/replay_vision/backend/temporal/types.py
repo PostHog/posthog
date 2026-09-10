@@ -292,4 +292,5 @@ class EmitObservationEventInputs(BaseModel, frozen=True):
     """Payload for the `$recording_observed` capture."""
 
     observation_id: UUID
-    model_output: AnyScannerOutput
+    # None on terminal non-success statuses: there is no model output, the event carries the outcome alone.
+    model_output: AnyScannerOutput | None = None

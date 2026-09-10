@@ -1,4 +1,4 @@
-"""Emit the `$recording_observed` event with the scanner output to the customer's events table."""
+"""Emit the `$recording_observed` event with the scan outcome to the customer's events table."""
 
 from datetime import UTC, datetime
 
@@ -26,7 +26,12 @@ _EVENT_SOURCE = "replay_vision"
 @activity.defn
 @track_activity(side_effect="event")
 async def emit_observation_event_activity(inputs: EmitObservationEventInputs) -> None:
-    """Capture the `$recording_observed` event into the customer's events table; dedup-keyed by observation_id."""
+    """Capture the `$recording_observed` event into the customer's events table; dedup-keyed by observation_id.
+
+    Runs on every terminal outcome, not just success: `status` and `error_kind` are what make failure
+    rate queryable per `triggered_by`, and they are the only view of an inline scan, which belongs to
+    no saved scanner and so appears on no scanner page.
+    """
     await database_sync_to_async(_emit_event, thread_sensitive=False)(inputs)
 
 
@@ -68,8 +73,10 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         # Priced at emit time, so it can drift from quota.py's repriced-at-current-rates totals.
         "credits": observation_credits_for_model(snapshot.model),
         "emits_signals": snapshot.emits_signals,
+        "status": str(observation.status),
+        **_failure_properties(observation),
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
-        **inputs.model_output.to_event_properties(),
+        **(inputs.model_output.to_event_properties() if inputs.model_output is not None else {}),
         **_group_properties(team, observation),
     }
     distinct_id = (
@@ -91,6 +98,13 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         event_uuid=str(observation.id),
     )
     result.raise_for_status()
+
+
+def _failure_properties(observation: ReplayObservation) -> dict:
+    """The kind half of `error_reason` only; the message half quotes provider ids and other internals."""
+    if not observation.error_reason:
+        return {}
+    return {"error_kind": observation.error_reason.split(":", 1)[0]}
 
 
 def _group_properties(team: Team, observation: ReplayObservation) -> dict:
