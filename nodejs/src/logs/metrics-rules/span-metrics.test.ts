@@ -76,6 +76,22 @@ describe('span-based metric rules', () => {
             expect(rules).toHaveLength(1)
             expect(rules[0]!.groupBy).toEqual(['name', 'status_code', 'service_name'])
         })
+
+        it.each([['name'], ['status_code']])('rejects a log rule grouping by span-only key %s', (key) => {
+            const rules = compileMetricRules([spanRuleRow({ source: 'logs', group_by: [key] })])
+            expect(rules).toHaveLength(0)
+        })
+
+        it('rejects a log rule aggregating the duration_ms span pseudo-key', () => {
+            const rules = compileMetricRules([spanRuleRow({ source: 'logs', value_attribute: SPAN_VALUE_DURATION_MS })])
+            expect(rules).toHaveLength(0)
+        })
+
+        it('partitions a mixed rule set by record source', () => {
+            const rules = compileMetricRules([spanRuleRow(), spanRuleRow({ id: 'log-rule-1', source: 'logs' })])
+            expect(rules.filter((r) => r.source === 'spans').map((r) => r.id)).toEqual(['span-rule-1'])
+            expect(rules.filter((r) => r.source === 'logs').map((r) => r.id)).toEqual(['log-rule-1'])
+        })
     })
 
     describe('tallyRecords for spans', () => {

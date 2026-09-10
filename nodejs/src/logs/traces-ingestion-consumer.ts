@@ -1,11 +1,14 @@
 import { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './config'
 import { LogsIngestionConsumer, LogsIngestionConsumerDeps } from './logs-ingestion-consumer'
+import type { MetricRuleSource } from './metrics-rules/compile-metric-rules'
 
 export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override name = 'TracesIngestionConsumer'
     // Meter and quota-limit traces against their own billing identity, not logs'.
     protected override quotaResource = 'traces_mb_ingested' as const
     protected override appSource = 'traces'
+    // Traces records are spans, so this consumer tallies the `spans` metric rules.
+    protected override metricRuleSource: MetricRuleSource = 'spans'
 
     constructor(config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig, deps: LogsIngestionConsumerDeps) {
         // Topics are wired into `deps.outputs` by the server, so the only consumer-level
