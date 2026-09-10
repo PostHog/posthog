@@ -1,6 +1,6 @@
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _render_recommendations_appendix
-from products.subscriptions.backend.facade.proactive import RecommendationAppendixDTO
 from products.subscriptions.backend.facade.contracts import Recommendation, RecommendationCitation
+from products.subscriptions.backend.facade.proactive import RecommendationAppendixDTO
 
 
 def test_pulse_appendix_is_bounded_and_deterministic() -> None:
