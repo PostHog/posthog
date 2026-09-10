@@ -122,6 +122,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         child_team = Team.objects.create(
             organization=self.organization,
             parent_team=self.team,
+            project=self.team.project,
             name="Child environment",
         )
 
@@ -169,6 +170,8 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
             )
         with self.assertRaises(logic.GeneratedSourceReadOnlyError):
             logic.delete_source(result.source_id, self.team.id)
+        with self.assertRaises(logic.GeneratedSourceReadOnlyError):
+            logic.claim_refresh_source(source_id=result.source_id, team_id=self.team.id)
 
     def test_generated_source_does_not_consume_user_source_quota(self) -> None:
         api.create_generated_knowledge_document(self._input())
@@ -243,6 +246,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         [
             ("ticket_in_title", "10000000-0000-0000-0000-000000000001", "Valid content"),
             ("ticket_in_content", "Valid title", "See ticket 10000000-0000-0000-0000-000000000001."),
+            ("ticket_hex_in_content", "Valid title", "See ticket 10000000000000000000000000000001."),
             ("comment_in_title", "20000000-0000-0000-0000-000000000002", "Valid content"),
             ("comment_in_content", "Valid title", "See comment 20000000-0000-0000-0000-000000000002."),
         ]

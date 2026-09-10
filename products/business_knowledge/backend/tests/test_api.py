@@ -189,6 +189,21 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert KnowledgeSource.objects.unscoped().filter(id=source_id).exists()
 
+    def test_generated_refresh_is_rejected_before_processing_source_checks(self, _ff) -> None:
+        source_id = self._create_generated_source()
+        processing_source = KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Refreshing URL",
+            source_type="url",
+            status="processing",
+        )
+
+        response = self.client.post(f"{self.url}{source_id}/refresh/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        processing_source.refresh_from_db()
+        assert processing_source.status == "processing"
+
     def test_generated_source_cannot_be_created_through_api(self, _ff) -> None:
         response = self.client.post(
             self.url,

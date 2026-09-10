@@ -40,8 +40,9 @@ def _validate_input(document_input: CreateGeneratedKnowledgeDocument) -> tuple[s
         raise InvalidGeneratedKnowledgeDocument("content is too large")
     combined_content = f"{title}\n{content}".lower()
     if any(
-        str(provenance_id).lower() in combined_content
+        identifier in combined_content
         for provenance_id in (document_input.ticket_id, document_input.resolution_comment_id)
+        for identifier in (str(provenance_id).lower(), provenance_id.hex.lower())
     ):
         raise InvalidGeneratedKnowledgeDocument("provenance identifiers cannot appear in generated content")
 
@@ -170,13 +171,6 @@ def _create_generated_document(
             "content_hash": sha256_of(content),
             "safety_verdict": SafetyVerdict.UNKNOWN,
         },
-    )
-    _validate_existing_document(
-        document,
-        expected_id=document_id,
-        source=source,
-        stable_id=stable_id,
-        team_id=team_id,
     )
     if not created:
         return document, False

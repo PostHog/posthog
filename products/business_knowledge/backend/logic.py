@@ -1065,6 +1065,12 @@ def claim_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource:
     invariant. Raises `SourceBusyError` / `InvalidUrlError` synchronously so
     the API can return 409 / 400 before kicking off the workflow.
     """
+    try:
+        existing_source = KnowledgeSource.objects.only("is_generated").get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        raise
+    _ensure_user_managed_source(existing_source)
+
     with transaction.atomic():
         _check_source_quota_locked(team_id, reject_if_processing=True)
         try:
