@@ -1891,6 +1891,8 @@ export interface TrendsFilterApi {
     smoothingIntervals?: number | null
     /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
     stackBreakdownValues?: boolean | null
+    /** Render only these annotations on the chart, by annotation ID. Unset or empty renders every annotation in the chart's date range. Has no effect when `showAnnotations` is false. */
+    visibleAnnotationIds?: number[] | null
     /** Custom label rendered under the X axis. */
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */
@@ -2246,6 +2248,8 @@ export interface FunnelsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     useUdf?: boolean | null
+    /** Render only these annotations on the chart, by annotation ID. Unset or empty renders every annotation in the chart's date range. Has no effect when `showAnnotations` is false. */
+    visibleAnnotationIds?: number[] | null
 }
 
 export interface FunnelsQueryResponseApi {
