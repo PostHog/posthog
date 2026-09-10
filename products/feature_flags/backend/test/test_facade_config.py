@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -8,7 +9,6 @@ from products.feature_flags.backend.facade.config import (
     ConfigFormat,
     ConfigFormatError,
     ConfigV2,
-    ExperimentRuleIdentity,
     RuleV2,
     detect_config_format,
     parse_v2_config,
@@ -127,12 +127,12 @@ class TestParseV2Config:
             return_type="boolean",
             default_value=False,
             rules=(
-                RuleV2(id="11111111-1111-4111-8111-111111111111", rule_type="targeted_release", experiment=None),
-                RuleV2(id="22222222-2222-4222-8222-222222222222", rule_type="percentage_rollout", experiment=None),
+                RuleV2(id="11111111-1111-4111-8111-111111111111", rule_type="targeted_release", experiment_id=None),
+                RuleV2(id="22222222-2222-4222-8222-222222222222", rule_type="percentage_rollout", experiment_id=None),
                 RuleV2(
                     id="44444444-4444-4444-8444-444444444444",
                     rule_type="experiment",
-                    experiment=ExperimentRuleIdentity(rule_id="44444444-4444-4444-8444-444444444444", experiment_id=42),
+                    experiment_id=42,
                 ),
             ),
             aggregation_group_type_index=None,
@@ -142,7 +142,9 @@ class TestParseV2Config:
         assert parse_v2_config(V2_STRING_GROUP_ASSIGNMENT) == ConfigV2(
             return_type="string",
             default_value="standard",
-            rules=(RuleV2(id="55555555-5555-4555-8555-555555555555", rule_type="percentage_rollout", experiment=None),),
+            rules=(
+                RuleV2(id="55555555-5555-4555-8555-555555555555", rule_type="percentage_rollout", experiment_id=None),
+            ),
             aggregation_group_type_index=0,
         )
 
@@ -153,12 +155,50 @@ class TestParseV2Config:
 
     @parameterized.expand(
         [
-            ("v1_document", {"groups": [{"properties": [], "rollout_percentage": 100}]}),
-            ("version_string", {**V2_BOOLEAN_ALL_RULE_TYPES, "version": "2"}),
-            ("unknown_future_version", {**V2_BOOLEAN_ALL_RULE_TYPES, "version": 3}),
+            ("v1_document", {"groups": [{"properties": [], "rollout_percentage": 100}]}, "v1"),
+            ("version_string", {**V2_BOOLEAN_ALL_RULE_TYPES, "version": "2"}, "unsupported"),
+            ("unknown_future_version", {**V2_BOOLEAN_ALL_RULE_TYPES, "version": 3}, "unsupported"),
+            ("untrusted_version", {**V2_BOOLEAN_ALL_RULE_TYPES, "version": "<untrusted-version>"}, "unsupported"),
         ]
     )
-    def test_non_v2_formats_are_rejected(self, _name, filters):
+    def test_non_v2_formats_are_rejected(self, _name, filters, expected_kind):
         with pytest.raises(ConfigFormatError) as exc_info:
             parse_v2_config(filters)
-        assert exc_info.value.config_format.kind != "v2"
+        assert exc_info.value.config_format.kind == expected_kind
+        assert exc_info.value.config_format.raw_version == filters.get("version")
+        assert str(exc_info.value) == f"config format {expected_kind!r} is not handled here"
+
+    @parameterized.expand(
+        [
+            ("return_type", None, "return_type"),
+            ("default_value", None, "default_value"),
+            ("rules", None, "rules"),
+            ("rule_id", 0, "id"),
+            ("rule_type", 0, "rule_type"),
+            ("experiment_id", 2, "experiment_id"),
+        ]
+    )
+    def test_missing_required_keys_are_rejected(self, _name: str, rule_index: int | None, key: str) -> None:
+        filters = deepcopy(V2_BOOLEAN_ALL_RULE_TYPES)
+        target = filters if rule_index is None else filters["rules"][rule_index]
+        del target[key]
+
+        with pytest.raises(KeyError) as exc_info:
+            parse_v2_config(filters)
+        assert exc_info.value.args == (key,)
+
+    @parameterized.expand(
+        [
+            ("unknown_return_type", "return_type", "future_return_type", "Unsupported feature flag return type"),
+            ("null_return_type", "return_type", None, "Unsupported feature flag return type"),
+            ("removed_rule_type", "rule_type", "variant_rollout", "Unsupported feature flag rule type"),
+            ("null_rule_type", "rule_type", None, "Unsupported feature flag rule type"),
+        ]
+    )
+    def test_unsupported_types_are_rejected(self, _name: str, key: str, value: object, message: str) -> None:
+        filters = deepcopy(V2_BOOLEAN_ALL_RULE_TYPES)
+        target = filters if key == "return_type" else filters["rules"][0]
+        target[key] = value
+
+        with pytest.raises(ValueError, match=message):
+            parse_v2_config(filters)

@@ -9,7 +9,7 @@ unrelated to ``filters.version``.
 Detection follows the Feature Flag Rules v2 contract: an absent ``version`` or a number that
 equals 1 selects v1, a number that equals 2 selects v2, and everything else is unsupported.
 A JSON string or boolean never selects a version. An unsupported document is never read as
-v1, so a reader with only a v1 arm checks the format before it touches any v1 key.
+v1, so a reader with only a v1 branch checks the format before it touches any v1 key.
 
 The v2 DTOs are structural reads of a stored document. They carry the fields later consumers
 route on (return type, ordered rule identities, experiment identity) and nothing else. The
@@ -20,7 +20,7 @@ modules import this at module level.
 """
 
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from posthog.dataclasses import frozen
 
@@ -38,12 +38,10 @@ class ConfigFormat:
 
 
 class ConfigFormatError(ValueError):
-    """A reader received a stored config in a format it has no arm for."""
+    """A reader received a stored config in a format it does not support."""
 
     def __init__(self, config_format: ConfigFormat) -> None:
-        super().__init__(
-            f"config format {config_format.kind!r} (version={config_format.raw_version!r}) is not handled here"
-        )
+        super().__init__(f"config format {config_format.kind!r} is not handled here")
         self.config_format = config_format
 
 
@@ -62,16 +60,14 @@ def detect_config_format(filters: Mapping[str, Any] | None) -> ConfigFormat:
 
 
 @frozen
-class ExperimentRuleIdentity:
-    rule_id: str
-    experiment_id: int
-
-
-@frozen
 class RuleV2:
     id: str
     rule_type: RuleType
-    experiment: ExperimentRuleIdentity | None
+    experiment_id: int | None
+
+    def __post_init__(self) -> None:
+        if self.rule_type not in get_args(RuleType):
+            raise ValueError("Unsupported feature flag rule type")
 
 
 @frozen
@@ -81,12 +77,17 @@ class ConfigV2:
     rules: tuple[RuleV2, ...]  # stored order, which is evaluation order
     aggregation_group_type_index: int | None
 
+    def __post_init__(self) -> None:
+        if self.return_type not in get_args(FlagReturnType):
+            raise ValueError("Unsupported feature flag return type")
+
 
 def parse_v2_config(filters: Mapping[str, Any]) -> ConfigV2:
     """Structural read of a stored v2 document.
 
-    Validates nothing: the write boundary owns that. A document that reached storage without a
-    required key fails here with a KeyError instead of being coerced into a partial read.
+    Checks the return type and rule types so consumers can dispatch on their closed sets.
+    The write boundary owns full schema validation. Missing required keys raise KeyError
+    instead of being coerced into a partial read.
     """
     config_format = detect_config_format(filters)
     if config_format.kind != "v2":
@@ -104,7 +105,5 @@ def _rule_v2(rule: Mapping[str, Any]) -> RuleV2:
     return RuleV2(
         id=rule["id"],
         rule_type=rule_type,
-        experiment=ExperimentRuleIdentity(rule_id=rule["id"], experiment_id=rule["experiment_id"])
-        if rule_type == "experiment"
-        else None,
+        experiment_id=rule["experiment_id"] if rule_type == "experiment" else None,
     )

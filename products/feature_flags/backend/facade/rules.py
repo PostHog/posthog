@@ -5,7 +5,7 @@ A v1 flag hosting an experiment is a single implicit experiment rule: the flag-w
 flag-level holdout/aggregation settings. This module derives that normalized rule
 config from the v1 ``filters`` format behind a format check, so a document in another
 config format is never read as v1. When the rule-level flag model lands, the
-derivation gains a v2 arm and consumers are untouched.
+derivation gains a v2 branch and consumers are untouched.
 
 The DTO stays deliberately minimal while the rule-level model is being designed:
 no seed handling, no reason mapping. It is the seam for the format swap — do not
@@ -39,9 +39,8 @@ def experiment_rule_from_filters(current_filters: dict) -> ExperimentRuleConfig:
     """Derive the implicit experiment rule from a flag's ``filters`` dict.
 
     Only config version 1 carries an implicit rule. Any other format raises
-    ``ConfigFormatError`` before a single v1 key is read, because a v2 or unsupported
-    document has no ``groups`` or ``multivariate`` and would otherwise read as an
-    empty v1 rule.
+    ``ConfigFormatError`` before any v1 key is read. Legacy filters can carry stray
+    ``version`` keys, so an unsupported discriminator does not imply a v2 shape.
     """
     config_format = detect_config_format(current_filters)
     if config_format.kind != "v1":
@@ -50,7 +49,9 @@ def experiment_rule_from_filters(current_filters: dict) -> ExperimentRuleConfig:
 
 
 def _v1_experiment_rule(current_filters: dict) -> ExperimentRuleConfig:
-    """Tolerant of legacy null/partial shapes: an explicit null ``multivariate`` reads as no
+    """Derive the implicit experiment rule from a v1 ``filters`` dict.
+
+    Tolerant of legacy null/partial shapes: an explicit null ``multivariate`` reads as no
     variants, and a holdout without an ``id`` reads as no holdout.
     """
     groups = current_filters.get("groups") or []

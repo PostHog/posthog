@@ -819,13 +819,25 @@ class TestExperimentRuleFromFilters:
 
     @parameterized.expand(
         [
-            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}),
-            ("version_string", {"version": "1", "groups": [{"properties": [], "rollout_percentage": 40}]}),
-            ("version_boolean", {"version": True, "groups": [{"properties": [], "rollout_percentage": 40}]}),
-            ("unknown_future_version", {"version": 3, "groups": [{"properties": [], "rollout_percentage": 40}]}),
+            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}, "v2"),
+            (
+                "version_string",
+                {"version": "1", "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "version_boolean",
+                {"version": True, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "unknown_future_version",
+                {"version": 3, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
         ]
     )
-    def test_non_v1_formats_do_not_enter_the_v1_arm(self, _name, filters):
+    def test_non_v1_formats_do_not_enter_the_v1_branch(self, _name, filters, expected_kind):
         with pytest.raises(ConfigFormatError) as exc_info:
             experiment_rule_from_filters(filters)
-        assert exc_info.value.config_format.kind != "v1"
+        assert exc_info.value.config_format.kind == expected_kind

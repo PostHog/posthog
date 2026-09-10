@@ -49,6 +49,15 @@ All in `posthog/api/feature_flag.py` unless noted otherwise.
 
 Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked — use `PATCH` with `deleted: true` for soft delete.
 
+The v1 write API rejects an incoming `filters.version` key with HTTP 400 and code
+`reserved_config_version`, regardless of `FEATURE_FLAG_FILTERS_ENFORCED_RULES`.
+Omit that key when creating or updating targeting. The top-level `version` field
+still provides optimistic concurrency control.
+
+This check does not migrate existing filters with a stray `version` key. Reads and
+updates that omit filters keep their existing behavior. The experiment-rule accessor
+rejects stored filters whose config discriminator is v2 or unsupported.
+
 ### Custom actions
 
 | Method | URL                                                     | Description                                                                     |
