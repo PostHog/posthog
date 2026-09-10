@@ -45,7 +45,7 @@ from posthog.api.services.flags_service import (
     batch_evaluate_flag_for_team,
 )
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, parse_actor_property_filters
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
@@ -1847,14 +1847,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         cohort_properties: list[dict] = [{"type": "cohort", "key": "id", "value": cohort.pk}]
-        request_properties = request.GET.get("properties")
-        if request_properties:
-            for prop in json.loads(request_properties):
-                # Legacy person filters default to the "exact" operator when none is given;
-                # ActorsQuery's PersonPropertyFilter requires it explicitly.
-                if prop.get("type") != "cohort":
-                    prop.setdefault("operator", "exact")
-                cohort_properties.append(prop)
+        cohort_properties.extend(parse_actor_property_filters(request.GET.get("properties")))
 
         actors_query = ActorsQuery(
             select=["id"],

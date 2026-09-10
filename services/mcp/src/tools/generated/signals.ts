@@ -714,6 +714,9 @@ const scoutConfigUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -1525,6 +1528,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutConfigUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }

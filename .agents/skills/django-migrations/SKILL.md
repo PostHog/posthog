@@ -25,10 +25,28 @@ Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNN
 To retire a model/table:
 
 1. Remove all usage and the model class. `makemigrations`, then wrap the generated `DeleteModel` in `migrations.SeparateDatabaseAndState(state_operations=[...])` (state only, no DB change). KEEP this file. Keep the app in `INSTALLED_APPS`.
+   **If the model has a `ForeignKey` to `posthog_team`, `posthog_user`, `posthog_organization` or `posthog_project`, drop that constraint in `database_operations` in this same migration.** This is required, not a cleanup. Django stops cascading into a table it can no longer see, so the child rows survive a parent delete. Those constraints are `DEFERRABLE INITIALLY DEFERRED`, so the parent delete runs its whole cascade and then fails at `COMMIT`, and team and organization deletion stay broken until someone drops the table.
 2. Deploy, wait at least one full deploy cycle.
-3. Optionally `DROP TABLE` later in a NEW `RunSQL` migration — never by deleting old files.
+3. `DROP TABLE` later in a NEW `RunSQL` migration — never by deleting old files. Treat this as owed work rather than an option whenever step 1 left a foreign key to a hot parent in place.
+   `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its foreign keys reference, so a drop that still points at a hot parent must `SET LOCAL lock_timeout` to bound the wait. See [hot table hazard](#hot-table-hazard).
+   `python manage.py audit_orphan_hot_table_fks` lists tables already in this state. Run it against a long-lived database: a squashed history has no `CreateModel` for a table that left Django's state before the squash, so a fresh database never creates it and the migration files hold no trace of it.
 
 Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
+
+## Retire a column in two phases
+
+Deleting the field and running `makemigrations` is not the first phase.
+Django generates a plain `RemoveField`, which drops the column in the same deploy that removes the code.
+Old pods still write to that column, and a rollback finds it gone.
+
+1. Remove all usage and the field from the model. `makemigrations`, then wrap the generated `RemoveField` in `migrations.SeparateDatabaseAndState(state_operations=[...], database_operations=[])`. The column stays in Postgres. Example: `posthog/migrations/1328_remove_userproductlist_reason_state.py`.
+2. Deploy, wait at least one full deploy cycle, and confirm no deployed code reads the column.
+3. Drop the column in a NEW `RunSQL` migration with `ALTER TABLE ... DROP COLUMN IF EXISTS`. Example: `posthog/migrations/1340_drop_userproductlist_reason_columns.py`.
+
+`RemoveFieldAnalyzer` scores a bare `RemoveField` at 5, the highest risk the "Migration Risk Analysis" CI job reports.
+The phase 2 drop scores low only when `check_drop_properly_staged` finds the phase 1 state removal in an ancestor migration, so the two phases must land in that order and never in one migration.
+
+Full guide: `safe-django-migrations.md` (`## Dropping Columns`).
 
 ## Retire dedicated migration tests
 

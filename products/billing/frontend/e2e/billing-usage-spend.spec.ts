@@ -1,8 +1,5 @@
-import { mockFeatureFlags } from '@playwright-utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
 import { Locator, Page } from '@playwright/test'
-
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 
@@ -192,7 +189,6 @@ test.describe('Billing usage and spend', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
-        await mockFeatureFlags(page, { [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true })
         await playwrightSetup.login(page, workspace)
     })
 
