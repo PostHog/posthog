@@ -22,7 +22,8 @@ import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
 
 import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsReportsViewedCreate } from 'products/signals/frontend/generated/api'
+import { signalsReportsRefreshMetricsCreate, signalsReportsViewedCreate } from 'products/signals/frontend/generated/api'
+import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     captureInboxReportClosed,
@@ -52,6 +53,7 @@ import {
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
 import { isInboxRedesignEnabled } from './utils/inboxRedesign'
 import { inboxTabRedirectPath } from './utils/inboxReportUrls'
+import { mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
 
 // Newest-first scout runs to pull for the Runs panel. The scout-runs endpoint caps at 100 server-side.
@@ -162,13 +164,19 @@ function clearScratchpadSearch(): void {
     }
 }
 
-function findLoadedReport(id: string): SignalReport | null {
-    for (const sectionKey of Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]) {
+function mountedReportLists(): ReturnType<typeof reportListLogic.build>[] {
+    return (Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]).flatMap((sectionKey) => {
         const mounted = reportListLogic.findMounted({
             sectionKey,
             listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
         })
-        const found = mounted?.values.reports.find((r: SignalReport) => r.id === id)
+        return mounted ? [mounted] : []
+    })
+}
+
+function findLoadedReport(id: string): SignalReport | null {
+    for (const mounted of mountedReportLists()) {
+        const found = mounted.values.reports.find((r: SignalReport) => r.id === id)
         if (found) {
             return found
         }
@@ -353,6 +361,9 @@ export interface inboxSceneLogicActions {
         variants: Record<string, boolean | string>
     } // featureFlagLogic
     loadSourceConfigs: () => any // signalSourcesLogic
+    applySelectedReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => {
+        snapshots: SignalReportMetricSnapshotsApi[]
+    }
     loadRuns: (_payload: void) => void
     loadRunsFailure: (
         error: string,
@@ -388,6 +399,9 @@ export interface inboxSceneLogicActions {
         payload?: {
             id: string
         }
+    }
+    refreshSelectedReportMetrics: (id: string) => {
+        id: string
     }
     reportDetailScrolled: () => {
         value: true
@@ -477,6 +491,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // Seed (or clear) the selected report synchronously from an already-loaded list row, so the
         // detail renders without a spinner while the authoritative fetch runs in the background.
         seedSelectedReport: (report: SignalReport | null) => ({ report }),
+        // Ask the server for the newest snapshot of the open report's metrics. Best effort: a failure
+        // leaves the saved snapshot in place, and the detail shows the live query result anyway.
+        refreshSelectedReportMetrics: (id: string) => ({ id }),
+        applySelectedReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => ({ snapshots }),
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
         // Scout detail surface: selecting a scout opens its full-width detail over the list. An
         // optional finding id deep-links to one emitted finding within that scout (highlighted +
@@ -577,6 +595,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // dispatches `seedSelectedReport` in the same tick, so we never flash through a stale
             // report or a spinner when the row is already loaded. The loader repopulates it on fetch.
             seedSelectedReport: (_, { report }) => report,
+            // Only the numbers change: the report keeps its prose and queries as loaded.
+            applySelectedReportMetricSnapshots: (state, { snapshots }) =>
+                state ? mergeReportMetricSnapshots(state, snapshots) : state,
         },
         selectedReportId: [
             null as string | null,
@@ -857,6 +878,29 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // scout from being auto-paused as ignored. The analytics event above stays the rich
             // record (rank, open method, dwell), so a failure here is swallowed.
             void signalsReportsViewedCreate(String(teamLogic.values.currentTeamId), report.id).catch(() => {})
+            if (reportNeedsMetricRefresh(report, Date.now())) {
+                actions.refreshSelectedReportMetrics(report.id)
+            }
+        },
+        refreshSelectedReportMetrics: async ({ id }, breakpoint) => {
+            let response: Awaited<ReturnType<typeof signalsReportsRefreshMetricsCreate>>
+            try {
+                response = await signalsReportsRefreshMetricsCreate(String(teamLogic.values.currentTeamId), {
+                    report_ids: [id],
+                })
+            } catch {
+                return
+            }
+            breakpoint()
+            if (values.selectedReportId !== id) {
+                return
+            }
+            const snapshots = [...response.reports]
+            actions.applySelectedReportMetricSnapshots(snapshots)
+            // The row for this report in every loaded list shows the same number.
+            for (const mounted of mountedReportLists()) {
+                mounted.actions.applyReportMetricSnapshots(snapshots)
+            }
         },
         reportDetailScrolled: () => {
             // Fire the dwell signal once per open, on the first scroll. The metric's dwell branch
