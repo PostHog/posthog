@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
@@ -31,11 +32,17 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.facade.staged_execution import (
+    CreateStagedTaskInput,
+    StagedCapabilityManifest,
+    create_staged_task,
+)
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
+    _compile_effective_network_policy,
     _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_benjamin_enabled,
@@ -49,6 +56,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _resolve_claude_model_access,
     _resolve_modal_vm_sandbox,
     _resolve_sandbox_backend,
+    _resolve_staged_egress_domains,
     get_task_processing_context,
 )
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
@@ -97,6 +105,31 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
     )
 
     assert context.is_snapshot_resume is expected
+
+
+def test_repository_bound_pulse_egress_allows_only_github():
+    requested_domains = _resolve_staged_egress_domains(
+        network_egress="posthog_mcp_only",
+        repository="owner/repository",
+        inherited_domains=["customer.example"],
+    )
+    assert requested_domains is not None
+    policy = _compile_effective_network_policy(requested_domains)
+
+    assert requested_domains == ["github.com"]
+    assert policy.requested_domains == ("github.com",)
+    assert "github.com" in policy.modal_domains
+    assert "github.com" in policy.agentsh_domains
+    assert "customer.example" not in policy.modal_domains
+    assert "customer.example" not in policy.agentsh_domains
+    assert (
+        _resolve_staged_egress_domains(
+            network_egress="posthog_mcp_only",
+            repository=None,
+            inherited_domains=["customer.example"],
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
@@ -474,6 +507,52 @@ class TestGetTaskProcessingContextActivity:
 
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains is None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_pulse_analysis_uses_only_posthog_mcp_egress(self, activity_environment, test_task):
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Full access env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+            allowed_domains=["customer.example"],
+        )
+        created = create_staged_task(
+            CreateStagedTaskInput(
+                team_id=test_task.team_id,
+                caller_id=uuid4(),
+                actor_id=test_task.created_by_id,
+                idempotency_key="pulse-analysis-egress",
+                origin_product="task_analysis",
+                title="Pulse analysis",
+                description="Analyze a report without public network access.",
+                analysis_manifest=StagedCapabilityManifest(
+                    version=1,
+                    phase="analysis",
+                    mcp_scope_preset="pulse_analysis",
+                    disabled_tools=("Bash", "WebFetch", "WebSearch", "Write", "Edit"),
+                    network_egress="posthog_mcp_only",
+                ),
+                repository=None,
+                output_schema=None,
+            )
+        )
+        TaskRun.objects.filter(id=created.analysis_run_id).update(
+            state={"sandbox_environment_id": str(sandbox_environment.id)}
+        )
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(created.analysis_run_id)),
+        )
+
+        assert result.allowed_domains == []
+        assert result.modal_domain_allowlist is not None
+        assert result.agentsh_domain_allowlist is not None
+        assert "customer.example" not in result.modal_domain_allowlist
+        assert "customer.example" not in result.agentsh_domain_allowlist
+        assert result.use_modal_network_allowlist is True
+        assert result.sandbox_backend == "modal"
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(

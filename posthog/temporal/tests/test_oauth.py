@@ -19,6 +19,7 @@ from posthog.temporal.oauth import (
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
+    PULSE_ANALYSIS_INTERNAL_SCOPE,
     RESEARCH_WITHHELD_SCOPES,
     SCOUT_GRANTABLE_WRITE_SCOPES,
     SCOUT_INTERNAL_SCOPES,
@@ -54,6 +55,14 @@ class TestResolveScopes(SimpleTestCase):
         result = resolve_scopes("full")
         assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES)
 
+    def test_pulse_analysis_preset_is_server_marked_and_read_only(self) -> None:
+        result = resolve_scopes("pulse_analysis")
+
+        assert PULSE_ANALYSIS_INTERNAL_SCOPE in result
+        assert "task:write" in result
+        assert not (set(result) & (set(MCP_WRITE_SCOPES) - {"task:write"}))
+        assert not has_write_scopes("pulse_analysis")
+
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
         # `signals_scout` = `read_only` content PLUS the scout's own internal write scope
         # PLUS the narrow user-facing write allowlist (`SCOUT_USER_WRITE_SCOPES`). No other
@@ -73,12 +82,15 @@ class TestResolveScopes(SimpleTestCase):
         without_scout_scopes: tuple[McpScopePreset, ...] = (
             "full",
             "read_only",
+            "pulse_analysis",
             "signals_research",
             "signals_implementation",
         )
         for preset in without_scout_scopes:
             assert "signal_scout_internal:write" not in resolve_scopes(preset)
             assert "signal_scout_report:write" not in resolve_scopes(preset)
+        for preset in ("full", "read_only", "signals_research", "signals_implementation"):
+            assert PULSE_ANALYSIS_INTERNAL_SCOPE not in resolve_scopes(preset)
         assert "signal_scout_internal:write" not in resolve_scopes(["feature_flag:read"])
         assert "signal_scout_internal:write" in resolve_scopes("signals_scout")
 

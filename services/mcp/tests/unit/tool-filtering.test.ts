@@ -3,6 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { hasScope } from '@/lib/api'
 import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
+import {
+    PULSE_ANALYSIS_INTERNAL_SCOPE,
+    PULSE_ANALYSIS_TOOL_MANIFEST_V1,
+    PULSE_RESEARCH_INTERNAL_SCOPE,
+} from '@/lib/pulse-tool-manifest'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
@@ -268,6 +273,17 @@ const createMockContext = (
 })
 
 describe('Tool Filtering - API Scopes', () => {
+    it('restricts a server-marked Pulse token to its immutable tool manifest', async () => {
+        const tools = await getToolsFromContext(createMockContext(['*', PULSE_ANALYSIS_INTERNAL_SCOPE]))
+        const toolNames = tools.map((tool) => tool.name)
+
+        expect(toolNames).toContain('execute-sql')
+        expect(toolNames).toContain('insight-query')
+        expect(toolNames).not.toContain('dashboard-create')
+        expect(toolNames).not.toContain('create-feature-flag')
+        expect(toolNames.every((name) => PULSE_ANALYSIS_TOOL_MANIFEST_V1.has(name))).toBe(true)
+    })
+
     it('should return all tools when user has * scope', async () => {
         const context = createMockContext(['*'])
         const tools = await getToolsFromContext(context)
@@ -519,6 +535,8 @@ describe('server-minted scope matching', () => {
     it('requires literal internal scopes instead of accepting a wildcard', () => {
         expect(hasScope(['*'], 'loop_context_internal:write')).toBe(false)
         expect(hasScope(['loop_context_internal:write'], 'loop_context_internal:write')).toBe(true)
+        expect(hasScope(['*'], PULSE_RESEARCH_INTERNAL_SCOPE)).toBe(false)
+        expect(hasScope([PULSE_RESEARCH_INTERNAL_SCOPE], PULSE_RESEARCH_INTERNAL_SCOPE)).toBe(true)
     })
 
     // The scratchpad write scope was split out of `signal_scout_internal`, which is on the
