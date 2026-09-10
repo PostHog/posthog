@@ -529,6 +529,8 @@ jobs:
                         # leaving a tag pointing at a rule that no longer exists.
                         - 'AGENTS.md'
                         - '.semgrep/**'
+                        - 'pyproject.toml'
+                        - 'products/ruff.toml'
                       product_yamls:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'
