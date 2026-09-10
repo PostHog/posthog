@@ -30,12 +30,13 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.api.capture import CaptureInternalError
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, extract_event_io
 from posthog.temporal.ai_observability.evaluation_hog import (
     build_hog_event_global,
     execute_hog_eval_bytecode,
@@ -56,6 +57,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
+    backfill_verdict_timestamp,
     build_evaluation_event_properties,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
@@ -138,12 +140,19 @@ class RunTraceEvaluationInputs:
         }
 
 
-@dataclass
+@frozen
 class ExecuteTraceEvaluationInputs:
     evaluation: dict[str, Any]
     team_id: int
     trace_id: str
     window_start: str
+    # Upper bound of the fetch, ISO. Unset on a live run, which reads up to now; a backfilled run
+    # sets it so an old unit is graded over the same span the live path would have covered.
+    window_end: str | None = None
+
+    @property
+    def window_end_datetime(self) -> datetime | None:
+        return datetime.fromisoformat(self.window_end) if self.window_end else None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -205,9 +214,14 @@ def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, dat
     return int(result.results[0][0] or 0)
 
 
-def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
+def _fetch_trace(
+    team: Team, trace_id: str, date_from: datetime, date_to: datetime, *, bound_to_date_to: bool = False
+) -> TraceFetchOutcome:
     """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
-    preflight so degenerate traces are skipped before pulling their payload."""
+    preflight so degenerate traces are skipped before pulling their payload.
+
+    `bound_to_date_to` grades the trace as of `date_to`. A live run leaves it off and reads the
+    whole trace, which is what it graded before backfills existed."""
     event_count = _count_trace_events(team, trace_id, date_from, date_to)
     if event_count == 0:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=0)
@@ -231,19 +245,32 @@ def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: dateti
             dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()),
             tags=QueryLogTags(productKey="AIObservability"),
         ),
+        # Without this the runner returns the whole trace whatever `dateRange` says, so a backfilled
+        # run would grade events that the live run never saw, and its totals would report cost and
+        # latency from them. The runner applies the upper bound only. A lower bound would cut off the
+        # early events of the trace, which live runs do grade.
+        bound_events_to_date_range=bound_to_date_to,
     )
     response = runner.calculate()
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
-    return TraceFetchOutcome(trace=response.results[0], skip_reason=None, event_count=event_count)
+    trace = response.results[0]
+    if bound_to_date_to and not trace.events:
+        # The count preflight includes the `$ai_trace` root row, which never reaches `events`, so a
+        # non-zero count does not promise a transcript. Once the bound applies, an empty one must
+        # skip rather than let the judge grade nothing. A live run keeps its own handling of this.
+        return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
+    return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=event_count)
 
 
-def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: datetime) -> TraceFetchOutcome:
+def fetch_trace_for_evaluation(
+    team_id: int, trace_id: str, window_start: datetime, window_end: datetime | None = None
+) -> TraceFetchOutcome:
     """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
     team = Team.objects.get(id=team_id)
     date_from = window_start - TRACE_EVENTS_LOOKBACK
-    date_to = datetime.now(UTC)
-    return _fetch_trace(team, trace_id, date_from, date_to)
+    date_to = window_end or datetime.now(UTC)
+    return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)
 
 
 @dataclass
@@ -543,7 +570,9 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
 
     allows_na = evaluation.get("output_config", {}).get("allows_na", False)
 
-    outcome = fetch_trace_for_evaluation(inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start))
+    outcome = fetch_trace_for_evaluation(
+        inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
+    )
     if outcome.skip_reason or outcome.trace is None:
         return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found")
 
@@ -574,7 +603,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
         outcome = fetch_trace_for_evaluation(
-            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start)
+            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
         )
         if outcome.skip_reason or outcome.trace is None:
             return None, outcome.skip_reason or "trace_not_found"
@@ -589,7 +618,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="trace")
 
 
-@dataclass
+@frozen
 class EmitTraceEvaluationEventInputs:
     evaluation: dict[str, Any]
     team_id: int
@@ -600,6 +629,8 @@ class EmitTraceEvaluationEventInputs:
     start_time: datetime
     target: str = "trace"
     ai_session_id: str | None = None
+    backfill_id: str | None = None
+    event_timestamp: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -618,7 +649,9 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     def _emit():
         # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
         # linkage copied in the generation path) intentionally does not apply here.
-        properties = build_evaluation_event_properties(inputs.evaluation, inputs.result, inputs.start_time)
+        properties = build_evaluation_event_properties(
+            inputs.evaluation, inputs.result, inputs.start_time, inputs.backfill_id
+        )
         if inputs.target == "session" and inputs.ai_session_id:
             properties.update(
                 {
@@ -642,12 +675,25 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
                 }
             )
 
+        # A backfilled verdict sits at its unit's own time so time-bucketed views line it up with
+        # the trace it grades instead of with the day the backfill ran. The dispatcher always
+        # sends the anchor and the backfill id together, so there is no third case.
+        if inputs.event_timestamp and inputs.backfill_id:
+            timestamp = backfill_verdict_timestamp(
+                as_utc_datetime(inputs.event_timestamp),
+                str(inputs.evaluation["id"]),
+                inputs.backfill_id,
+                str(properties["$ai_target_id"]),
+            )
+        else:
+            timestamp = datetime.now(UTC)
+
         capture_internal_for_team(
             team_id=inputs.team_id,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=inputs.distinct_id,
-            timestamp=datetime.now(UTC),
+            timestamp=timestamp,
             properties=properties,
         )
 
