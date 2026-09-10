@@ -88301,6 +88301,21 @@ export namespace Schemas {
       tags?: string[];
     }
 
+    /**
+     * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+     */
+    export type ToolbarEntitlementsEntitlements = {[key: string]: boolean};
+
+    export interface ToolbarEntitlements {
+      /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+      entitlements: ToolbarEntitlementsEntitlements;
+    }
+
+    export interface ToolbarEntitlementsError {
+      /** Why toolbar entitlements could not be retrieved. */
+      error: string;
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;

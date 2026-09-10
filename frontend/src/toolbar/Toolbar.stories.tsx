@@ -59,6 +59,7 @@ type StoryArgs = {
     unauthenticated?: boolean
     theme?: 'light' | 'dark'
     heatmapLocked?: boolean
+    entitlementsState?: 'loading' | 'error'
 }
 
 const meta: Meta<StoryArgs> = {
@@ -101,7 +102,15 @@ const meta: Meta<StoryArgs> = {
                 },
                 '/api/element/stats/': listHeatmapStatsAPIResponse,
                 '/api/heatmap/': { results: [] },
-                '/api/user/toolbar_entitlements': { entitlements: { toolbar_heatmaps: !props.heatmapLocked } },
+                '/api/user/toolbar_entitlements': () => {
+                    if (props.entitlementsState === 'loading') {
+                        return new Promise(() => {})
+                    }
+                    if (props.entitlementsState === 'error') {
+                        return [500, {}]
+                    }
+                    return { entitlements: { toolbar_heatmaps: !props.heatmapLocked } }
+                },
                 '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
                 '/api/projects/@current/actions/': listActionsAPIResponse,
                 '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
@@ -151,6 +160,14 @@ export const Heatmap: Story = {
 
 export const HeatmapLocked: Story = {
     args: { menu: 'heatmap', heatmapLocked: true },
+}
+
+export const HeatmapEntitlementsLoading: Story = {
+    args: { menu: 'heatmap', heatmapLocked: true, entitlementsState: 'loading' },
+}
+
+export const HeatmapEntitlementsError: Story = {
+    args: { menu: 'heatmap', heatmapLocked: true, entitlementsState: 'error' },
 }
 
 export const Inspect: Story = {

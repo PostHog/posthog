@@ -2623,12 +2623,16 @@ class TestToolbarAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["entitlements"]["toolbar_heatmaps"], expected)
 
-    def test_get_toolbar_entitlements_denied_without_toolbar_access(self):
-        self._deny_toolbar_access()
+    @parameterized.expand([("toolbar_access", status.HTTP_403_FORBIDDEN), ("session", status.HTTP_401_UNAUTHORIZED)])
+    def test_get_toolbar_entitlements_denied_without_required_access(self, missing_access: str, expected: int) -> None:
+        if missing_access == "session":
+            self.client.logout()
+        else:
+            self._deny_toolbar_access()
 
         response = self.client.get("/api/user/toolbar_entitlements/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, expected)
 
     def test_redirect_to_site_allowed_with_default_access(self):
         response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")

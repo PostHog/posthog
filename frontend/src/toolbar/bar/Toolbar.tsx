@@ -29,7 +29,7 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonBadge, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
@@ -50,11 +50,12 @@ import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUpl
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { useToolbarFeatureGate } from '~/toolbar/toolbarEntitlementsLogic'
+import { toolbarEntitlementsLogic, useToolbarFeatureGate } from '~/toolbar/toolbarEntitlementsLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { AvailableFeature } from '~/types'
 
 import { ToolbarButton } from './ToolbarButton'
+import { ToolbarMenu } from './ToolbarMenu'
 
 // Each feature menu is a lazy split point: its component graph (and per-tab logics only it
 // mounts, like the event debugger's 200KB+ taxonomy) is fetched when the tab first opens, not
@@ -386,6 +387,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
+    const { entitlements, entitlementsLoading } = useValues(toolbarEntitlementsLogic)
+    const { loadEntitlements } = useActions(toolbarEntitlementsLogic)
 
     const { isAuthenticated } = useValues(toolbarConfigLogic)
 
@@ -403,7 +406,33 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
-        heatmapGated ? (
+        heatmapGated && entitlementsLoading ? (
+            <ToolbarMenu>
+                <ToolbarMenu.Body>
+                    <div className="flex items-center justify-center gap-2 py-4">
+                        <Spinner />
+                        <span>Checking plan access…</span>
+                    </div>
+                </ToolbarMenu.Body>
+            </ToolbarMenu>
+        ) : heatmapGated && entitlements?.[AvailableFeature.TOOLBAR_HEATMAPS] !== false ? (
+            <ToolbarMenu>
+                <ToolbarMenu.Body>
+                    <p className="m-0">Couldn't check your plan access. Try again to use heatmaps.</p>
+                </ToolbarMenu.Body>
+                <ToolbarMenu.Footer>
+                    <LemonButton
+                        type="primary"
+                        fullWidth
+                        center
+                        onClick={loadEntitlements}
+                        data-attr="toolbar-entitlements-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </ToolbarMenu.Footer>
+            </ToolbarMenu>
+        ) : heatmapGated ? (
             <ToolbarLockedFeature featureName="Heatmaps" />
         ) : (
             <HeatmapToolbarMenu />

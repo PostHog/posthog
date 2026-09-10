@@ -39,6 +39,7 @@ from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from social_django.models import UserSocialAuth
@@ -1982,21 +1983,48 @@ TOOLBAR_ENTITLEMENT_FEATURES: list[AvailableFeature] = [
 ]
 
 
-@session_auth_required
-def get_toolbar_entitlements(request):
-    team = request.user.team
-    if not team:
-        return JsonResponse({"error": "No team found"}, status=400)
+class ToolbarEntitlementsSerializer(serializers.Serializer):
+    entitlements = serializers.DictField(
+        child=serializers.BooleanField(),
+        help_text="Whether the current organization has each toolbar plan entitlement, keyed by feature name.",
+    )
 
-    if not _user_can_access_toolbar(request.user, team):
-        return JsonResponse({"error": "Unauthorized"}, status=403)
 
-    organization = team.organization
-    entitlements = {
-        feature.value: organization.is_feature_available(feature) for feature in TOOLBAR_ENTITLEMENT_FEATURES
-    }
+class ToolbarEntitlementsErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Why toolbar entitlements could not be retrieved.")
 
-    return JsonResponse({"entitlements": entitlements})
+
+class ToolbarEntitlementsView(APIView):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+    include_in_api_docs = True
+
+    @extend_schema(
+        extensions={"x-product": "core"},
+        responses={
+            200: ToolbarEntitlementsSerializer,
+            400: ToolbarEntitlementsErrorSerializer,
+            403: ToolbarEntitlementsErrorSerializer,
+        },
+    )
+    def get(self, request: Request) -> JsonResponse:
+        user = cast(User, request.user)
+        team = user.team
+        if not team:
+            return JsonResponse({"error": "No team found"}, status=400)
+
+        if not _user_can_access_toolbar(user, team):
+            return JsonResponse({"error": "Unauthorized"}, status=403)
+
+        organization = team.organization
+        entitlements = {
+            feature.value: organization.is_feature_available(feature) for feature in TOOLBAR_ENTITLEMENT_FEATURES
+        }
+
+        return JsonResponse({"entitlements": entitlements})
+
+
+get_toolbar_entitlements = session_auth_required(ToolbarEntitlementsView.as_view())
 
 
 @session_auth_required

@@ -17,7 +17,7 @@ import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { isToolbarFeatureGated } from '~/toolbar/toolbarEntitlementsLogic'
+import { isToolbarFeatureGated, toolbarEntitlementsLogic } from '~/toolbar/toolbarEntitlementsLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
@@ -777,6 +777,22 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        [toolbarEntitlementsLogic.actionTypes.loadEntitlements]: () => {
+            if (isToolbarFeatureGated(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')) {
+                actions.disableHeatmap()
+            }
+        },
+        [toolbarEntitlementsLogic.actionTypes.loadEntitlementsSuccess]: () => {
+            if (values.visibleMenu === 'heatmap') {
+                const gated = isToolbarFeatureGated(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')
+                if (gated) {
+                    actions.disableHeatmap()
+                } else {
+                    actions.enableHeatmap()
+                }
+                values.getHedgehogActor()?.setOnFire(gated ? 0 : 1)
+            }
+        },
         setOAuthTokens: () => {
             if (values.minimized) {
                 actions.toggleMinimized(false)
