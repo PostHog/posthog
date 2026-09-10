@@ -53,6 +53,9 @@ from posthog.temporal.ai_observability.eval_reports.workflow import (
     ScheduleAllEvalReportsWorkflow,
     _check_count_triggered_eval_report_candidates,
     _check_count_triggered_eval_report_candidates_batched,
+    _DueReportCandidates,
+    _report_workflow_id,
+    _start_report_workflow,
     _start_report_workflows,
 )
 
@@ -125,9 +128,13 @@ class PreWindowedDispatchCountCoordinator:
 @pytest.mark.asyncio
 async def test_scheduled_coordinator_only_waits_for_child_start_acceptance() -> None:
     report_ids = ["report-a", "report-b"]
+    occurrence_keys = {
+        "report-a": "2026-09-09T10:00:00+00:00",
+        "report-b": "2026-09-09T11:00:00+00:00",
+    }
 
     async def fake_execute_activity(*_args, **_kwargs):
-        return FetchDueEvalReportsOutput(report_ids=report_ids)
+        return FetchDueEvalReportsOutput(report_ids=report_ids, report_occurrence_keys=occurrence_keys)
 
     with (
         patch(
@@ -152,12 +159,12 @@ async def test_scheduled_coordinator_only_waits_for_child_start_acceptance() -> 
 
     assert start_child_workflow.await_count == 2
     assert [call.kwargs["id"] for call in start_child_workflow.await_args_list] == [
-        "eval-report-report-a",
-        "eval-report-report-b",
+        _report_workflow_id("eval-report", "report-a", occurrence_keys["report-a"]),
+        _report_workflow_id("eval-report", "report-b", occurrence_keys["report-b"]),
     ]
     for call in start_child_workflow.await_args_list:
         assert call.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
-        assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
     execute_child_workflow.assert_not_called()
 
 
@@ -219,7 +226,7 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
         events.append("check")
         assert dispatch_due_reports is True
         events.append("start")
-        return ["report-a"]
+        return _DueReportCandidates(["report-a"], {"report-a": "count-window"})
 
     with (
         patch(
@@ -315,6 +322,45 @@ async def test_report_child_starts_are_emitted_in_bounded_batches() -> None:
         await _start_report_workflows("scheduled", "report", ["a", "b", "c", "d", "e"])
 
     assert gather_batch_sizes == [2, 2, 1]
+
+
+@pytest.mark.asyncio
+async def test_report_child_occurrence_cannot_restart_after_successful_completion() -> None:
+    started_ids: set[str] = set()
+
+    async def fake_start_child_workflow(*_args, **kwargs):
+        workflow_id = kwargs["id"]
+        if workflow_id in started_ids:
+            raise WorkflowAlreadyStartedError(workflow_id, "eval-report")
+        started_ids.add(workflow_id)
+
+    with patch(
+        "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
+        side_effect=fake_start_child_workflow,
+    ) as start_child_workflow:
+        first_started = await _start_report_workflow("eval-report", "report-a", occurrence_key="scheduled:10:00")
+        duplicate_started = await _start_report_workflow("eval-report", "report-a", occurrence_key="scheduled:10:00")
+        next_occurrence_started = await _start_report_workflow(
+            "eval-report", "report-a", occurrence_key="scheduled:11:00"
+        )
+
+    assert first_started is True
+    assert duplicate_started is False
+    assert next_occurrence_started is True
+    assert len(started_ids) == 2
+    for call in start_child_workflow.await_args_list:
+        assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+
+
+@pytest.mark.asyncio
+async def test_report_child_preserves_legacy_command_without_occurrence_key() -> None:
+    with patch(
+        "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow"
+    ) as start_child_workflow:
+        assert await _start_report_workflow("eval-report", "report-a") is True
+
+    assert start_child_workflow.await_args.kwargs["id"] == "eval-report-report-a"
+    assert start_child_workflow.await_args.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
 
 
 @pytest.mark.parametrize(
@@ -734,6 +780,7 @@ async def test_count_triggered_report_check_continues_after_activity_failure() -
             report_id=inputs.report_id,
             due=inputs.report_id == "due",
             skipped_reason=skipped_reasons.get(inputs.report_id),
+            occurrence_key="window-due" if inputs.report_id == "due" else None,
         )
 
     with (
@@ -744,11 +791,12 @@ async def test_count_triggered_report_check_continues_after_activity_failure() -
         patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found") as record,
         patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger") as logger,
     ):
-        report_ids = await _check_count_triggered_eval_report_candidates(
+        due_reports = await _check_count_triggered_eval_report_candidates(
             ["due", "failed", "not_due", "cooldown", "daily_cap", "not_deliverable"]
         )
 
-    assert report_ids == ["due"]
+    assert due_reports.report_ids == ["due"]
+    assert due_reports.occurrence_keys == {"due": "window-due"}
     assert checked_report_ids == ["due", "failed", "not_due", "cooldown", "daily_cap", "not_deliverable"]
     record.assert_called_once_with(1, "count_triggered")
     logger.warning.assert_called_once()
@@ -792,9 +840,9 @@ async def test_batched_count_check_aggregates_across_groups_and_isolates_group_f
         patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found") as record,
         patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger") as logger,
     ):
-        report_ids = await _check_count_triggered_eval_report_candidates_batched([["due", "skip"], ["boom1", "boom2"]])
+        due_reports = await _check_count_triggered_eval_report_candidates_batched([["due", "skip"], ["boom1", "boom2"]])
 
-    assert report_ids == ["due"]
+    assert due_reports.report_ids == ["due"]
     record.assert_called_once_with(1, "count_triggered")
     logger.warning.assert_called_once()
     assert logger.warning.call_args.kwargs["extra"]["failed_count"] == 2
@@ -849,7 +897,12 @@ async def test_batched_count_check_dispatches_each_completed_window() -> None:
     async def fake_execute_activity(_activity, inputs, **_kwargs):
         return CheckCountTriggeredEvalReportsBatchOutput(
             results=[
-                CheckCountTriggeredEvalReportOutput(report_id=report_id, due=True) for report_id in inputs.report_ids
+                CheckCountTriggeredEvalReportOutput(
+                    report_id=report_id,
+                    due=True,
+                    occurrence_key=f"window-{report_id}",
+                )
+                for report_id in inputs.report_ids
             ]
         )
 
@@ -866,10 +919,15 @@ async def test_batched_count_check_dispatches_each_completed_window() -> None:
         patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found"),
         patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger"),
     ):
-        report_ids = await _check_count_triggered_eval_report_candidates_batched(
+        due_reports = await _check_count_triggered_eval_report_candidates_batched(
             [["due-a"], ["due-b"]],
             dispatch_due_reports=True,
         )
 
-    assert report_ids == ["due-a", "due-b"]
+    assert due_reports.report_ids == ["due-a", "due-b"]
+    assert due_reports.occurrence_keys == {"due-a": "window-due-a", "due-b": "window-due-b"}
     assert [call.args[2] for call in dispatch.await_args_list] == [["due-a"], ["due-b"]]
+    assert [call.kwargs["occurrence_keys"] for call in dispatch.await_args_list] == [
+        {"due-a": "window-due-a"},
+        {"due-b": "window-due-b"},
+    ]

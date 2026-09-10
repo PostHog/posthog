@@ -39,7 +39,6 @@ class TestAITemporalModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected activities are present in the module."""
         expected_activities = [
-            "ack_eval_report_cursors_activity",
             "get_approximate_actions_count",
             "batch_summarize_actions",
             "batch_embed_and_sync_actions",
@@ -226,6 +225,7 @@ class TestAIObservabilityModuleIntegrity:
             "generate_cluster_labels_activity",
             "compute_cluster_aggregates_activity",
             "emit_cluster_events_activity",
+            "ack_eval_report_cursors_activity",
             "fetch_due_eval_reports_activity",
             "fetch_count_triggered_eval_report_candidates_activity",
             "check_count_triggered_eval_report_activity",

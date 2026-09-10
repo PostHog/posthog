@@ -47,6 +47,7 @@ class CheckCountTriggeredEvalReportOutput:
     report_id: str
     due: bool
     skipped_reason: str | None = None
+    occurrence_key: str | None = None
 
 
 @dataclasses.dataclass
@@ -66,6 +67,7 @@ class FetchDueEvalReportsOutput:
     # COUNT_TRIGGER_QUERY_WIDTH wide. None when emitted by a pre-batching worker;
     # the workflow then keeps the legacy per-report path.
     report_id_groups: list[list[str]] | None = None
+    report_occurrence_keys: dict[str, str] | None = None
     due_items_lower_bound: int = 0
     oldest_due_at_iso: str | None = None
     payload_bytes: int = 0

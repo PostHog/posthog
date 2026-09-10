@@ -764,13 +764,13 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertEqual(len(page.rows), 2)
         self.assertEqual(page.items_lower_bound, 3)
 
-    def test_scheduled_candidate_ring_moves_past_a_report_that_stays_due(self):
-        poison = self._create_report(
+    def test_scheduled_candidate_ring_wraps_after_largest_oldest_due_report(self):
+        later = self._create_report(
             frequency=EvaluationReport.Frequency.SCHEDULED,
             rrule="FREQ=HOURLY",
             starts_at=timezone.now() - dt.timedelta(hours=5),
         )
-        later = self._create_report(
+        poison = self._create_report(
             frequency=EvaluationReport.Frequency.SCHEDULED,
             rrule="FREQ=HOURLY",
             starts_at=timezone.now() - dt.timedelta(hours=5),
@@ -784,6 +784,11 @@ class TestCountTriggeredReportChecks(BaseTest):
             next_delivery_date__lte=timezone.now(),
         )
         scheduler = "test_scheduled_eval_report_item_rotation"
+        TemporalSchedulerState.objects.create(
+            scheduler=f"{scheduler}_items:{self.team.id}",
+            region="test",
+            discovery_cursor=str(later.id),
+        )
         first_page = _fetch_eval_report_candidate_page(
             reports,
             scheduler=scheduler,
@@ -812,6 +817,9 @@ class TestCountTriggeredReportChecks(BaseTest):
 
         self.assertEqual(first_page.rows[0][0], str(poison.id))
         self.assertEqual(second_page.rows[0][0], str(later.id))
+        poison.refresh_from_db()
+        assert poison.next_delivery_date is not None
+        self.assertEqual(first_page.occurrence_keys[str(poison.id)], poison.next_delivery_date.isoformat())
 
     def test_bounded_candidate_page_rotates_within_one_noisy_tenant(self):
         reports = [self._create_report() for _ in range(5)]
@@ -1064,6 +1072,7 @@ class TestCountTriggeredReportChecks(BaseTest):
 
         self.assertTrue(result.due)
         self.assertIsNone(result.skipped_reason)
+        self.assertEqual(result.occurrence_key, report.created_at.isoformat())
         execute_hogql_query.assert_called_once()
 
     def test_check_report_skips_cooldown_without_clickhouse_query(self):

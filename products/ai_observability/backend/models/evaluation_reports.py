@@ -59,8 +59,8 @@ class EvaluationReport(UUIDTModel):
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["next_delivery_date", "enabled", "deleted"]),
             models.Index(
-                fields=["team", "next_delivery_date", "id"],
-                name="llma_rep_team_sched_due_idx",
+                fields=["team", "id"],
+                name="llma_rep_team_sched_idx",
                 condition=models.Q(
                     enabled=True,
                     deleted=False,

@@ -2,8 +2,10 @@
 
 import json
 import asyncio
+import hashlib
 from datetime import timedelta
 from itertools import batched
+from typing import NamedTuple
 
 from django.conf import settings
 
@@ -71,6 +73,11 @@ from posthog.temporal.common.base import PostHogWorkflow
 logger = get_logger(__name__)
 
 
+class _DueReportCandidates(NamedTuple):
+    report_ids: list[str]
+    occurrence_keys: dict[str, str]
+
+
 @temporalio.workflow.defn(name=SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME)
 class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
     """Hourly workflow that finds due evaluation reports and fans out generation."""
@@ -99,6 +106,7 @@ class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
             "eval-report",
             result.report_ids,
             patch_id="eval-report-scheduled-coordinator-fire-and-forget-2026-09",
+            occurrence_keys=result.report_occurrence_keys,
         )
         await _ack_eval_report_cursors(result, "scheduled", inputs.region)
 
@@ -131,26 +139,28 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
         windowed_dispatch = False
         if uses_batched_checks:
             windowed_dispatch = temporalio.workflow.patched("eval-report-count-windowed-dispatch-2026-09")
-            report_ids = await _check_count_triggered_eval_report_candidates_batched(
+            due_reports = await _check_count_triggered_eval_report_candidates_batched(
                 result.report_id_groups or [],
                 dispatch_due_reports=windowed_dispatch,
             )
         else:
-            report_ids = await _check_count_triggered_eval_report_candidates(result.report_ids)
+            due_reports = await _check_count_triggered_eval_report_candidates(result.report_ids)
 
-        if report_ids and (not uses_batched_checks or not windowed_dispatch):
+        if due_reports.report_ids and (not uses_batched_checks or not windowed_dispatch):
             await _dispatch_report_workflows(
                 "count_triggered_eval_report",
                 "eval-report-count",
-                report_ids,
+                due_reports.report_ids,
                 patch_id="eval-report-count-coordinator-fire-and-forget-2026-09",
+                occurrence_keys=due_reports.occurrence_keys,
             )
 
         await _ack_eval_report_cursors(result, "count_triggered", inputs.region)
 
 
-async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> list[str]:
+async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> _DueReportCandidates:
     due_report_ids: list[str] = []
+    occurrence_keys: dict[str, str] = {}
     failed: list[tuple[str, str]] = []
     skipped_counts = {
         "cooldown": 0,
@@ -174,6 +184,8 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
                 failed.append((report_id, f"{type(result).__name__}: {result}"))
             elif result.due:
                 due_report_ids.append(result.report_id)
+                if result.occurrence_key is not None:
+                    occurrence_keys[result.report_id] = result.occurrence_key
             elif result.skipped_reason is not None:
                 skipped_counts[result.skipped_reason] = skipped_counts.get(result.skipped_reason, 0) + 1
 
@@ -194,15 +206,16 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
         },
     )
     record_coordinator_reports_found(len(due_report_ids), "count_triggered")
-    return due_report_ids
+    return _DueReportCandidates(due_report_ids, occurrence_keys)
 
 
 async def _check_count_triggered_eval_report_candidates_batched(
     report_id_groups: list[list[str]],
     *,
     dispatch_due_reports: bool = False,
-) -> list[str]:
+) -> _DueReportCandidates:
     due_report_ids: list[str] = []
+    occurrence_keys: dict[str, str] = {}
     failed: list[tuple[str, str]] = []
     skipped_counts = {
         "cooldown": 0,
@@ -217,6 +230,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
     for index in range(0, len(report_id_groups), COUNT_TRIGGER_MAX_CONCURRENT_CHECKS):
         window = report_id_groups[index : index + COUNT_TRIGGER_MAX_CONCURRENT_CHECKS]
         window_due_report_ids: list[str] = []
+        window_occurrence_keys: dict[str, str] = {}
         tasks = [
             temporalio.workflow.execute_activity(
                 check_count_triggered_eval_reports_activity,
@@ -238,6 +252,9 @@ async def _check_count_triggered_eval_report_candidates_batched(
                 if output.due:
                     due_report_ids.append(output.report_id)
                     window_due_report_ids.append(output.report_id)
+                    if output.occurrence_key is not None:
+                        occurrence_keys[output.report_id] = output.occurrence_key
+                        window_occurrence_keys[output.report_id] = output.occurrence_key
                 elif output.skipped_reason is not None:
                     skipped_counts[output.skipped_reason] = skipped_counts.get(output.skipped_reason, 0) + 1
 
@@ -250,6 +267,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
                 "eval-report-count",
                 window_due_report_ids,
                 patch_id="eval-report-count-coordinator-fire-and-forget-2026-09",
+                occurrence_keys=window_occurrence_keys,
             )
 
     if failed:
@@ -269,7 +287,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
         },
     )
     record_coordinator_reports_found(len(due_report_ids), "count_triggered")
-    return due_report_ids
+    return _DueReportCandidates(due_report_ids, occurrence_keys)
 
 
 async def _dispatch_report_workflows(
@@ -278,9 +296,10 @@ async def _dispatch_report_workflows(
     report_ids: list[str],
     *,
     patch_id: str,
+    occurrence_keys: dict[str, str] | None = None,
 ) -> None:
     if temporalio.workflow.patched(patch_id):
-        await _start_report_workflows(kind, workflow_id_prefix, report_ids)
+        await _start_report_workflows(kind, workflow_id_prefix, report_ids, occurrence_keys=occurrence_keys)
         return
 
     # When the patch marker is absent, preserve the command sequence required for replay.
@@ -297,7 +316,13 @@ async def _dispatch_report_workflows(
     _log_legacy_fan_out_failures(kind, report_ids, results)
 
 
-async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids: list[str]) -> None:
+async def _start_report_workflows(
+    kind: str,
+    workflow_id_prefix: str,
+    report_ids: list[str],
+    *,
+    occurrence_keys: dict[str, str] | None = None,
+) -> None:
     """Start bounded report children and return after Temporal accepts each command.
 
     The coordinator must not live for the full report-generation duration: doing so turns
@@ -312,7 +337,14 @@ async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids
     for report_id_batch in batched(report_ids, REPORT_START_BATCH_SIZE, strict=False):
         results.extend(
             await asyncio.gather(
-                *(_start_report_workflow(workflow_id_prefix, report_id) for report_id in report_id_batch),
+                *(
+                    _start_report_workflow(
+                        workflow_id_prefix,
+                        report_id,
+                        occurrence_key=occurrence_keys.get(report_id) if occurrence_keys is not None else None,
+                    )
+                    for report_id in report_id_batch
+                ),
                 return_exceptions=True,
             )
         )
@@ -328,9 +360,6 @@ async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids
         elif result is False:
             already_started += 1
 
-    # A report child can outlive the poll interval, and its id carries no timestamp, so the
-    # next poll reaching a still-open run is deduplication rather than a start failure. Only
-    # a real failure warns, so an operator who mutes the overlap doesn't mute that too.
     if failed_count:
         temporalio.workflow.logger.warning(
             f"{kind}.child_workflow_start_errors",
@@ -347,17 +376,35 @@ async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids
         )
 
 
-async def _start_report_workflow(workflow_id_prefix: str, report_id: str) -> bool:
-    """Start one report child. False means a previous coordinator's run is still open."""
+def _report_workflow_id(workflow_id_prefix: str, report_id: str, occurrence_key: str | None) -> str:
+    if occurrence_key is None:
+        return f"{workflow_id_prefix}-{report_id}"
+    occurrence_hash = hashlib.sha256(occurrence_key.encode("utf-8")).hexdigest()
+    return f"{workflow_id_prefix}-{report_id}-{occurrence_hash}"
+
+
+async def _start_report_workflow(
+    workflow_id_prefix: str,
+    report_id: str,
+    *,
+    occurrence_key: str | None = None,
+) -> bool:
+    """Start one report occurrence. False means Temporal has already seen it."""
+
+    workflow_id = _report_workflow_id(workflow_id_prefix, report_id, occurrence_key)
 
     try:
         await temporalio.workflow.start_child_workflow(
             GenerateAndDeliverEvalReportWorkflow.run,
             GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
-            id=f"{workflow_id_prefix}-{report_id}",
+            id=workflow_id,
             task_queue=settings.LLMA_TASK_QUEUE,
             parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_reuse_policy=(
+                WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+                if occurrence_key is not None
+                else WorkflowIDReusePolicy.ALLOW_DUPLICATE
+            ),
             execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
         )
         return True

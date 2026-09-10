@@ -100,10 +100,10 @@ _SCHEDULED_REPORT_CANDIDATE_SQL = f"""
                 report.id,
                 report.next_delivery_date,
                 ROW_NUMBER() OVER (
-                    ORDER BY
-                        (report.id <= selected_teams.item_cursor),
-                        report.next_delivery_date,
-                        report.id
+                    -- The item cursor stores an id, so ranking must use the same id order.
+                    -- Mixing next_delivery_date into this order can leave an oldest-due
+                    -- report at the front forever after the cursor wraps past the largest id.
+                    ORDER BY (report.id <= selected_teams.item_cursor), report.id
                 ) AS team_rank
             FROM llm_analytics_evaluationreport AS report
             INNER JOIN llm_analytics_evaluation AS evaluation ON evaluation.id = report.evaluation_id
@@ -117,7 +117,7 @@ _SCHEDULED_REPORT_CANDIDATE_SQL = f"""
             LIMIT %s
         ) AS candidate
     )
-    SELECT id, team_id
+    SELECT id, team_id, next_delivery_date
     FROM bounded_candidates
     ORDER BY team_rank, team_order, next_delivery_date, id
     LIMIT %s
@@ -158,7 +158,7 @@ _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
             LIMIT %s
         ) AS candidate
     )
-    SELECT id, team_id
+    SELECT id, team_id, NULL::timestamptz AS occurrence_at
     FROM bounded_candidates
     ORDER BY team_rank, team_order, id
     LIMIT %s
@@ -170,6 +170,7 @@ class _EvalReportCandidatePage(NamedTuple):
     items_lower_bound: int
     oldest_due_at: dt.datetime | None
     team_cursor: str
+    occurrence_keys: dict[str, str]
 
 
 @temporalio.activity.defn
@@ -215,6 +216,11 @@ async def fetch_due_eval_reports_activity(
         candidates.rows,
         build_payload=lambda rows: FetchDueEvalReportsOutput(
             report_ids=[report_id for report_id, _team_id in rows],
+            report_occurrence_keys={
+                report_id: candidates.occurrence_keys[report_id]
+                for report_id, _team_id in rows
+                if report_id in candidates.occurrence_keys
+            },
             due_items_lower_bound=candidates.items_lower_bound,
             oldest_due_at_iso=candidates.oldest_due_at.isoformat() if candidates.oldest_due_at else None,
             cursor_before=candidates.team_cursor,
@@ -255,6 +261,11 @@ async def fetch_due_eval_reports_activity(
     record_coordinator_reports_found(len(report_ids), "scheduled")
     return FetchDueEvalReportsOutput(
         report_ids=report_ids,
+        report_occurrence_keys={
+            report_id: candidates.occurrence_keys[report_id]
+            for report_id in report_ids
+            if report_id in candidates.occurrence_keys
+        },
         due_items_lower_bound=candidates.items_lower_bound,
         oldest_due_at_iso=candidates.oldest_due_at.isoformat() if candidates.oldest_due_at else None,
         payload_bytes=selection.encoded_size_bytes,
@@ -438,7 +449,7 @@ def _fetch_eval_report_candidate_page(
             deferred_teams = deferred_teams or reports.filter(team_id__lte=team_cursor).exists()
 
         if not selected_team_ids:
-            return _EvalReportCandidatePage([], 0, oldest_due_at, team_discovery_cursor)
+            return _EvalReportCandidatePage([], 0, oldest_due_at, team_discovery_cursor, {})
 
         candidate_limit = max_reports_per_run + 1
         candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
@@ -446,6 +457,7 @@ def _fetch_eval_report_candidate_page(
             _load_eval_report_item_cursors(scheduler, region, selected_team_ids) if rotate_item_cursor else {}
         )
         bounded_rows: list[tuple[str, int]] = []
+        occurrence_keys: dict[str, str] = {}
         for _round in range(_MAX_DISCOVERY_REFILL_ROUNDS):
             query_params: list[Any] = [
                 selected_team_ids,
@@ -456,7 +468,13 @@ def _fetch_eval_report_candidate_page(
             ]
             with connection.cursor() as cursor:
                 cursor.execute(candidate_sql, query_params)
-                bounded_rows = [(str(report_id), int(team_id)) for report_id, team_id in cursor.fetchall()]
+                raw_rows = cursor.fetchall()
+                bounded_rows = [(str(report_id), int(team_id)) for report_id, team_id, _occurrence_at in raw_rows]
+                occurrence_keys = {
+                    str(report_id): occurrence_at.isoformat()
+                    for report_id, _team_id, occurrence_at in raw_rows
+                    if occurrence_at is not None
+                }
 
             if len(bounded_rows) >= candidate_limit:
                 break
@@ -476,6 +494,11 @@ def _fetch_eval_report_candidate_page(
         items_lower_bound,
         oldest_due_at,
         team_discovery_cursor,
+        {
+            report_id: occurrence_keys[report_id]
+            for report_id, _team_id in selected_rows
+            if report_id in occurrence_keys
+        },
     )
 
 
@@ -615,7 +638,7 @@ async def ack_eval_report_cursors_activity(inputs: AckEvalReportCursorsInput) ->
             if report_id in team_by_report_id
         ]
         return _advance_eval_report_cursors(
-            _EvalReportCandidatePage([], 0, None, inputs.cursor_before),
+            _EvalReportCandidatePage([], 0, None, inputs.cursor_before, {}),
             selected_rows,
             scheduler=scheduler,
             region=inputs.region,
@@ -742,7 +765,12 @@ def _check_count_triggered_eval_report_sync(
     count = _count_eval_results_for_report(report, since)
 
     assert report.trigger_threshold is not None
-    return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=count >= report.trigger_threshold)
+    occurrence_anchor = report.last_attempted_at or report.last_delivered_at or report.starts_at or report.created_at
+    return CheckCountTriggeredEvalReportOutput(
+        report_id=report_id,
+        due=count >= report.trigger_threshold,
+        occurrence_key=occurrence_anchor.isoformat(),
+    )
 
 
 def _check_count_triggered_eval_reports_batch(
@@ -819,8 +847,13 @@ def _check_count_triggered_eval_reports_batch(
             )
             for report_id, report, _since in chunk:
                 assert report.trigger_threshold is not None
+                occurrence_anchor = (
+                    report.last_attempted_at or report.last_delivered_at or report.starts_at or report.created_at
+                )
                 outputs[report_id] = CheckCountTriggeredEvalReportOutput(
-                    report_id=report_id, due=counts.get(report_id, 0) >= report.trigger_threshold
+                    report_id=report_id,
+                    due=counts.get(report_id, 0) >= report.trigger_threshold,
+                    occurrence_key=occurrence_anchor.isoformat(),
                 )
 
     # Preserve input order so the workflow's aggregation and logging stay deterministic.
