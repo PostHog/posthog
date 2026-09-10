@@ -16,6 +16,7 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
     metrics.record_admission("subscriptions", "eu", "reserved", 3)
     metrics.record_claim_transition("subscriptions", "eu", "confirmed")
     metrics.set_permits_in_flight("subscriptions", "eu", 7)
+    metrics.set_backlog("subscriptions", "eu", due_items_lower_bound=300, oldest_age_seconds=90)
 
     assert (
         registry.get_sample_value(
@@ -45,12 +46,27 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
         )
         == 7
     )
+    assert (
+        registry.get_sample_value(
+            "posthog_temporal_scheduler_backlog_items_lower_bound",
+            {"scheduler": "subscriptions", "region": "eu"},
+        )
+        == 300
+    )
+    assert (
+        registry.get_sample_value(
+            "posthog_temporal_scheduler_backlog_oldest_age_seconds",
+            {"scheduler": "subscriptions", "region": "eu"},
+        )
+        == 90
+    )
 
     for method_name in [
         "observe_payload",
         "record_admission",
         "record_claim_transition",
         "set_permits_in_flight",
+        "set_backlog",
     ]:
         parameters = inspect.signature(getattr(metrics, method_name)).parameters
         assert "tenant_key" not in parameters
@@ -66,6 +82,8 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
         ("record_admission", ("subscriptions", "eu", "unknown", 1)),
         ("record_claim_transition", ("subscriptions", "eu", "unknown")),
         ("set_permits_in_flight", ("subscriptions", "eu", -1)),
+        ("set_backlog", ("subscriptions", "eu", -1, 0)),
+        ("set_backlog", ("subscriptions", "eu", 0, -1)),
     ],
 )
 def test_scheduler_metrics_reject_unbounded_or_invalid_values(method: str, args: tuple[object, ...]) -> None:

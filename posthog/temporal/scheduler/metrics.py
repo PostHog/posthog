@@ -43,6 +43,18 @@ class SchedulerMetrics:
             ["scheduler", "region"],
             registry=registry,
         )
+        self._backlog_items_lower_bound = Gauge(
+            "posthog_temporal_scheduler_backlog_items_lower_bound",
+            "Bounded lower bound for scheduler items due at the most recent discovery.",
+            ["scheduler", "region"],
+            registry=registry,
+        )
+        self._backlog_oldest_age_seconds = Gauge(
+            "posthog_temporal_scheduler_backlog_oldest_age_seconds",
+            "Age in seconds of the oldest eligible due item at the most recent scheduler discovery.",
+            ["scheduler", "region"],
+            registry=registry,
+        )
 
     @staticmethod
     def _validate_scope(scheduler: str, region: str) -> None:
@@ -93,6 +105,21 @@ class SchedulerMetrics:
         if count < 0:
             raise ValueError("permit count must not be negative")
         self._permits_in_flight.labels(scheduler=scheduler, region=region).set(count)
+
+    def set_backlog(
+        self,
+        scheduler: str,
+        region: str,
+        due_items_lower_bound: int,
+        oldest_age_seconds: float,
+    ) -> None:
+        self._validate_scope(scheduler, region)
+        if due_items_lower_bound < 0:
+            raise ValueError("due_items_lower_bound must not be negative")
+        if oldest_age_seconds < 0:
+            raise ValueError("oldest_age_seconds must not be negative")
+        self._backlog_items_lower_bound.labels(scheduler=scheduler, region=region).set(due_items_lower_bound)
+        self._backlog_oldest_age_seconds.labels(scheduler=scheduler, region=region).set(oldest_age_seconds)
 
 
 DEFAULT_SCHEDULER_METRICS = SchedulerMetrics()
