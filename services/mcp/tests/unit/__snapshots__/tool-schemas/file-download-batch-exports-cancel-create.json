@@ -51,7 +51,8 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Split download into multiple files of at most this size in MB"
+                    "default": 1024,
+                    "description": "Split the download into files of at most this size in MB. Set it to null or 0 to write a single file of any size."
                 }
             },
             "type": "object"
