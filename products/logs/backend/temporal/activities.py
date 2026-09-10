@@ -431,7 +431,7 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
     selected_alert_count = sum(len(manifest.alert_ids) for manifest in result.manifests)
     limited_by = (
         "item_limit"
-        if selection.limited_by == "none" and result.due_items_lower_bound > selected_alert_count
+        if selection.limited_by == "none" and result.due_items_lower_bound > input.max_alerts_per_run
         else selection.limited_by
     )
     oldest_age_seconds = 0.0
@@ -1137,13 +1137,16 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
     )
 
 
-def _load_teams_for_signals(team_ids: set[int]) -> dict[int, Team]:
-    """Load teams (with organization) for signal emission, keyed by id.
+def _load_alerts_for_signals(alert_ids: set[str]) -> dict[str, LogsAlertConfiguration]:
+    """Load alert signal context, including each team and organization, keyed by alert id.
 
     `emit_signal` reads `team.organization` for the AI-consent gate, so prefetch
     it here to avoid a per-emit round-trip.
     """
-    return {team.id: team for team in Team.objects.filter(id__in=team_ids).select_related("organization")}
+    return {
+        str(alert.id): alert
+        for alert in LogsAlertConfiguration.objects.filter(id__in=alert_ids).select_related("team__organization")
+    }
 
 
 @temporalio.activity.defn
@@ -1157,8 +1160,8 @@ async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
     if not input.notified:
         return 0
 
-    team_ids = {na.team_id for na in input.notified}
-    teams = await database_sync_to_async_pool(_load_teams_for_signals)(team_ids)
+    alert_ids = {na.alert_id for na in input.notified}
+    alerts = await database_sync_to_async_pool(_load_alerts_for_signals)(alert_ids)
 
     semaphore = asyncio.Semaphore(EMIT_SIGNAL_CONCURRENCY)
     completed = 0
@@ -1166,15 +1169,24 @@ async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
     async def _bounded(na: NotifiedAlert) -> bool:
         nonlocal completed
         async with semaphore:
-            team = teams.get(na.team_id)
-            if team is None:
+            alert = alerts.get(na.alert_id)
+            if alert is None:
                 logger.warning(
-                    "Team missing for logs alert signal; skipping",
+                    "Alert missing for logs alert signal; skipping",
                     team_id=na.team_id,
                     alert_id=na.alert_id,
                 )
                 return False
-            ok = await emit_alert_state_change_signal(team, na)
+            hydrated = dataclasses.replace(
+                na,
+                team_id=alert.team_id,
+                alert_name=alert.name,
+                threshold_count=alert.threshold_count,
+                threshold_operator=alert.threshold_operator,
+                window_minutes=alert.window_minutes,
+                filters=alert.filters,
+            )
+            ok = await emit_alert_state_change_signal(alert.team, hydrated)
             completed += 1
             if completed % EMIT_SIGNAL_CONCURRENCY == 0:
                 temporalio.activity.heartbeat()
@@ -1668,7 +1680,7 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
             NotifiedAlert(
                 alert_id=str(alert.id),
                 team_id=alert.team_id,
-                alert_name=alert.name,
+                alert_name="",
                 action=action,
                 weight=weight,
                 threshold_count=alert.threshold_count,
@@ -1676,7 +1688,7 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
                 window_minutes=alert.window_minutes,
                 result_count=d.evaluation.check_result.result_count,
                 consecutive_failures=d.evaluation.outcome.consecutive_failures,
-                filters=alert.filters,
+                filters={},
             )
         )
     return notified
