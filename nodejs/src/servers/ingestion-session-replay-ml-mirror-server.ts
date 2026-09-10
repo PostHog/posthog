@@ -149,7 +149,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
-        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)
+        const metadataStore = new MlBlockMetadataSink(outputs)
         const urlProducerEnabled =
             this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
             this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED

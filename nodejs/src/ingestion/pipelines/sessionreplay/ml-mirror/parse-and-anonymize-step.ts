@@ -85,7 +85,7 @@ export interface ParseAndAnonymizeStepOutput extends ParseMessageStepOutput {
 }
 
 export interface ImageCollectionConfig {
-    /** The ML pseudonym HMAC key; only its per-team derivatives (never the key) cross the FFI. */
+    /** Only derived image content and URL keys cross the FFI; the root key stays here. */
     pseudonymSecret: string | Buffer
     /** Replace inlined images with refs and return their bytes for the scrub topic. */
     collectImages: boolean

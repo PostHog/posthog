@@ -6,9 +6,6 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { parseBlockUrl, toBlockMetadataRow } from './block-metadata-row'
-import { PSEUDONYM_SESSION, pseudonymize } from './pseudonymize'
-
-const SECRET = 'test-secret'
 
 const block = (over: Partial<SessionBlockMetadata> = {}): SessionBlockMetadata => ({
     ...createNoopBlockMetadata('sess-1', 7),
@@ -29,10 +26,10 @@ describe('ml-mirror block-metadata-row', () => {
         ['018bcfe5-6800-4000-8000-000000000001', undefined],
         ['018bcfe5-6800-7000-0000-000000000001', undefined],
         ['legacy-session', undefined],
-    ])('derives the session partition before pseudonymizing %s', (sessionId, expected) => {
-        const result = toBlockMetadataRow(block({ sessionId: String(sessionId) }), SECRET)!
+    ])('derives the session partition and preserves session ID %s', (sessionId, expected) => {
+        const result = toBlockMetadataRow(block({ sessionId: String(sessionId) }))!
         expect(result.session_start_ts_ms).toBe(expected)
-        expect(result.session_id).not.toBe(sessionId)
+        expect(result.session_id).toBe(sessionId)
     })
 
     describe('parseBlockUrl', () => {
@@ -46,17 +43,16 @@ describe('ml-mirror block-metadata-row', () => {
     })
 
     describe('toBlockMetadataRow', () => {
-        it('stores the raw team ID and pseudonymizes session and distinct IDs', () => {
-            const row = toBlockMetadataRow(block(), SECRET)!
+        it('preserves raw team, session, and distinct IDs', () => {
+            const row = toBlockMetadataRow(block())!
             expect(row.team_id).toBe('7')
             expect(row.format_version).toBe(2)
-            expect(row.session_id).toBe(pseudonymize(SECRET, PSEUDONYM_SESSION, 'sess-1'))
-            expect(row.distinct_id).not.toContain('user@example.com')
-            expect(row.session_id).not.toBe('sess-1')
+            expect(row.session_id).toBe('sess-1')
+            expect(row.distinct_id).toBe('user@example.com')
         })
 
         it('maps block fields and the parsed byte range', () => {
-            const row = toBlockMetadataRow(block(), SECRET)!
+            const row = toBlockMetadataRow(block())!
             expect(row).toMatchObject({
                 block_s3_key: 's3://ml-bucket/session_recordings/key-abc',
                 block_byte_start: 100,
@@ -73,7 +69,7 @@ describe('ml-mirror block-metadata-row', () => {
             ['a deletion marker', block({ isDeleted: true })],
             ['a block with no url', block({ blockUrl: null })],
         ])('returns null for %s', (_label, b) => {
-            expect(toBlockMetadataRow(b, SECRET)).toBeNull()
+            expect(toBlockMetadataRow(b)).toBeNull()
         })
     })
 })

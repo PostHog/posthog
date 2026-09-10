@@ -19,7 +19,7 @@ block-metadata-replay-index/v2/kind=full_snapshot/session_start_date=2026-09-01/
 block-metadata-replay-index/v2/kind=page/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
 ```
 
-Each row identifies a raw team ID and a pseudonymous session, the recording window, an event timestamp, and a zero-based event index within the decompressed block.
+Each row identifies raw team and session IDs, the recording window, an event timestamp, and a zero-based event index within the decompressed block.
 The block key and inclusive byte range locate the independently compressed block.
 Timestamps use doubles so fractional milliseconds survive an exact join.
 Window IDs match the IDs in the scrubbed recording lines.
@@ -31,7 +31,7 @@ Types come from root objects, root arrays, and `@graph` members.
 Nested entity properties, such as a product's offers, do not contribute types.
 The types help select candidates; read the payload before deciding which label to use.
 
-The index partitions each row by its session's UTC start date, decoded from UUIDv7 before pseudonymization.
+The index partitions each row by its session's UTC start date, decoded from UUIDv7.
 Entries for one session stay under one date, including separate blocks and late arrivals across midnight.
 This partition helps session lookups and cross-block joins. An arrival-date partition would make ingestion-time scans simpler, but would spread one session across dates.
 The index omits non-v7 session IDs and starts outside the interval from seven days before the block's last event through that event.

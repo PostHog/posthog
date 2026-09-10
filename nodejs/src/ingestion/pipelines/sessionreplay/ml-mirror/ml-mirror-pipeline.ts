@@ -59,7 +59,7 @@ export interface MlMirrorUrlFetchProducer {
  * make that measurement impossible to take on its own.
  */
 export interface MlMirrorCollection {
-    /** The ML pseudonym HMAC key, also used by the block-metadata sink. */
+    /** The root key for image content and URL HMAC keys. */
     pseudonymSecret: string | Buffer
     collectImages: boolean
     collectUrls: boolean

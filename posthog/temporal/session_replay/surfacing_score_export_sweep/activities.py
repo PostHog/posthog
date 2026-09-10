@@ -1,7 +1,6 @@
-"""Activities: plan the (day × hash bucket) fan-out, then per partition fetch → pseudonymize → Parquet → S3 put.
+"""Activities: plan the (day × hash bucket) fan-out, then per partition fetch → Parquet → S3 put.
 
-Team IDs remain raw so data preparation can join analytics events.
-Session IDs use the ML mirror's pseudonym scheme.
+Team and session IDs remain raw so data preparation can join analytics events.
 Training datasets must join these scores to opted-in mirror sessions.
 Object keys are deterministic, so retries and the re-export window overwrite;
 an empty partition still writes an empty object so deleted sessions drop out
@@ -21,7 +20,6 @@ from asgiref.sync import sync_to_async
 from boto3 import client as boto3_client
 from botocore.client import Config
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
@@ -32,14 +30,6 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
     EXPORT_FLOOR_DAY,
     EXPORT_PAGE_MAX_ROWS,
     REEXPORT_WINDOW_DAYS,
-)
-from posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize import (
-    PSEUDONYM_SESSION,
-    PseudonymKeyFingerprintMismatchError,
-    PseudonymKeyNotConfiguredError,
-    is_pseudonym_key_configured,
-    pseudonymize,
-    resolve_pseudonym_key,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
     score_export_destination,
@@ -57,8 +47,6 @@ logger = structlog.get_logger(__name__)
 
 
 def _disabled_reason() -> str | None:
-    if not is_pseudonym_key_configured():
-        return "pseudonym key not configured"
     if score_export_destination() is None:
         return "score export S3 destination not configured"
     return None
@@ -130,14 +118,14 @@ def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor) -> list[_ScoredRow]:
     )
 
 
-def _page_table(rows: list[_ScoredRow], secret: bytes) -> pa.Table:
+def _page_table(rows: list[_ScoredRow]) -> pa.Table:
     records: list[dict[str, Any]] = []
     for team_id, session_id, started_at, score in rows:
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
         records.append(
             {
-                "session_id": pseudonymize(secret, PSEUDONYM_SESSION, session_id),
+                "session_id": session_id,
                 "team_id": str(team_id),
                 "started_at": started_at,
                 "surfacing_score": float(score),
@@ -163,11 +151,6 @@ def _upload(key: str, body: bytes) -> None:
 
 @activity.defn
 async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportPartitionResult:
-    try:
-        secret = await sync_to_async(resolve_pseudonym_key, thread_sensitive=False)()
-    except (PseudonymKeyNotConfiguredError, PseudonymKeyFingerprintMismatchError) as e:
-        raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
-
     activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id})
 
     sink = io.BytesIO()
@@ -178,7 +161,7 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
         while True:
             rows = await sync_to_async(_fetch_page, thread_sensitive=False)(spec, cursor)
             if rows:
-                table = await sync_to_async(_page_table, thread_sensitive=False)(rows, secret)
+                table = await sync_to_async(_page_table, thread_sensitive=False)(rows)
                 await sync_to_async(writer.write_table, thread_sensitive=False)(table)
                 rows_total += len(rows)
                 cursor = (rows[-1][1], rows[-1][0])

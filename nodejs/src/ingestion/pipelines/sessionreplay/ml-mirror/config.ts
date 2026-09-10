@@ -9,7 +9,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_METADATA_PREFIX: string
     /** Optional S3 key of the `{ text, url }` allow-list document; empty → in-binary defaults. */
     SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: string
-    /** Plaintext HMAC secret to pseudonymize ids; for local dev only — prod uses the KMS-wrapped key below. */
+    /** Plaintext root key for image hashes; local development only. Production uses the KMS-wrapped key below. */
     SESSION_RECORDING_ML_PSEUDONYM_SECRET: string
     /** Base64 KMS-encrypted pseudonym key (envelope); decrypted once at startup, never persisted. Preferred over the plaintext secret. */
     SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: string

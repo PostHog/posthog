@@ -1,8 +1,6 @@
 import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
-import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, pseudonymize } from './pseudonymize'
-
 export interface MlBlockMetadataRow {
     format_version?: 2
     session_start_ts_ms?: number
@@ -51,7 +49,7 @@ export function parseBlockUrl(blockUrl: string): { key: string; start: number | 
 }
 
 /** Maps a flush's block metadata to a row, or null for deletion/no-op markers that reference no block. */
-export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string | Buffer): MlBlockMetadataRow | null {
+export function toBlockMetadataRow(block: SessionBlockMetadata): MlBlockMetadataRow | null {
     if (!block.blockUrl || block.isDeleted) {
         return null
     }
@@ -66,9 +64,9 @@ export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string |
             : {
                   session_start_ts_ms: sessionStartTimestamp,
               }),
-        session_id: pseudonymize(secret, PSEUDONYM_SESSION, block.sessionId),
+        session_id: block.sessionId,
         team_id: String(block.teamId),
-        distinct_id: pseudonymize(secret, PSEUDONYM_DISTINCT_ID, block.distinctId),
+        distinct_id: block.distinctId,
         block_url: block.blockUrl,
         block_s3_key: key,
         block_byte_start: start,

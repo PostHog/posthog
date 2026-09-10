@@ -13,9 +13,7 @@ import { MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/share
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataSink } from './ml-block-metadata-sink'
-import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, pseudonymize } from './pseudonymize'
 
-const SECRET = 'roundtrip-secret'
 const SESSION_A = '018bcfe5-6800-7000-8000-000000000001'
 
 const block = (sessionId: string, teamId: number, distinctId: string): SessionBlockMetadata => ({
@@ -72,7 +70,7 @@ async function readRows(body: PutObjectCommandInput['Body']): Promise<Record<str
 // End-to-end across both new deployments' metadata path: the mirror's producer serializes block metadata to the
 // Kafka topic, and the sink's parser → batcher → Parquet store turns those exact bytes into an object in the ML bucket.
 describe('ML metadata producer → sink round-trip', () => {
-    it('pseudonymizes on the way out and recovers the same rows from the written Parquet', async () => {
+    it('preserves raw IDs through Kafka and the written Parquet', async () => {
         // --- Mirror (producer) side: block metadata → Kafka message bytes ---
         const produced: { key?: unknown; value: Buffer | null }[] = []
         const outputs = {
@@ -82,7 +80,7 @@ describe('ML metadata producer → sink round-trip', () => {
             }),
         } as unknown as IngestionOutputs<MlBlockMetadataOutput>
 
-        await new MlBlockMetadataSink(outputs, SECRET).storeSessionBlocks([
+        await new MlBlockMetadataSink(outputs).storeSessionBlocks([
             block(SESSION_A, 1, 'person-1'),
             block('sess-B', 2, 'person-2'),
         ])
@@ -113,7 +111,7 @@ describe('ML metadata producer → sink round-trip', () => {
         expect(labels).toHaveLength(2)
         expect(labels[1].url ?? null).toBeNull()
         expect(labels[0]).toMatchObject({
-            session_id: pseudonymize(SECRET, PSEUDONYM_SESSION, SESSION_A),
+            session_id: SESSION_A,
             window_id: 'w1',
             event_index: 2,
             full_snapshot_ts_ms: 1_700_000_000_001.5,
@@ -129,14 +127,11 @@ describe('ML metadata producer → sink round-trip', () => {
         expect(rows).toHaveLength(2)
 
         const bySession = new Map(rows.map((r) => [r.session_id, r]))
-        const a = bySession.get(pseudonymize(SECRET, PSEUDONYM_SESSION, SESSION_A))!
+        const a = bySession.get(SESSION_A)!
         expect(a).toBeDefined()
         expect(a.team_id).toBe('1')
-        expect(a.distinct_id).toBe(pseudonymize(SECRET, PSEUDONYM_DISTINCT_ID, 'person-1'))
-        // Raw ids never survive the trip (BigInt-safe stringify, since INT64 fields read back as bigint).
-        expect(a.session_id).not.toBe(SESSION_A)
-        const serialized = JSON.stringify(a, (_key, value) => (typeof value === 'bigint' ? value.toString() : value))
-        expect(serialized).not.toContain('person-1')
+        expect(a.distinct_id).toBe('person-1')
+        expect(a.session_id).toBe(SESSION_A)
         // Real block fields round-trip through JSON → Parquet → read.
         expect(Number(a.block_byte_start)).toBe(10)
         expect(Number(a.block_byte_end)).toBe(42)
