@@ -5,7 +5,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity
 
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, opens_with_line_anchored_markdown
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -447,12 +447,13 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # converting, so the gate is read before the answer is prepared.
     markdown = handler.renders_markdown()
 
-    # Markdown reads a heading, a list, a quote, a table, and a fence only at the start of a
-    # line, so a mention glued to the front of the answer would turn its first construct into
-    # literal text. Giving the mention its own line keeps that construct intact and still
-    # notifies, which is what the streamed replies already do. On the mrkdwn path the mention
-    # stays inline, because nothing there depends on the line it starts.
-    mention_separator = "\n\n" if markdown else " "
+    # The mention opens the answer, in the same line, so the reply reads as one message. An answer
+    # that opens with a heading, a list, a quote, a table, or a fence is the exception: Markdown
+    # reads those only at the start of a line, so a mention in front of one would turn it into
+    # literal text. Those answers take the mention on a line of its own, which keeps the construct
+    # intact and still notifies. On the mrkdwn path nothing depends on the line the answer starts,
+    # so the mention is always inline there.
+    mention_separator = "\n\n" if markdown and opens_with_line_anchored_markdown(text) else " "
     mention_prefix = f"<@{target}>{mention_separator}" if target else ""
 
     # Pending chart images compose into a single Slack message together with the answer text,

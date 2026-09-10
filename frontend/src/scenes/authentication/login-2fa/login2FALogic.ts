@@ -1,14 +1,16 @@
 import { type PublicKeyCredentialRequestOptionsJSON, startAuthentication } from '@simplewebauthn/browser'
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import api, { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
+import { urls } from 'scenes/urls'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PreflightStatus } from '../../../types'
@@ -300,8 +302,11 @@ export const login2FALogic = kea<login2FALogicType>([
             redirectAfterLogin()
         },
     })),
-    afterMount(({ actions }) => {
-        // Check if user has passkeys when component mounts
-        actions.checkPasskeysAvailable()
-    }),
+    // The server answers this only for a pending 2FA session. Kea mounts this logic alongside
+    // anything that references its actions, so the route, not the mount, decides when to ask.
+    urlToAction(({ actions }) => ({
+        [urls.login2FA()]: () => {
+            actions.checkPasskeysAvailable()
+        },
+    })),
 ])
