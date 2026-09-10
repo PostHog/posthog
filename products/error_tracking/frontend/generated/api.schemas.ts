@@ -2150,7 +2150,7 @@ export interface ErrorTrackingSymbolSetUploadApi {
 }
 
 export interface ErrorTrackingSymbolSetBulkCheckUploadApi {
-    /** Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. */
+    /** Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request. */
     symbol_sets: ErrorTrackingSymbolSetUploadApi[]
     /** Whether to overwrite uploaded symbol sets whose content hash changed. */
     force?: boolean

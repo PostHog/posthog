@@ -1331,7 +1331,9 @@ export const ErrorTrackingSymbolSetsBulkCheckUploadCreateBody = /* @__PURE__ */ 
                     .describe('Optional hash of the symbol set content, used to skip unchanged uploads.'),
             })
         )
-        .describe('Symbol sets the client intends to upload, with per-symbol release IDs and content hashes.'),
+        .describe(
+            'Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request.'
+        ),
     force: zod
         .boolean()
         .default(errorTrackingSymbolSetsBulkCheckUploadCreateBodyForceDefault)

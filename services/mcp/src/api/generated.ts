@@ -33747,7 +33747,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSymbolSetBulkCheckUpload {
-      /** Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. */
+      /** Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request. */
       symbol_sets: ErrorTrackingSymbolSetUpload[];
       /** Whether to overwrite uploaded symbol sets whose content hash changed. */
       force?: boolean;

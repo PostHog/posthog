@@ -37,6 +37,10 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSymbolSet,
 )
 from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueAssignRequestSerializer
+from products.error_tracking.backend.presentation.views.symbol_sets import (
+    BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS,
+    ErrorTrackingSymbolSetBulkCheckUploadSerializer,
+)
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -60,6 +64,23 @@ class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "id" in serializer.errors["assignee"]
+
+
+class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_limit", BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS, True),
+            ("over_limit", BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS + 1, False),
+        ]
+    )
+    def test_caps_the_symbol_sets_per_request(self, _name: str, count: int, expected_valid: bool) -> None:
+        serializer = ErrorTrackingSymbolSetBulkCheckUploadSerializer(
+            data={"symbol_sets": [{"chunk_id": f"chunk-{i}", "content_hash": "hash"} for i in range(count)]}
+        )
+
+        assert serializer.is_valid() == expected_valid
+        if not expected_valid:
+            assert "symbol_sets" in serializer.errors
 
 
 class TestErrorTracking(APIBaseTest):

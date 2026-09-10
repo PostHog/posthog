@@ -18,6 +18,8 @@ from products.error_tracking.backend.facade import (
 )
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
+BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS = 1000
+
 
 class ErrorTrackingSymbolSetSerializer(DataclassSerializer):
     class Meta:
@@ -50,9 +52,14 @@ class ErrorTrackingSymbolSetBulkDeleteSerializer(serializers.Serializer):
 
 
 class ErrorTrackingSymbolSetBulkCheckUploadSerializer(serializers.Serializer):
-    symbol_sets = ErrorTrackingSymbolSetUploadSerializer(
+    # `max_length` reaches the ListSerializer through `many_init`, which the DRF stubs do not model.
+    symbol_sets = ErrorTrackingSymbolSetUploadSerializer(  # type: ignore[call-arg]
         many=True,
-        help_text="Symbol sets the client intends to upload, with per-symbol release IDs and content hashes.",
+        max_length=BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS,
+        help_text=(
+            "Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. "
+            f"Send at most {BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS} per request."
+        ),
     )
     force = serializers.BooleanField(
         required=False,
