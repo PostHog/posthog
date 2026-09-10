@@ -102,6 +102,7 @@ export interface tracingSceneLogicValues {
     traceIdentity: TraceIdentity // tracingViewerLogic
     traceSessionId: string | null // tracingViewerLogic
     sessionErrorBadgesEnabled: boolean // tracingViewerLogic
+    errorCountByRow: Map<string, number> // tracingViewerLogic
     inspectorTab: SpanInspectorTab // tracingViewerLogic
     activeTracingTab: 'operations' | 'traces'
     breadcrumbs: Breadcrumb[]
@@ -308,6 +309,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'traceIdentity',
                 'traceSessionId',
                 'sessionErrorBadgesEnabled',
+                'errorCountByRow',
                 'inspectorTab',
                 'isLoadingFullTrace',
                 'canLoadMoreTraceSpans',

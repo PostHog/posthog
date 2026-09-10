@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -83,6 +84,7 @@ function TracingSceneContents(): JSX.Element {
         traceIdentity,
         traceSessionId,
         sessionErrorBadgesEnabled,
+        errorCountByRow,
         inspectorTab,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
@@ -134,6 +136,20 @@ function TracingSceneContents(): JSX.Element {
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
     const { sparklineWindowMs } = useValues(tracingFiltersLogic)
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
+
+    // Absent while the flag is off, which is how the list decides whether to keep a badge column.
+    // Memoized because the list hands it to every virtualized row.
+    const sessionErrors = useMemo(
+        () =>
+            sessionErrorBadgesEnabled
+                ? {
+                      counts: errorCountByRow,
+                      onShow: (span: Span) =>
+                          openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp, tab: 'errors' }),
+                  }
+                : undefined,
+        [sessionErrorBadgesEnabled, errorCountByRow, openTrace]
+    )
 
     const onDocsLinkClick = (): void => {
         addProductIntent({
@@ -257,7 +273,7 @@ function TracingSceneContents(): JSX.Element {
                                 hasMoreToLoad={hasMoreToLoad}
                                 onLoadMore={fetchNextPage}
                                 onVisibleRowRangeChange={setVisibleRowRange}
-                                showSessionErrors={sessionErrorBadgesEnabled}
+                                sessionErrors={sessionErrors}
                                 orderBy={filters.orderBy}
                                 orderDirection={filters.orderDirection}
                                 onSort={(column) =>

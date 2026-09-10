@@ -53,17 +53,17 @@ export function TraceErrorsTab({ traceId, timestamp, sessionId, resolving }: Tra
 }
 
 function TraceErrorsTabContent(): JSX.Element {
-    const { sessionIssues, sessionIssuesLoading, sessionIssuesError } = useValues(traceErrorsLogic)
+    const { sessionIssues, sessionIssuesLoading, sessionIssuesFailed } = useValues(traceErrorsLogic)
     const { loadSessionIssues } = useActions(traceErrorsLogic)
 
     if (sessionIssuesLoading) {
         return <LoadingState />
     }
 
-    if (sessionIssuesError) {
+    if (sessionIssuesFailed) {
         return (
             <LemonBanner type="error" action={{ children: 'Retry', onClick: loadSessionIssues }}>
-                Failed to load errors for this session
+                Could not load the errors for this session.
             </LemonBanner>
         )
     }
@@ -84,9 +84,7 @@ function TraceErrorsTabContent(): JSX.Element {
 function LoadingState(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
-            <LemonSkeleton className="h-16 w-full" />
-            <LemonSkeleton className="h-16 w-full" />
-            <LemonSkeleton className="h-16 w-full" />
+            <LemonSkeleton className="h-16 w-full" repeat={3} />
         </div>
     )
 }

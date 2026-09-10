@@ -70,6 +70,10 @@ describe('spanSessionErrorsLogic', () => {
         await loadFirstPage([spanWithSession('span-1', 'session-a'), spanWithSession('span-2', 'session-b')])
 
         expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3, 'session-b': 0 })
+        // The row a badge sits on has to read its own session's count, and a clean session must
+        // leave the row out rather than badge it with a zero.
+        expect(logic.values.errorCountByRow.get('span-1')).toBe(3)
+        expect(logic.values.errorCountByRow.has('span-2')).toBe(false)
 
         await loadNextPage([
             spanWithSession('span-1', 'session-a'),
