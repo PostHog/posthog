@@ -2,7 +2,6 @@ import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import { mswDecorator } from '~/mocks/browser'
-import preflightFixture from '~/mocks/fixtures/_preflight.json'
 
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH } from '../../hogFlowEditorLogic'
@@ -51,8 +50,6 @@ const meta: Meta<typeof TriggerVolumeEstimate> = {
     decorators: [
         mswDecorator({
             get: {
-                // Cloud, so the warning can offer the support route that only cloud projects get.
-                '/_preflight': { ...preflightFixture, cloud: true, realm: 'cloud' },
                 // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
                 '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
                     200,
@@ -75,17 +72,12 @@ const meta: Meta<typeof TriggerVolumeEstimate> = {
 }
 export default meta
 
-// The editor panel is resizable, and LemonBanner switches its action button from inline to
-// full-width at a 28rem container. Both sides of that break are a real panel width, so the
-// narrow story pins the panel's minimum rather than a width nobody drags to.
-const NARROW_PANEL_WIDTH = 400
-
 const Template: StoryFn<{ id: string; width: number }> = ({ id, width }) => {
     const logicProps: WorkflowLogicProps = { id }
 
     return (
         <BindLogic logic={workflowLogic} props={logicProps}>
-            {/* Pinned to a panel width, minus the panel's own px-2, so the container query breaks where it does in the app */}
+            {/* Pinned to the panel's width, minus its own px-2, so the chart is as wide as it is in the app */}
             <div className="px-2" style={{ width }}>
                 <TriggerVolumeEstimate action={TRIGGER_ACTION} />
             </div>
@@ -98,6 +90,3 @@ EventTrigger.args = { id: EVENT_TRIGGER_WORKFLOW_ID, width: HOG_FLOW_EDITOR_DEFA
 
 export const OverTheAiTaskLimit: StoryFn<{ id: string; width: number }> = Template.bind({})
 OverTheAiTaskLimit.args = { id: AI_TASK_WORKFLOW_ID, width: HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH }
-
-export const OverTheAiTaskLimitNarrowPanel: StoryFn<{ id: string; width: number }> = Template.bind({})
-OverTheAiTaskLimitNarrowPanel.args = { id: AI_TASK_WORKFLOW_ID, width: NARROW_PANEL_WIDTH }

@@ -3,6 +3,8 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
@@ -118,6 +120,7 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
     component: HogFlowEditorPanel,
     parameters: {
         layout: 'fullscreen',
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE],
     },
     decorators: [
         mswDecorator({

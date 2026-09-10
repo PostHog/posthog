@@ -5916,10 +5916,6 @@ snapshots:
         hash: v1.k794b7964.0a0bc4018ef0811a9e45e9b2fb73566912d3c6a58525767ae5084ab1ea1dcc4b.3wn9BLA3f9iGth91HB_zvgMckNum-5PB3yqP19Vo3CY
     products-workflows-steps-trigger-volume--over-the-ai-task-limit--light:
         hash: v1.k794b7964.da286f5bdd8b11c94cc730c766b13c5590eb044108d0e97295e7107b2f0d5e9d.th4ExtaG6anoFQEF5B-e8ZjMRbSPt0D_Cy2Uw-NoVLU
-    products-workflows-steps-trigger-volume--over-the-ai-task-limit-narrow-panel--dark:
-        hash: v1.k794b7964.0453fdc686b575894c011df419c6ffe1f2be778952e37bf93cc13e5ab1c45b54.QER0kvmkTNGSeGPIcuTUhMXJt-ycgibU58SGp5wC2Ck
-    products-workflows-steps-trigger-volume--over-the-ai-task-limit-narrow-panel--light:
-        hash: v1.k794b7964.3ff0eca7bcef09691b15f4a7200d05d7813f824359c8f70412d74f163754b0d2.r1gj8KbNUwMmco2JY7Y7cc8llY4dK_GWPkNenUnlm3Y
     queries-webvitals--web-vitals--dark:
         hash: v1.k794b7964.2ae778a0c5fdba3c69dfcbd3e9589c3c3d9cc2f0fef2eefd304c565be7e9a7c9.hH71byl33sIAdRCgaPk1lDOev0qooW1xhv0AL_yrIvg
     queries-webvitals--web-vitals--light:

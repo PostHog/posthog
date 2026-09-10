@@ -1,20 +1,17 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowAction } from '../../types'
 import {
     DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY,
     TRIGGER_VOLUME_DAYS,
-    aiTaskLimitSupportRequest,
     countAiTaskSteps,
     countScoutSteps,
     eventTriggerVolumeFilters,
@@ -29,8 +26,6 @@ import { triggerVolumeLogic } from '../triggerVolumeLogic'
  */
 export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
-    const { preflight } = useValues(preflightLogic)
-    const { openSupportForm } = useActions(supportLogic)
     const filters = eventTriggerVolumeFilters(action)
     const { volume, volumeLoading, volumeFailed } = useValues(triggerVolumeLogic({ id: action.id, filters }))
 
@@ -40,20 +35,17 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
 
     const taskSteps = countAiTaskSteps(workflow)
     const scoutSteps = countScoutSteps(workflow)
-    // Every step a run reaches creates its own task, so the tasks a day is the runs times the steps,
-    // not the runs alone. Measured on the busiest day, which is what the cap is tested against.
-    const aiTasksPerDay = volume != null ? volume.peakPerDay * taskSteps : 0
     const overAiLimit = volume != null && exceedsAiTaskLimit(volume.peakPerDay, taskSteps)
     const perRunCopy =
         taskSteps > 1 ? `Each run can start up to ${taskSteps} AI tasks` : 'Each run can start an AI task'
 
     return (
         <div className="flex flex-col gap-2 w-full">
-            <LemonLabel>Trigger volume</LemonLabel>
+            <LemonLabel>Volume estimate</LemonLabel>
             {volumeLoading ? (
                 <>
                     <p className="mb-0 text-secondary">Counting how often this trigger fired.</p>
-                    <Sparkline type="bar" loading className="w-full h-16" data={[]} />
+                    <Sparkline type="line" loading className="w-full h-10" data={[]} />
                 </>
             ) : volumeFailed || !volume ? (
                 <p className="mb-0 text-secondary">
@@ -67,8 +59,8 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                         <span translate="no">{humanFriendlyNumber(volume.perDay)}</span> a day.
                     </p>
                     <Sparkline
-                        type="bar"
-                        className="w-full h-16"
+                        type="line"
+                        className="w-full h-10"
                         data={volume.daily}
                         labels={volume.labels}
                         color={overAiLimit ? 'warning' : 'muted'}
@@ -79,30 +71,10 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                         </p>
                     ) : null}
                     {overAiLimit ? (
-                        <LemonBanner
-                            type="warning"
-                            action={
-                                preflight?.cloud
-                                    ? {
-                                          children: 'Ask for a higher limit',
-                                          onClick: () =>
-                                              openSupportForm(
-                                                  aiTaskLimitSupportRequest({
-                                                      workflowName: workflow.name,
-                                                      peakPerDay: volume.peakPerDay,
-                                                      tasksPerDay: aiTasksPerDay,
-                                                  })
-                                              ),
-                                      }
-                                    : undefined
-                            }
-                        >
-                            {perRunCopy}, and a workflow stops at {DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY} AI tasks a day
-                            by default. On its busiest day this trigger passes that limit, so runs above it get skipped,
-                            and the tasks that do run count toward your AI usage.{' '}
-                            {preflight?.cloud
-                                ? 'Narrow the trigger with filters, set a frequency limit, or ask PostHog to raise the limit.'
-                                : 'Narrow the trigger with filters, or set a frequency limit.'}
+                        <LemonBanner type="warning">
+                            {perRunCopy}, and a workflow stops at {DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY} AI tasks a
+                            day. This trigger passes that on its busiest day. Narrow the filters or set a frequency
+                            limit.
                         </LemonBanner>
                     ) : taskSteps > 0 ? (
                         <p className="mb-0 text-secondary">{perRunCopy}. AI tasks count toward your AI usage.</p>
