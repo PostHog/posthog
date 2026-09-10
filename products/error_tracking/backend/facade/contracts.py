@@ -316,3 +316,20 @@ class ErrorTrackingAlertPreviewMessage:
 class ErrorTrackingAlertPreview:
     issue_id: UUID | None
     messages: list[ErrorTrackingAlertPreviewMessage]
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlertThread:
+    id: UUID
+    alert_id: UUID
+    alert_name: str
+    channel_type: str
+    channel: str | None
+    channel_name: str | None
+    # Link to the conversation in the provider, when the root message was posted.
+    external_url: str | None
+    root_headline: str
+    last_error: str
+    consecutive_failures: int
+    created_at: datetime
+    updated_at: datetime
