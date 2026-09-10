@@ -21,14 +21,14 @@ each is the auditing agent's reasoning and occasionally over-claims, so re-deriv
 
 ## Ably — **thin**
 
-Today (1): `Stats`
+Today (4): `ChannelMessages`, `Channels`, `Presence`, `Stats`
 
 Diffed against: <https://raw.githubusercontent.com/ably/open-specs/main/definitions/platform-v1.yaml>
 
 - [ ] `apps (Control API GET /accounts/{account_id}/apps)` — lookup table resolving the app IDs every Stats row is scoped to (high)
-- [ ] `channels (GET /channels)` — channel enumeration with per-channel occupancy/connection/publisher counts (high)
-- [ ] `channel messages history (GET /channels/{channel_id}/messages)` — the actual message event stream, not just aggregated stats (high)
-- [ ] `presence (GET /channels/{channel_id}/presence)` — current members per channel for concurrency analysis (medium)
+- [x] `channels (GET /channels)` — channel enumeration with per-channel occupancy/connection/publisher counts (high)
+- [x] `channel messages history (GET /channels/{channel_id}/messages)` — the actual message event stream, not just aggregated stats (high)
+- [x] `presence (GET /channels/{channel_id}/presence)` — current members per channel for concurrency analysis (medium)
 - [ ] `presence history (GET /channels/{channel_id}/presence/history)` — enter/leave transition history per channel (medium)
 - [ ] `push device registrations (GET /push/deviceRegistrations)` — device inventory backing push delivery stats (medium)
 - [ ] `push channel subscriptions (GET /push/channelSubscriptions)` — membership table linking devices to channels (medium)
@@ -38,7 +38,7 @@ Note: Source uses a static ENDPOINTS list (products/warehouse_sources/backend/te
 
 ## ActiveCampaign — gaps
 
-Today (16): `accounts`, `automations`, `campaigns`, `contacts`, `custom_fields`, `deal_groups`, `deal_stages`, `deals`, `ecom_customers`, `ecom_order_products`, `ecom_orders`, `email_activities`, `forms`, `lists`, `segments`, `tags`
+Today (18): `accounts`, `automations`, `campaigns`, `contact_automations`, `contacts`, `custom_fields`, `deal_activities`, `deal_groups`, `deal_stages`, `deals`, `ecom_customers`, `ecom_order_products`, `ecom_orders`, `email_activities`, `forms`, `lists`, `segments`, `tags`
 
 Diffed against: <https://developers.activecampaign.com/reference/overview>
 
@@ -46,27 +46,34 @@ Diffed against: <https://developers.activecampaign.com/reference/overview>
 - [x] `ecomOrders` — e-commerce revenue transactions; no commerce data is synced at all today (high)
 - [x] `ecomOrderProducts` — order line items needed for product-level revenue breakdowns (high)
 - [x] `ecomCustomers` — resolves the customer IDs carried on ecom orders (high)
-- [ ] `dealActivities (GET /deals/{id}/dealActivities)` — deal stage-transition and change history (high)
+- [x] `dealActivities (GET /dealActivities)` — deal stage-transition and change history (high)
 - [ ] `contactActivities (GET /activities)` — contact-level activity timeline across campaigns and automations (high)
 - [ ] `contactLists (list memberships)` — membership table joining synced contacts to synced lists (high)
-- [ ] `contactAutomations` — membership table joining synced contacts to synced automations, with entry/exit state (high)
+- [x] `contactAutomations` — membership table joining synced contacts to synced automations, with entry/exit state (high)
 - [ ] `accountContacts (account-contact association)` — membership table joining synced accounts to synced contacts (medium)
 - [ ] `users (and groups)` — lookup resolving owner IDs on deals, tasks and notes (medium)
 - [ ] `notes` — free-text CRM notes attached to contacts, deals and accounts (medium)
 - [ ] `tasks (with taskTypes / taskOutcomes)` — sales activity volume plus the lookup tables that decode task type and outcome (medium)
 
+Note: `contactActivities` and `contactLists` are left unticked on purpose. Neither has an
+account-wide collection route in API v3: `GET /activities` documents "A contact ID is required to
+access this endpoint. This endpoint does not support multiple contact IDs with a single call", and
+list memberships are only readable at `GET /contacts/{id}/contactLists`. Both would therefore cost
+one request per contact per sync, which does not finish on a real contact base. Revisit if
+ActiveCampaign adds a collection route.
+
 Note: deal_groups/deal_stages already cover the pipelines and stages lookups. The reference sidebar also exposes campaign messages, campaign link stats, scores, bounce logs, custom object records, conversations, SMS broadcast metrics and the separate e-commerce GraphQL API — all plausible but lower value than the 12 above.
 
-## AdRoll — **thin**
+## AdRoll — gaps
 
-Today (3): `ads`, `advertisables`, `campaigns`
+Today (10): `accounts`, `ad_reports`, `adgroups`, `ads`, `advertisable_reports`, `advertisables`, `campaign_reports`, `campaigns`, `organization`, `segments`
 
 Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 
-- [ ] `adgroups (GET /api/v1/advertisable/get_adgroups, /api/v1/campaign/get_adgroups)` — the missing middle level of the campaign -> adgroup -> ad hierarchy we already half-sync (high)
-- [ ] `report/campaign, report/adgroup, report/ad, report/advertisable` — delivery and attribution metrics - impressions, clicks, spend, conversions; the whole point of an ads connector (high)
-- [ ] `segments (GET /api/v1/advertisable/get_segments, /api/v1/segment/get)` — audience segments targeted by adgroups, with sizes (high)
-- [ ] `organization (GET /api/v1/organization/get, get_advertisables, get_accounts)` — lookup resolving the org/account EIDs that advertisables hang off (medium)
+- [x] `adgroups (GET /api/v1/advertisable/get_adgroups, /api/v1/campaign/get_adgroups)` — the missing middle level of the campaign -> adgroup -> ad hierarchy we already half-sync (high)
+- [x] `report/campaign, report/ad, report/advertisable` — delivery metrics - impressions, clicks, spend; the whole point of an ads connector (high). `report/adgroup` does not exist on the CRUD API.
+- [x] `segments (GET /api/v1/advertisable/get_segments)` — audience segments targeted by adgroups (high). `segment/get` is a single-segment lookup, covered by the list endpoint's `get` representation.
+- [x] `organization (GET /api/v1/organization/get, get_accounts)` — lookup resolving the org/account EIDs that advertisables hang off (medium). `get_advertisables` already backs the `advertisables` table.
 - [ ] `pixel (GET /api/v1/advertisable/get_pixel, /api/v1/pixel/get)` — conversion tracking pixel per advertisable (medium)
 - [ ] `rules (GET /api/v1/pixel/get_rules, /api/v1/rule/get)` — conversion and retargeting rule definitions that decode segment membership (medium)
 - [ ] `invoice (GET /api/v1/invoice/get)` — billed spend reconciliation against reported campaign spend (medium)
@@ -76,7 +83,7 @@ Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 - [ ] `contextual_categories` — lookup decoding contextual targeting categories on adgroups (low)
 - [ ] `dynamic_template/get_all_for_advertisable` — creative template lookup for dynamic ads (low)
 
-Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://apidocs.nextroll.com/graphql-reporting-api/index.html) that supersedes the legacy CRUD /api/v1/report/\* endpoints - delivery and attribution metrics by advertisable, campaign, adgroup, ad, plus granular conversions. The developers.nextroll.com URL in the payload is an Angular shell with no content; the real reference is apidocs.nextroll.com.
+Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://apidocs.nextroll.com/graphql-reporting-api/index.html) that supersedes the legacy CRUD /api/v1/report/\* endpoints - delivery and attribution metrics by advertisable, campaign, adgroup, ad, plus granular conversions. The synced report tables use the CRUD API's `entity` data format, the only shape that reference documents: one row per entity with its delivery metrics. Per-day breakdowns and attribution remain a GraphQL Reporting API follow-up. The developers.nextroll.com URL in the payload is an Angular shell with no content; the real reference is apidocs.nextroll.com.
 
 ## AgileCRM — gaps
 
@@ -84,10 +91,10 @@ Today (5): `companies`, `contacts`, `deals`, `events`, `tasks`
 
 Diffed against: <https://raw.githubusercontent.com/agilecrm/rest-api/master/README.md>
 
-- [ ] `milestone/pipelines (GET /dev/api/milestone/pipelines)` — tracks and their milestones - the lookup table decoding the milestone field on every synced deal (high)
-- [ ] `tickets (GET /dev/api/tickets/filter)` — help desk tickets, an entire product area with no coverage today (high)
-- [ ] `notes (GET /dev/api/notes, /dev/api/contacts/{id}/notes, /dev/api/opportunity/{id}/notes)` — free-text notes attached to synced contacts and deals (medium)
-- [ ] `ticket notes/messages (GET /dev/api/tickets/notes/{ticket-id})` — the conversation thread inside each ticket (medium)
+- [x] `milestone/pipelines (GET /dev/api/milestone/pipelines)` — tracks and their milestones - the lookup table decoding the milestone field on every synced deal (high) — added as `pipelines`
+- [x] `tickets (GET /dev/api/tickets/filter)` — help desk tickets, an entire product area with no coverage today (high)
+- [x] `notes (GET /dev/api/notes, /dev/api/contacts/{id}/notes, /dev/api/opportunity/{id}/notes)` — free-text notes attached to synced contacts and deals (medium) — added as `contact_notes` + `deal_notes` (there is no account-wide GET /dev/api/notes; notes are only exposed per parent)
+- [x] `ticket notes/messages (GET /dev/api/tickets/notes/{ticket-id})` — the conversation thread inside each ticket (medium) — added as `ticket_notes`
 - [ ] `workflows / campaigns (GET /dev/api/workflows)` — marketing campaign definitions that contact automation activity references (medium)
 - [ ] `documents (GET /dev/api/documents/contact/{contact_id}/docs)` — files attached to contacts (low)
 
@@ -99,10 +106,10 @@ Today (8): `epics`, `features`, `goals`, `ideas`, `initiatives`, `products`, `to
 
 Diffed against: <https://www.aha.io/api>
 
-- [ ] `releases (GET /api/v1/products/{id}/releases)` — core roadmap object that every synced feature belongs to; currently unresolvable (high)
-- [ ] `requirements (GET /api/v1/features/{id}/requirements)` — the child records under features, where most delivery detail lives (high)
+- [x] `releases (GET /api/v1/products/{id}/releases)` — core roadmap object that every synced feature belongs to; currently unresolvable (high)
+- [x] `requirements (GET /api/v1/features/{id}/requirements)` — the child records under features, where most delivery detail lives (high)
 - [ ] `workflow_status_times (GET .../workflow_status_times for features, epics, ideas, releases, requirements, initiatives, key_results)` — state transition history - time in each workflow status, needed for cycle-time analysis (high)
-- [ ] `idea_votes (GET /api/v1/ideas/{id}/endorsements, /api/v1/idea_votes)` — the headline demand metric for ideas we already sync (high)
+- [x] `idea_votes (GET /api/v1/ideas/{id}/endorsements, /api/v1/idea_votes)` — the headline demand metric for ideas we already sync (high)
 - [ ] `workflows (GET /api/v1/workflows)` — lookup table decoding the workflow_status IDs carried on features, epics, ideas and releases (high)
 - [ ] `key_results (GET /api/v1/goals/{id}/key_results)` — the measurable targets under every synced goal (high)
 - [ ] `comments (GET /api/v1/products/{id}/comments and per-record variants) plus idea_comments` — discussion activity across features, releases, goals and ideas (high)
@@ -128,14 +135,14 @@ Note: Airbrake's readable v4 surface is small and coverage is close to complete:
 
 ## Aircall — gaps
 
-Today (6): `calls`, `contacts`, `numbers`, `tags`, `teams`, `users`
+Today (10): `call_evaluations`, `call_sentiments`, `call_topics`, `call_transcriptions`, `calls`, `contacts`, `numbers`, `tags`, `teams`, `users`
 
 Diffed against: <https://developer.aircall.io/api-references/>
 
-- [ ] `call transcription (GET /v1/calls/{call_id}/transcription)` — the transcript text behind every synced call; unlocks all text analysis (high)
-- [ ] `call sentiments (GET /v1/calls/{call_id}/sentiments)` — Conversation Intelligence sentiment scoring per call, a headline metric (high)
-- [ ] `call topics (GET /v1/calls/{call_id}/topics)` — topic breakdown dimension over calls we already sync (high)
-- [ ] `call evaluations (GET /v1/calls/{call_id}/evaluations)` — QA scorecards per call - the main agent-quality metric (high)
+- [x] `call transcription (GET /v1/calls/{call_id}/transcription)` — the transcript text behind every synced call; unlocks all text analysis (high)
+- [x] `call sentiments (GET /v1/calls/{call_id}/sentiments)` — Conversation Intelligence sentiment scoring per call, a headline metric (high)
+- [x] `call topics (GET /v1/calls/{call_id}/topics)` — topic breakdown dimension over calls we already sync (high)
+- [x] `call evaluations (GET /v1/calls/{call_id}/evaluations)` — QA scorecards per call - the main agent-quality metric (high)
 - [ ] `call summary and custom summary result` — generated call summaries joinable to the calls table (medium)
 - [ ] `predicted CSAT (GET /v1/calls/{call_id}/predicted_csat)` — per-call satisfaction prediction, a core support KPI (medium)
 - [ ] `call action items` — extracted follow-ups per call for outcome tracking (medium)
@@ -151,11 +158,11 @@ Today (2): `apps`, `executions`
 
 Diffed against: <https://docs.airops.com/llms.txt>
 
-- [ ] `brand_kits (POST /public_api/brand_kits/list)` — the top-level object all AI-search-visibility data hangs off; a lookup for everything below (high)
+- [x] `brand_kits (POST /public_api/brand_kits/list)` — the top-level object all AI-search-visibility data hangs off; a lookup for everything below (high)
 - [ ] `brand kit analytics (POST /public_api/brand_kits/{brand_kit_id}/analytics)` — AirOps' headline AI visibility/share-of-voice metrics (high)
-- [ ] `citations (POST /public_api/brand_kits/{brand_kit_id}/citations/list)` — per-URL citation counts, citation share and influence score across AI answers (high)
+- [x] `citations (POST /public_api/brand_kits/{brand_kit_id}/citations/list)` — per-URL citation counts, citation share and influence score across AI answers (high)
 - [ ] `answers (POST /public_api/brand_kits/{brand_kit_id}/answers/list)` — the raw LLM answers being measured - the fact table under every visibility metric (high)
-- [ ] `prompts (POST /public_api/brand_kits/{brand_kit_id}/prompts/list)` — the tracked prompt set; the dimension every answer and citation is grouped by (high)
+- [x] `prompts (POST /public_api/brand_kits/{brand_kit_id}/prompts/list)` — the tracked prompt set; the dimension every answer and citation is grouped by (high)
 - [ ] `topics (POST /public_api/brand_kits/{brand_kit_id}/topics/list)` — lookup decoding the topic dimension on prompts and answers (medium)
 - [ ] `competitors (POST /public_api/brand_kits/{brand_kit_id}/competitors/list)` — competitive share-of-voice comparison, a core reporting cut (medium)
 - [ ] `web_pages (POST /public_api/brand_kits/{brand_kit_id}/web_pages/list)` — page-level performance for owned content (medium)
@@ -189,14 +196,14 @@ Note: Static schema list (no dynamic discovery). Coverage of the org/billing obj
 
 ## Algolia — gaps
 
-Today (4): `indices`, `records`, `rules`, `synonyms`
+Today (9): `ab_tests`, `indices`, `records`, `rules`, `searches_no_clicks`, `searches_no_results`, `synonyms`, `top_hits`, `top_searches`
 
 Diffed against: <https://raw.githubusercontent.com/algolia/api-clients-automation/main/specs/bundled/analytics.yml>
 
-- [ ] `GET /2/searches (Analytics API)` — top search terms with counts - the vendor's headline search metric (high)
-- [ ] `GET /2/hits (Analytics API)` — top results per query with click and conversion counts, the record-level performance table (high)
-- [ ] `GET /2/searches/noResults and /2/searches/noClicks` — zero-result and zero-click queries, the core relevance-debugging tables (high)
-- [ ] `GET /2/abtests (A/B Testing API)` — A/B test definitions and per-variant results (high)
+- [x] `GET /2/searches (Analytics API)` — top search terms with counts - the vendor's headline search metric (high) → `top_searches`
+- [x] `GET /2/hits (Analytics API)` — top results per query with click and conversion counts, the record-level performance table (high) → `top_hits`
+- [x] `GET /2/searches/noResults and /2/searches/noClicks` — zero-result and zero-click queries, the core relevance-debugging tables (high) → `searches_no_results`, `searches_no_clicks`
+- [x] `GET /2/abtests (A/B Testing API)` — A/B test definitions and per-variant results (high) → `ab_tests` (implemented against the GA `GET /3/abtests`; the audited `/2/abtests` listing is deprecated in favour of v3)
 - [ ] `GET /2/conversions/conversionRate, /2/conversions/revenue, /2/conversions/addToCartRate, /2/conversions/purchaseRate` — conversion and revenue time series per index (high)
 - [ ] `GET /2/clicks/clickThroughRate, /2/clicks/averageClickPosition, /2/clicks/positions` — click-through and click-position time series (medium)
 - [ ] `GET /2/filters and /2/filters/{attribute}` — facet/filter usage breakdown dimension (medium)
@@ -206,7 +213,7 @@ Diffed against: <https://raw.githubusercontent.com/algolia/api-clients-automatio
 - [ ] `GET /1/incidents, /1/latency/{clusters}, /1/indexing/{clusters} (Monitoring API)` — cluster latency, indexing time and incident history (low)
 - [ ] `GET /1/logs/{indexName} (Query Suggestions API)` — query-suggestions build logs per index (low)
 
-Note: Static schema list, no dynamic index discovery. Every synced table comes from the Search API (content objects only); the Analytics, A/B testing, Ingestion and Monitoring APIs are entirely absent, which is the part a warehouse user actually wants. Also diffed against the bundled abtesting.yml, insights.yml, monitoring.yml, ingestion.yml and search.yml specs in the same repo.
+Note: Static schema list, no dynamic index discovery. The headline Analytics tables (top searches, top hits, zero-result and zero-click searches) and A/B tests (via the GA `/3/abtests`) are now covered; the remaining Analytics time-series (conversions, clicks, filters, countries) and the Ingestion, Monitoring, and raw-log APIs are still absent. Also diffed against the bundled abtesting.yml, insights.yml, monitoring.yml, ingestion.yml and search.yml specs in the same repo.
 
 ## Alguna — gaps
 
@@ -231,14 +238,14 @@ Note: Verified against the published OpenAPI spec linked from https://alguna.com
 
 ## AlphaVantage — **thin**
 
-Today (9): `balance_sheet`, `cash_flow`, `company_overview`, `earnings`, `global_quote`, `income_statement`, `time_series_daily`, `time_series_monthly`, `time_series_weekly`
+Today (13): `balance_sheet`, `cash_flow`, `company_overview`, `dividends`, `earnings`, `global_quote`, `income_statement`, `listing_status`, `splits`, `time_series_daily`, `time_series_daily_adjusted`, `time_series_monthly`, `time_series_weekly`
 
 Diffed against: <https://www.alphavantage.co/documentation/>
 
-- [ ] `LISTING_STATUS` — lookup table of every listed and delisted symbol with exchange, asset type and IPO/delisting dates - resolves the tickers already synced (high)
-- [ ] `TIME_SERIES_DAILY_ADJUSTED` — split/dividend-adjusted closes, required for any correct return or backtest calculation (high)
-- [ ] `DIVIDENDS` — corporate action history per symbol (high)
-- [ ] `SPLITS` — split history needed to reconcile the unadjusted price series already synced (high)
+- [x] `LISTING_STATUS` — lookup table of every listed and delisted symbol with exchange, asset type and IPO/delisting dates - resolves the tickers already synced (high)
+- [x] `TIME_SERIES_DAILY_ADJUSTED` — split/dividend-adjusted closes, required for any correct return or backtest calculation (high)
+- [x] `DIVIDENDS` — corporate action history per symbol (high)
+- [x] `SPLITS` — split history needed to reconcile the unadjusted price series already synced (high)
 - [ ] `NEWS_SENTIMENT` — news and sentiment feed - the vendor's headline alternative-data product (high)
 - [ ] `EARNINGS_CALENDAR` — upcoming earnings dates to join against the earnings table already synced (medium)
 - [ ] `INSIDER_TRANSACTIONS` — insider buy/sell transaction rows per symbol (medium)
@@ -252,14 +259,14 @@ Note: Single /query endpoint parameterized by `function=`; the docs page exposes
 
 ## AmazonAds — **thin**
 
-Today (3): `profiles`, `sp_ad_groups`, `sp_campaigns`
+Today (7): `profiles`, `sp_ad_groups`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_product_ads`, `sp_targets`
 
 Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json>
 
-- [ ] `POST /reporting/reports then GET /reporting/reports/{reportId}` — async reporting v3 - impressions, clicks, spend, sales, ACOS; without it none of the synced entities have any performance metrics (high)
-- [ ] `POST /sp/productAds/list` — the ad (ASIN) level under the ad groups already synced (high)
-- [ ] `POST /sp/keywords/list` — keyword-level bids and state, the main optimization object (high)
-- [ ] `POST /sp/targets/list` — product and category targeting expressions with bids (high)
+- [x] `POST /reporting/reports then GET /reporting/reports/{reportId}` — async reporting v3 - impressions, clicks, spend, sales, ACOS; without it none of the synced entities have any performance metrics (high)
+- [x] `POST /sp/productAds/list` — the ad (ASIN) level under the ad groups already synced (high)
+- [x] `POST /sp/keywords/list` — keyword-level bids and state, the main optimization object (high)
+- [x] `POST /sp/targets/list` — product and category targeting expressions with bids (high)
 - [ ] `POST /portfolios/list` — lookup resolving the portfolioId carried on the campaigns already synced (high)
 - [ ] `POST /sb/... campaigns, ad groups, ads and targets (AmazonAdsAPISBMerged_prod_3p.json)` — Sponsored Brands entities are entirely absent, so spend coverage is partial (high)
 - [ ] `POST /sd/... campaigns, ad groups, product ads and targets (AmazonAdsAPISDMerged_prod_3p.json)` — Sponsored Display entities are entirely absent (high)
@@ -269,18 +276,18 @@ Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/Sponso
 - [ ] `POST /adsAccounts/list` — advertising account lookup above profiles, for multi-account rollups (medium)
 - [ ] `GET /invoices and POST /invoiceSummaries/list (Advertising Billing API)` — billed spend reconciliation against reported spend (medium)
 
-Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real spec index is https://d3a0d0y2hgofx6.cloudfront.net/en-us/toc2.json, which links ~130 OpenAPI documents. I also read OfflineReport_prod_3p.json, Portfolios_prod_3p.json, AmazonAdsAPIExports_prod_3p.json, Changehistory_prod_3p.json, AdvertisingBilling_prod_3p.json and AdvertisingAccounts_prod_3p.json. Note the source code already flags reporting as a known follow-up. Nearly all list endpoints are POST /.../list rather than GET.
+Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real spec index is https://d3a0d0y2hgofx6.cloudfront.net/en-us/toc2.json, which links ~130 OpenAPI documents. I also read OfflineReport_prod_3p.json, Portfolios_prod_3p.json, AmazonAdsAPIExports_prod_3p.json, Changehistory_prod_3p.json, AdvertisingBilling_prod_3p.json and AdvertisingAccounts_prod_3p.json. Nearly all list endpoints are POST /.../list rather than GET.
 
 ## Amplitude — gaps
 
-Today (3): `annotations`, `cohorts`, `events`
+Today (7): `annotations`, `cohorts`, `event_categories`, `event_properties`, `event_types`, `events`, `user_properties`
 
 Diffed against: <https://amplitude.com/docs/apis>
 
-- [ ] `GET /api/2/taxonomy/event` — event type catalog - the lookup that names and describes the event stream already synced (high)
-- [ ] `GET /api/2/taxonomy/event-property` — event property definitions and types, needed to interpret the events table (high)
-- [ ] `GET /api/2/taxonomy/user-property` — user property catalog with types and descriptions (high)
-- [ ] `GET /api/2/taxonomy/category` — event category lookup resolving the category IDs on event types (medium)
+- [x] `GET /api/2/taxonomy/event` — event type catalog - the lookup that names and describes the event stream already synced (high)
+- [x] `GET /api/2/taxonomy/event-property` — event property definitions and types, needed to interpret the events table (high)
+- [x] `GET /api/2/taxonomy/user-property` — user property catalog with types and descriptions (high)
+- [x] `GET /api/2/taxonomy/category` — event category lookup resolving the category IDs on event types (medium)
 - [ ] `GET /api/2/taxonomy/group-property` — group property catalog for account-level analysis (medium)
 - [ ] `GET /api/2/release` — release markers to join against event timestamps, the sibling of the annotations table already synced (medium)
 - [ ] `GET /api/2/audit-logs/{ORG_ID}` — org-level change history for charts, cohorts and permissions (medium)
@@ -294,14 +301,14 @@ Note: Endpoint paths confirmed by reading https://amplitude.com/docs/apis/analyt
 
 ## Anthropic — gaps
 
-Today (9): `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `usage_report`, `users`, `workspace_members`, `workspaces`
+Today (12): `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `usage_report`, `users`, `workspace_members`, `workspaces`
 
 Diffed against: <https://platform.claude.com/llms.txt>
 
-- [ ] `GET /v1/models` — model catalog - lookup resolving the model IDs already synced in usage_report, cost_report and claude_code_model_breakdown (high)
-- [ ] `GET /v1/organizations/analytics/users (List User Activity)` — per-seat activity, the core seat-utilization table (high)
-- [ ] `GET /v1/organizations/analytics/cost by user (Get Per-User Cost)` — cost attribution per user rather than only org-level cost_report (high)
-- [ ] `GET /v1/organizations/analytics/usage by user (Get Per-User Token Usage)` — token usage per user, needed for chargeback and adoption analysis (high)
+- ~~`GET /v1/models`~~ — not reachable: the Models API sits outside the Admin section, so the Admin API key this source collects cannot call it. Wiring it would mean also storing a regular API key, which can spend money on the Messages API, for a static model catalog.
+- [x] `GET /v1/organizations/analytics/users (List User Activity)` — per-seat activity, the core seat-utilization table (high)
+- [x] `GET /v1/organizations/analytics/user_cost_report (Get Per-User Cost)` — cost attribution per user rather than only org-level cost_report (high)
+- [x] `GET /v1/organizations/analytics/user_usage_report (Get Per-User Token Usage)` — token usage per user, needed for chargeback and adoption analysis (high)
 - [ ] `GET /v1/organizations/rbac_groups and .../rbac_groups/{id}/members` — group definitions plus the membership join for the users already synced (high)
 - [ ] `GET /v1/organizations/rbac_roles and .../rbac_roles/{id}/permissions` — lookup resolving the role identifiers carried on users and workspace_members (medium)
 - [ ] `GET /v1/organizations/analytics/summaries (Get Activity Summaries)` — rolled-up org activity as the vendor reports it (medium)
@@ -311,18 +318,18 @@ Diffed against: <https://platform.claude.com/llms.txt>
 - [ ] `GET /v1/organizations/analytics/chat_projects and /analytics/artifacts` — Claude project and artifact usage breakdown (low)
 - [ ] `GET /v1/organizations/me` — organization lookup row to anchor the org-scoped tables (low)
 
-Note: Admin API coverage of the identity objects is good. The whole /v1/organizations/analytics/\* family (the newer per-seat Claude and Claude Code analytics) is missing except the two claude_code\_\* tables, and there is no model lookup for the model IDs already carried in usage_report/cost_report. The Compliance API (chats, projects, code artifacts, organization users) is a separate auth-gated surface for Enterprise plans and would need its own credential.
+Note: Admin API coverage of the identity objects is good. The three per-seat tables from the /v1/organizations/analytics/\* family are covered; the rest of that family (summaries, connectors, plugins, skills, chat projects, artifacts) is not. Those endpoints need a Claude Enterprise key carrying the `read:analytics` scope, which is a different key from the Claude Console Admin API key, so they stay off by default and `get_endpoint_permissions` reports whether the configured key can reach them. There is still no model lookup for the model IDs carried in usage_report/cost_report. The Compliance API (chats, projects, code artifacts, organization users) is a separate auth-gated surface for Enterprise plans and would need its own credential.
 
 ## ApifyDataset — **thin**
 
-Today (1): `dataset_items`
+Today (5): `actor_runs`, `actors`, `dataset_items`, `datasets`, `usage_monthly`
 
 Diffed against: <https://docs.apify.com/api/openapi.json>
 
-- [ ] `GET /v2/actor-runs` — run history with status, duration and compute units - the operational and cost table for everything Apify does (high)
-- [ ] `GET /v2/datasets` — dataset catalog lookup resolving the dataset IDs, item counts and owning actor for the items already synced (high)
-- [ ] `GET /v2/actors` — actor lookup resolving the actId carried on runs and datasets (high)
-- [ ] `GET /v2/users/me/usage/monthly` — monthly platform usage and spend breakdown (medium)
+- [x] `GET /v2/actor-runs` — run history with status, duration and compute units - the operational and cost table for everything Apify does (high)
+- [x] `GET /v2/datasets` — dataset catalog lookup resolving the dataset IDs, item counts and owning actor for the items already synced (high)
+- [x] `GET /v2/actors` — actor lookup resolving the actId carried on runs and datasets (high)
+- [x] `GET /v2/users/me/usage/monthly` — monthly platform usage and spend breakdown (medium)
 - [ ] `GET /v2/actor-tasks` — saved task definitions, the lookup between a schedule and the runs it produces (medium)
 - [ ] `GET /v2/datasets/{datasetId}/statistics` — per-field statistics for the dataset being synced (medium)
 - [ ] `GET /v2/actor-builds` — build history to correlate output changes with actor versions (low)
@@ -330,18 +337,18 @@ Diffed against: <https://docs.apify.com/api/openapi.json>
 - [ ] `GET /v2/request-queues and /v2/actor-runs/{runId}/request-queue/requests` — crawl request state per run for coverage and failure analysis (low)
 - [ ] `GET /v2/key-value-stores/{storeId}/keys and /records` — non-dataset run outputs stored as key-value records (low)
 
-Note: Deliberately scoped: the connector takes a single user-supplied dataset_id and syncs GET /v2/datasets/{id}/items into one user-named table, so it can cover any dataset but only one per configured source. It is not dynamic discovery - get_schemas returns the one configured endpoint. The rest of the Apify platform API (runs, actors, usage) is unreachable from this source, so the operational and cost side of Apify has no coverage at all.
+Note: Deliberately scoped: the connector takes a single user-supplied dataset_id and syncs GET /v2/datasets/{id}/items into one user-named table, so it can cover any dataset but only one per configured source. It is not dynamic discovery - get_schemas returns a static endpoint catalog. The account-level tables alongside it (runs, actors, datasets, monthly usage) are addressed by the API token alone and cover the operational and cost side of the platform.
 
 ## Apollo — gaps
 
-Today (3): `accounts`, `contacts`, `opportunities`
+Today (7): `account_stages`, `accounts`, `contacts`, `contact_stages`, `opportunities`, `opportunity_stages`, `users`
 
 Diffed against: <https://docs.apollo.io/reference/organization-search>
 
-- [ ] `/opportunity_stages (list deal stages)` — lookup resolving the stage IDs already carried on the opportunities we sync (high)
-- [ ] `/contact_stages` — lookup resolving contact_stage_id on synced contacts (high)
-- [ ] `/account_stages` — lookup resolving account_stage_id on synced accounts (high)
-- [ ] `/users/search` — lookup resolving owner/user IDs on accounts, contacts and deals (high)
+- [x] `/opportunity_stages (list deal stages)` — lookup resolving the stage IDs already carried on the opportunities we sync (high)
+- [x] `/contact_stages` — lookup resolving contact_stage_id on synced contacts (high)
+- [x] `/account_stages` — lookup resolving account_stage_id on synced accounts (high)
+- [x] `/users/search` — lookup resolving owner/user IDs on accounts, contacts and deals (high)
 - [ ] `/emailer_messages/search (outreach emails)` — per-message email send/open/reply activity, the core sequence funnel (high)
 - [ ] `/phone_calls/search` — call activity records tied to contacts and accounts (high)
 - [ ] `/emailer_campaigns/search (sequences)` — lookup resolving sequence IDs on email activity and contact status (medium)
@@ -355,14 +362,14 @@ Note: Reference index (96 slugs) read from the docs nav; each path below confirm
 
 ## Appdynamics — gaps
 
-Today (6): `applications`, `business_transactions`, `health_rule_violations`, `metric_data`, `nodes`, `tiers`
+Today (10): `applications`, `business_transactions`, `events`, `health_rule_violations`, `health_rules`, `metric_data`, `metrics`, `nodes`, `request_snapshots`, `tiers`
 
 Diffed against: <https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis>
 
-- [ ] `/controller/rest/applications/{app}/events` — application event stream (deployments, restarts, errors, custom events) — the state-transition history behind every incident (high)
-- [ ] `/controller/alerting/rest/v1/applications/{id}/health-rules` — lookup resolving the health rule IDs/names carried on the health_rule_violations we already sync (high)
-- [ ] `/controller/rest/applications/{app}/request-snapshots` — individual slow/error transaction snapshots, the drill-down layer under business_transactions (high)
-- [ ] `/controller/rest/applications/{app}/metrics (metric tree browse)` — lookup of available metric paths — without it metric_data has to be hand-configured (high)
+- [x] `/controller/rest/applications/{app}/events` — application event stream (deployments, restarts, errors, custom events) — the state-transition history behind every incident (high)
+- [x] `/controller/alerting/rest/v1/applications/{id}/health-rules` — lookup resolving the health rule IDs/names carried on the health_rule_violations we already sync (high)
+- [x] `/controller/rest/applications/{app}/request-snapshots` — individual slow/error transaction snapshots, the drill-down layer under business_transactions (high)
+- [x] `/controller/rest/applications/{app}/metrics (metric tree browse)` — lookup of available metric paths — without it metric_data has to be hand-configured (high)
 - [ ] `/controller/rest/applications/{app}/backends` — lookup for remote services/databases referenced by tiers and business transactions (high)
 - [ ] `/controller/anomaly/rest/api/v1/applications/{id}/anomalies` — anomaly-detection violations, the ML counterpart to health rule violations (medium)
 - [ ] `/events/query (Analytics Events API, ADQL)` — transaction/log/browser analytics records not exposed by the controller REST API (medium)
@@ -375,14 +382,14 @@ Note: docs.appdynamics.com now serves an SPA shell and presents a broken TLS cha
 
 ## Appfigures — gaps
 
-Today (4): `products`, `revenue_report`, `reviews`, `sales_report`
+Today (10): `categories`, `countries`, `products`, `ranks`, `ratings_report`, `revenue_report`, `reviews`, `sales_report`, `stores`, `subscriptions_report`
 
 Diffed against: <https://docs.appfigures.com/api/reference/v2>
 
-- [ ] `/ranks` — app store category rank history — the vendor's headline ASO metric (high)
-- [ ] `/reports/subscriptions` — subscription metrics (new, renewals, churn) that sales/revenue reports do not break out (high)
-- [ ] `/reports/ratings` — rating counts and averages over time, the current supported replacement for /ratings (high)
-- [ ] `/data/stores, /data/categories, /data/countries` — lookup tables resolving the store, category and country codes on every synced report row (high)
+- [x] `/ranks` — app store category rank history — the vendor's headline ASO metric (high)
+- [x] `/reports/subscriptions` — subscription metrics (new, renewals, churn) that sales/revenue reports do not break out (high)
+- [x] `/reports/ratings` — rating counts and averages over time, the current supported replacement for /ratings (high)
+- [x] `/data/stores, /data/categories, /data/countries` — lookup tables resolving the store, category and country codes on every synced report row (high)
 - [ ] `/aso (keyword ranks and stats)` — tracked keyword positions, the other half of the ASO story with /ranks (high)
 - [ ] `/reports/adspend` — campaign spend by network, needed for ROAS against revenue_report (medium)
 - [ ] `/reports/ads` — ad publishing revenue by network, a revenue stream missing from sales_report (medium)
@@ -396,14 +403,14 @@ Note: The v2 reference index lists the complete resource set; each candidate bel
 
 ## Appfollow — gaps
 
-Today (5): `app_collections`, `app_lists`, `ratings_history`, `reviews`, `users`
+Today (9): `app_collections`, `app_lists`, `app_versions`, `keywords`, `rankings`, `ratings_history`, `reviews`, `reviews_stats`, `users`
 
 Diffed against: <https://docs.api.appfollow.io/reference/app_collections_list_api_v2_account_apps_get-1>
 
-- [ ] `/api/v2/meta/rankings` — category ranking history — the headline ASO metric, complements ratings_history (high)
-- [ ] `/api/v2/aso/keywords` — tracked keyword positions per app and country (high)
-- [ ] `/api/v2/meta/versions` — app version release history; lookup resolving the version field on synced reviews (high)
-- [ ] `/api/v2/reviews/stats` — aggregate review counts and sentiment without re-aggregating raw reviews (medium)
+- [x] `/api/v2/meta/rankings` — category ranking history — the headline ASO metric, complements ratings_history (high) — synced as `rankings`. v2 takes a single `date`, not a range, so it is a daily snapshot rather than backfillable history.
+- [x] `/api/v2/aso/keywords` — tracked keyword positions per app and country (high) — synced as `keywords`, also a daily snapshot.
+- [x] `/api/v2/meta/versions` — app version release history; lookup resolving the version field on synced reviews (high) — synced as `app_versions`.
+- [x] `/api/v2/reviews/stats` — aggregate review counts and sentiment without re-aggregating raw reviews (medium) — synced as `reviews_stats`, incremental on `date`. Counts only; sentiment lives on `/reviews/semantic`.
 - [ ] `/api/v2/reviews/stats/version` — review breakdown by app version, the standard release-quality view (medium)
 - [ ] `/api/v2/reviews/stats/ratings` — rating distribution over time (medium)
 - [ ] `/api/v2/reviews/stats/replies, /reviews/stats/replies/count, /reviews/stats/replies/speed` — reply coverage and response-time SLA metrics for support teams (medium)

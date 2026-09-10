@@ -33,6 +33,7 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     engine = models.CharField(max_length=20, choices=Engine, default=Engine.CLICKHOUSE)
     # Null: recorded before run modes existed, or the run failed before the write plan resolved.
     run_mode = models.CharField(max_length=20, choices=RunMode, null=True, blank=True)
+    full_refresh_reason = models.CharField(max_length=200, null=True, blank=True)
     rows_materialized = models.IntegerField(default=0)
     error = models.TextField(null=True, blank=True)
     workflow_id = models.CharField(max_length=400, null=True, blank=True)

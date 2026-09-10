@@ -10,6 +10,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures import (
+    PRODUCTS_PATH,
     AppfiguresResumeConfig,
     appfigures_source,
     check_credentials,
@@ -56,8 +57,10 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
 
 Create an API client and Personal Access Token at [appfigures.com/developers/keys](https://appfigures.com/developers/keys). When creating the client, grant the data sets you want to sync:
 - `products:read` — Products
-- `public:read` — Reviews
-- `private:read` — Sales and Revenue reports
+- `public:read` — Reviews, Ranks, Ratings report
+- `private:read` — Sales, Revenue, and Subscriptions reports
+
+Stores, Categories, and Countries are reference tables that need no data set granted.
 """,
             iconPath="/static/services/appfigures.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appfigures",
@@ -130,9 +133,10 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
     ) -> tuple[bool, str | None]:
         # Probe the endpoint the requested schema actually hits (so per-table scope checks are
         # accurate), or the cheap products catalog at source-create.
-        path = "/products/mine"
+        path = PRODUCTS_PATH
         if schema_name and schema_name in APPFIGURES_ENDPOINTS:
-            path = APPFIGURES_ENDPOINTS[schema_name].path
+            endpoint_config = APPFIGURES_ENDPOINTS[schema_name]
+            path = endpoint_config.probe_path or endpoint_config.path
 
         status = check_credentials(config.personal_access_token, path)
         if status is None:

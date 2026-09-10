@@ -904,6 +904,7 @@ class CustomBotField(StrEnum):
 class CustomBotMatcher(StrEnum):
     CONTAINS = "contains"
     REGEX = "regex"
+    EXACT = "exact"
     CIDR = "cidr"
 
 
@@ -1661,6 +1662,7 @@ class ExternalDataSourceType(StrEnum):
     FRESHCHAT = "Freshchat"
     FRESHSERVICE = "Freshservice"
     FULCRUM = "Fulcrum"
+    GAINSIGHT_CS = "GainsightCs"
     GAINSIGHT_PX = "GainsightPx"
     GIT_BOOK = "GitBook"
     GLASSFROG = "Glassfrog"
@@ -2663,6 +2665,9 @@ class ExternalDataSourceType(StrEnum):
     TENJIN = "Tenjin"
     FOLK = "Folk"
     CYBERSOURCE = "Cybersource"
+    GOOGLE_AD_SENSE = "GoogleAdSense"
+    SEQUENZY = "Sequenzy"
+    SKIO = "Skio"
 
 
 class ExternalQueryErrorCode(StrEnum):

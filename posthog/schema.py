@@ -3763,11 +3763,14 @@ class AssistantFunnelsFilter(BaseModel):
     funnelVizType: FunnelVizType | None = Field(
         default=FunnelVizType.STEPS,
         description=(
-            "Defines the type of visualization to use. The `steps` option is"
-            " recommended. `steps` - shows a step-by-step funnel. Perfect to show a"
-            " conversion rate of a sequence of events (default). `time_to_convert` -"
-            " shows a histogram of the time it took to complete the funnel. `trends` -"
-            " shows trends of the conversion rate of the whole sequence over time."
+            "Defines the type of visualization to use. `steps` - one bar per step with"
+            " the conversion between them (default). Use for \"what's the conversion"
+            ' rate" and "where do users drop off". `trends` - the conversion rate of'
+            " the whole sequence as a time series. Use whenever the question is about"
+            ' change over time ("is conversion improving", "conversion per week",'
+            ' "since we shipped X"); a `steps` chart cannot show that.'
+            " `time_to_convert` - a histogram of how long users took to complete the"
+            " funnel."
         ),
     )
     funnelWindowInterval: int | None = Field(
@@ -4528,14 +4531,21 @@ class AssistantTrendsFilter(BaseModel):
             " line chart; most common option, as it shows change over time."
             " `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series"
             " area chart. `ActionsLineGraphCumulative` - cumulative time-series line"
-            " chart; good for cumulative metrics. `BoldNumber` - total value single"
-            " large number. Use when user explicitly asks for a single output number."
-            " You CANNOT use this with breakdown or if the insight has more than one"
-            " series. `Metric` - single large number with a period-over-period change"
-            " pill and a sparkline. Like `BoldNumber` but trend-aware; configure it"
-            " with the `metric*` fields below. Single series, no breakdown."
-            " `ActionsBarValue` - total value (NOT time-series) bar chart; good for"
-            " categorical data. `ActionsPie` - total value pie chart; good for"
+            " chart; good for cumulative metrics. `Metric` - single large number with a"
+            " change pill and a sparkline. Use for a period summary or an explicit"
+            ' current-versus-previous-period comparison ("how many X in the last 30'
+            ' days", "what\'s our conversion rate this month", "how does this month'
+            ' compare to last"). Do not use for a question about change over time, a'
+            " cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect"
+            " each interval. Set `compareFilter.compare` to `true` to compare the"
+            " current period with the previous period. Without it, the pill compares"
+            " the first interval with the last interval. Configure the display with the"
+            " `metric*` fields below. Single series, no breakdown. `BoldNumber` -"
+            " single large number with no change or sparkline. Use instead of `Metric`"
+            " only when a trend is meaningless, such as an all-time total or a fixed"
+            " ratio. You CANNOT use this with breakdown or if the insight has more than"
+            " one series. `ActionsBarValue` - total value (NOT time-series) bar chart;"
+            " good for categorical data. `ActionsPie` - total value pie chart; good for"
             " visualizing proportions. `ActionsTable` - total value table; good when"
             " using breakdown to list users or other entities. `WorldMap` - total value"
             " world map; use when breaking down by country name using property"
@@ -4810,7 +4820,17 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
-class CustomBotDefinition(BaseModel):
+class CustomBotCondition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    key: CustomBotField = Field(..., description="The event property this condition reads.")
+    matcher: CustomBotMatcher
+    pattern: str = Field(..., description="Matched against the property named by `key`.")
+
+
+class CustomBotRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4818,14 +4838,16 @@ class CustomBotDefinition(BaseModel):
         default=None,
         description="Reported by `$virt_traffic_category`. Defaults to `custom`.",
     )
+    combiner: FilterLogicalOperator = Field(
+        ...,
+        description="Whether every condition must match (AND) or any one of them (OR).",
+    )
     id: str
-    key: CustomBotField = Field(..., description="The event property this rule reads.")
-    matcher: CustomBotMatcher
+    items: list[CustomBotCondition]
     name: str = Field(
         ...,
         description=("Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches."),
     )
-    pattern: str = Field(..., description="Matched against the property named by `key`.")
 
 
 class CustomChannelCondition(BaseModel):
@@ -5608,7 +5630,7 @@ class HogQLQueryModifiers(BaseModel):
     bounceRateDurationSeconds: float | None = None
     bounceRatePageViewMode: BounceRatePageViewMode | None = None
     convertToProjectTimezone: bool | None = None
-    customBotDefinitions: list[CustomBotDefinition] | None = None
+    customBotDefinitions: list[CustomBotRule] | None = None
     customChannelTypeRules: list[CustomChannelRule] | None = None
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
     debug: bool | None = None

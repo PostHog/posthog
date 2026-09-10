@@ -100,6 +100,30 @@ function parseWorkflowEmailRateLimit(metadata: HogFunctionType['metadata']): Hog
     return parsed.success ? parsed.data : null
 }
 
+const workflowEmailPausedTotal = new Counter({
+    name: 'cdp_workflow_email_paused_total',
+    help: 'Email sends skipped because the workflow they belong to had its email paused for complaints or hard bounces.',
+})
+
+/**
+ * Whether this workflow's email is paused, and the customer-facing reason.
+ *
+ * Stamped into the synthetic hog function's metadata by HogFlowFunctionsService, which is the only
+ * flow-level state in scope here. The `HogFlow` post_save signal publishes a worker config reload
+ * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
+ * choke point instead of only newly started runs.
+ */
+function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string; byStaff: boolean } | null {
+    if (!metadata?.email_sending_paused_at) {
+        return null
+    }
+    const reason = metadata.email_sending_paused_reason
+    return {
+        reason: typeof reason === 'string' ? reason : '',
+        byStaff: metadata.email_sending_paused_by === 'staff',
+    }
+}
+
 function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
     // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
@@ -117,18 +141,6 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 // expiring back to full capacity), and a parked job only notices when it wakes.
 const CAP_RETRY_MIN_MS = 1_000
 const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
-
-function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number): number {
-    // A denial with no horizon means the limiter itself failed, not that the cap was reached.
-    // Valkey recovers in seconds, but a daily cap paces in hours, so that bucket's refill is the
-    // wrong clock for this wake. Use the token-bucket cadence, which has a much shorter ceiling.
-    if (retryAfterMs === null) {
-        return pickTokenBucketRetryDelayMs(refillPerSecond)
-    }
-    // The 1x-2x jitter spreads re-claims so a parked backlog does not wake on the same instant.
-    const clampedMs = Math.min(Math.max(retryAfterMs, CAP_RETRY_MIN_MS), CAP_RETRY_MAX_MS)
-    return Math.floor(clampedMs * (1 + Math.random()))
-}
 
 // How far denied sends park. Everything at or below the top bucket is a real slot.
 // Above the top bucket is overflow: the backlog is deeper than one hour of refill.
@@ -403,6 +415,41 @@ export class EmailService {
                 return result
             }
 
+            // Per-workflow pause: this workflow's complaint or hard bounce rate breached a
+            // threshold, so its email is held while the rest of the project keeps sending. Placed
+            // at the same choke point as the team-level switch above, for the same reason. Test
+            // sends are blocked too, because they hit SES and count against the tenant all the same.
+            const workflowPause = parseWorkflowEmailPause(invocation.hogFunction.metadata)
+            if (workflowPause) {
+                workflowEmailPausedTotal.inc()
+                const pauseDetail = workflowPause.reason ? ` ${workflowPause.reason}` : ''
+                // Error rather than warn: the email did not go out, and warn-level lines get skimmed
+                // past in the run logs. The run itself still continues; a pause is policy, not a
+                // fault, so it must not enter retry or abort handling.
+                addLog(
+                    'error',
+                    workflowPause.byStaff
+                        ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
+                        : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
+                )
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_paused',
+                        count: 1,
+                    })
+                }
+                // Mark the skip so the flow-level billing gate does not charge for a send that
+                // never reached the provider, and does not re-pin the run's attribution version to
+                // one that delivered nothing. Mirrors the pre-send opt-out and bounce skip paths.
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
             if (!integration || integration.team_id !== invocation.teamId) {
                 throw new Error(
@@ -665,14 +712,20 @@ export class EmailService {
             // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
             // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
             // every retry and starve the team's other emails while never sending itself.
-            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair([buckets[0], buckets[1]], requested)
+            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair(
+                [buckets[0], buckets[1]],
+                requested,
+                CAP_RETRY_MAX_MS
+            )
             if (claim.granted) {
                 return null
             }
             const denied = buckets[claim.deniedIndex ?? 1]
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond, claim.reserved)
+            emailReservedParkMs.labels('team-email').observe(retryDelayMs)
             return {
-                retryDelayMs: pickCapRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond),
+                retryDelayMs,
                 label: denied.label,
             }
         }
