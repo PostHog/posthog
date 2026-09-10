@@ -973,7 +973,7 @@ class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
 
 
 class _LogsPatternsSourceSerializer(serializers.Serializer):
-    source = serializers.ChoiceField(
+    source = serializers.ChoiceField(  # type: ignore[assignment]
         choices=["stored_patterns", "body_mining"],
         required=False,
         help_text="Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.",

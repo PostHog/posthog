@@ -1,6 +1,8 @@
 import re
+import json
 import datetime as dt
 from itertools import zip_longest
+from urllib.parse import quote
 
 from unittest import TestCase
 
@@ -18,10 +20,12 @@ from products.logs.backend.log_patterns import (
     _PLACEHOLDER_PATTERNS,
     _WHITESPACE_RE,
     LogSample,
+    MinedPattern,
     _prepare_body,
     _prepare_json_body,
     compile_match_regex,
     extract_match_literal,
+    group_stored_patterns,
     mine_patterns,
     pattern_fingerprint,
 )
@@ -100,6 +104,48 @@ def _sample(
         timestamp=ts or dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC),
         truncated=truncated,
     )
+
+
+class TestStoredPatternGroups(TestCase):
+    @parameterized.expand([(51, "job"), (8, "🦔" * 100), (1, "🦔" * 1024)])
+    def test_bounded_members_preserve_exact_aggregates(self, count: int, identifier: str) -> None:
+        timestamp = dt.datetime(2026, 6, 23, 12, tzinfo=dt.UTC)
+        canonical = [
+            MinedPattern(
+                pattern=f"Archive {identifier}{index} batch completed",
+                count=index + 1,
+                volume_share_pct=0,
+                error_count=index + 1,
+                first_seen=timestamp,
+                last_seen=timestamp,
+                examples=[],
+                services=["api"],
+                bucket_counts=[index + 1],
+                severity_counts={"error": index + 1},
+                match_regex=None,
+                match_literal=None,
+                match_patterns=[f"Archive {identifier}{index} batch completed"],
+                pattern_version=5,
+            )
+            for index in range(count)
+        ]
+        total = sum(pattern.count for pattern in canonical)
+
+        groups = group_stored_patterns(canonical, total_count=total)
+
+        assert sum(group.count for group in groups) < total
+        assert bool(groups) == (count > 1)
+        counts = {pattern.pattern: pattern.count for pattern in canonical}
+        for group in groups:
+            assert len(group.match_patterns) <= 50
+            assert (
+                len(quote(json.dumps(group.match_patterns, ensure_ascii=False, separators=(",", ":")), safe="")) <= 3072
+            )
+            expected = sum(counts[member] for member in group.match_patterns)
+            assert group.count == group.error_count == expected
+            assert group.bucket_counts == [expected]
+            assert group.severity_counts == {"error": expected}
+            assert group.volume_share_pct == round(expected / total * 100, 2)
 
 
 class TestMinePatterns(TestCase):

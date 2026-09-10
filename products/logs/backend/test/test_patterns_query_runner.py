@@ -11,7 +11,10 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner, _sample_divisor, _time_slices
@@ -122,10 +125,10 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["patterns"][0]["count"] == 100
         assert results["patterns"][0]["match_patterns"] == []
 
-    @parameterized.expand([(0, ""), (5, "Processed <N> records")])
+    @parameterized.expand([(0, "", False), (5, "Processed <N> records", False), (0, "", True)])
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_dominant_version_aggregates_exact_counts_and_discloses_remainder(
-        self, minority_version: int, minority_pattern: str
+        self, minority_version: int, minority_pattern: str, byte_limited: bool
     ) -> None:
         self._insert(
             [
@@ -144,7 +147,11 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         with (
             patch("posthoganalytics.feature_enabled", return_value=True),
-            patch.dict(os.environ, {"LOGS_PATTERNS_HEAD_LIMIT": "1"}),
+            patch.dict(os.environ, {"LOGS_PATTERNS_HEAD_LIMIT": "10000" if byte_limited else "1"}),
+            patch(
+                "products.logs.backend.patterns_query_runner.STORED_PATTERN_HEAD_MAX_BYTES",
+                42 if byte_limited else 65536,
+            ),
         ):
             results = self._run()
         assert results["source"] == "stored_patterns"
@@ -179,6 +186,58 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         )
         assert pivot["total_count"] == 60
+
+    @parameterized.expand([(True, 5, [60, 50, 40, 30]), (True, 0, [60, 50]), (False, 5, [60, 60])])
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_query_budget_covers_stored_queries_and_fallback(
+        self, enabled: bool, version: int, expected_budgets: list[int]
+    ) -> None:
+        self._insert(
+            [{**self._log("Processed 7 records"), "pattern": "Processed <N> records", "pattern_version": version}]
+        )
+        budgets = []
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=enabled),
+            patch("products.logs.backend.patterns_query_runner.monotonic", return_value=100.0) as clock,
+        ):
+
+            def execute_with_elapsed_time(*args, **kwargs):
+                budgets.append(kwargs["settings"].max_execution_time)
+                result = execute_hogql_query(*args, **kwargs)
+                clock.return_value += 10
+                return result
+
+            with patch(
+                "products.logs.backend.patterns_query_runner.execute_hogql_query", side_effect=execute_with_elapsed_time
+            ):
+                results = self._run()
+
+        assert results["total_count"] == 1
+        assert budgets == expected_budgets
+
+    @parameterized.expand([30, 60])
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_exhausted_query_budget_raises_instead_of_returning_partial_counts(self, elapsed: int) -> None:
+        self._insert([{**self._log("Processed 7 records"), "pattern": "Processed <N> records", "pattern_version": 5}])
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("products.logs.backend.patterns_query_runner.monotonic", return_value=100.0) as clock,
+        ):
+
+            def execute_with_elapsed_time(*args, **kwargs):
+                result = execute_hogql_query(*args, **kwargs)
+                clock.return_value += elapsed
+                return result
+
+            with (
+                patch(
+                    "products.logs.backend.patterns_query_runner.execute_hogql_query",
+                    side_effect=execute_with_elapsed_time,
+                ) as execute,
+                self.assertRaises(ClickHouseQueryTimeOut),
+            ):
+                self._run()
+            assert execute.call_count == 60 // elapsed
 
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_mines_templates_from_clickhouse(self) -> None:

@@ -6,10 +6,18 @@ from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import TypeVar
+from urllib.parse import quote
 
 from products.logs.backend.vendor.drain3 import Drain, LogMasker, MaskingInstruction
 
 ERROR_SEVERITIES = {"error", "fatal"}
+STORED_PATTERN_GROUP_MAX_MEMBERS = 50
+STORED_PATTERN_GROUP_MAX_BYTES = 3072
+
+
+def encoded_pattern_member_size(pattern: str) -> int:
+    return len(quote(json.dumps(pattern, ensure_ascii=False), safe="")) + 3
+
 
 # Masking collapses high-cardinality variable tokens into named placeholders before
 # clustering, so templates stay readable ("<ip>", "<num>") instead of fragmenting into
@@ -517,10 +525,21 @@ def group_stored_patterns(patterns: list[MinedPattern], *, total_count: int) -> 
         len(patterns),
     )
     groups: dict[int, MinedPattern] = {}
+    group_bytes: dict[int, int] = {}
     max_services = _env("LOGS_PATTERNS_MAX_SERVICES", 4, int)
     for pattern in sorted(patterns, key=lambda pattern: (-pattern.count, pattern.pattern)):
+        member_bytes = sum(encoded_pattern_member_size(member) for member in pattern.match_patterns)
+        if member_bytes + 3 > STORED_PATTERN_GROUP_MAX_BYTES:
+            continue
         cluster, _ = drain.add_log_message(pattern.pattern)
         previous = groups.get(cluster.cluster_id)
+        if (len(previous.match_patterns) if previous else 0) + len(
+            pattern.match_patterns
+        ) > STORED_PATTERN_GROUP_MAX_MEMBERS or group_bytes.get(
+            cluster.cluster_id, 3
+        ) + member_bytes > STORED_PATTERN_GROUP_MAX_BYTES:
+            continue
+        group_bytes[cluster.cluster_id] = group_bytes.get(cluster.cluster_id, 3) + member_bytes
         if previous is None:
             groups[cluster.cluster_id] = replace(pattern, pattern=cluster.get_template())
             continue

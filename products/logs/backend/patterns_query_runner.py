@@ -2,6 +2,7 @@ import datetime as dt
 from dataclasses import replace
 from functools import cached_property
 from math import ceil
+from time import monotonic
 from typing import TYPE_CHECKING
 
 import posthoganalytics
@@ -14,6 +15,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import get_instance_region
 
@@ -22,6 +24,7 @@ from products.logs.backend.log_patterns import (
     LogSample,
     MinedPattern,
     _env,
+    encoded_pattern_member_size,
     group_stored_patterns,
     mine_patterns,
 )
@@ -31,6 +34,7 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 _TimeSlice = tuple[dt.datetime, dt.datetime]
+STORED_PATTERN_HEAD_MAX_BYTES = 65536
 
 
 class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -62,6 +66,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
     use_stored_patterns: bool = True
+    _query_deadline: float | None = None
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
@@ -103,6 +108,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     def _calculate(self) -> LogsQueryResponse:
         reason = "comparison" if not self.use_stored_patterns else "flag_disabled"
         if self.use_stored_patterns and self._stored_patterns_enabled:
+            self._query_deadline = monotonic() + max(1, self.settings.max_execution_time or 60)
             versions = self._execute(
                 parse_select(
                     "SELECT pattern_version, count(), countIf(trim(pattern) != '') FROM logs WHERE {where} GROUP BY pattern_version",
@@ -207,12 +213,19 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 placeholders={"head_limit": ast.Constant(value=head_limit), "where": self._stored_where(version)},
             )
         ).results[0][0]
+        bounded_head = []
+        head_bytes = 3
+        for member in head:
+            member_bytes = encoded_pattern_member_size(member)
+            if head_bytes + member_bytes <= STORED_PATTERN_HEAD_MAX_BYTES:
+                bounded_head.append(member)
+                head_bytes += member_bytes
         buckets = _uniform_buckets(
             self.query_date_range.date_from(), self.query_date_range.date_to(), self._sparkline_bucket_count
         )
         placeholders: dict[str, ast.Expr] = {
             "where": self._stored_where(version),
-            "head": ast.Constant(value=head),
+            "head": ast.Constant(value=bounded_head),
             "services_limit": ast.Constant(value=_env("LOGS_PATTERNS_MAX_SERVICES", 4, int)),
             "head_limit": ast.Constant(value=head_limit),
         }
@@ -307,7 +320,13 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         return self._sample_query(divisor=1, slices=None)
 
     def _execute(self, query: ast.SelectQuery | ast.SelectSetQuery):
-        return execute_hogql_query(
+        settings = self.settings.model_copy()
+        if self._query_deadline is not None:
+            remaining = int(self._query_deadline - monotonic())
+            if remaining < 1:
+                raise ClickHouseQueryTimeOut()
+            settings.max_execution_time = remaining
+        response = execute_hogql_query(
             query_type="LogsQuery",
             query=query,
             modifiers=self.modifiers,
@@ -315,8 +334,11 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            settings=self.settings,
+            settings=settings,
         )
+        if self._query_deadline is not None and monotonic() >= self._query_deadline:
+            raise ClickHouseQueryTimeOut()
+        return response
 
     def _count(self, slices: list[_TimeSlice] | None = None) -> int:
         response = self._execute(
