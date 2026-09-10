@@ -46,7 +46,9 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
+    _modal_sandbox_region_from_payload,
     _resolve_claude_model_access,
+    _resolve_modal_sandbox_region,
     _resolve_modal_vm_sandbox,
     _resolve_sandbox_backend,
     get_task_processing_context,
@@ -1664,6 +1666,49 @@ class TestGetTaskProcessingContextActivity:
 
 
 _HOGLAND_SETTINGS = {"HOGLAND_API_URL": "https://hogland.example", "HOGLAND_API_TOKEN": "hog-tok"}
+
+
+class TestResolveModalSandboxRegion:
+    @pytest.mark.parametrize(
+        "payload, deployment, expected",
+        [
+            ({"EU": "eu"}, "EU", ["eu"]),
+            ({"EU": ["eu-west", "eu-north"]}, "EU", ["eu-west", "eu-north"]),
+            ('{"EU": "eu"}', "EU", ["eu"]),
+            # A value for another deployment never moves this one's compute.
+            ({"EU": "eu"}, "US", None),
+            # A region id Modal does not know drops the whole value rather than failing every create.
+            ({"EU": "eu-central"}, "EU", None),
+            ({"EU": ["eu", "europe"]}, "EU", None),
+            ({"EU": []}, "EU", None),
+            ({"EU": 1}, "EU", None),
+            ("not json", "EU", None),
+            (None, "EU", None),
+        ],
+    )
+    def test_reads_only_this_deployments_known_regions(self, payload, deployment, expected):
+        assert _modal_sandbox_region_from_payload(payload, deployment) == expected
+
+    def test_state_override_wins_without_consulting_the_flag(self):
+        with patch(BENJAMIN_PAYLOAD_TARGET) as payload_mock:
+            region = _resolve_modal_sandbox_region(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                state={"modal_sandbox_region": ["eu-north"]},
+            )
+
+        assert region == ["eu-north"]
+        payload_mock.assert_not_called()
+
+    def test_flag_failure_keeps_the_deployment_default(self):
+        with patch(BENJAMIN_PAYLOAD_TARGET, side_effect=RuntimeError("flags unavailable")):
+            assert (
+                _resolve_modal_sandbox_region(
+                    distinct_id="distinct-id", organization_id="organization-id", run_id="run-id"
+                )
+                is None
+            )
 
 
 class TestResolveSandboxBackend:

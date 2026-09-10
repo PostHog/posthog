@@ -801,8 +801,11 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
+            region=ctx.modal_sandbox_region,
             **resource_overrides,
         )
+        if ctx.modal_sandbox_region:
+            emit_agent_log(ctx.run_id, "debug", f"Sandbox region override: {', '.join(ctx.modal_sandbox_region)}")
 
         # Request a small slice and let the box burst up to the configured size. Burstable by
         # default, but the per-run state can opt out to pin a fixed-size box (request == limit).

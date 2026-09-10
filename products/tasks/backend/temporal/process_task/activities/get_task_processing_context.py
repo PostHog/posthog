@@ -26,6 +26,8 @@ from products.tasks.backend.constants import (
     DEV_STACK_PREVIEW_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
+    MODAL_REGIONS,
+    MODAL_SANDBOX_REGION_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
@@ -132,6 +134,9 @@ class TaskProcessingContext:
     agent_otel_telemetry_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
+    # Modal region override for this run, or None for the deployment default. Captured at
+    # workflow start so every provisioning retry places the box in the same region.
+    modal_sandbox_region: list[str] | None = None
     # Burstable by default; the per-run state can opt out to pin a fixed-size box
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
@@ -869,6 +874,63 @@ def _is_dev_stack_preview_enabled(
     return enabled
 
 
+def _resolve_modal_sandbox_region(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> list[str] | None:
+    state_override = _validated_modal_regions((state or {}).get("modal_sandbox_region"))
+    if state_override is not None:
+        log_with_activity_context("modal_sandbox_region_state_override", run_id=run_id, region=state_override)
+        return state_override
+
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            MODAL_SANDBOX_REGION_FEATURE_FLAG,
+            distinct_id=distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception as e:
+        log_with_activity_context("modal_sandbox_region_flag_check_failed", run_id=run_id, error=str(e))
+        return None
+
+    region = _modal_sandbox_region_from_payload(payload)
+    if region is not None:
+        log_with_activity_context("modal_sandbox_region_flag_override", run_id=run_id, region=region)
+    return region
+
+
+def _modal_sandbox_region_from_payload(payload: object, deployment: str | None = None) -> list[str] | None:
+    """Read this deployment's region list out of the flag payload, or None to keep the default.
+
+    The payload is keyed by CLOUD_DEPLOYMENT so a value meant for EU can never move US compute.
+    A region id Modal does not know is dropped with the rest of the value, because a typo that
+    reached Sandbox.create would fail every provisioning in the deployment.
+    """
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(payload, dict):
+        return None
+    return _validated_modal_regions(payload.get(deployment or settings.CLOUD_DEPLOYMENT or ""))
+
+
+def _validated_modal_regions(value: object) -> list[str] | None:
+    regions = [value] if isinstance(value, str) else value
+    if not isinstance(regions, list) or not regions:
+        return None
+    if not all(isinstance(region, str) and region in MODAL_REGIONS for region in regions):
+        return None
+    return list(regions)
+
+
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -1301,6 +1363,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    modal_sandbox_region = _resolve_modal_sandbox_region(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
     emit_agent_log(
         run_id,
         "debug",
@@ -1542,6 +1610,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        modal_sandbox_region=modal_sandbox_region,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,

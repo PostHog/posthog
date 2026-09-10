@@ -1532,6 +1532,20 @@ class TestModalSandboxCreateAllowlist:
 
         assert "outbound_domain_allowlist" not in mock_create.call_args.kwargs
 
+    @pytest.mark.parametrize(
+        "region_override, expected_region",
+        [(None, "eu-west"), (["eu"], ["eu"]), (["eu-west", "eu-north"], ["eu-west", "eu-north"])],
+    )
+    def test_create_places_the_box_in_the_config_region_over_the_deployment_default(
+        self, region_override: list[str] | None, expected_region: str | list[str]
+    ):
+        config = SandboxConfig(name="t", region=region_override)
+
+        with patch("products.tasks.backend.logic.services.modal_sandbox.CLOUD_DEPLOYMENT", "EU"):
+            mock_create = self._create_with_config(config)
+
+        assert mock_create.call_args.kwargs["region"] == expected_region
+
     def test_create_forwards_empty_allowlist_when_explicitly_set(self):
         config = SandboxConfig(name="t", outbound_domain_allowlist=[])
 
