@@ -4,15 +4,9 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import type { ReplayObservationApi } from 'products/replay_vision/frontend/generated/api.schemas'
-import { flattenMarkdownToLine } from 'products/replay_vision/frontend/utils/markdown'
-import {
-    readErrorMessage,
-    readReasoning,
-    readSummary,
-    readTitle,
-} from 'products/replay_vision/frontend/utils/observation'
-
+import type { ReplayObservationApi } from '../generated/api.schemas'
+import { flattenMarkdownToLine } from '../utils/markdown'
+import { readErrorMessage, readReasoning, readSummary, readTitle } from '../utils/observation'
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
 
 export interface ReplayVisionScanWidgetProps {
