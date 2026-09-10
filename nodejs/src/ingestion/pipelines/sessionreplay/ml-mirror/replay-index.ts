@@ -1,6 +1,9 @@
 import { ParquetSchema } from '@dsnp/parquetjs'
 
-import { ReplayIndexEntrySchema } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
+import {
+    ReplayIndexEntry,
+    ReplayIndexEntrySchema,
+} from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
@@ -46,6 +49,7 @@ export function replayIndexPartitions(rows: MlBlockMetadataRow[]): Map<string, R
             continue
         }
         const date = new Date(started).toISOString().slice(0, 10)
+        const entries: ReplayIndexEntry[] = []
         for (const value of row.replay_index_entries) {
             const result = ReplayIndexEntrySchema.safeParse(value)
             if (
@@ -57,7 +61,24 @@ export function replayIndexPartitions(rows: MlBlockMetadataRow[]): Map<string, R
                 MlParquetSinkMetrics.incReplayIndexSkipped('invalid_entry')
                 continue
             }
-            const entry = result.data
+            entries.push(result.data)
+        }
+        const pagesByEvent = new Map(
+            entries.filter((entry) => entry.kind === 'page').map((entry) => [entry.eventIndex, entry])
+        )
+        const nonPageEvents = new Set(entries.filter((entry) => entry.kind !== 'page').map((entry) => entry.eventIndex))
+        for (const entry of entries) {
+            if (entry.kind === 'page' && nonPageEvents.has(entry.eventIndex)) {
+                continue
+            }
+            const page =
+                pagesByEvent.get(entry.eventIndex) ??
+                (entry.kind === 'full_snapshot' ? pagesByEvent.get(entry.eventIndex - 1) : undefined)
+            const url =
+                entry.url ??
+                (page?.windowId === entry.windowId && page.eventTimestamp <= entry.eventTimestamp
+                    ? page.url
+                    : undefined)
             const key = `kind=${entry.kind}/session_start_date=${date}`
             let records = partitions.get(key)
             if (!records) {
@@ -75,7 +96,7 @@ export function replayIndexPartitions(rows: MlBlockMetadataRow[]): Map<string, R
                 block_index_truncated: row.replay_index_truncated === true,
                 full_snapshot_ts_ms: entry.fullSnapshotTimestamp ?? null,
                 root_types: entry.rootTypes ?? [],
-                url: entry.url ?? null,
+                url: url ?? null,
                 block_s3_key: row.block_s3_key,
                 block_byte_start: row.block_byte_start,
                 block_byte_end: row.block_byte_end,
