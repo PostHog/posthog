@@ -365,17 +365,30 @@ function InviteInvalid(): JSX.Element {
     const code = error?.code ?? ErrorCodes.Unknown
 
     const titles: Record<ErrorCodes, string> = {
-        [ErrorCodes.InvalidInvite]: 'This invite link is invalid or expired',
+        [ErrorCodes.InvalidInvite]: 'This invite link is no longer valid',
+        [ErrorCodes.InviteExpired]: 'This invite link has expired',
         [ErrorCodes.UserAlreadyMember]: "You're already a member",
         [ErrorCodes.InvalidRecipient]: "This invite link can't be used",
         [ErrorCodes.Unknown]: "We couldn't validate this invite link",
     }
 
+    // An accepted invite deletes its row, so it reads exactly like a link that never existed.
+    // Name that cause instead of pointing everyone at support.
     const details: Record<ErrorCodes, ReactNode> = {
-        [ErrorCodes.InvalidInvite]: (
+        [ErrorCodes.InvalidInvite]: user ? (
             <>
-                {error?.detail} If you believe this is a mistake, ask whoever created the invite to{' '}
-                <b>send you a new one</b>.
+                Most often this means you <b>already accepted the invite</b>. Look for the organization in the switcher
+                at the upper left. If it is not there, ask whoever invited you to send a new invite.
+            </>
+        ) : (
+            <>
+                Most often this means you <b>already accepted the invite</b>. Log in to open the organization. If you
+                never accepted it, ask whoever invited you to send a new invite.
+            </>
+        ),
+        [ErrorCodes.InviteExpired]: (
+            <>
+                Invite links are valid for a limited time. Ask whoever invited you to <b>send you a new one</b>.
             </>
         ),
         [ErrorCodes.UserAlreadyMember]: (
@@ -414,7 +427,7 @@ function InviteInvalid(): JSX.Element {
 
     const footer = (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            {!user && (
+            {!user && code === ErrorCodes.InvalidRecipient && (
                 <>
                     <Link
                         to={urls.login()}
@@ -462,7 +475,11 @@ function InviteInvalid(): JSX.Element {
                             >
                                 Try again
                             </LemonButton>
-                        ) : null}
+                        ) : (
+                            <LemonButton size="large" center fullWidth type="primary" to={urls.login()}>
+                                Log in
+                            </LemonButton>
+                        )}
                         <LemonButton size="large" center fullWidth onClick={() => openSupportForm({ kind: 'bug' })}>
                             Contact support
                         </LemonButton>

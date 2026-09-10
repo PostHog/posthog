@@ -15,6 +15,7 @@ import { PrevalidatedInvite } from '~/types'
 
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
+    InviteExpired = 'expired',
     InvalidRecipient = 'invalid_recipient',
     UserAlreadyMember = 'user_already_member',
     Unknown = 'unknown',
@@ -256,6 +257,8 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
                             } else if (e.code === 'user_already_member') {
                                 actions.setError({ code: ErrorCodes.UserAlreadyMember, detail: e.detail })
+                            } else if (e.code === 'expired') {
+                                actions.setError({ code: ErrorCodes.InviteExpired, detail: e.detail })
                             } else if (e.code === 'account_exists') {
                                 location.href = e.detail
                             } else {
@@ -365,6 +368,9 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setError: ({ payload }) => {
+            posthog.capture('invite signup error shown', { error_code: payload.code })
+        },
         setTurnstileToken: ({ token }) => {
             if (token && values.challengeNonce) {
                 actions.submitSignup()

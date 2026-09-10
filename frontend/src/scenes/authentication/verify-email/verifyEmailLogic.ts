@@ -1,6 +1,7 @@
-import { MakeLogicType, actions, connect, kea, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -217,6 +218,15 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         actions.setView('pending')
                         return true
                     } catch (e: any) {
+                        // A resend for a verified address is not a failure, the same way verify_email
+                        // treats a replayed code. Say it is done and send them to log in.
+                        if (e.code === 'already_verified') {
+                            posthog.capture('verify email error shown', { error_code: 'already_verified' })
+                            clearPendingVerificationEmail()
+                            lemonToast.success('Your email is already verified. Log in to continue.')
+                            router.actions.push(urls.login())
+                            return false
+                        }
                         if (e.code === 'throttled') {
                             lemonToast.error('You have requested a new code too many times. Please try again later.')
                             return false
@@ -228,6 +238,13 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             },
         ],
     })),
+    listeners({
+        setView: ({ view }) => {
+            if (view === 'invalid') {
+                posthog.capture('verify email error shown', { error_code: 'no_pending_user' })
+            }
+        },
+    }),
     reducers({
         view: [
             null as 'pending' | 'invalid' | 'success' | null,
