@@ -2109,6 +2109,7 @@ export class AgentServer {
                 )
                   ? this.config.reasoningEffort
                   : undefined,
+              serviceTier: this.config.serviceTier,
               developerInstructions: codexInstructions,
               httpHeaders: gatewayEnv.openaiCustomHeaders,
             }
