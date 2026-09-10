@@ -123,6 +123,7 @@ SANDBOX_SLIM_NODE_MAJOR = 24
 SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.5"
 READINESS_PROBE_INTERVAL_MS = 250
 READINESS_PROBE_TIMEOUT_SECONDS = 45
+POST_MOUNT_PROBE_TIMEOUT_SECONDS = 45
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
 # connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
@@ -828,6 +829,7 @@ class ModalSandbox(AgentServerLaunchMixin):
 
             sb, modal_output, winner = cls._create_from_image_candidates(create_kwargs, candidates, config)
 
+            directory_mount_applied = False
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
                 # The mount REPLACES the target directory in the running sandbox — over a live
                 # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
@@ -853,6 +855,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                     try:
                         sb.mount_image(snapshot_mount_path, snapshot_image)
                         config.snapshot_restored = True
+                        directory_mount_applied = True
                     except Exception as e:
                         logger.warning(
                             f"Failed to mount directory snapshot image {snapshot_external_id} at {snapshot_mount_path}: {e}"
@@ -864,7 +867,7 @@ class ModalSandbox(AgentServerLaunchMixin):
             # image, which is itself a snapshot because dockerd cannot run in the gVisor
             # image builder. Loops because a recovery can land on another snapshot-derived
             # tier (resume snapshot -> dev-stack image -> base).
-            while not cls._wait_until_ready(sb):
+            while not cls._is_ready(sb, after_directory_mount=directory_mount_applied):
                 logger.warning(
                     "Sandbox never became ready; recreating from the remaining image candidates",
                     extra={
@@ -879,7 +882,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                     sb.terminate()
                 except Exception as e:
                     logger.warning(f"Failed to terminate unready sandbox {sb.object_id}: {e}")
-                if config.snapshot_restored and not winner.restored_from_snapshot:
+                if directory_mount_applied:
                     # The directory resume mount (not the image) wedged the sandbox:
                     # recreate on the same chain and leave the mount off. The run loses
                     # its resume state — exactly what the fallback message must say,
@@ -900,8 +903,13 @@ class ModalSandbox(AgentServerLaunchMixin):
                         {"config_name": config.name, "sandbox_id": sb.object_id, "image": winner.label},
                         cause=RuntimeError("readiness probe never passed"),
                     )
+                earlier_fallback = config.image_fallback
                 sb, modal_output, winner = cls._create_from_image_candidates(create_kwargs, remaining, config)
-                config.image_fallback = f"{wedged} -> {winner.label}"
+                directory_mount_applied = False
+                # Every hop stays in the string: the run log reads the field once, so an
+                # overwrite would hide the dropped resume snapshot or package overlay.
+                hop = f"{wedged} -> {winner.label}"
+                config.image_fallback = f"{earlier_fallback}; {hop}" if earlier_fallback else hop
 
             if config.metadata:
                 sb.set_tags(config.metadata)
@@ -918,6 +926,10 @@ class ModalSandbox(AgentServerLaunchMixin):
             return sandbox
 
         except SandboxNetworkPolicyError:
+            raise
+        except SandboxProvisionError:
+            # Already carries the failing image and sandbox id, and already captured its
+            # cause — the wrapper below would send a second event with less context.
             raise
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
@@ -973,6 +985,44 @@ class ModalSandbox(AgentServerLaunchMixin):
             {"config_name": config.name},
             cause=RuntimeError("empty image candidate list"),
         )
+
+    @classmethod
+    def _is_ready(cls, sb: modal.Sandbox, *, after_directory_mount: bool) -> bool:
+        if not cls._wait_until_ready(sb):
+            return False
+        if not after_directory_mount:
+            return True
+        # Modal stops the probe at its first success and returns that state to every later
+        # wait, so it cannot see a directory mount — applied to the running sandbox after
+        # the probe passed — that left the sandbox unable to run commands.
+        return cls._executes_processes(sb)
+
+    @staticmethod
+    def _executes_processes(sb: modal.Sandbox) -> bool:
+        """Whether the sandbox still runs commands after a directory snapshot mount."""
+        try:
+            process = sb.exec("true", timeout=30)
+            # ContainerProcess.wait() has no timeout and can hang on a wedged container.
+            deadline = time.monotonic() + POST_MOUNT_PROBE_TIMEOUT_SECONDS
+            while (returncode := process.poll()) is None:
+                if time.monotonic() >= deadline:
+                    logger.warning(f"Post-mount probe timed out for sandbox {sb.object_id}")
+                    return False
+                time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Post-mount probe errored for sandbox {sb.object_id}: {e}")
+            return False
+        if returncode != 0:
+            logger.warning(
+                "Post-mount probe exited non-zero",
+                extra={
+                    "sandbox_id": sb.object_id,
+                    "returncode": returncode,
+                    "sandbox_poll": _sandbox_poll_result(sb),
+                },
+            )
+            return False
+        return True
 
     @staticmethod
     def _wait_until_ready(sb: modal.Sandbox) -> bool:

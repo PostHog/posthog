@@ -1812,9 +1812,11 @@ class TestModalSandboxCreateImageFallback:
         ready: list[bool],
         snapshot_image: Any,
         custom_image: Any,
+        executes: list[bool] | None = None,
     ) -> tuple[Any, list]:
         images_tried: list[Any] = []
         outcomes = iter(ready)
+        exec_outcomes = iter(executes or [])
 
         def sandbox_create(**kwargs: Any) -> Any:
             images_tried.append(kwargs["image"])
@@ -1822,6 +1824,7 @@ class TestModalSandboxCreateImageFallback:
             sb.object_id = f"sb-{len(images_tried)}"
             if not next(outcomes, True):
                 sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+            sb.exec.return_value.poll.return_value = 0 if next(exec_outcomes, True) else 137
             return sb
 
         with (
@@ -1916,6 +1919,30 @@ class TestModalSandboxCreateImageFallback:
         assert "custom image posthog-sandbox-custom-2-abc:latest (never became ready)" in sandbox.config.image_fallback
         assert "base image" in sandbox.config.image_fallback
 
+    def test_every_readiness_downgrade_stays_on_the_fallback_chain(self):
+        # The run log reads image_fallback once, so a second downgrade that overwrote the
+        # first would hide which snapshot or overlay the run lost.
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            snapshot_external_id="im-snap-1",
+        )
+
+        sandbox, images_tried = self._create_with_readiness(
+            config,
+            ready=[False, False, True],
+            snapshot_image=MagicMock(name="snapshot_image"),
+            custom_image=MagicMock(name="custom_image"),
+        )
+
+        assert len(images_tried) == 3
+        assert sandbox.config.image_fallback is not None
+        assert "snapshot image im-snap-1 (never became ready) -> custom image posthog-dev-stack" in (
+            sandbox.config.image_fallback
+        )
+        assert "custom image posthog-dev-stack (never became ready) -> base image" in sandbox.config.image_fallback
+
     def test_unready_base_image_is_terminated_and_provisioning_fails(self):
         mock_sb = MagicMock()
         mock_sb.object_id = "sb-dead"
@@ -1962,6 +1989,33 @@ class TestModalSandboxCreateImageFallback:
         assert "directory resume snapshot im-snap-1" in sandbox.config.image_fallback
         assert "resume state dropped" in sandbox.config.image_fallback
         assert not sandbox.config.image_fallback.startswith("snapshot image")
+
+    def test_directory_mount_that_stops_execution_drops_the_mount(self):
+        # Modal stops the readiness probe at its first success, so the probe reports on the
+        # boot that came before the mount. Only a fresh exec sees a mount that wedged the
+        # sandbox, which is the failure the mount fallback exists for.
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            snapshot_external_id="im-snap-1",
+            snapshot_kind=SNAPSHOT_KIND_DIRECTORY,
+            snapshot_mount_path=DEFAULT_SANDBOX_WORKING_DIR,
+        )
+        custom_image = MagicMock(name="custom_image")
+
+        sandbox, images_tried = self._create_with_readiness(
+            config,
+            ready=[True, True],
+            executes=[False, True],
+            snapshot_image=MagicMock(name="snapshot_image"),
+            custom_image=custom_image,
+        )
+
+        assert images_tried == [custom_image, custom_image]
+        assert sandbox.config.snapshot_restored is False
+        assert sandbox.config.image_fallback is not None
+        assert "resume state dropped" in sandbox.config.image_fallback
 
 
 class TestLaunchDevStackBootstrap:

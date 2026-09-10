@@ -217,6 +217,8 @@ class TestModalSandboxDirectorySnapshotMount:
         snapshot_image = MagicMock()
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         fake_sandbox = patched_modal.return_value
+        # The post-mount probe runs a command in the mounted sandbox; let it pass.
+        fake_sandbox.exec.return_value.poll.return_value = 0
 
         sandbox = ModalSandbox.create(
             SandboxConfig(
