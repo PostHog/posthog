@@ -186,6 +186,21 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     instance.save(update_fields=["status", "updated_at"])
 
 
+def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
+    """Trigger the schema's sync, creating its Temporal schedule first if it has none.
+
+    A schema can reach the UI with no schedule behind it (never created, or dropped), and
+    triggering one that isn't there raises NOT_FOUND. Retrying can't fix that, so recover the
+    same way the source-level reload does instead of dead-ending a single table's sync.
+    """
+    try:
+        trigger_external_data_workflow(instance)
+    except temporalio.service.RPCError as e:
+        if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise
+        sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
+
+
 # Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
 # serializer's choices), but rows written before the floor may still carry one until the
 # migrate_sub_5min_sync_frequencies command bumps them — so the interval mappings keep parsing
@@ -1663,13 +1678,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            trigger_external_data_workflow(instance)
+            _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:
             # Only mark the schema Running once the trigger succeeded: a Running status with no
             # workflow behind it sticks forever (nothing finalizes it) and blocks cancel.
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             return Response(
-                data={"detail": "Couldn't start the sync. Please try again."},
+                data={"detail": "Couldn't start the sync. Try again in a few minutes."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
@@ -1735,14 +1750,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.initial_sync_complete = False
 
         try:
-            trigger_external_data_workflow(instance)
+            _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:
             # Only mark the schema Running once the trigger succeeded: a Running status with no
             # workflow behind it sticks forever (nothing finalizes it) and blocks cancel. The
             # sync_type_config reset above stays; the schema's intent is still "resync next run".
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             return Response(
-                data={"detail": "Couldn't start the sync. Please try again."},
+                data={"detail": "Couldn't start the sync. Try again in a few minutes."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1931,6 +1946,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},
+            )
+
+        if not schemas:
+            return Response(
+                data={
+                    "message": f"Could not discover schema {instance.name}. The connection may be missing SELECT or "
+                    "schema access privileges, or discovery may not support this relation type. Check that the "
+                    "relation exists, restore read privileges, or expose it as a supported table or view, then try again."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
