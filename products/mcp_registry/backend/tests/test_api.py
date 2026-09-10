@@ -279,6 +279,7 @@ class TestMCPRegistryAPI(APIBaseTest):
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
+            algorithm="RS256",
         )
         OAuthAccessToken.objects.create(
             user=self.user,
