@@ -59,18 +59,6 @@ from common.hogvm.python.debugger import color_bytecode
 logger = structlog.get_logger(__name__)
 
 
-def _utf16_offset_to_utf8(value: str, offset: int) -> int:
-    if offset <= 0:
-        return 0
-    utf16_offset = 0
-    for index, character in enumerate(value):
-        character_width = 2 if ord(character) > 0xFFFF else 1
-        if utf16_offset + character_width > offset:
-            return len(value[:index].encode())
-        utf16_offset += character_width
-    return len(value.encode())
-
-
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
     common = (
         query.language.value == "hogQL"
@@ -95,8 +83,7 @@ def _language_service_call(
 
         def call() -> LanguageServiceResult:
             if isinstance(query, HogQLAutocomplete):
-                position = _utf16_offset_to_utf8(query.query, query.endPosition)
-                return client.autocomplete(team.pk, user.pk, query.query, position)
+                return client.autocomplete(team.pk, user.pk, query.query, query.endPosition)
             return client.validate(team.pk, user.pk, query.query)
 
         result = call()

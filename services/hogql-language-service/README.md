@@ -17,7 +17,7 @@ service does not hold a personal API key or fetch schema from PostHog directly.
 curl -sS http://localhost:8091/health
 curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
   -H 'Content-Type: application/json' \
-  -d '{"query":"SELECT o. FROM orders AS o","position":9}'
+  -d '{"query":"SELECT o. FROM orders AS o","position":9,"positionEncoding":"utf-16"}'
 ```
 
 Validate syntax and catalog-backed table and field references:
@@ -41,7 +41,9 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT events.properties.$geo_cty FROM events"}'
 ```
 
-`position` is an optional UTF-8 byte offset and defaults to the end of the query. `durationMicros` covers only the
+`position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the default) or
+`utf-16`; editor clients such as Monaco should send `utf-16`. The response echoes the selected encoding.
+`durationMicros` covers only the
 in-memory completion path; network and JSON decoding are intentionally excluded. Responses contain at most 25
 suggestions, the total match count, and an opaque `nextCursor` when another page exists. Send the same query and
 position with `"cursor":"<nextCursor>"` to retrieve it. The HTTP `Content-Length` is the encoded response size.

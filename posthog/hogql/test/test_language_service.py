@@ -61,6 +61,12 @@ class TestLanguageServiceClient(SimpleTestCase):
         with self.assertRaises(CatalogMissing):
             LanguageServiceClient().autocomplete(12, 34, "SELECT ", 7)
 
+        assert request.call_args.kwargs["json"] == {
+            "query": "SELECT ",
+            "position": 7,
+            "positionEncoding": "utf-16",
+        }
+
     @patch("posthog.hogql.language_service.LANGUAGE_SERVICE_HTTP_DURATION_SECONDS")
     @patch("posthog.hogql.language_service.requests.request", side_effect=requests.Timeout("timed out"))
     def test_records_latency_for_failed_requests(self, _request: MagicMock, duration: MagicMock) -> None:
