@@ -38,6 +38,10 @@ rules:
               - frontend/src
               - products
               - common
+              # The leading slash pins this to the repository root. The entries above
+              # stay unanchored because anchoring them would drop directories this rule
+              # scans today, such as `nodejs/src/common`.
+              - /packages
           exclude:
               - '**/*.test.ts'
               - '**/*.test.tsx'
