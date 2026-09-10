@@ -19,9 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
     APPDYNAMICS_ENDPOINTS,
+    DEFAULT_EVENT_TYPES,
     DEFAULT_METRIC_PATHS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAX_EVENT_TYPES,
     MAX_METRIC_PATHS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -60,7 +62,7 @@ class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResu
             label="Splunk AppDynamics (Cisco)",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["appdynamics", "cisco", "splunk", "apm"],
-            caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, health rule violations, and metric time series) into the PostHog Data warehouse.
+            caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, events, transaction snapshots, health rules, health rule violations, metric paths, and metric time series) into the PostHog Data warehouse.
 
 Enter your controller URL (e.g. `https://mycompany.saas.appdynamics.com`) and your account name, then authenticate with an OAuth API client (recommended) or a username and password.
 
@@ -152,6 +154,14 @@ You can create an API client in your controller under **Administration → API C
                         placeholder="Overall Application Performance|*",
                         secret=False,
                     ),
+                    SourceFieldInputConfig(
+                        name="event_types",
+                        label="Event types (one per line)",
+                        type=SourceFieldInputConfigType.TEXTAREA,
+                        required=False,
+                        placeholder="APPLICATION_DEPLOYMENT",
+                        secret=False,
+                    ),
                 ],
             ),
         )
@@ -169,6 +179,7 @@ You can create an API client in your controller under **Administration → API C
             "403 Client Error": "Your AppDynamics user or API client is missing read access to application data. Grant the required roles and try again.",
             "AppDynamics OAuth token request failed": "Your AppDynamics API client credentials were rejected. Check your API client name, client secret, and account name, then reconnect.",
             "Too many metric paths configured": None,
+            "Too many event types configured": None,
             "Too many AppDynamics applications": None,
             "AppDynamics sync would issue": None,
         }
@@ -199,6 +210,12 @@ You can create an API client in your controller under **Administration → API C
                 "Use wildcard paths to cover more metrics with fewer entries."
             )
         return paths or list(DEFAULT_METRIC_PATHS)
+
+    def _event_types_for_config(self, config: AppdynamicsSourceConfig) -> list[str]:
+        types: list[str] = [line.strip() for line in (config.event_types or "").splitlines() if line.strip()]
+        if len(types) > MAX_EVENT_TYPES:
+            raise ValueError(f"Too many event types configured ({len(types)}); the maximum is {MAX_EVENT_TYPES}.")
+        return types or list(DEFAULT_EVENT_TYPES)
 
     def get_schemas(
         self,
@@ -234,6 +251,7 @@ You can create an API client in your controller under **Administration → API C
         try:
             auth = self._auth_for_config(config)
             self._metric_paths_for_config(config)
+            self._event_types_for_config(config)
         except ValueError as exc:
             return False, str(exc)
 
@@ -256,6 +274,7 @@ You can create an API client in your controller under **Administration → API C
             resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
             metric_paths=self._metric_paths_for_config(config),
+            event_types=self._event_types_for_config(config),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
