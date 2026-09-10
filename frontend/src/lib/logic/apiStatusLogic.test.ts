@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -77,6 +78,41 @@ describe('apiStatusLogic', () => {
             expect(logoutSpy).toHaveBeenCalled()
             logoutSpy.mockRestore()
             submitSpy.mockRestore()
+        })
+    })
+
+    describe('2FA setup 403 handling', () => {
+        const SETUP_REQUIRED = {
+            status: 403,
+            ok: false,
+            json: () => Promise.resolve({ code: 'two_factor_setup_required', detail: '2FA setup required' }),
+        } as unknown as Response
+
+        // A request that was in flight while the user finished setup still answers 403. Re-opening
+        // on that sends the user back through enrollment and a fresh QR code.
+        it.each([
+            ['already enabled', true, false],
+            ['not enabled', false, true],
+        ])('with 2FA %s, opens the setup modal: %s', async (_label, is2FAEnabled, shouldOpen) => {
+            initKeaTests()
+            twoFactorLogic.mount()
+            twoFactorLogic.actions.loadStatusSuccess({
+                is_enabled: is2FAEnabled,
+                backup_codes: [],
+                method: is2FAEnabled ? 'TOTP' : null,
+                has_totp: is2FAEnabled,
+            })
+
+            logic = apiStatusLogic()
+            logic.mount()
+            const openSpy = jest.spyOn(twoFactorLogic.actions, 'openTwoFactorSetupModal')
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(SETUP_REQUIRED)
+            }).toFinishAllListeners()
+
+            expect(openSpy).toHaveBeenCalledTimes(shouldOpen ? 1 : 0)
+            openSpy.mockRestore()
         })
     })
 
