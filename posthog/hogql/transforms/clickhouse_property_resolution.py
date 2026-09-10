@@ -1129,6 +1129,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         if json_string_on_events_json is not None:
             return json_string_on_events_json
 
+        feature_flag_extract = self._rewrite_feature_flag_json_extract(node)
+        if feature_flag_extract is not None:
+            return feature_flag_extract
+
         json_extract_on_events_json = self._rewrite_json_extract_on_events_json_subcolumn(node)
         if json_extract_on_events_json is not None:
             return json_extract_on_events_json
@@ -1163,6 +1167,31 @@ class ClickHousePropertyResolver(CloningVisitor):
             )
 
         return super().visit_call(node)
+
+    def _rewrite_feature_flag_json_extract(self, node: ast.Call) -> ast.Expr | None:
+        if (
+            not node.name.startswith("JSONExtract")
+            or len(node.args) < 2
+            or not isinstance(node.args[1], ast.Constant)
+            or node.args[1].value != "$feature_flags"
+        ):
+            return None
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType):
+            return None
+        value = _feature_flag_compatibility_read(
+            ast.PropertyAccess(expr=node.args[0], keys=["$feature_flags"]), field_type, self.context
+        )
+        if value is None:
+            return None
+        # Keep the extractor to preserve its return type and missing-value defaults.
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            name=node.name,
+            type=node.type,
+            args=[ast.Call(name="ifNull", args=[value, _sentinel("")]), *[self.visit(arg) for arg in node.args[2:]]],
+        )
 
     def _rewrite_feature_flag_json_has(self, node: ast.Call) -> ast.Expr | None:
         if node.name != "JSONHas" or len(node.args) < 2 or not isinstance(node.args[1], ast.Constant):
