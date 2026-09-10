@@ -356,6 +356,25 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('shows taxonomy display names for x-axis values of a column named event', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['event', 'count'],
+            types: [
+                ['event', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['$pageview', 3],
+                ['signed_up', 1],
+            ],
+        })
+
+        logic.actions.clearAxis()
+        logic.actions.updateXSeries('event')
+
+        expect(logic.values.xData?.data).toEqual(['Pageview', 'signed_up'])
+    })
+
     it('does not resolve to a time-series chart when there is only one row', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 

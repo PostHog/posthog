@@ -61,6 +61,7 @@ import type {
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
+import { humanizeEventColumnValue } from './eventColumnLabels'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -1612,7 +1613,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return {
                     column,
-                    data: data.map((n: any) => n[column.dataIndex]),
+                    data: data.map((n: any) => humanizeEventColumnValue(column.name, n[column.dataIndex])),
                 }
             },
         ],
