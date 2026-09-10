@@ -35,7 +35,9 @@ _INTERNAL_IP_ERROR = (
     "Use a host that's reachable from the public internet."
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
-_MALFORMED_HOST_ERROR = "Enter a single hostname or IP address for the host, without a port, path, comma or space."
+_MALFORMED_HOST_ERROR = (
+    "Enter a single hostname or IP address for the host, without a port, path, comma, space or trailing dot."
+)
 _NON_ASCII_HOST_ERROR = (
     "This host has characters outside ASCII. Enter its punycode form instead, the spelling that starts with xn--."
 )
@@ -162,7 +164,7 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
         pass
 
     try:
-        addrinfo = socket.getaddrinfo(normalized, None, proto=socket.IPPROTO_TCP)
+        addrinfo = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
         resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
     except socket.gaierror as e:
         # A resolver blip is not a verdict on the host; refusing it would disable the schema.
@@ -249,7 +251,7 @@ def _normalize_host(host: str) -> str:
     return host.lower().strip().rstrip(".")
 
 
-_HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
+_HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)\Z")
 
 
 def _is_single_host(host: str) -> bool:
@@ -271,13 +273,14 @@ def _is_single_host(host: str) -> bool:
 def _single_host_error(host: str) -> str | None:
     """Why `host` is not one endpoint the drivers can dial as written, or None when it is.
 
-    A name with characters outside ASCII is refused rather than converted: the drivers hand the
-    host to the resolver as raw bytes, so a validator that converted would approve a name they
-    never dial.
+    The drivers dial `host` as stored, so the string validated has to be that string. A name with
+    characters outside ASCII is refused rather than converted, because the drivers hand the host to
+    the resolver as raw bytes. Anything `strip()` or `rstrip(".")` would remove is refused too,
+    because the resolver would then answer for a different name than the one dialed.
     """
     if not host.isascii():
         return _NON_ASCII_HOST_ERROR
-    if not _is_single_host(host):
+    if host != host.strip() or host.endswith(".") or not _is_single_host(host):
         return _MALFORMED_HOST_ERROR
     return None
 

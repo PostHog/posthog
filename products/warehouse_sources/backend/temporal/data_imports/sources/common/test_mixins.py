@@ -114,6 +114,9 @@ class TestIsHostSafe(SimpleTestCase):
             ("space_joined_postwh", "10.0.0.5 x.postwh.com", 999),
             ("socket_path_postwh", "/var/run/x.postwh.com", 999),
             ("port_suffix_postwh", "x.postwh.com:5432", 999),
+            ("leading_space_postwh", " x.postwh.com", 999),
+            ("trailing_dot_postwh", "x.postwh.com.", 999),
+            ("newline_label_postwh", "evil.example.com\n.postwh.com", 999),
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")
