@@ -18,7 +18,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
@@ -184,6 +186,57 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         cache.clear()
         for table in ("data_quality_checks", "data_quality_check_runs", "data_quality_health"):
             assert self._query(f"SELECT subject_name FROM system.information_schema.{table}") == [("signups",)]
+
+    @parameterized.expand([("catalog_member", True), ("catalog_denied", False)])
+    def test_a_query_scoped_token_reads_metric_checks_on_the_users_own_catalog_access(
+        self, _name: str, allowed: bool
+    ) -> None:
+        metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            referenced_table_names=[],
+        )
+        self._check(
+            subject_type=SubjectType.METRIC,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_name=metric.name,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric}"},
+        )
+        if not allowed:
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(
+                team=self.team,
+                resource="data_catalog",
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+            cache.clear()
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="raw hogql", secure_value=hash_key_value(token), scopes=["query:read"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT subject_name FROM system.information_schema.data_quality_checks "
+                    "WHERE subject_type = 'metric'",
+                }
+            },
+            format="json",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["results"] == ([["signups"]] if allowed else [])
 
     def test_soft_deleted_subject_hides_active_checks_but_preserves_admin_history(self) -> None:
         check = self._check()

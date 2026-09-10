@@ -10,7 +10,9 @@ Reading checks, health, and run history requires viewer access. Creating, editin
 
 Checks and suites are polymorphic: a catalog-only member can read a teammate's metric checks without warehouse access. Project lists filter by each row's subject. A mixed suite is hidden if any recorded run is unreadable, because aggregate counts would otherwise disclose its outcome.
 
-Restricted callers must have access to both the stored and proposed definitions before PUT or PATCH can save anything, including presentation-only edits. Authorization is repeated if a concurrent edit changes the definition accepted by the transaction. An unavailable reference fails closed. An authorized caller can still disable a stale check without revalidating its assertion.
+Restricted callers must have access to both the stored and proposed definitions before PUT or PATCH can save anything, including presentation-only edits. Authorization is repeated if a concurrent edit changes the definition accepted by the transaction. An edit makes three attempts. After three attempts it writes nothing and returns HTTP 400 with the code `concurrent_edit`. An unavailable reference fails closed. An authorized caller can still disable a stale check without revalidating its assertion.
+
+A check that reads more than its own subject executes as a user. A manual run executes as the user who started it, and an automated run executes as the user who last wrote the definition. If neither user is available, the run records an error and executes no SQL.
 
 ## Token scopes
 
@@ -26,9 +28,11 @@ All routes below also require `query:read`. Write scopes include read access; re
 
 A project-wide token may select only the subject types its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
 
+The table above applies to the REST routes only. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
+
 ## Custom SQL
 
-Custom SQL supports direct relations, subqueries, CTEs, and unions. Metric checks bind `{metric}` before enumerating dependencies. Expandable table expressions whose dependencies cannot be established, including HogQLX sources and table functions, are rejected during authoring and compilation.
+Custom SQL supports direct relations, subqueries, CTEs, and unions. Metric checks bind `{metric}` before enumerating dependencies. Metric checks cannot use CTEs. Query `{metric}` directly or through a subquery. Expandable table expressions whose dependencies cannot be established, including HogQLX sources and table functions, are rejected during authoring and compilation.
 
 Previously saved definitions that cannot be enumerated remain hidden and unrunnable for restricted callers. Execution permissions do not replace the checks that protect definitions, counts, and history.
 
@@ -40,4 +44,4 @@ The REST endpoints and `information_schema.data_quality_checks`, `information_sc
 
 The overview filters readable subject identities in SQL before scanning definition and history visibility. The remaining scan loads only authorization fields in batches of 200 checks, before counting or paginating. Creator and owner records are hydrated for the returned page. Complex-definition evaluation still scales with the candidate checks; pagination is not constant-cost.
 
-Notification recipient checks retain the existing global warehouse-resource policy. A specific object grant alone does not expand notification delivery eligibility. Background dependency pinning still resolves references individually; batching that cross-product workflow is separate work.
+Notification recipient checks retain the existing global warehouse-resource policy. A specific object grant alone does not expand notification delivery eligibility. A subject that no longer resolves sends no notification. Background dependency pinning still resolves references individually; batching that cross-product workflow is separate work.
