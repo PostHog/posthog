@@ -129,7 +129,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
@@ -2075,7 +2075,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
-            self._enforce_api_queries_budget()
+            # Endpoints are billed as API queries but keep their own throttles and mostly serve
+            # cached or materialized results, so they do not draw from the read budget.
+            if get_query_tag_value("product") != Product.ENDPOINTS:
+                self._enforce_api_queries_budget()
 
         with (
             get_materialized_endpoints_rate_limiter().run(

@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import HogQLQuery
 
 from posthog.api_queries_budget import budget_spec_for, debit, refill_and_read
+from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -94,6 +95,20 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
             else:
                 result, _duration_ms = runner._call_with_rate_limits(dashboard_id=None)
                 assert result == "stub result"
+
+    def test_call_with_rate_limits_does_not_enforce_the_budget_for_endpoint_runs(self):
+        self._drain()
+        runner = self._runner(is_query_service=True)
+        tag_queries(product=Product.ENDPOINTS)
+        try:
+            with (
+                patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=True),
+                patch.object(runner, "calculate", return_value="stub result"),
+            ):
+                result, _duration_ms = runner._call_with_rate_limits(dashboard_id=None)
+        finally:
+            reset_query_tags()
+        assert result == "stub result"
 
     def test_concurrency_limit_ignores_billing_quota_limited_teams(self):
         # get_api_queries_concurrency_limit reads the plain `posthog.settings` module
