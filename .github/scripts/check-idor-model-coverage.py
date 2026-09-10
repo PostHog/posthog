@@ -327,6 +327,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "EventIngestionRestrictionConfig",
         "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
+        # --- Internal scheduler coordination (instance-global, never exposed as tenant resources) ---
+        "TemporalSchedulerClaim",
+        "TemporalSchedulerPermitPool",
+        "TemporalSchedulerState",
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.
