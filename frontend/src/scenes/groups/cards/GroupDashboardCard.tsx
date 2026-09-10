@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect } from 'react'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -51,11 +51,10 @@ function GroupDetailDashboard({
 }
 
 export function GroupDashboardCard(): JSX.Element {
-    const { groupData, groupTypeDetailDashboard, groupTypeName } = useValues(groupLogic)
+    const { groupData, groupTypeDetailDashboard, groupTypeName, groupTypesLoading } = useValues(groupLogic)
 
     const { createDetailDashboard } = useActions(groupLogic)
     const { reportGroupTypeDetailDashboardCreated } = useActions(eventUsageLogic)
-    const [creatingDetailDashboard, setCreatingDetailDashboard] = useState(false)
 
     if (!groupData) {
         return <></>
@@ -71,9 +70,8 @@ export function GroupDashboardCard(): JSX.Element {
                 <h2>Insights</h2>
                 <LemonButton
                     type="secondary"
-                    disabled={creatingDetailDashboard}
+                    loading={groupTypesLoading}
                     onClick={() => {
-                        setCreatingDetailDashboard(true)
                         reportGroupTypeDetailDashboardCreated()
                         createDetailDashboard(groupData.group_type_index)
                     }}

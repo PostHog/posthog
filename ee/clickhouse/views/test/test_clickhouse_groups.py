@@ -1488,7 +1488,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
         self.assertIsNotNone(group_type_mapping.detail_dashboard_id)
 
-    def test_create_detail_dashboard_duplicate(self):
+    def test_create_detail_dashboard_duplicate_returns_existing(self):
         group_type = create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -1500,7 +1500,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
             {"group_type_index": 0},
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["detail_dashboard"], dashboard.id)
+
+        group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
+        self.assertEqual(group_type_mapping.detail_dashboard_id, dashboard.id)
 
     def test_create_detail_dashboard_not_found(self):
         response = self.client.put(
