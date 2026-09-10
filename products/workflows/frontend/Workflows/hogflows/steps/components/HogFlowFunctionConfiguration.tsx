@@ -25,7 +25,8 @@ import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 // the editor wrongly flags {event.distinct_id} as unknown.
 export function buildSampleGlobals(
     trigger: { type?: string; filters?: unknown } | undefined | null,
-    variables: Array<Record<string, any>> | undefined | null
+    variables: Array<Record<string, any>> | undefined | null,
+    workflow?: { id?: string; name?: string } | null
 ): Record<string, any> {
     const triggerType = trigger?.type
     const workflowVariables: Record<string, any> = {}
@@ -46,6 +47,11 @@ export function buildSampleGlobals(
 
     const sampleGlobals: Record<string, any> = {
         variables: workflowVariables,
+        // Every step of every workflow gets this, whatever the trigger.
+        workflow: {
+            id: workflow?.id ?? 'workflow123',
+            name: workflow?.name ?? 'Example workflow',
+        },
     }
 
     if (triggerType === 'webhook') {
@@ -213,7 +219,7 @@ export function HogFlowFunctionConfiguration({
         return <TemplateNotFoundFallback templateId={templateId} />
     }
 
-    const sampleGlobals = buildSampleGlobals(workflow?.trigger, workflow?.variables)
+    const sampleGlobals = buildSampleGlobals(workflow?.trigger, workflow?.variables, workflow)
 
     // Native push carries a long tail of optional Android/iOS override fields. Keep the core message
     // fields inline and tuck the platform-specific ones into collapsed sections so the form stays flat.

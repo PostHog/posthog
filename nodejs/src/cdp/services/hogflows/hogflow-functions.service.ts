@@ -88,7 +88,7 @@ export class HogFlowFunctionsService {
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
-        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
+        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project' | 'workflow'>
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
@@ -100,6 +100,12 @@ export class HogFlowFunctionsService {
             source: {
                 name: hogFunction.name ?? `Hog flow: ${invocation.hogFlow.id}`,
                 url: `${projectUrl}/workflows/${invocation.hogFlow.id}/workflow?node=${hogFunction.id}`,
+            },
+            // `source.name` also carries the step's template name, and `source.url` only holds the
+            // flow id inside a path. A template that shows the workflow itself needs these.
+            workflow: {
+                id: invocation.hogFlow.id,
+                name: invocation.hogFlow.name,
             },
             project: {
                 id: hogFunction.team_id,

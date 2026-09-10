@@ -349,7 +349,10 @@ export interface emailTemplaterLogicActions {
 export interface emailTemplaterLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: any) => EmailTemplaterLogicProps
-        mergeTags: (personPropertyDefinitions: PropertyDefinition[]) => UnlayerMergeTags
+        mergeTags: (
+            personPropertyDefinitions: PropertyDefinition[],
+            logicProps: EmailTemplaterLogicProps
+        ) => UnlayerMergeTags
         unlayerEditorProjectId: (preflight: PreflightStatus | null) => 275430 | undefined
         visibleFields: (arg: EmailTemplaterType, revealedAdvancedFields: EmailMetaFieldKey[]) => EmailMetaField[]
         hiddenAdvancedFields: (arg: EmailTemplaterType, visibleFields: EmailMetaField[]) => EmailMetaField[]
@@ -480,8 +483,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props: EmailTemplaterLogicProps) => props],
         mergeTags: [
-            (s) => [s.personPropertyDefinitions],
-            (personPropertyDefinitions: PropertyDefinition[]): UnlayerMergeTags => {
+            (s) => [s.personPropertyDefinitions, s.logicProps],
+            (
+                personPropertyDefinitions: PropertyDefinition[],
+                logicProps: EmailTemplaterLogicProps
+            ): UnlayerMergeTags => {
                 const tags: UnlayerMergeTags = {
                     unsubscribe_url: {
                         name: 'Unsubscribe URL',
@@ -493,6 +499,22 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         value: '{{unsubscribe_url_one_click}}',
                         sample: 'https://example.com/unsubscribe/12345?one_click_unsubscribe=1',
                     },
+                }
+
+                // Only a workflow send populates these globals. A standalone email destination
+                // would render them blank, so it must not be offered them.
+                const workflow = logicProps.variables?.workflow
+                if (workflow) {
+                    tags.workflow_name = {
+                        name: 'Workflow name',
+                        value: '{{workflow.name}}',
+                        sample: workflow.name || 'Example workflow',
+                    }
+                    tags.workflow_id = {
+                        name: 'Workflow ID',
+                        value: '{{workflow.id}}',
+                        sample: workflow.id || 'workflow123',
+                    }
                 }
 
                 // Add person properties as merge tags

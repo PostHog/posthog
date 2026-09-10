@@ -15,18 +15,40 @@ const githubTrigger = {
 describe('HogFlowFunctionConfiguration', () => {
     describe('buildSampleGlobals', () => {
         it.each([
-            ['event', { type: 'event' }, { event: true, person: true, groups: true, request: false }],
-            ['batch', { type: 'batch' }, { event: true, person: true, groups: false, request: false }],
-            ['webhook', { type: 'webhook' }, { event: false, person: false, groups: false, request: true }],
+            ['event', { type: 'event' }, { event: true, person: true, groups: true, request: false, workflow: true }],
+            ['batch', { type: 'batch' }, { event: true, person: true, groups: false, request: false, workflow: true }],
+            [
+                'webhook',
+                { type: 'webhook' },
+                { event: false, person: false, groups: false, request: true, workflow: true },
+            ],
             // Slack-triggered runs are person-less.
-            ['slack message', slackTrigger, { event: true, person: false, groups: false, request: false }],
+            [
+                'slack message',
+                slackTrigger,
+                { event: true, person: false, groups: false, request: false, workflow: true },
+            ],
             // GitHub-triggered runs are person-less too.
-            ['github event', githubTrigger, { event: true, person: false, groups: false, request: false }],
+            [
+                'github event',
+                githubTrigger,
+                { event: true, person: false, groups: false, request: false, workflow: true },
+            ],
         ])('exposes the right globals for a %s trigger', (_name, trigger, present) => {
             const globals = buildSampleGlobals(trigger, undefined)
             Object.entries(present).forEach(([key, shouldExist]) => {
                 expect(key in globals).toBe(shouldExist)
             })
+        })
+
+        // Without this the editor flags {workflow.name} as an unknown global, even though every
+        // workflow send populates it.
+        it('exposes the sending workflow', () => {
+            const globals = buildSampleGlobals({ type: 'event' }, undefined, {
+                id: 'flow-1',
+                name: 'Onboarding series',
+            })
+            expect(globals.workflow).toEqual({ id: 'flow-1', name: 'Onboarding series' })
         })
 
         // Batch runs have no external event, but the worker backfills event.distinct_id at dequeue, so the
