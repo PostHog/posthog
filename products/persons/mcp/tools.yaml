@@ -179,8 +179,8 @@ tools:
             persons-retrieve to see which distinct IDs it holds.
         agent_note: >
             The split runs asynchronously, so this response means the task was queued, not that the person has changed.
-            Read the person again with persons-retrieve to confirm which distinct IDs are left, and remember a
-            split-off distinct ID still resolves to the original person until the task completes.
+            Read the person again with persons-retrieve to confirm which distinct IDs are left, and remember a split-off
+            distinct ID still resolves to the original person until the task completes.
         exclude_params:
             - format
             - main_distinct_id
