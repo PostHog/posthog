@@ -48,6 +48,11 @@ export function targetKey(target: NotificationTarget): string {
   }
 }
 
+// Log-safe rendering of an optional target.
+export function describeTarget(target: NotificationTarget | undefined): string {
+  return target ? targetKey(target) : "none";
+}
+
 // Whether two targets point at the same thing.
 export function targetsEqual(
   a: NotificationTarget | undefined,

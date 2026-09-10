@@ -100,6 +100,15 @@ export function resolveSoundUrl(
   return SOUND_URLS[sound as Exclude<BuiltInCompletionSound, "none">] ?? null;
 }
 
+// Names the concrete sound a `random-*` mode picked, without putting a custom
+// sound's inline data URL in the log.
+function describeSoundUrl(url: string, customSounds: CustomSound[]): string {
+  const builtIn = Object.entries(SOUND_URLS).find(([, u]) => u === url);
+  if (builtIn) return builtIn[0];
+  const custom = customSounds.find((s) => s.dataUrl === url);
+  return custom ? `${CUSTOM_SOUND_PREFIX}${custom.id}` : "unknown";
+}
+
 export function playTrashSound(): void {
   const audio = new Audio(dropUrl);
   audio.volume = 0.35;
@@ -123,8 +132,10 @@ export function playCompletionSound(
     });
     return;
   }
+  const resolvedSound = describeSoundUrl(url, customSounds);
   log.info("Playing completion sound", {
     sound,
+    resolvedSound,
     reason,
     volume,
     playbackRate,
@@ -141,7 +152,12 @@ export function playCompletionSound(
   currentAudio = audio;
   audio.play().catch((error: unknown) => {
     // Audio play can fail if user hasn't interacted with the page yet
-    log.warn("Completion sound failed to play", { sound, reason, error });
+    log.warn("Completion sound failed to play", {
+      sound,
+      resolvedSound,
+      reason,
+      error,
+    });
   });
   audio.addEventListener("ended", () => {
     if (currentAudio === audio) {

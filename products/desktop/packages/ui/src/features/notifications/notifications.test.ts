@@ -302,6 +302,7 @@ describe("notification log", () => {
       label: "delivered notification names its reason, trigger and sound",
       hasFocus: false,
       activeTarget: undefined,
+      settings: undefined,
       expected: [
         '"reason":"task_needs_input"',
         '"trigger":"local_permission_request"',
@@ -309,16 +310,30 @@ describe("notification log", () => {
         '"soundPlayed":true',
         '"sound":"meep"',
       ],
+      // The line reaches central logs, so the task title must not ride along.
+      absent: ["needs your input", "My task"],
     },
     {
       label: "suppressed notification records that nothing played",
       hasFocus: true,
       activeTarget: taskTarget(TASK_ID),
+      settings: undefined,
       expected: ['"channel":"suppress"', '"soundPlayed":false'],
+      absent: [],
     },
-  ])("$label", ({ hasFocus, activeTarget, expected }) => {
+    {
+      // A sound of "none" leaves the OS chime audible, so a noise still came
+      // out and the line has to name it.
+      label: "native notification with no completion sound names the OS chime",
+      hasFocus: false,
+      activeTarget: undefined,
+      settings: { completionSound: "none" as const },
+      expected: ['"soundPlayed":false', '"osChimePlayed":true'],
+      absent: [],
+    },
+  ])("$label", ({ hasFocus, activeTarget, settings, expected, absent }) => {
     clearCapturedLogs();
-    const { bus } = makeBus({ hasFocus, activeTarget });
+    const { bus } = makeBus({ hasFocus, activeTarget, settings });
 
     bus.notifyPermissionRequest("My task", TASK_ID, {
       trigger: "local_permission_request",
@@ -326,5 +341,6 @@ describe("notification log", () => {
 
     const logs = formatCapturedLogs();
     for (const fragment of expected) expect(logs).toContain(fragment);
+    for (const fragment of absent) expect(logs).not.toContain(fragment);
   });
 });

@@ -20,7 +20,7 @@ import {
   type INotificationSettings,
   NOTIFICATION_SETTINGS_PROVIDER,
 } from "./identifiers";
-import { routeNotification, targetKey } from "./routeNotification";
+import { describeTarget, routeNotification } from "./routeNotification";
 
 const MAX_TITLE_LENGTH = 50;
 const log = logger.scope("notifications");
@@ -35,16 +35,11 @@ export type NotificationReason =
   | "error"
   | "settings_test";
 
-function describeTarget(target: NotificationTarget | undefined): string {
-  return target ? targetKey(target) : "none";
-}
-
 // In-app toast presentation for the focused-but-elsewhere tier. Only levels that
 // support an action link are allowed (the bus derives the action from `target`).
 type ToastLevel = "success" | "error" | "warning";
 
 export interface NotificationDescriptor {
-  // Why this notification fired. Logged on every delivery.
   reason: NotificationReason;
   // Extra facts the producer knows about the trigger (which code path raised
   // it, the stop reason, the task run). Logged verbatim beside `reason`.
@@ -118,19 +113,26 @@ export class NotificationBus {
     // reports whether a sound plays, not which one.
     const willPlaySound =
       resolveSoundUrl(settings.completionSound, settings.customSounds) !== null;
+    // A native notification we leave unsilenced rings the OS chime instead, so
+    // the line has to name that noise rather than read as silence.
+    const nativeSilent = descriptor.silent ?? willPlaySound;
+    const osChimePlayed =
+      channel === "native" && settings.desktopNotifications && !nativeSilent;
 
     // One line for every notification, including the suppressed ones. At info
     // level on purpose: packaged builds drop debug, and "the app made a noise
     // and I do not know why" is not reproducible without this in the log file.
+    // `body` stays out — info lines reach central logs and it carries task,
+    // canvas and image names, which `reason` and `target` identify without.
     log.info("Notification", {
       reason: descriptor.reason,
       channel,
-      body: descriptor.body,
       target: describeTarget(descriptor.target),
       viewingTarget: describeTarget(viewingTarget),
       appFocused,
       sound: settings.completionSound,
       soundPlayed: channel !== "suppress" && willPlaySound,
+      osChimePlayed,
       volume: settings.completionVolume,
       playbackRate,
       soundDurationMs: descriptor.soundDurationMs,
@@ -156,14 +158,11 @@ export class NotificationBus {
     }
 
     // native
-    // Silence the OS notification's own chime only when we'll actually play a
-    // completion sound, so a resolved-to-nothing sound still leaves the
-    // notification audible rather than silent-and-soundless.
     if (settings.desktopNotifications) {
       this.notifications.notify({
         title: descriptor.title ?? "PostHog",
         body: descriptor.body,
-        silent: descriptor.silent ?? willPlaySound,
+        silent: nativeSilent,
         target: descriptor.target,
       });
     }

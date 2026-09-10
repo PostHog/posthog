@@ -11,7 +11,7 @@ import {
   type ISpeechNotifySettings,
   SPEECH_NOTIFY_SETTINGS,
 } from "./identifiers";
-import { routeNotification } from "./routeNotification";
+import { describeTarget, routeNotification } from "./routeNotification";
 import {
   type SpeechKind,
   type SpeechSource,
@@ -52,9 +52,13 @@ export class SpeechNotifier {
     const target: NotificationTarget | undefined = request.taskId
       ? { kind: "task", taskId: request.taskId }
       : undefined;
+    // Read focus and route once: a focus change between the decision and the
+    // log line would otherwise leave the two contradicting each other.
+    const appFocused = this.view.hasFocus();
+    const viewingTarget = this.view.getActiveTarget();
     const channel = routeNotification({
-      appFocused: this.view.hasFocus(),
-      viewingTarget: this.view.getActiveTarget(),
+      appFocused,
+      viewingTarget,
       notificationTarget: target,
     });
 
@@ -72,8 +76,9 @@ export class SpeechNotifier {
       source: request.source,
       channel,
       spoke: speaks,
-      taskId: request.taskId,
-      appFocused: this.view.hasFocus(),
+      target: describeTarget(target),
+      viewingTarget: describeTarget(viewingTarget),
+      appFocused,
     });
 
     if (!speaks) return;
