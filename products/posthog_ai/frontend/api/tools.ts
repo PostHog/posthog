@@ -7,7 +7,6 @@ export type {
     ToolRegistry,
 } from '../components/tool/toolRegistry'
 export { getPermissionRequestToolInput, resolveToolCall } from '../utils/toolResolver'
-export { parseToolOutputRecord, asRecord } from '../components/tool/parseToolOutput'
 export { GenericMcpToolRenderer } from '../components/tool/GenericMcpToolRenderer'
 export { DataToolRow } from '../components/tool/DataToolRow'
 export { ToolActivity } from '../components/tool/ToolActivity'
@@ -17,5 +16,5 @@ export { findAllDiffContent, getDiffStats, languageFromPath } from '../component
 export type { ToolCallDiffContent } from '../components/tool/toolDiffContent'
 export { DiffEvidenceCard } from '../components/tool/DiffEvidenceCard'
 export type { DiffEvidenceCardProps } from '../components/tool/DiffEvidenceCard'
-export { parseToolOutputRecord } from '../components/tool/parseToolOutputRecord'
+export { parseToolOutputRecord, asRecord } from '../components/tool/parseToolOutputRecord'
 export { MessageTemplate } from '../messages/MessageTemplate'

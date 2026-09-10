@@ -20,5 +20,6 @@ describe('posthogAiToolRenderers', () => {
         const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
+        expect(entry?.keepVisible).toBe(true)
     })
 })

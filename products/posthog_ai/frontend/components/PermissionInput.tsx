@@ -446,13 +446,20 @@ function PlanPermissionInput({
 }
 
 interface GenericPermissionInputProps {
+    streamKey: string
     options: ApprovalCardOption[]
     request: PermissionRequestRecord
     responding: boolean
     onRespond: (optionId: string, customInput?: string) => void
 }
 
-function GenericPermissionInput({ options, request, responding, onRespond }: GenericPermissionInputProps): JSX.Element {
+function GenericPermissionInput({
+    streamKey,
+    options,
+    request,
+    responding,
+    onRespond,
+}: GenericPermissionInputProps): JSX.Element {
     const display = getPermissionDisplay(request)
     // Only a genuine wire-level description that says more than the tool title becomes the
     // headline; a title-only request keeps the derived tool title as its headline (and the
@@ -534,6 +541,7 @@ export function PermissionInput({ streamKey, request, disabled = false }: Permis
 
     return (
         <GenericPermissionInput
+            streamKey={streamKey}
             options={mappedOptions}
             request={request}
             responding={respondingToPermission}
