@@ -162,6 +162,11 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportSource was last updated.",
     )
+    data_interval_field = models.TextField(
+        null=True,
+        blank=False,
+        help_text="The field used to determine the interval of data to export. Required only for scheduled batch exports.",
+    )
 
 
 class BatchExportRun(UUIDTModel):
@@ -486,6 +491,16 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             offset_in_hours = self.interval_offset // 3600
             return offset_in_hours % 24
         return None
+
+    @property
+    def hogql_query(self) -> str | None:
+        """Return the HogQL query of this batch export's source, if it has one."""
+        return self.source.hogql_query if self.source is not None else None
+
+    @property
+    def data_interval_field(self) -> str | None:
+        """Return the data interval field of this batch export's source, if it has one."""
+        return self.source.data_interval_field if self.source is not None else None
 
 
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:

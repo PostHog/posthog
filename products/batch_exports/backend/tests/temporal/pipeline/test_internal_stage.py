@@ -1474,10 +1474,9 @@ class TestHogQLModel:
     ):
         """insert_into_internal_stage_activity stages correct data for a user-defined HogQL query.
 
-        The data interval has no meaning for the HogQL model currently: the query is executed as-is,
-        scoped to the team by the HogQL printer, and we don't wait for the interval end to pass.
-        Each case asserts exact rows and column names (aliases) read back from the staged Arrow
-        files.
+        Without a data interval field the query is executed as-is, scoped to the team by the HogQL
+        printer, and we don't wait for the interval end to pass. Each case asserts exact rows and
+        column names (aliases) read back from the staged Arrow files.
         """
         events, persons = hogql_model_test_data
 

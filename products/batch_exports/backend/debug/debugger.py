@@ -277,6 +277,8 @@ class BatchExportsDebugger:
                 name=self.batch_export.model or "events",
                 schema=self.batch_export.schema,
                 filters=self.batch_export.filters,
+                hogql_query=self.batch_export.hogql_query,
+                data_interval_field=self.batch_export.data_interval_field,
             ),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,
