@@ -154,6 +154,7 @@ export interface SessionUpdateToolCall {
     kind?: string
     status?: string
     rawInput?: Record<string, unknown>
+    rawOutput?: unknown
     input?: Record<string, unknown>
     locations?: { path: string; line?: number }[]
     content?: unknown[]
@@ -175,6 +176,7 @@ export interface SessionUpdateClaudeCodeMeta {
 }
 
 export interface SessionUpdateToolCallMeta {
+    posthog?: { toolName: string; mcp?: { server: string; tool: string }; parentToolCallId?: string }
     claudeCode?: SessionUpdateClaudeCodeMeta
 }
 

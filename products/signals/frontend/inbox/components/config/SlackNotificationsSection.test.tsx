@@ -28,7 +28,7 @@ describe('SlackNotificationsSection', () => {
         // msw handlers reset between tests, so register per test rather than once per file.
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/': () => [200, { results: [WORKSPACE] }],
+                '/api/projects/:team_id/integrations/': () => [200, { results: [WORKSPACE] }],
                 '/api/environments/:team_id/integrations/:id/channels': () => [200, { channels: [], has_more: false }],
                 '/api/projects/:team_id/signals/config/': () => [200, { default_slack_notification_channel: null }],
                 '/api/users/@me/signal_autonomy/': () =>
