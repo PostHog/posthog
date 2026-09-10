@@ -3,7 +3,8 @@ from typing import Any, cast
 from django.core.files.uploadedfile import UploadedFile
 from django.db import models
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -32,6 +33,11 @@ class DesktopFeedbackServiceUnavailable(APIException):
 
 class DesktopFeedbackThrottle(UserRateThrottle):
     rate = "10/minute"
+
+
+@extend_schema_field(OpenApiTypes.BINARY)
+class DesktopFeedbackImageField(serializers.ImageField):
+    pass
 
 
 class DesktopFeedbackRequestSerializer(serializers.Serializer):
@@ -72,17 +78,17 @@ class DesktopFeedbackRequestSerializer(serializers.Serializer):
         required=False,
         help_text="PostHog session recording identifier for the Desktop session.",
     )
-    screenshot = serializers.ImageField(
+    screenshot = DesktopFeedbackImageField(
         required=False,
         max_length=1000,
         help_text="Screenshot that the user chose to include.",
     )
-    image_1 = serializers.ImageField(
+    image_1 = DesktopFeedbackImageField(
         required=False,
         max_length=1000,
         help_text="First image that the user attached.",
     )
-    image_2 = serializers.ImageField(
+    image_2 = DesktopFeedbackImageField(
         required=False,
         max_length=1000,
         help_text="Second image that the user attached.",
@@ -101,6 +107,13 @@ class DesktopFeedbackResponseSerializer(serializers.Serializer):
     response_id = serializers.UUIDField(help_text="Identifier of the survey response event.")
 
 
+class DesktopFeedbackErrorSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Error category.")
+    code = serializers.CharField(help_text="Machine-readable error code.")
+    detail = serializers.CharField(help_text="Human-readable error detail.")
+    attr = serializers.CharField(allow_null=True, help_text="Request field associated with the error, if any.")
+
+
 class DesktopFeedbackViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "survey"
     permission_classes = [IsAuthenticated]
@@ -113,8 +126,14 @@ class DesktopFeedbackViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=DesktopFeedbackRequestSerializer,
         responses={
             201: OpenApiResponse(response=DesktopFeedbackResponseSerializer),
-            400: OpenApiResponse(description="The feedback or an attachment is invalid."),
-            503: OpenApiResponse(description="The feedback could not be stored or accepted."),
+            400: OpenApiResponse(
+                response=DesktopFeedbackErrorSerializer,
+                description="The feedback or an attachment is invalid.",
+            ),
+            503: OpenApiResponse(
+                response=DesktopFeedbackErrorSerializer,
+                description="The feedback could not be stored or accepted.",
+            ),
         },
         summary="Submit Desktop feedback",
         description="Stores selected attachments and submits one response to the PostHog Desktop feedback survey.",

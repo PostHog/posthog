@@ -78,13 +78,13 @@ export const desktopFeedbackCreate = async (
     if (desktopFeedbackRequestApi.session_id !== undefined) {
         formData.append(`session_id`, desktopFeedbackRequestApi.session_id)
     }
-    if (desktopFeedbackRequestApi.screenshot !== undefined && desktopFeedbackRequestApi.screenshot !== null) {
+    if (desktopFeedbackRequestApi.screenshot !== undefined) {
         formData.append(`screenshot`, desktopFeedbackRequestApi.screenshot)
     }
-    if (desktopFeedbackRequestApi.image_1 !== undefined && desktopFeedbackRequestApi.image_1 !== null) {
+    if (desktopFeedbackRequestApi.image_1 !== undefined) {
         formData.append(`image_1`, desktopFeedbackRequestApi.image_1)
     }
-    if (desktopFeedbackRequestApi.image_2 !== undefined && desktopFeedbackRequestApi.image_2 !== null) {
+    if (desktopFeedbackRequestApi.image_2 !== undefined) {
         formData.append(`image_2`, desktopFeedbackRequestApi.image_2)
     }
 

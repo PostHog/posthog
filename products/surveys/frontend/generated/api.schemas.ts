@@ -57,21 +57,12 @@ export interface DesktopFeedbackRequestApi {
     app_version?: string
     /** PostHog session recording identifier for the Desktop session. */
     session_id?: string
-    /**
-     * Screenshot that the user chose to include.
-     * @nullable
-     */
-    screenshot?: string | null
-    /**
-     * First image that the user attached.
-     * @nullable
-     */
-    image_1?: string | null
-    /**
-     * Second image that the user attached.
-     * @nullable
-     */
-    image_2?: string | null
+    /** Screenshot that the user chose to include. */
+    screenshot?: Blob
+    /** First image that the user attached. */
+    image_1?: Blob
+    /** Second image that the user attached. */
+    image_2?: Blob
 }
 
 export interface DesktopFeedbackResponseApi {
@@ -79,6 +70,20 @@ export interface DesktopFeedbackResponseApi {
     accepted: boolean
     /** Identifier of the survey response event. */
     response_id: string
+}
+
+export interface DesktopFeedbackErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** Human-readable error detail. */
+    detail: string
+    /**
+     * Request field associated with the error, if any.
+     * @nullable
+     */
+    attr: string | null
 }
 
 /**

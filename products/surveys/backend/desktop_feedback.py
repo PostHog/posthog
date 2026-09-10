@@ -90,8 +90,10 @@ def _save_media(*, user: User, files: Mapping[str, UploadedFile]) -> tuple[dict[
 
 
 def _capture_feedback_event(*, user: User, properties: dict[str, Any]) -> str:
+    region = "EU" if get_instance_region() == "EU" else "US"
+
     client = get_client(
-        "US",
+        region,
         sync_mode=True,
         capture_mode="v1",
         timeout=5,

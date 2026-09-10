@@ -108,6 +108,32 @@ class TestDesktopFeedback(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    @patch("products.surveys.backend.desktop_feedback.get_client")
+    def test_captures_feedback_in_the_instance_region(self, get_client) -> None:
+        client = MagicMock()
+        client.capture.return_value = "00000000-0000-0000-0000-000000000001"
+        get_client.return_value = client
+
+        response = self.client.post(
+            "/api/desktop_feedback/",
+            {
+                "response": "The page did not load",
+                "source": "Generic (Leave feedback button)",
+                "feedback_view": "task-detail",
+            },
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        get_client.assert_called_once_with(
+            "EU",
+            sync_mode=True,
+            capture_mode="v1",
+            timeout=5,
+            max_retries=2,
+        )
+
     @patch("products.surveys.backend.desktop_feedback.object_storage.delete")
     @patch("posthog.models.uploaded_media.object_storage.write")
     @patch("products.surveys.backend.desktop_feedback.get_client")

@@ -58,9 +58,9 @@ export const DesktopFeedbackCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Version of PostHog Desktop that submitted the feedback.'),
     session_id: zod.uuid().optional().describe('PostHog session recording identifier for the Desktop session.'),
-    screenshot: zod.url().nullish().describe('Screenshot that the user chose to include.'),
-    image_1: zod.url().nullish().describe('First image that the user attached.'),
-    image_2: zod.url().nullish().describe('Second image that the user attached.'),
+    screenshot: zod.instanceof(File).optional().describe('Screenshot that the user chose to include.'),
+    image_1: zod.instanceof(File).optional().describe('First image that the user attached.'),
+    image_2: zod.instanceof(File).optional().describe('Second image that the user attached.'),
 })
 
 export const surveysCreateBodyNameMax = 400
