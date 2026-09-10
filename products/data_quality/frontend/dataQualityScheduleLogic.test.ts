@@ -85,6 +85,25 @@ describe('dataQualityScheduleLogic', () => {
         expect(logic.values.scheduleLoading).toBe(false)
     })
 
+    it('does not overwrite a completed edit with an older refresh response', async () => {
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        let resolveRefresh!: (schedule: typeof SCHEDULE) => void
+        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock).mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveRefresh = resolve
+            })
+        )
+        logic.actions.refreshSchedule()
+        ;(dataCatalogMetricsChecksSchedulePartialUpdate as jest.Mock).mockResolvedValue({ ...SCHEDULE, enabled: false })
+        await expectLogic(logic, () => logic.actions.updateSchedule({ enabled: false })).toDispatchActions([
+            'updateScheduleSuccess',
+        ])
+        resolveRefresh(SCHEDULE)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.schedule?.enabled).toBe(false)
+    })
+
     it('refreshes the schedule while the frequency controls are open', async () => {
         let refreshSchedule: (() => void) | undefined
         const setIntervalSpy = jest.spyOn(window, 'setInterval').mockImplementation((handler: TimerHandler) => {

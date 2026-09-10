@@ -123,14 +123,20 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
             },
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         refreshSchedule: async () => {
+            if (values.scheduleLoading) {
+                return
+            }
+            const previousSchedule = values.schedule
             try {
                 const schedule = await api.dataCatalogMetricsChecksScheduleRetrieve(
                     String(ApiConfig.getCurrentTeamId()),
                     props.metricId
                 )
-                actions.refreshScheduleSuccess(schedule)
+                if (!values.scheduleLoading && values.schedule === previousSchedule) {
+                    actions.refreshScheduleSuccess(schedule)
+                }
             } catch {
                 return
             }
