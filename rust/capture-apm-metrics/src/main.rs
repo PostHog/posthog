@@ -233,20 +233,6 @@ async fn run(
             get(move || ready(health_registry.get_status())),
         );
     let management_router = setup_metrics_routes(management_router);
-    info!("Healthcheck and metrics listening on {}", management_bind);
-
-    // The management server runs on its own runtime. Its connection tasks
-    // never wait behind the data-plane handlers.
-    let mgmt_server = management_runtime.spawn(async move {
-        if let Err(e) = axum::serve(
-            management_listener,
-            management_router.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
-        {
-            error!("Management server failed: {}", e);
-        }
-    });
 
     let series_label_gate = start_series_label_gate(&config).await;
     let token_dropper =
@@ -318,6 +304,24 @@ async fn run(
         .await
         {
             error!("HTTP server failed: {}", e);
+        }
+    });
+
+    info!("Healthcheck and metrics listening on {}", management_bind);
+
+    // Serve the probes only once the data plane listens. `/_readiness` answers
+    // 200 unconditionally, so an earlier start would put the pod in service
+    // while its ingestion port still refuses connections. The server runs on
+    // its own runtime, so its connection tasks never wait behind the
+    // data-plane handlers.
+    let mgmt_server = management_runtime.spawn(async move {
+        if let Err(e) = axum::serve(
+            management_listener,
+            management_router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        {
+            error!("Management server failed: {}", e);
         }
     });
 
