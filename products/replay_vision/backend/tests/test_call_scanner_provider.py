@@ -28,8 +28,14 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
-from products.replay_vision.backend.temporal.scanners.base import MissionStep
+from products.replay_vision.backend.temporal.scanners.base import MissionStep, SignalFinding, SignalsResponse
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
+from products.replay_vision.backend.temporal.scanners.signal_verification import (
+    STEP_VERIFY_SIGNALS,
+    SignalAssessment,
+    SignalAssessmentResponse,
+)
+from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerScanner, SummarizerSummaryResponse
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
@@ -465,13 +471,43 @@ class TestVerifyPositives:
 
         async def fake_run_steps(*, steps: list[MissionStep], cache_name: str | None, **_: Any) -> dict[str, BaseModel]:
             calls.append({"steps": [step.name for step in steps], "cache_name": cache_name})
+            if steps[0].name == STEP_VERIFY_SIGNALS:
+                return {
+                    STEP_VERIFY_SIGNALS: SignalAssessmentResponse(
+                        assessments=[
+                            SignalAssessment(
+                                finding_index=0,
+                                verdict="supported",
+                                evidence_time=5,
+                                url="https://example.com/editor",
+                                reasoning="The dialog covers the editor and blocks input.",
+                            )
+                        ]
+                    )
+                }
             # A verify draw must keep the core step's semantic check, or an `inconclusive` the scanner forbids
             # would count as a vote.
             assert all(step.required and step.validate is not None for step in steps if step.name != "signals")
             answer = next(pending)
             if isinstance(answer, Exception):
                 raise answer
-            return {step.name: self._answer(answer) for step in steps if step.name != "signals"}
+            outputs: dict[str, BaseModel] = {
+                step.name: self._answer(answer) for step in steps if step.name != "signals"
+            }
+            if any(step.name == "signals" for step in steps):
+                outputs["signals"] = SignalsResponse(
+                    signals=[
+                        SignalFinding(
+                            problem_type="bug",
+                            start_time=5,
+                            end_time=8,
+                            url="https://example.com/editor",
+                            description="A blank dialog covers the editor and blocks input.",
+                            confidence=0.9,
+                        )
+                    ]
+                )
+            return outputs
 
         async def fake_delete(*_: Any) -> None:
             calls.append("delete_cache")
@@ -626,11 +662,172 @@ class TestVerifyPositives:
     @pytest.mark.asyncio
     async def test_verify_draws_are_blind_core_only_turns_over_the_live_cache(self) -> None:
         run = await self._scan(mode="enforce", answers=["yes", "no"], emits_signals=True)
+        assert run.outcome.signals == []
         assert run.calls == [
             {"steps": ["core", "signals"], "cache_name": "caches/abc"},
             {"steps": ["core_verify_2"], "cache_name": "caches/abc"},
             "delete_cache",
         ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "mode,answer,cached,budget,expected_count,expected_verdict",
+        [
+            ("enforce", "yes", True, None, 1, "yes"),
+            ("enforce", "no", True, None, 0, "no"),
+            ("enforce", "inconclusive", True, None, 0, "inconclusive"),
+            ("enforce", RuntimeError("provider failure"), True, None, 0, "yes"),
+            ("enforce", "yes", False, None, 0, "yes"),
+            ("enforce", "yes", True, 0.0, 0, "yes"),
+            ("shadow", "no", True, None, 1, "yes"),
+        ],
+    )
+    async def test_positive_monitor_must_pass_before_signal_assessment(
+        self,
+        mode: str,
+        answer: str | Exception,
+        cached: bool,
+        budget: float | None,
+        expected_count: int,
+        expected_verdict: str,
+    ) -> None:
+        run = await self._scan(
+            mode=mode,
+            answers=["yes", answer],
+            emits_signals=True,
+            allow_inconclusive=True,
+            cached=cached,
+            budget_seconds=budget,
+        )
+        assert len(run.outcome.signals) == expected_count
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == expected_verdict
+        signal_calls = [call for call in run.calls if isinstance(call, dict) and call["steps"] == [STEP_VERIFY_SIGNALS]]
+        assert len(signal_calls) == int(mode == "enforce" and expected_count == 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scanner_type", ["monitor", "summarizer"])
+@pytest.mark.parametrize(
+    "mode,assessment_kind,cached,budget,expected_count",
+    [
+        ("off", "supported", True, None, 1),
+        ("unknown", "supported", True, None, 1),
+        ("enforce", "supported", True, None, 1),
+        ("enforce", "unsupported", True, None, 0),
+        ("enforce", "inconclusive", True, None, 0),
+        ("enforce", "missing", True, None, 0),
+        ("enforce", "malformed", True, None, 0),
+        ("enforce", "provider_error", True, None, 0),
+        ("enforce", "timeout", True, None, 0),
+        ("enforce", "supported", False, None, 0),
+        ("enforce", "supported", True, 0.0, 0),
+        ("shadow", "unsupported", True, None, 1),
+        ("shadow", "provider_error", True, None, 1),
+        ("shadow", "supported", False, None, 1),
+    ],
+)
+async def test_signal_verification_controls_only_recommendations(
+    scanner_type: str,
+    mode: str,
+    assessment_kind: str,
+    cached: bool,
+    budget: float | None,
+    expected_count: int,
+) -> None:
+    scanner = (
+        MonitorScanner(prompt="Check the dialog.", emits_signals=True)
+        if scanner_type == "monitor"
+        else SummarizerScanner(prompt="Summarize the session.", emits_signals=True)
+    )
+    core = (
+        MonitorLlmResponse(verdict="no", reasoning="The requested action is absent.", confidence=0.9)
+        if scanner_type == "monitor"
+        else SummarizerSummaryResponse(title="Editor session", summary="A dialog covers the editor.", confidence=0.9)
+    )
+    signal = SignalFinding(
+        problem_type="bug",
+        start_time=5,
+        end_time=8,
+        url="https://example.com/editor",
+        description="A blank dialog covers the editor and blocks input.",
+        confidence=0.9,
+    )
+    snapshot = ScannerSnapshot(
+        name="scanner",
+        scanner_type=scanner.scanner_type,
+        scanner_version=1,
+        model="gemini-3-flash-preview",
+        provider="gemini",
+        emits_signals=True,
+        scanner_config={"prompt": scanner.prompt},
+        verify_positives=mode,
+    )
+    assessments = SignalAssessmentResponse(
+        assessments=[
+            SignalAssessment(
+                finding_index=0,
+                verdict=cast(
+                    Any, assessment_kind if assessment_kind in ("unsupported", "inconclusive") else "supported"
+                ),
+                evidence_time=6,
+                url=signal.url,
+                reasoning="The dialog covers the editor while input remains blocked.",
+            )
+        ]
+        if assessment_kind != "missing"
+        else []
+    )
+    client = _FakeClient(
+        [_Resp(text=core.model_dump_json()), _Resp(text=SignalsResponse(signals=[signal]).model_dump_json())]
+        + [_Resp(text="private-provider-detail" if assessment_kind == "malformed" else assessments.model_dump_json())]
+        * 2
+    )
+    generate = client.models.generate_content
+    delete = AsyncMock()
+
+    async def generate_with_failure(**kwargs: Any) -> _Resp:
+        assert delete.await_count == 0
+        if kwargs["posthog_properties"]["$ai_span_name"] == STEP_VERIFY_SIGNALS:
+            if assessment_kind == "provider_error":
+                raise RuntimeError("private-provider-detail")
+            if assessment_kind == "timeout":
+                raise TimeoutError
+        return await generate(**kwargs)
+
+    with (
+        patch(f"{_MODULE}.genai.AsyncClient", return_value=client),
+        patch(f"{_MODULE}.GoogleGenAIClient"),
+        patch(f"{_MODULE}.build_events_index", return_value={}),
+        patch(
+            f"{_MODULE}._maybe_create_video_cache",
+            new=AsyncMock(return_value=TestVerifyPositives._Cache() if cached else None),
+        ),
+        patch(f"{_MODULE}._delete_video_cache", new=delete),
+        patch(f"{_MODULE}._remaining_verify_budget_seconds", return_value=budget),
+        patch.object(client.models, "generate_content", new=generate_with_failure),
+        patch(f"{_MODULE}.logger") as logs,
+    ):
+        outcome = await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=_VIDEO,
+            preamble_text="PRE",
+            team_id=1,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+        )
+    expected_output, _ = scanner.assemble({scanner.core_steps()[0].name: core})
+    assert outcome.finalized == expected_output
+    assert outcome.signals == [signal] * expected_count
+    assert delete.await_count == int(cached)
+    assert "private-provider-detail" not in str(logs.mock_calls)
+    calls = [call for call in client.models.calls if call["posthog_properties"]["$ai_span_name"] == STEP_VERIFY_SIGNALS]
+    if calls:
+        assert len(calls[0]["contents"]) == 1
+        assert calls[0]["config"].cached_content == "caches/abc"
+        assert calls[0]["posthog_trace_id"] == "trace-1"
+    if mode in ("off", "unknown"):
+        assert calls == []
 
 
 class TestStepConfig:
