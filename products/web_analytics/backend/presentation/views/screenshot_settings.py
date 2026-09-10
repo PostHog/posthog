@@ -14,7 +14,10 @@ from posthog.models import User
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 from posthog.permissions import TeamMemberStrictManagementPermission
 
-from products.web_analytics.backend.screenshot_settings import normalize_screenshot_hostname, save_screenshot_hostnames
+from products.web_analytics.backend.facade.screenshot_settings import (
+    normalize_screenshot_hostname,
+    save_screenshot_hostnames,
+)
 
 
 class HeatmapScreenshotSettingsRequestSerializer(serializers.Serializer):

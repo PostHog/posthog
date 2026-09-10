@@ -12,7 +12,9 @@ from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.web_analytics.backend.api.screenshot_settings import HeatmapScreenshotSettingsRequestSerializer
+from products.web_analytics.backend.presentation.views.screenshot_settings import (
+    HeatmapScreenshotSettingsRequestSerializer,
+)
 
 
 class TestScreenshotHostnames(SimpleTestCase):
