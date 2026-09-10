@@ -3,13 +3,9 @@ import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionScannersObservationsList } from 'products/replay_vision/frontend/generated/api'
-import type { ReplayObservationApi } from 'products/replay_vision/frontend/generated/api.schemas'
-import {
-    OBSERVE_POLL_GRACE_MS,
-    scheduleObservationPoll,
-    shouldPollObservations,
-} from 'products/replay_vision/frontend/logics/observationPolling'
+import { visionScannersObservationsList } from '../generated/api'
+import type { ReplayObservationApi } from '../generated/api.schemas'
+import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 
 /**
  * A scan takes at most MAX_SESSIONS_PER_SCAN (200) recordings and a session can hold more than one row,
@@ -76,7 +72,7 @@ export type replayVisionScanWidgetLogicType = MakeLogicType<
 >
 
 export const replayVisionScanWidgetLogic = kea<replayVisionScanWidgetLogicType>([
-    path(['products', 'posthog_ai', 'frontend', 'components', 'tool', 'widgets', 'replayVisionScanWidgetLogic']),
+    path(['products', 'replay_vision', 'frontend', 'posthogAi', 'replayVisionScanWidgetLogic']),
     props({} as ReplayVisionScanWidgetLogicProps),
     key((props: ReplayVisionScanWidgetLogicProps) => `${props.scanId}:${props.sessionIds.join(',')}`),
 
