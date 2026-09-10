@@ -132,4 +132,5 @@ export const ProfileStep: StoryFn<StoryArgs> = Template.bind({})
 ProfileStep.args = { panel: '3: Profile' }
 
 export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
+PendingOAuthConnection.storyName = 'Pending OAuth connection'
 PendingOAuthConnection.args = { pendingOAuthConnection: true }

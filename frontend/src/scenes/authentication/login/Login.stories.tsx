@@ -141,6 +141,7 @@ export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { generalError: 'invalid_credentials' }
 
 export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
+PendingOAuthConnection.storyName = 'Pending OAuth connection'
 PendingOAuthConnection.args = { pendingOAuthConnection: true }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
