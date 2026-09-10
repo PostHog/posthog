@@ -318,6 +318,7 @@ class _BabysitDispatch:
 from products.tasks.backend.temporal.constants import (  # noqa: E402
     CI_FOLLOW_UP_DELAY,
     DEFAULT_CI_MESSAGE,
+    IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS,
     INACTIVITY_TIMEOUT,
     MAX_CI_REPETITIONS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
@@ -413,6 +414,8 @@ _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-c
 _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
+
+AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
 # the message's dedupe key so a retry can land; background runs keep the fail-fast
@@ -852,6 +855,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             inactivity_timeout = max(base_timeout, ci_follow_up_floor)
         else:
             inactivity_timeout = base_timeout
+        if self._end_of_turn_received is False and not testing_override_active:
+            inactivity_timeout = max(inactivity_timeout, timedelta(seconds=IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS))
 
         workflow.set_current_details(
             self._describe_wait(
@@ -1494,6 +1499,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 # A run that outlived the hard cap is a failure, not a completion, and the
                 # state marker carries the reason so error_message stays empty.
                 await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
+            elif timeout_event is not None and self._end_of_turn_received is False:
+                # A turn still open at the timeout means the agent died, not that it finished.
+                await self._update_task_run_status(
+                    "failed", error_message=AGENT_LOST_ERROR_MESSAGE, timed_out_inactivity=True
+                )
             elif timeout_event is not None:
                 inactivity_status = "failed" if self._onboarding_exit_is_failure() else "completed"
                 await self._update_task_run_status(inactivity_status, timed_out_inactivity=True)
@@ -3248,6 +3258,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._heartbeat_received = True
         self._last_active_time = now
         self._last_agent_heartbeat_at = now
+        self._end_of_turn_received = False
 
     @temporalio.workflow.signal
     async def client_activity(self) -> None:

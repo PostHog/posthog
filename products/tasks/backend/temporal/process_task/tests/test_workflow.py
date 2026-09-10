@@ -29,6 +29,7 @@ from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, 
 from products.tasks.backend.models import SandboxSnapshot, TaskRun
 from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
 from products.tasks.backend.temporal.constants import (
+    IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS,
     INACTIVITY_TIMEOUT_USER_SECONDS,
     SANDBOX_TTL_SNAPSHOT_LEAD,
     WARM_IDLE_TIMEOUT,
@@ -81,6 +82,7 @@ from products.tasks.backend.temporal.process_task.credential_refresh import (
     CredentialRefreshExitReason,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
+    AGENT_LOST_ERROR_MESSAGE,
     PendingFollowup,
     PendingPermissionResponse,
     ProcessTaskInput,
@@ -1695,6 +1697,32 @@ class TestProcessTaskWorkflowUnit:
     def test_warm_idle_timeout_is_shorter_than_active_inactivity(self):
         assert WARM_IDLE_TIMEOUT < timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS)
 
+    @pytest.mark.parametrize(
+        "end_of_turn_received, expected_seconds",
+        [(None, 120), (False, IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS), (True, 120)],
+    )
+    async def test_wait_for_event_holds_a_short_idle_window_open_mid_turn(
+        self, monkeypatch, end_of_turn_received, expected_seconds
+    ):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123, state={"inactivity_timeout_seconds": 120}, create_pr=False
+        )
+        workflow._end_of_turn_received = end_of_turn_received
+        inactivity_mock = AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED)
+
+        async def never():
+            await asyncio.sleep(3600)
+
+        monkeypatch.setattr(workflow, "_wait_for_inactivity", inactivity_mock)
+        monkeypatch.setattr(workflow, "_wait_for_task_external_event", AsyncMock(side_effect=never))
+        monkeypatch.setattr(process_task_workflow_module, "_run_lifecycle_bounds_enabled", Mock(return_value=False))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait", asyncio.wait)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "set_current_details", Mock())
+
+        assert await workflow._wait_for_event() == process_task_workflow_module.TaskEvent.TIMEOUT_REACHED
+        assert inactivity_mock.await_args.args[0] == timedelta(seconds=expected_seconds)
+
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
@@ -2047,13 +2075,14 @@ class TestProcessTaskWorkflowUnit:
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
 
     @pytest.mark.parametrize(
-        "event, origin_product, pr_progress_emitted, ci_repetitions, expected_status, expected_kwargs",
+        "event, origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status, expected_kwargs",
         [
             (
                 process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
                 None,
                 False,
                 1,
+                None,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2062,6 +2091,7 @@ class TestProcessTaskWorkflowUnit:
                 "onboarding",
                 False,
                 1,
+                None,
                 "failed",
                 {"timed_out_inactivity": True},
             ),
@@ -2072,6 +2102,7 @@ class TestProcessTaskWorkflowUnit:
                 "onboarding",
                 True,
                 1,
+                None,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2082,14 +2113,26 @@ class TestProcessTaskWorkflowUnit:
                 "onboarding",
                 False,
                 0,
+                None,
                 "completed",
                 {"timed_out_inactivity": True},
+            ),
+            # The agent was still mid-turn when the timer fired, so it died rather than finished.
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                None,
+                False,
+                1,
+                False,
+                "failed",
+                {"error_message": AGENT_LOST_ERROR_MESSAGE, "timed_out_inactivity": True},
             ),
             (
                 process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
                 None,
                 False,
                 1,
+                None,
                 "failed",
                 {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
             ),
@@ -2098,13 +2141,22 @@ class TestProcessTaskWorkflowUnit:
                 "onboarding",
                 False,
                 1,
+                None,
                 "failed",
                 {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
             ),
         ],
     )
     async def test_run_terminalizes_timeouts_with_their_marker(
-        self, monkeypatch, event, origin_product, pr_progress_emitted, ci_repetitions, expected_status, expected_kwargs
+        self,
+        monkeypatch,
+        event,
+        origin_product,
+        pr_progress_emitted,
+        ci_repetitions,
+        end_of_turn_received,
+        expected_status,
+        expected_kwargs,
     ):
         # The wall-clock cap is a failure for every origin; the inactivity timeout only fails for
         # onboarding runs that delivered nothing, because other origins resume from the timed-out
@@ -2112,6 +2164,7 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
+        workflow._end_of_turn_received = end_of_turn_received
         context = _build_context(github_integration_id=123, origin_product=origin_product)
         update_task_run_status_mock = AsyncMock()
 
