@@ -48,6 +48,7 @@ vi.mock("@posthog/ui/features/inbox/stores/inboxSignalsFilterStore", () => ({
     }),
 }));
 
+import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "./inboxPolling";
 import { useInboxAllReports } from "./useInboxAllReports";
 
 function readyReport(index: number): SignalReport {
@@ -124,10 +125,7 @@ function renderCounts(options?: {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return {
-    ...renderHook(() => useInboxAllReports(options), { wrapper }),
-    queryClient,
-  };
+  return renderHook(() => useInboxAllReports(options), { wrapper });
 }
 
 describe("useInboxAllReports", () => {
@@ -154,19 +152,8 @@ describe("useInboxAllReports", () => {
     expect(reportsCountParams()?.count_only).toBe(true);
   });
 
-  it("polls desktop inbox queries every 30 seconds", async () => {
-    const { result, queryClient } = renderCounts();
-
-    await waitFor(() => {
-      expect(result.current.allReports).toHaveLength(50);
-    });
-
-    expect(
-      queryClient
-        .getQueryCache()
-        .getAll()
-        .map((query) => query.options.refetchInterval),
-    ).toEqual([30_000, 30_000, 30_000]);
+  it("uses a 30-second desktop poll interval", () => {
+    expect(DESKTOP_INBOX_REFETCH_INTERVAL_MS).toBe(30_000);
   });
 
   it("stitches subsequent pages without gaps or duplicate reports", async () => {

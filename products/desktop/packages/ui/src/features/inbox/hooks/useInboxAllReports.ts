@@ -14,8 +14,8 @@ import {
 } from "@posthog/core/inbox/reportMembership";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
 import {
-  DESKTOP_INBOX_REFETCH_INTERVAL_MS,
   useInboxReports,
   useInboxReportsInfinite,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
