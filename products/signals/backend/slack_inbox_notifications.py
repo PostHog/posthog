@@ -22,6 +22,7 @@ from collections.abc import Iterable
 from django.conf import settings
 
 from posthog.event_usage import groups
+from posthog.helpers.slack_markdown import slack_markdown_block as _markdown_block
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.ph_client import ph_scoped_capture
@@ -45,7 +46,6 @@ from products.signals.backend.slack_formatting import (
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
     slack_channel_id_from_target as _channel_id_from_target,
-    slack_markdown_block as _markdown_block,
     strip_chart_references as _strip_chart_references,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
