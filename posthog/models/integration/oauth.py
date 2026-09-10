@@ -976,26 +976,50 @@ class OauthIntegration:
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
-            if oauth_config.token_info_graphql_query:
-                token_info_res = requests.post(
-                    oauth_config.token_info_url,
-                    headers={"Authorization": f"Bearer {config['access_token']}"},
-                    json={"query": oauth_config.token_info_graphql_query},
-                    timeout=10,
-                    # This call carries the access token; don't let a misconfigured/compromised
-                    # provider 30x us into resending it to another origin (matches the exchange/refresh/revoke calls).
-                    allow_redirects=False,
+            try:
+                if oauth_config.token_info_graphql_query:
+                    token_info_res = requests.post(
+                        oauth_config.token_info_url,
+                        headers={"Authorization": f"Bearer {config['access_token']}"},
+                        json={"query": oauth_config.token_info_graphql_query},
+                        timeout=10,
+                        # This call carries the access token; don't let a misconfigured/compromised
+                        # provider 30x us into resending it to another origin (matches the exchange/refresh/revoke calls).
+                        allow_redirects=False,
+                    )
+                else:
+                    token_info_res = requests.get(
+                        oauth_config.token_info_url.replace(":access_token", config["access_token"]),
+                        headers={"Authorization": f"Bearer {config['access_token']}"},
+                        timeout=10,
+                        allow_redirects=False,
+                    )
+            except requests.RequestException as e:
+                # The authorization code is already spent, so the user cannot retry this request.
+                # ValidationError gives a 400 that tells them to start the connect flow again,
+                # instead of the generic 500 an unhandled transport error causes.
+                logger.warning(
+                    f"OAuth token_info request failed for {kind}",
+                    token_info_url=oauth_config.token_info_url,
+                    error=str(e),
                 )
-            else:
-                token_info_res = requests.get(
-                    oauth_config.token_info_url.replace(":access_token", config["access_token"]),
-                    headers={"Authorization": f"Bearer {config['access_token']}"},
-                    timeout=10,
-                    allow_redirects=False,
+                raise ValidationError(
+                    f"We could not reach {kind} to confirm your account. Please try connecting again."
                 )
 
             if token_info_res.status_code == 200:
-                data = token_info_res.json()
+                try:
+                    data = token_info_res.json()
+                except ValueError:
+                    # A 200 carrying a maintenance page or an empty body has no account details in
+                    # it. Treat it like a failed call: nothing gets set, and the id guard below ends
+                    # the flow with a 400 unless the provider resolves its id another way.
+                    logger.exception(
+                        f"OAuth token_info returned a non-JSON body for {kind}",
+                        token_info_url=oauth_config.token_info_url,
+                        response=token_info_res.text[:500],
+                    )
+                    data = {}
 
                 # Jira returns an array of accessible resources, extract the first one
                 if kind == "jira" and isinstance(data, list):
@@ -1130,7 +1154,7 @@ class OauthIntegration:
 
         # TikTok can complete OAuth without the user granting any advertiser account, leaving
         # `advertiser_ids` empty. Surface an actionable reconnect message rather than the generic
-        # "failed to extract integration ID" 500 the guard below would otherwise raise.
+        # "could not get your account details" error the guard below would otherwise raise.
         if kind == "tiktok-ads" and isinstance(integration_id, list) and len(integration_id) == 0:
             raise ValidationError(
                 "No TikTok ad accounts were authorized. In TikTok, grant access to at least one "
@@ -1143,7 +1167,16 @@ class OauthIntegration:
             integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
-            raise Exception(f"Oauth error: failed to extract integration ID for {kind}")
+            # A non-200 token_info answer leaves the id unset, and the authorization code is already
+            # spent, so a bare Exception here gives the user an unrecoverable 500. ValidationError
+            # gives a 400 that tells them to reconnect. Still log it: a missing id can also mean our
+            # own provider config is wrong.
+            logger.error(
+                f"Oauth error: failed to extract integration ID for {kind}",
+                kind=kind,
+                id_path=oauth_config.id_path,
+            )
+            raise ValidationError(f"We could not get your account details from {kind}. Please try connecting again.")
 
         # Handle TikTok's nested response format
         if kind == "tiktok-ads":
