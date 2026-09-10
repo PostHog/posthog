@@ -3336,6 +3336,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         }
                         const { responseValues } = question.branching
                         if (
+                            // A respondent can skip an optional question. The SDK finds no
+                            // destination for the empty response and goes to the next question,
+                            // so the fall-through edge stays reachable however the responses route.
+                            !question.optional &&
                             responses.length > 0 &&
                             responses.every((response) => {
                                 const destination = responseValues[String(response)]
