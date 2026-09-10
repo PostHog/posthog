@@ -102,9 +102,22 @@ describe('scoutRunsWindow report channel', () => {
         it('lands the line above the cheap majority when spend is skewed', () => {
             // Scout spend is heavily skewed: the priciest run costs 50 times the median. The line
             // has to leave that cheap median unmarked, or the marker points at the whole strip.
+            // A fleet of 30 runs has 3 runs in its priciest tenth, and the line marks those 3.
             const threshold = expensiveRunCostThreshold(costs(skewed)) ?? 0
 
-            expect(skewed.filter((cost) => cost >= threshold)).toEqual([0.046, 0.6, 0.9, 3.19])
+            expect(skewed.filter((cost) => cost >= threshold)).toEqual([0.6, 0.9, 3.19])
+        })
+
+        // When most of the fleet shares one cheap price, that price sits on the decile boundary,
+        // and a line at the boundary would mark the whole strip. The priciest runs still have to
+        // carry the marker.
+        it.each<[string, number[], number[]]>([
+            ['two priciest runs', [...Array.from({ length: 18 }, () => 0.02), 1.5, 3.19], [1.5, 3.19]],
+            ['one priciest run', [...Array.from({ length: 19 }, () => 0.02), 3.19], [3.19]],
+        ])('marks the %s when the cheap majority shares one price', (_name, values, expected) => {
+            const threshold = expensiveRunCostThreshold(costs(values)) ?? 0
+
+            expect(values.filter((cost) => cost >= threshold)).toEqual(expected)
         })
     })
 

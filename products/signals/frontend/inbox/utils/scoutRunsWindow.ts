@@ -172,10 +172,15 @@ export function expensiveRunCostThreshold(costs: Map<string, number>): number | 
         return null
     }
     const sorted = [...costs.values()].sort((a, b) => a - b)
-    const threshold = sorted[Math.ceil(sorted.length * 0.9) - 1]
-    // A top decile that starts at the cheapest run means the fleet spends the same on every run,
-    // and marking every box says nothing.
-    return threshold > sorted[0] ? threshold : null
+    // The cheapest run inside the priciest tenth, so a line here marks that tenth and no more.
+    const decileStart = sorted[sorted.length - Math.ceil(sorted.length * 0.1)]
+    if (decileStart > sorted[0]) {
+        return decileStart
+    }
+    // More than nine tenths of the fleet costs the cheapest price, so a line at the decile would
+    // mark every box. Mark what costs more than that price instead, which is nothing at all when
+    // every run costs the same.
+    return sorted.find((cost) => cost > sorted[0]) ?? null
 }
 
 /**
