@@ -1288,6 +1288,30 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             await breakpoint(MANUAL_RUN_POLL_INTERVAL_MS)
             actions.loadScoutRuns()
         },
+        // A failed read still burns the clock, and only a success looked at the deadline. One
+        // rejected catch-up therefore stranded the watch wherever nothing else polls the runs — a
+        // scanner page reads them once on mount — and the button spun for the life of the page.
+        // A failed read carries no new rows, so nothing can have landed: only the deadline applies.
+        loadScoutRunsFailure: async (_, breakpoint) => {
+            const watches: Map<string, ManualRunWatch> = (cache.manualRunWatches ??= new Map())
+            if (watches.size === 0) {
+                return
+            }
+            for (const [configId, watch] of watches) {
+                if (performance.now() >= watch.expiresAt) {
+                    watches.delete(configId)
+                    actions.runScoutNowFinished(configId)
+                }
+            }
+            if (watches.size === 0) {
+                return
+            }
+            // Retry on the dispatch cadence rather than waiting out the deadline: a blip that clears
+            // still gets the run row on screen, and a read that keeps failing reaches the deadline
+            // above on one of these passes.
+            await breakpoint(MANUAL_RUN_POLL_INTERVAL_MS)
+            actions.loadScoutRuns()
+        },
         setScoutTagFilter: ({ tags }) => {
             captureScoutAction({
                 actionType: 'filter_tags',

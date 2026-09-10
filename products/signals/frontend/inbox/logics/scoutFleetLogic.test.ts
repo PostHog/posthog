@@ -791,6 +791,29 @@ describe('scoutFleetLogic', () => {
                 )
             ).toBe(true)
         })
+
+        // The deadline used to be read only on a successful poll, and a scanner page loads the runs
+        // once on mount with no recurring poll behind it. One rejected read there left the button
+        // spinning and disabled for the life of the page, with no way to press it again.
+        it('releases the scout when every runs read fails', async () => {
+            jest.useFakeTimers()
+            try {
+                mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+                mockSignalsScoutRunsRecentPerScout.mockRejectedValue(new ApiError('bad gateway', 502))
+
+                logic.actions.runScoutNow(BASE_CONFIG.id)
+                await expectLogic(logic).toDispatchActions(['loadScoutRunsFailure'])
+
+                expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
+
+                // Past the 45s deadline, across retries that all reject.
+                await jest.advanceTimersByTimeAsync(60_000)
+
+                expect(logic.values.manualRunScoutIds).toEqual([])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
     })
 
     // The 60s roster poll returns freshly parsed objects every cycle. Without per-item
