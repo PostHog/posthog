@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { addCellHandler } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
+import { runNotebookHandler } from '@/tools/notebooks/runNotebook'
+import { runNotebookStatusHandler } from '@/tools/notebooks/runNotebookStatus'
 import { setVariablesHandler } from '@/tools/notebooks/setVariables'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
 import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
@@ -22,6 +24,8 @@ interface MockState {
     saveBodies: any[]
     runBodies: any[]
     runStatusResponses: any[]
+    notebookRunStatuses: any[]
+    notebookRunStartBodies: any[]
     createBodies: any[]
     patchBodies: any[]
 }
@@ -43,6 +47,13 @@ function createMockContext(state: MockState): Context {
             }
             return next
         }
+        if (opts.method === 'GET' && /\/runs\//.test(path)) {
+            const next = state.notebookRunStatuses.shift()
+            if (!next) {
+                throw new Error('No queued notebook run status')
+            }
+            return next
+        }
         if (opts.method === 'GET') {
             return {
                 short_id: 'aBcD1234',
@@ -60,6 +71,10 @@ function createMockContext(state: MockState): Context {
                 version: state.version,
                 variables: state.variables,
             }
+        }
+        if (opts.method === 'POST' && path.endsWith('/runs/')) {
+            state.notebookRunStartBodies.push(opts.body)
+            return { run_id: 'nbrun-1', cell_count: 2, starts_sandbox: false, sandbox_hourly_price: null }
         }
         if (opts.method === 'POST' && path.endsWith('/sql_v2/run/')) {
             state.runBodies.push(opts.body)
@@ -109,6 +124,8 @@ function makeState(markdown: string, variables: any[] = []): MockState {
         saveBodies: [],
         runBodies: [],
         runStatusResponses: [],
+        notebookRunStatuses: [],
+        notebookRunStartBodies: [],
         createBodies: [],
         patchBodies: [],
     }
@@ -587,5 +604,147 @@ describe('notebook cell tools', () => {
                 },
             ],
         })
+    })
+    const RUN_MARKDOWN = [
+        '# Doc',
+        '',
+        '<SQLV2 nodeId="first" code="select 1" returnVariable="df" />',
+        '',
+        '<PythonV2 nodeId="second" code="df.head()" returnVariable="out" />',
+        '',
+    ].join('\n')
+
+    const runCell = (
+        node_id: string,
+        dataframe_name: string,
+        status: string | null,
+        run_id: string | null
+    ): Record<string, unknown> => ({
+        node_id,
+        cell_type: node_id === 'second' ? 'python' : 'sql',
+        dataframe_name,
+        run_id,
+        status,
+        error: null,
+    })
+
+    const notebookRunStatus = (
+        status: string,
+        cells: any[],
+        failed_node_id: string | null = null
+    ): Record<string, unknown> => ({
+        run_id: 'nbrun-1',
+        status,
+        trigger: 'mcp',
+        variables: [],
+        cell_count: 2,
+        current_index: 0,
+        current_node_id: null,
+        failed_node_id,
+        error: null,
+        cells,
+        created_at: '2026-01-01T00:00:00Z',
+        finished_at: null,
+    })
+
+    it('run notebook writes each landed result back and batches one save per poll', async () => {
+        vi.useFakeTimers()
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(
+            notebookRunStatus('running', [
+                runCell('first', 'df', 'done', 'cell-1'),
+                runCell('second', 'out', null, null),
+            ]),
+            notebookRunStatus('done', [
+                runCell('first', 'df', 'done', 'cell-1'),
+                runCell('second', 'out', 'done', 'cell-2'),
+            ])
+        )
+        state.runStatusResponses.push(DONE_STATUS, DONE_STATUS)
+        const context = createMockContext(state)
+
+        const pending = runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+        await vi.advanceTimersByTimeAsync(10_000)
+        const result: any = await pending
+
+        expect(result).toMatchObject({ run_id: 'nbrun-1', status: 'done', cell_count: 2, completed_count: 2 })
+        // One save per poll, not one per cell: two cells landed across two polls.
+        expect(state.saveBodies).toHaveLength(2)
+        const markdown = state.saveBodies[1].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-1"')
+        expect(markdown).toContain('runId="cell-2"')
+        expect(result.cells[0].run).toMatchObject({ run_id: 'cell-1', status: 'done', row_count: 1 })
+    })
+
+    it('run notebook sets the variables in the same call', async () => {
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(notebookRunStatus('done', []))
+        const context = createMockContext(state)
+
+        await runNotebookHandler(context, {
+            notebook_id: 'aBcD1234',
+            wait: true,
+            variables: [{ name: 'week_start', type: 'date', value: '2026-01-05' }],
+        })
+
+        expect(state.notebookRunStartBodies[0]).toEqual({
+            variables: [{ name: 'week_start', type: 'date', value: '2026-01-05' }],
+        })
+    })
+
+    it('run notebook reports the cell that stopped the run', async () => {
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(
+            notebookRunStatus(
+                'failed',
+                [runCell('first', 'df', 'failed', 'cell-1'), runCell('second', 'out', null, null)],
+                'first'
+            )
+        )
+        state.runStatusResponses.push({ status: 'failed', result: null, error: 'Unknown table' })
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+
+        expect(result).toMatchObject({ status: 'failed', failed_cell: 'first', completed_count: 0 })
+        expect(result.cells[1].status).toBeNull()
+    })
+
+    it('run notebook hands the agent the status tool when the budget ends', async () => {
+        vi.useFakeTimers()
+        const state = makeState(RUN_MARKDOWN)
+        for (let i = 0; i < 60; i++) {
+            state.notebookRunStatuses.push(
+                notebookRunStatus('running', [
+                    runCell('first', 'df', 'running', 'cell-1'),
+                    runCell('second', 'out', null, null),
+                ])
+            )
+        }
+        const context = createMockContext(state)
+
+        const pending = runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+        await vi.advanceTimersByTimeAsync(60_000)
+        const result: any = await pending
+
+        expect(result.status).toBe('running')
+        expect(result.hint).toContain('notebooks-run-status')
+    })
+
+    it('run status leaves a result the document already carries alone', async () => {
+        const state = makeState(
+            ['# Doc', '', '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-1" />', ''].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-1')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookStatusHandler(context, {
+            notebook_id: 'aBcD1234',
+            run_id: 'nbrun-1',
+        })
+
+        expect(result.status).toBe('done')
+        expect(state.saveBodies).toHaveLength(0)
     })
 })
