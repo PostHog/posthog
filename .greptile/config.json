@@ -1,4 +1,16 @@
 {
+    "strictness": 2,
+    "triggerOnUpdates": false,
+    "triggerOnDrafts": true,
+    "fileChangeLimit": 100,
     "disabledLabels": ["no-greptile"],
-    "triggerOnDrafts": true
+    "shouldUpdateDescription": false,
+    "summarySection": { "included": false },
+    "confidenceScoreSection": { "included": false },
+    "issuesTableSection": { "included": false },
+    "sequenceDiagramSection": { "included": false },
+    "fixWithAI": true,
+    "statusCheck": false,
+    "statusCommentsEnabled": false,
+    "autoApprove": { "enabled": false, "riskCeiling": "low" }
 }
