@@ -52,7 +52,9 @@ class MetricRunResponseSerializer(serializers.Serializer):
     query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
     has_more = serializers.BooleanField(
         help_text="True when the query hit its row limit and more rows exist. Narrow the window or the "
-        "interval and run the metric again; do not re-derive the series by hand."
+        "interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those "
+        "overrides, so report the window the definition itself covers, or ask for a parameterized metric. "
+        "Either way, do not re-derive the series by hand."
     )
     row_limit = serializers.IntegerField(
         allow_null=True, help_text="Row limit applied to this run. Null for a markdown metric."
