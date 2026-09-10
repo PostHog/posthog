@@ -14,7 +14,7 @@ import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/Re
 import { ReportRunsSection } from "@posthog/ui/features/inbox/components/ReportRunsSection";
 import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
-import { useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 
 interface ReportDetailProps {
   reportId: string;
@@ -24,6 +24,7 @@ interface ReportDetailProps {
   backLabel?: string;
   /** Off when hosted on the in-space route, which has no per-status URLs. */
   statusRedirect?: boolean;
+  headerTrailingAction?: ReactNode;
 }
 
 export function ReportDetail({
@@ -32,6 +33,7 @@ export function ReportDetail({
   backTo = "/inbox/reports",
   backLabel = "Back to reports",
   statusRedirect = true,
+  headerTrailingAction,
 }: ReportDetailProps) {
   return (
     <InboxReportDetailGate
@@ -41,12 +43,14 @@ export function ReportDetail({
       backLabel={backLabel}
       statusRedirect={statusRedirect}
       missingCopy="This report couldn't be found. It may have been deleted."
+      fallbackAction={headerTrailingAction}
     >
       {(report) => (
         <ReportDetailContent
           report={report}
           backTo={backTo}
           backLabel={backLabel}
+          headerTrailingAction={headerTrailingAction}
         />
       )}
     </InboxReportDetailGate>
@@ -67,10 +71,12 @@ export function ReportDetailContent({
   report,
   backTo,
   backLabel,
+  headerTrailingAction,
 }: {
   report: SignalReport;
   backTo: string;
   backLabel: string;
+  headerTrailingAction?: ReactNode;
 }) {
   const chatOpen = useReportChatPanelStore((s) => s.open);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
@@ -100,7 +106,10 @@ export function ReportDetailContent({
           backLabel={backLabel}
           fallbackTitle="Untitled report"
           primaryAction={
-            <ReportDetailActions report={report} placement="header" />
+            <>
+              <ReportDetailActions report={report} placement="header" />
+              {headerTrailingAction}
+            </>
           }
           belowSummary={
             <ReportVerdictBanner

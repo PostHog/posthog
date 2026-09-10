@@ -6,6 +6,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@posthog/quill";
+import { ActivityDetailCloseButton } from "@posthog/ui/features/canvas/components/ActivityDetailCloseButton";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useInboxActivityPreview } from "@posthog/ui/features/canvas/hooks/useInboxActivityPreview";
 import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
@@ -53,6 +54,7 @@ export function ActivityDetailPane() {
           backTo="/activity"
           backLabel="Back to activity"
           statusRedirect={false}
+          headerTrailingAction={<ActivityDetailCloseButton />}
         />
       </div>
     );

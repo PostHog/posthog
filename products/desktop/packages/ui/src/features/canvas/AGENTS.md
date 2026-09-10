@@ -240,6 +240,12 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   filters into `/inbox/reports` before opening it.
   Picking a preview report stays on `/activity` and renders that already-loaded
   report beside the feed while its detail query refreshes in the background.
+- **Every Activity detail header must have a close button.** This rule applies
+  to sessions, Self-driving reports, and each future item type that Activity
+  renders. The button must call the shared Activity route helper. It must clear
+  the search selection and keep the user on `/activity`, so the main panel
+  returns to its empty state. Keep the session close button available when the
+  shell cannot resolve `TaskHeaderActions`.
 - **An activity row acts on its task from the same menu the spaces surfaces use.** `useActivityTaskMenu` builds one `TaskRowMenuProps` per row and `ActivityRow` hangs it off a `TaskRowDropdownMenu`, beside the mark-read and copy-link buttons the row already reveals on hover, so pin, "Add to Command Center", "File to…" and Archive can't drift from the space lists.
   Rename, hand off and analysis are the items the feed drops: the first needs an inline editor the feed has no row for, and the other two need the task itself, which an activity row does not carry.
   The actions are built once for the feed and handed to the rows, the way `useSpaceTaskActions` serves the tree — one pin and one archive mutation for the page instead of one per row.

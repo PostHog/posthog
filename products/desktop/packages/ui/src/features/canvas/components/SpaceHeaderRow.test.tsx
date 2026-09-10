@@ -1,7 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { useMemo } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const activityMocks = vi.hoisted(() => ({
+  clearSelection: vi.fn(),
+  selection: null as {
+    kind: "task";
+    id: string;
+    taskId: string;
+    channelId: string | null;
+  } | null,
+}));
+
+vi.mock("@posthog/ui/features/canvas/stores/activityDetailStore", () => ({
+  clearActivitySelection: activityMocks.clearSelection,
+  useActivitySelection: () => activityMocks.selection,
+}));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
@@ -138,8 +153,14 @@ vi.mock("@posthog/ui/features/task-detail/components/TaskDetail", () => ({
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ActivityDetailPane } from "./ActivityDetailPane";
 import { ShellLayout } from "./ShellLayout";
+import { SpaceHeaderRow } from "./SpaceHeaderRow";
 
 describe("SpaceHeaderRow", () => {
+  beforeEach(() => {
+    activityMocks.clearSelection.mockClear();
+    activityMocks.selection = null;
+  });
+
   it("keeps the header store off the layout that renders its writer", () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -151,5 +172,19 @@ describe("SpaceHeaderRow", () => {
     );
     // A layout that subscribes to the header store blows the update depth here.
     expect(taskDetailRenders).toBeLessThan(20);
+  });
+
+  it("can close an Activity session before task actions resolve", () => {
+    activityMocks.selection = {
+      kind: "task",
+      id: "activity-1",
+      taskId: "task-1",
+      channelId: null,
+    };
+
+    render(<SpaceHeaderRow />);
+
+    fireEvent.click(screen.getByLabelText("Close activity item"));
+    expect(activityMocks.clearSelection).toHaveBeenCalledOnce();
   });
 });
