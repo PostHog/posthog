@@ -16,8 +16,10 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.errors import CHQueryErrorIllegalTypeOfArgument
 from posthog.models import Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
@@ -120,17 +122,26 @@ async def test_export_asset_activity_propagates_user_errors(mock_exporter: Magic
 
 
 @pytest.mark.parametrize(
-    "exception,expected_non_retryable",
+    "exception,expected_non_retryable,expected_non_reportable",
     [
-        (TimeoutError("Timeout while waiting for the page to load"), False),
-        (PlaywrightTimeoutError("Timeout 30000ms exceeded"), False),
-        (ExportCancelled("export canceled"), True),
-        (ValueError("bad input"), True),
+        (TimeoutError("Timeout while waiting for the page to load"), False, False),
+        (PlaywrightTimeoutError("Timeout 30000ms exceeded"), False, False),
+        (ExportCancelled("export canceled"), True, False),
+        (ValueError("bad input"), True, False),
+        # A failure the user's own query caused is theirs to fix, so it must reach Temporal marked
+        # non-reportable and never become an error tracking issue.
+        (CHQueryErrorIllegalTypeOfArgument("Illegal type Int64 of last argument"), True, True),
+        (ExcelColumnLimitExceeded(), True, True),
     ],
 )
 @patch("posthog.temporal.exports.activities.exporter")
-async def test_export_asset_activity_timeout_errors_are_retryable(
-    mock_exporter: MagicMock, activity_environment, team, exception, expected_non_retryable
+async def test_export_asset_activity_classifies_failures(
+    mock_exporter: MagicMock,
+    activity_environment,
+    team,
+    exception,
+    expected_non_retryable,
+    expected_non_reportable,
 ):
     asset = await sync_to_async(ExportedAsset.objects.create)(
         team=team,
@@ -146,6 +157,8 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.non_retryable is expected_non_retryable
+    assert isinstance(exc_info.value, NonReportableError) is expected_non_reportable
+    assert exc_info.value.type == type(exception).__name__
 
 
 @patch("posthog.temporal.exports.activities.exporter")

@@ -286,10 +286,25 @@ def classify_failure_type(exception: Exception | str) -> str:
     return FAILURE_TYPE_UNKNOWN
 
 
+def is_user_query_failure(exception: Exception) -> bool:
+    """Whether the export failed on the user's own query, which nobody at PostHog can act on."""
+    return classify_failure_type(exception) == FAILURE_TYPE_USER
+
+
 def is_user_query_error_type(exception_type: str | None) -> bool:
     if exception_type is None:
         return False
     return classify_failure_type(exception_type) == FAILURE_TYPE_USER
+
+
+def user_query_failure_message(exception_message: str) -> str:
+    """Shown to whoever asked for the export when their own query failed. A raw database message on
+    its own reads as a PostHog fault, so name the insight as the cause and give them a next step."""
+    return (
+        "This insight's query did not run, so we could not render it. "
+        "Open the insight in PostHog and check its filters and math. "
+        f"The query error was: {exception_message}"
+    )
 
 
 def export_slo_failure_details(exception: Exception | str) -> ExportFailureDetails:

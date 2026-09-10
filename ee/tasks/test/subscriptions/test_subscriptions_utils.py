@@ -140,6 +140,14 @@ class TestSubscriptionAssetErrorMessage(APIBaseTest):
                 "ClickHouseQueryMemoryLimitExceeded",
                 ASSET_GENERATION_FAILED_MESSAGE,
             ),
+            (
+                "frames_a_user_query_error_as_the_insight_s_own_problem",
+                "Illegal type Int64 of last argument for aggregate function with If suffix",
+                "CHQueryErrorIllegalTypeOfArgument",
+                "This insight's query did not run, so we could not render it. "
+                "Open the insight in PostHog and check its filters and math. "
+                "The query error was: Illegal type Int64 of last argument for aggregate function with If suffix",
+            ),
             ("falls_back_when_no_exception", None, None, ASSET_GENERATION_FAILED_MESSAGE),
         ]
     )

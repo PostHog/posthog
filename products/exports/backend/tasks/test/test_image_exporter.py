@@ -20,6 +20,7 @@ from prometheus_client import REGISTRY
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.insight_result import InsightResult
+from posthog.errors import CHQueryErrorIllegalTypeOfArgument
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -151,6 +152,38 @@ class TestImageExporter(APIBaseTest):
 
         # The browser must never be reached — the point is failing before the render.
         mock_screenshot_asset.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("user_query_error", CHQueryErrorIllegalTypeOfArgument("Illegal type Int64 of last argument"), False),
+            ("system_error", ObjectStorageError("object storage is unreachable"), True),
+        ]
+    )
+    @patch("products.exports.backend.tasks.image_exporter.capture_exception")
+    @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
+    def test_only_non_user_failures_reach_error_tracking(
+        self,
+        _name: str,
+        exception: Exception,
+        expect_capture: bool,
+        mock_process_query: Any,
+        mock_capture: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_process_query.side_effect = exception
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}},
+        )
+
+        with self.assertRaises(type(exception)):
+            image_exporter.export_image(exported_asset)
+
+        assert mock_capture.called is expect_capture
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):

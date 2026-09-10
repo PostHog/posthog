@@ -14,6 +14,7 @@ from posthog.utils import wait_for_parallel_celery_group
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.tasks.failure_handler import is_user_query_error_type, user_query_failure_message
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -63,9 +64,11 @@ def subscription_asset_error_message(asset: ExportedAsset) -> str:
     # Recipients of scheduled subscriptions didn't author the query, so the OOM advice is
     # unactionable. Original text stays on asset.exception/exception_type for our own logs.
     is_oom_exception = asset.exception_type == _OOM_EXCEPTION_TYPE or _is_oom_exception_text(asset.exception)
-    if asset.exception and not is_oom_exception:
-        return asset.exception
-    return ASSET_GENERATION_FAILED_MESSAGE
+    if not asset.exception or is_oom_exception:
+        return ASSET_GENERATION_FAILED_MESSAGE
+    if is_user_query_error_type(asset.exception_type):
+        return user_query_failure_message(asset.exception)
+    return asset.exception
 
 
 @frozen

@@ -16,7 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.exceptions_capture import bind_exception_context
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
@@ -179,6 +179,31 @@ class NonReportableActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             non_reportable_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def non_reportable_application_error_activity(inputs: OptionallyFailingInputs) -> None:
+    # The export activity wraps a broken saved query this way: the ApplicationError payload still
+    # drives retry-policy matching and failure classification, but the query is the customer's to
+    # fix, so the interceptor must not report it.
+    raise NonReportableApplicationError(
+        "the insight's query is invalid",
+        type="CHQueryErrorIllegalTypeOfArgument",
+        non_retryable=True,
+    )
+
+
+@workflow.defn
+class NonReportableApplicationErrorWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            non_reportable_application_error_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -434,6 +459,39 @@ async def test_non_reportable_error_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_non_reportable_application_error_is_not_captured_but_keeps_its_type(temporal_client: Client):
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[NonReportableApplicationErrorWorkflow],
+            activities=[non_reportable_application_error_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await temporal_client.execute_workflow(
+                    "NonReportableApplicationErrorWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+        # Temporal must still rebuild the failure as an ApplicationError carrying the original
+        # class name, because the export retry policy and SLO classification read it.
+        activity_error = exc_info.value.cause
+        assert activity_error is not None
+        application_error = activity_error.cause
+        assert isinstance(application_error, ApplicationError)
+        assert application_error.type == "CHQueryErrorIllegalTypeOfArgument"
 
 
 @pytest.mark.asyncio

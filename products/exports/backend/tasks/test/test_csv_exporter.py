@@ -18,6 +18,7 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
+from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
@@ -337,6 +338,29 @@ class TestCSVExporter(APIBaseTest):
             json=None,
             headers=ANY,
         )
+
+    @parameterized.expand(
+        [
+            ("user_query_error", ExcelColumnLimitExceeded(), False),
+            ("system_error", ObjectStorageError("object storage is unreachable"), True),
+        ]
+    )
+    @patch("products.exports.backend.tasks.csv_exporter.capture_exception")
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
+    def test_only_non_user_failures_reach_error_tracking(
+        self,
+        _name: str,
+        exception: Exception,
+        expect_capture: bool,
+        _mock_logger: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        exported_asset = self._create_asset()
+        with patch("products.exports.backend.tasks.csv_exporter.make_api_call", side_effect=exception):
+            with pytest.raises(type(exception)):
+                csv_exporter.export_tabular(exported_asset)
+
+        assert mock_capture.called is expect_capture
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_failing_export_api_is_reported(self, _mock_logger: MagicMock) -> None:

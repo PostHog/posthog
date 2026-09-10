@@ -45,7 +45,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset, save_content_from_file
 
-from .failure_handler import ExcelColumnLimitExceeded
+from .failure_handler import ExcelColumnLimitExceeded, is_user_query_failure
 
 logger = structlog.get_logger(__name__)
 
@@ -734,6 +734,10 @@ def export_tabular(
             team_id = "unknown"
 
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
+        # The user's own query is broken, so only they can fix it. Keep it out of error tracking;
+        # the message reaches them on the asset instead.
+        if is_user_query_failure(e):
+            raise
         # A revoked creator's access-denied error is a known limitation - report it as an event
         # rather than surfacing it in error tracking.
         if isinstance(e, TableAccessDeniedError) and creator_access_revoked(

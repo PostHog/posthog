@@ -41,6 +41,7 @@ from products.exports.backend.tasks.failure_handler import (
     BrowserlessUnavailable,
     InvalidExportContext,
     classify_failure_type,
+    is_user_query_failure,
 )
 from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
@@ -673,6 +674,10 @@ def export_image(
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
             logger.error("image_exporter.failed", exception=e, exc_info=True)
+            # The insight's own query is broken, so only its owner can fix it. Keep it out of error
+            # tracking; the message reaches them on the asset instead.
+            if is_user_query_failure(e):
+                raise
             # A revoked creator's access-denied error is a known limitation - report it as an event
             # rather than surfacing it in error tracking.
             if isinstance(e, TableAccessDeniedError) and creator_access_revoked(
