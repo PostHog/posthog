@@ -173,7 +173,7 @@ def _fit_within(lines: list[str], max_chars: int | None) -> list[str]:
     return []
 
 
-# Direct invocation needs only click + stdlib (used by .github/actions/test-quarantine to
+# Direct invocation needs only click + stdlib (used by test-quarantine.yml to
 # avoid installing the full dev environment): python -m hogli_commands.quarantine.cli
 if __name__ == "__main__":
     quarantine()
