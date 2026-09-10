@@ -2091,6 +2091,16 @@ class TestPrinter(BaseTest):
             {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"},
         )
 
+    @parameterized.expand(
+        [
+            ("cte", "WITH top AS (SELECT 1 AS tier) SELECT top.tier FROM top"),
+            ("subquery_alias", "SELECT top.tier FROM (SELECT 1 AS tier) AS top"),
+        ]
+    )
+    def test_clickhouse_keyword_alias_is_quoted(self, _name: str, query: str):
+        # Unquoted, ClickHouse reads `top` as its `SELECT TOP n` clause and rejects the query.
+        self.assertIn("`top`.tier", self._select(query))
+
     def test_alias_keywords(self):
         self._assert_expr_error(
             "1 as team_id",

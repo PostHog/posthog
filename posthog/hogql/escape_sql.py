@@ -313,9 +313,30 @@ def escape_clickhouse_identifier(identifier: str) -> str:
     return quote_clickhouse_identifier(identifier)
 
 
+# HogQL accepts these words as identifiers (the `keyword` rule in HogQLParser.g4), but ClickHouse reads
+# them as the start of a clause where an identifier belongs, so an unquoted one is a syntax error:
+# `SELECT top.tier FROM (...) AS top` fails because ClickHouse takes `TOP` as its `SELECT TOP n` clause.
+# The set is every HogQL keyword that ClickHouse rejects unquoted in an identifier position, matched
+# case-insensitively because ClickHouse keywords are. Re-derive it after a major ClickHouse upgrade.
+CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED = {
+    "ALL",
+    "DISTINCT",
+    "INF",
+    "NAN",
+    "NOT",
+    "NULL",
+    "RECURSIVE",
+    "SELECT",
+    "TOP",
+}
+
+
 def quote_clickhouse_identifier(identifier: str) -> str:
     """Quote an identifier without validating whether it is safe to interpolate into SQL."""
-    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+    if (
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier)
+        and identifier.upper() not in CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED
+    ):
         return identifier
     return backquote_clickhouse_identifier(identifier)
 
