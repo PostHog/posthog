@@ -29,11 +29,23 @@ function resolveWorkflowPath(argument: string): string {
 // COLORFGBG is "<fg>;<bg>"; ANSI background 7 or 15 means the terminal is light.
 const LIGHT_TERMINAL = /;(7|15)$/
 
+// Same shade phrocs uses for a selected row: ANSI black or white follows the terminal theme. Cursor and
+// Zed map those to the default background, which would paint nothing, so they get an explicit RGB gray.
+function selectionBackground(): string {
+    const light = LIGHT_TERMINAL.test(process.env['COLORFGBG'] ?? '')
+    const editorTerminal =
+        !!process.env['CURSOR_TRACE_ID'] || process.env['TERM_PROGRAM'] === 'zed' || process.env['ZED_TERM'] === 'true'
+    if (editorTerminal) {
+        return light ? '\x1b[48;2;212;212;212m' : '\x1b[48;2;58;58;58m'
+    }
+    return light ? '\x1b[47m' : '\x1b[40m'
+}
+
 function tableStyle(): TableStyle | undefined {
     if (!process.stdout.isTTY || process.env['NO_COLOR']) {
         return undefined
     }
-    const background = LIGHT_TERMINAL.test(process.env['COLORFGBG'] ?? '') ? '\x1b[48;5;254m' : '\x1b[48;5;236m'
+    const background = selectionBackground()
     return {
         header: (line) => `\x1b[1m${line}\x1b[0m`,
         stripe: (line) => `${background}${line}\x1b[0m`,
