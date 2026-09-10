@@ -17,9 +17,13 @@ from botocore.exceptions import ClientError
 from posthog import settings
 
 from products.signals.backend.ranking.features import (
+    EMBEDDING_COLUMN,
+    EMBEDDING_DIMENSIONS,
     FEATURE_NAMES,
     FEATURE_SCHEMA_VERSION,
     NO_EXTRAS,
+    REPORT_EMBEDDINGS_EXTRA,
+    REPORT_EMBEDDINGS_FEATURE_SET,
     TABULAR_FEATURE_SET,
     Extras,
     FeatureSet,
@@ -39,6 +43,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     load_snapshots,
     load_unseen_models,
     model_object_key,
+    pool_feature_coverage,
     snapshot_dates,
 )
 from products.signals.dags.inbox_ranking.training.examples import (
@@ -46,6 +51,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
     Snapshot,
     assemble_snapshot,
     build_examples,
+    cap_examples,
     example_columns,
     holdout_mask,
 )
@@ -69,9 +75,12 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
     LEGACY_POOL_NAME,
+    MODEL_FAMILIES,
     POOL_NAME,
+    REPORT_EMBEDDINGS_MODEL_NAME,
     SCORE_COLUMNS,
     TABULAR_MODEL_NAME,
+    ModelFamily,
     UnseenModel,
     chance_band,
     empty_scores_write_allowed,
@@ -87,8 +96,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     with_model_names,
 )
 
-# No trainer writes this family yet: it stands in for a second family in the grouping tests.
-EMBEDDINGS_MODEL_NAME = "report_embeddings"
+EMBEDDINGS_MODEL_NAME = REPORT_EMBEDDINGS_MODEL_NAME
 
 D0 = datetime.date(2026, 8, 10)
 NOW = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
@@ -710,7 +718,10 @@ def test_load_unseen_models_skips_a_family_with_nothing_to_score_that_day(monkey
     )
     monkeypatch.setattr(
         "products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES",
-        (EMBEDDINGS_MODEL_NAME, TABULAR_MODEL_NAME),
+        (
+            ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
+            ModelFamily(name=TABULAR_MODEL_NAME, feature_set=TABULAR_FEATURE_SET),
+        ),
     )
     models = load_unseen_models(dagster.build_asset_context(), client, "bucket", "inbox_ranking", partition_key)
     assert [(model.model_name, model.model_role, sorted(model.boosters)) for model in models] == [
@@ -1012,6 +1023,10 @@ def test_model_key_layout_is_stable():
         champion_object_key("inbox_ranking", TABULAR_MODEL_NAME)
         == "inbox_ranking/inbox_ranking_models/v1/tabular_xgb/champion.json"
     )
+    assert (
+        model_object_key("inbox_ranking", EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
+        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=2026-08-19/open.ubj"
+    )
     assert snapshot_dates("2026-08-19", 2) == [
         datetime.date(2026, 8, 17),
         datetime.date(2026, 8, 18),
@@ -1107,7 +1122,16 @@ def _model_metadata(**overrides) -> dict[str, Any]:
         (_model_metadata(), None),
         # Written before the field existed: every one of those models is tabular.
         ({key: value for key, value in _model_metadata().items() if key != "feature_set"}, None),
-        (_model_metadata(feature_set="report_embeddings"), "this build can produce"),
+        (
+            _model_metadata(
+                feature_set=REPORT_EMBEDDINGS_FEATURE_SET.name,
+                feature_schema_version=REPORT_EMBEDDINGS_FEATURE_SET.schema_version,
+                feature_names=list(REPORT_EMBEDDINGS_FEATURE_SET.feature_names),
+            ),
+            None,
+        ),
+        # A set a later build introduced, or one that has been withdrawn.
+        (_model_metadata(feature_set="mmoe_trunk"), "this build can produce"),
         (_model_metadata(feature_schema_version=99), "feature_schema_version 99"),
         (_model_metadata(feature_names=["age_hours"]), "feature_names differ"),
     ],
@@ -1119,19 +1143,22 @@ def test_model_mismatch_checks_a_model_against_its_own_feature_set(metadata, exp
     assert expected is None and mismatch is None or (mismatch is not None and expected in mismatch)
 
 
-def test_candidate_metadata_declares_the_set_it_was_fit_on():
+@pytest.mark.parametrize("family", MODEL_FAMILIES, ids=[family.name for family in MODEL_FAMILIES])
+def test_candidate_metadata_declares_the_set_it_was_fit_on(family):
     # The trainer's own record must pass the grader's check, or the day's candidate goes unscored.
+    # Every registered family, because the trainer fits each on the set its registry entry names.
     metadata = candidate_metadata(
         "2026-08-19",
         [],
-        model_name=TABULAR_MODEL_NAME,
-        feature_set=TABULAR_FEATURE_SET,
+        model_name=family.name,
+        feature_set=family.feature_set,
         skipped=[],
         trained_at=NOW,
         run_id="run-1",
     )
-    assert metadata["feature_set"] == TABULAR_FEATURE_SET.name
-    assert metadata["feature_schema_version"] == TABULAR_FEATURE_SET.schema_version
+    assert metadata["model_name"] == family.name
+    assert metadata["feature_set"] == family.feature_set.name
+    assert metadata["feature_schema_version"] == family.feature_set.schema_version
     assert model_mismatch(metadata) is None
 
 
@@ -1154,3 +1181,101 @@ def test_examples_key_layout_is_per_feature_set():
         examples_object_key("inbox_ranking", TABULAR_FEATURE_SET.name, "2026-08-19")
         == "inbox_ranking/inbox_ranking_training_examples/v1/tabular/dt=2026-08-19/part-00000.parquet"
     )
+    assert (
+        examples_object_key("inbox_ranking", REPORT_EMBEDDINGS_FEATURE_SET.name, "2026-08-19")
+        == "inbox_ranking/inbox_ranking_training_examples/v1/report_embeddings/dt=2026-08-19/part-00000.parquet"
+    )
+
+
+def _report_vectors(vectors: dict[str, object]) -> Extras:
+    """The report-vector side input, shaped like the dt=D `inbox_report_embeddings` snapshot."""
+    frame = pd.DataFrame({EMBEDDING_COLUMN: list(vectors.values())}, index=pd.Index(list(vectors), name="report_id"))
+    return {REPORT_EMBEDDINGS_EXTRA: frame}
+
+
+def _embedding(*, first: float = 0.0) -> list[float]:
+    return [first, *([0.5] * (EMBEDDING_DIMENSIONS - 1))]
+
+
+def test_report_embeddings_matrix_puts_the_vector_in_position_order():
+    # `emb_i` must be the vector's ith component: the booster is saved with these names, so a
+    # transposed or reordered matrix would score a report against another dimension's splits.
+    rows = _state(["a", "b"])
+    ascending = [float(index) for index in range(EMBEDDING_DIMENSIONS)]
+    extras = _report_vectors({"a": ascending, "b": list(reversed(ascending))})
+
+    matrix = REPORT_EMBEDDINGS_FEATURE_SET.build_matrix(rows, extras)
+
+    assert list(matrix.columns) == list(REPORT_EMBEDDINGS_FEATURE_SET.feature_names)
+    last = f"emb_{EMBEDDING_DIMENSIONS - 1}"
+    assert matrix.loc["a", ["emb_0", last]].tolist() == [0.0, float(EMBEDDING_DIMENSIONS - 1)]
+    assert matrix.loc["b", ["emb_0", last]].tolist() == [float(EMBEDDING_DIMENSIONS - 1), 0.0]
+
+
+@pytest.mark.parametrize(
+    "extras",
+    [
+        _report_vectors({"a": None}),  # a tombstoned report keeps its row with a null vector
+        _report_vectors({"a": [0.5] * 8}),  # another model's width
+        _report_vectors({"other": _embedding()}),  # no row for this report at all
+        NO_EXTRAS,  # the day's embeddings snapshot is missing
+    ],
+)
+def test_a_report_without_this_models_vector_is_not_an_embeddings_example(extras):
+    # An all-missing row would teach the booster nothing but the base rate, and the source table's
+    # TTL runs from report creation, so a long-lived report does lose its vector while still live.
+    rows = _state(["a"])
+
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, extras).tolist() == [False]
+    assert REPORT_EMBEDDINGS_FEATURE_SET.build_matrix(rows, extras).isna().to_numpy().all()
+
+
+def test_report_grain_keeps_one_example_per_report_and_needs_a_vector():
+    # The scoring-moment grain emits a near-duplicate row per snapshot, which is what 1536 columns
+    # cannot afford; the first usable moment is also the grain of the pool the unseen read grades.
+    head = HEADS_BY_NAME["open"]
+    ids = ["a", "b"]
+    snapshots: dict[datetime.date, Snapshot] = {}
+    for offset in (0, 1):
+        day = D0 + datetime.timedelta(days=offset)
+        later = day + datetime.timedelta(days=head.horizon_days)
+        snapshots[day] = Snapshot(date=day, state=_state(ids), labels=_labels(ids, open_count=[0, 0]))
+        snapshots[later] = Snapshot(date=later, state=_state(ids), labels=_labels(ids, open_count=[1, 1]))
+    extras = _report_vectors({"a": _embedding()})
+
+    examples = build_examples(snapshots, head, REPORT_EMBEDDINGS_FEATURE_SET, extras)
+
+    assert examples["report_id"].tolist() == ["a"]
+    assert examples["snapshot_date"].tolist() == [D0]
+    assert examples["emb_0"].tolist() == [0.0]
+    # The tabular set reads the same snapshots at the moment grain, both reports, both days.
+    assert build_examples(snapshots, head, TABULAR_FEATURE_SET)["report_id"].tolist() == ["a", "b", "a", "b"]
+
+
+def test_cap_examples_keeps_every_positive_and_a_seeded_sample_of_the_negatives():
+    # The budget is what keeps a 1536-column head inside one partition's object and the job's
+    # runtime. Positives are the scarce side, and a re-run of a partition must keep the same rows.
+    moments = pd.DataFrame({"report_id": [f"r{index}" for index in range(23)], "label": [1] * 3 + [0] * 20})
+
+    capped = cap_examples(moments, 10)
+
+    assert (len(capped), capped["label"].sum()) == (10, 3)
+    assert capped.equals(cap_examples(moments, 10))
+    assert cap_examples(moments, None) is moments
+    # A head with more positives than the budget is not the case the budget is for.
+    assert cap_examples(moments, 2)["label"].tolist() == [1, 1, 1]
+
+
+def test_score_pool_scores_every_newborn_even_without_a_vector():
+    # Families are graded on paired rows, so a set whose side input is thin must still produce a row
+    # per report; coverage is the metadata that makes a thin side input visible instead of silent.
+    model = _unseen_model(EMBEDDINGS_MODEL_NAME, REPORT_EMBEDDINGS_FEATURE_SET)
+    pool = _state(["a", "b"])
+    extras = _report_vectors({"a": _embedding()})
+
+    scores = score_pool(pool, _labels(["a", "b"]), [model], snapshot_date=D0, extras=extras)
+
+    assert scores["report_id"].tolist() == ["a", "b"]
+    assert scores["score"].notna().all()
+    coverage = pool_feature_coverage(pool, [model], extras)
+    assert coverage[f"{REPORT_EMBEDDINGS_FEATURE_SET.name}_pool_coverage"].value == 0.5

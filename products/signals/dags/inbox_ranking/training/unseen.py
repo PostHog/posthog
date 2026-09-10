@@ -23,7 +23,14 @@ from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import NO_EXTRAS, Extras, FeatureSet, feature_set_by_name
+from products.signals.backend.ranking.features import (
+    NO_EXTRAS,
+    REPORT_EMBEDDINGS_FEATURE_SET,
+    TABULAR_FEATURE_SET,
+    Extras,
+    FeatureSet,
+    feature_set_by_name,
+)
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.examples import point_in_time_mask, state_rows
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
@@ -41,9 +48,7 @@ CHAMPION_ROLE = "champion"
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
 TABULAR_MODEL_NAME = "tabular_xgb"
-# The families the unseen read scores and grades each day. A family with no metadata for the day is
-# skipped, so an entry can be added here before its trainer writes its first candidate.
-MODEL_FAMILIES: tuple[str, ...] = (TABULAR_MODEL_NAME,)
+REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -94,6 +99,25 @@ class UnseenModel:
     model_role: str
     feature_set: FeatureSet
     boosters: Mapping[str, bytes]
+
+
+@frozen
+class ModelFamily:
+    """One family the training job fits and the unseen read grades: its name, and the feature set
+    its trainer fits. Both families are per-head XGBoost, so the learner is not a field yet; a
+    family with its own predict (the MMoE) adds one at the `UnseenModel` boundary."""
+
+    name: str
+    feature_set: FeatureSet
+
+
+# The families the training job trains and the unseen read grades, in the order they are trained. A
+# family with no metadata for the day is skipped, so an entry can be added here before its trainer
+# writes its first candidate, and a family that fails costs its own series rather than every one.
+MODEL_FAMILIES: tuple[ModelFamily, ...] = (
+    ModelFamily(name=TABULAR_MODEL_NAME, feature_set=TABULAR_FEATURE_SET),
+    ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
+)
 
 
 @frozen
