@@ -111,7 +111,7 @@ def _is_cancellation(error: BaseException) -> bool:
     ) and isinstance(error.cause, temporalio.exceptions.CancelledError)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class MaterializeViewWorkflowInputs:
     """Inputs for the MaterializeViewWorkflow.
 

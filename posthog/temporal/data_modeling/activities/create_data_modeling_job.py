@@ -12,7 +12,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataMo
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class CreateDataModelingJobInputs:
     team_id: int
     node_id: str
