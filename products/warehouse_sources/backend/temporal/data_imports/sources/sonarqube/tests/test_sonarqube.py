@@ -101,6 +101,9 @@ class TestErrorDetail:
             ("unexpected_shape_falls_back_to_body", b'{"message":"nope"}', '{"message":"nope"}'),
             ("non_json_falls_back_to_body", b"<html>gateway</html>", "<html>gateway</html>"),
             ("empty_body", b"", "no error message"),
+            # A non-iterable `errors` must reach the raw-body fallback rather than raise.
+            ("null_errors_falls_back_to_body", b'{"errors":null}', '{"errors":null}'),
+            ("numeric_errors_falls_back_to_body", b'{"errors":1}', '{"errors":1}'),
         ]
     )
     def test_detail(self, _name: str, body: bytes, expected: str) -> None:

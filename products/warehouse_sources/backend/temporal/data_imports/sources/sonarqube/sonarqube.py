@@ -155,10 +155,12 @@ def _error_detail(body: bytes) -> str:
         payload = json.loads(body or b"null")
     except ValueError:
         payload = None
-    if isinstance(payload, dict):
-        messages = [
-            str(error["msg"]) for error in payload.get("errors", []) if isinstance(error, dict) and error.get("msg")
-        ]
+    # A misconfigured host, or a gateway in front of the instance, can put any JSON value under
+    # `errors`, so confirm it is a list before iterating it. A non-list would raise a TypeError
+    # here, which would replace the status and body this function exists to report.
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    if isinstance(errors, list):
+        messages = [str(error["msg"]) for error in errors if isinstance(error, dict) and error.get("msg")]
         if messages:
             return "; ".join(messages)
     text = body.decode("utf-8", "replace").strip()
