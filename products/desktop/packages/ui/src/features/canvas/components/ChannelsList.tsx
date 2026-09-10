@@ -10,8 +10,10 @@ import {
   PlusIcon,
   StarIcon,
   TrashIcon,
+  UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import type { ChannelPresence } from "@posthog/core/canvas/presence";
 import {
   AlertDialogClose,
   AlertDialogContent,
@@ -57,6 +59,7 @@ import {
 } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
@@ -78,6 +81,7 @@ import {
   type SpaceTasks,
   usePrefetchSpaceTasks,
   useRecentSpaceTasks,
+  useSpacePresence,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import {
   SpaceTaskActionsProvider,
@@ -104,6 +108,7 @@ import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/si
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { formatHotkey } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import {
   TaskBadgeStack,
   TaskStatusDot,
@@ -116,6 +121,7 @@ import {
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
@@ -449,6 +455,14 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // a dozen spaces' worth of rows at once.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
   const actions = useSpaceTaskActionsContext();
+  const archivePresentation = useArchivingTasksStore((state) =>
+    state.hiddenArchivingTaskIds.has(item.id)
+      ? "hidden"
+      : state.archivingTaskIds.has(item.id)
+        ? "progress"
+        : null,
+  );
+  const isArchiving = archivePresentation === "progress";
   // A boolean rather than the value itself, so a keypress re-renders only the
   // two rows whose answer changed.
   const isHighlighted = useSpaceTreeStore(
@@ -491,20 +505,31 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
     [item, spaceId, actions, canHandoff],
   );
 
+  if (archivePresentation === "hidden") return null;
+
   const row = (
     <SpaceRowSurface
       asOption={asOption}
       optionValue={item.key}
       data-selected={isActive || undefined}
-      onClick={() => openTask(spaceId, item.id)}
+      aria-busy={isArchiving || undefined}
+      disabled={isArchiving}
+      onClick={isArchiving ? undefined : () => openTask(spaceId, item.id)}
       // A step in from its space's name, clear of the guide that runs between
       // the two columns.
-      className="pl-8"
+      className={cn("pl-8", isArchiving && "opacity-50")}
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
       <span className="flex min-w-0 items-center gap-1.5">
-        <TaskStatusDot dot={taskDot(status ?? {})} />
+        {isArchiving ? (
+          <>
+            <DotsCircleSpinner size={12} className="text-muted-foreground" />
+            <span className="sr-only">Archiving</span>
+          </>
+        ) : (
+          <TaskStatusDot dot={taskDot(status ?? {})} />
+        )}
         <span
           className={cn(
             "truncate text-[13px]",
@@ -521,6 +546,9 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       )}
     </SpaceRowSurface>
   );
+
+  const tipped = <TaskStatusTooltips>{row}</TaskStatusTooltips>;
+  if (isArchiving) return tipped;
 
   return (
     <TaskRowContextMenu menu={menu}>
@@ -847,10 +875,27 @@ function useChannelActions(channel: Channel): {
               },
             },
           ];
+    // Only a private space has a member list; public and personal spaces do not.
+    const membersActions: ChannelActionItem[] =
+      channel.channelType === "private"
+        ? [
+            {
+              key: "members",
+              label: "Members",
+              icon: <UsersThreeIcon size={14} />,
+              onSelect: () =>
+                void navigate({
+                  to: "/spaces/$channelId/settings",
+                  params: { channelId: channel.id },
+                }),
+            },
+          ]
+        : [];
     const editableSpaceActions: ChannelActionItem[] =
       channel.channelType === "personal"
         ? []
         : [
+            ...membersActions,
             {
               key: "rename",
               label: `Rename ${noun}…`,
@@ -890,6 +935,7 @@ function useChannelActions(channel: Channel): {
     channel.channelType,
     channel.id,
     isStarred,
+    navigate,
     noun,
     toggleStar,
   ]);
@@ -1012,6 +1058,7 @@ const ChannelSection = memo(
     hotkeySlot,
     expanded = false,
     tasks,
+    presence,
     onToggleExpanded,
   }: {
     channel: Channel;
@@ -1026,6 +1073,8 @@ const ChannelSection = memo(
     expanded?: boolean;
     /** The space's recent sessions and its total; only read while expanded. */
     tasks?: SpaceTasks;
+    /** Who's recently active here, shown as faces after the name. */
+    presence?: ChannelPresence;
     /**
      * Absent while searching, where the list is flat. Takes the space id rather
      * than closing over it, so the list can hand every row the same function and
@@ -1047,6 +1096,10 @@ const ChannelSection = memo(
     const [menuOpen, setMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
     const hasAttention = unreadSessions > 0 || blockedSessions > 0;
+    const people = presence?.people ?? [];
+    // Faces and dots share one trailing slot, so the row's hover margin belongs
+    // to whichever the space has rather than to whichever ends the row.
+    const hasMarks = hasAttention || people.length > 0;
     const prefetchSessions = usePrefetchSpaceTasks();
     const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
       undefined,
@@ -1100,6 +1153,7 @@ const ChannelSection = memo(
 
     const glyph = channelGlyph(channel.name, {
       personal: channel.channelType === "personal",
+      private: channel.channelType === "private",
       size: 14,
       space: spacesLayout,
       weight: isUnread ? "bold" : undefined,
@@ -1174,9 +1228,9 @@ const ChannelSection = memo(
                         "text-[13px]",
                         // mr-11 clears the two icon-xs hover buttons pinned at
                         // right-1. It belongs on whatever ends the row's content —
-                        // put it on the name while the dot is there and the gap
-                        // opens between them, carrying the dot off to the buttons.
-                        !hasAttention && "group-hover/chan:mr-11",
+                        // put it on the name while the marks are there and the gap
+                        // opens between them, carrying them off to the buttons.
+                        !hasMarks && "group-hover/chan:mr-11",
                         // Bold is unread's alone; full contrast is shared with the
                         // channel you're in. Either way there's no hover brighten
                         // left to do, so those rows skip it.
@@ -1189,29 +1243,42 @@ const ChannelSection = memo(
                     >
                       {channel.name}
                     </OverflowTickerText>
-                    {/* Both dots in one slot, so the hover margin belongs to the
-                      pair rather than to whichever of them happens to end the
-                      row. */}
-                    {hasAttention && (
+                    {/* Faces and dots in one slot, so the hover margin belongs
+                      to the group rather than to whichever of them happens to
+                      end the row. */}
+                    {hasMarks && (
                       <span
                         className={cn(
-                          "flex shrink-0 items-center gap-1",
+                          "flex shrink-0 items-center gap-1.5",
                           "group-hover/chan:mr-11",
                           menuOpen && "mr-11",
                         )}
                       >
+                        {/* Who's recently active here, faded while the space is
+                          open — the sessions below carry their own faces then. */}
+                        {people.length > 0 && (
+                          <PresenceAvatars
+                            people={people}
+                            liveUuids={presence?.liveUuids}
+                            className={cn(expanded && "opacity-60")}
+                          />
+                        )}
                         {/* Blue first, because the rows below are sorted with
                           what wants you at the top — the pair reads as a
                           summary of that list, in its order. */}
-                        <SpaceAttentionDot
-                          count={blockedSessions}
-                          tone="blocked"
-                          faded={expanded}
-                        />
-                        <SpaceAttentionDot
-                          count={unreadSessions}
-                          faded={expanded}
-                        />
+                        {hasAttention && (
+                          <span className="flex shrink-0 items-center gap-1">
+                            <SpaceAttentionDot
+                              count={blockedSessions}
+                              tone="blocked"
+                              faded={expanded}
+                            />
+                            <SpaceAttentionDot
+                              count={unreadSessions}
+                              faded={expanded}
+                            />
+                          </span>
+                        )}
                       </span>
                     )}
                     {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
@@ -1352,6 +1419,9 @@ const ChannelSection = memo(
     prev.blockedSessions === next.blockedSessions &&
     prev.hotkeySlot === next.hotkeySlot &&
     prev.tasks === next.tasks &&
+    // By reference: useSpacePresence reuses a channel's object until its faces
+    // change, so this stays equal across polls that touched other spaces.
+    prev.presence === next.presence &&
     prev.onToggleExpanded === next.onToggleExpanded &&
     prev.channel.id === next.channel.id &&
     prev.channel.name === next.channel.name &&
@@ -1777,6 +1847,9 @@ export function ChannelsList() {
     [allChannels, expandedSpaceIds, treeOn],
   );
   const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
+  // Who's recently active in each space, for the faces on every row — one
+  // project-wide query, not one per space.
+  const presenceBySpace = useSpacePresence();
   // Pin / archive / command centre for every session row, built once here
   // rather than once per row.
   const spaceTaskActions = useSpaceTaskActions();
@@ -1963,6 +2036,7 @@ export function ChannelsList() {
           isUnread={isUnread(channel.id)}
           unreadSessions={unreadSessions(channel.id)}
           blockedSessions={blockedSessions(channel.id)}
+          presence={presenceBySpace.get(channel.id)}
         />
       ))}
       {noMatches && (
@@ -1999,6 +2073,7 @@ export function ChannelsList() {
             hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
+            presence={presenceBySpace.get(channel.id)}
             onToggleExpanded={toggleSpace}
           />
         ))}
@@ -2027,6 +2102,7 @@ export function ChannelsList() {
             blockedSessions={blockedSessions(channel.id)}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
+            presence={presenceBySpace.get(channel.id)}
             onToggleExpanded={toggleSpace}
           />
         ))}

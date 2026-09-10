@@ -107,7 +107,6 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
-    urls.wizard(),
     '/instance',
     urls.moveToPostHogCloud(),
     urls.unsubscribe(),
@@ -381,7 +380,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
 
     connect(() => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, teamLogic],
         actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),

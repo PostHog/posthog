@@ -129,7 +129,7 @@ impl ReleaseRecord {
             project: self.project.clone(),
             version: self.version.clone(),
             timestamp: self.created_at,
-            metadata: self.metadata.clone(),
+            metadata: self.metadata.as_ref().map(sanitize_metadata_for_event),
         }
     }
 
@@ -161,6 +161,36 @@ fn truncate_chars(value: &mut String, max_chars: usize) {
     if let Some((byte_index, _)) = value.char_indices().nth(max_chars) {
         value.truncate(byte_index);
     }
+}
+
+fn sanitize_metadata_for_event(metadata: &Value) -> Value {
+    let mut sanitized = metadata.clone();
+    if let Some(Value::String(remote_url)) = sanitized.pointer_mut("/git/remote_url") {
+        *remote_url = sanitize_remote_url(remote_url);
+    }
+    sanitized
+}
+
+fn sanitize_remote_url(url: &str) -> String {
+    let sanitized_end = url.find(['?', '#']).unwrap_or(url.len());
+    let Some(scheme_end) = url[..sanitized_end].find("://") else {
+        return url[..sanitized_end].to_string();
+    };
+    let authority_start = scheme_end + 3;
+    let authority_end = url[authority_start..sanitized_end]
+        .find('/')
+        .map_or(sanitized_end, |index| authority_start + index);
+    let authority = &url[authority_start..authority_end];
+    let Some(credentials_end) = authority.rfind('@') else {
+        return url[..sanitized_end].to_string();
+    };
+
+    format!(
+        "{}{}{}",
+        &url[..authority_start],
+        &authority[credentials_end + 1..],
+        &url[authority_end..sanitized_end]
+    )
 }
 
 /// Reconstruct the release `hash_id` the CLI wrote for a mobile build, from the app metadata the
@@ -293,6 +323,40 @@ mod tests {
             version: "1.0".to_string(),
             project: "com.app".to_string(),
             metadata,
+        }
+    }
+
+    #[test]
+    fn event_remote_urls_drop_credentials_query_and_fragment() {
+        let cases = [
+            (
+                "https://user:password@github.com/example/repo.git?token=query#access_token=fragment",
+                "https://github.com/example/repo.git",
+            ),
+            (
+                "https://github.com/example/repo.git#access_token=fragment",
+                "https://github.com/example/repo.git",
+            ),
+            (
+                "https://github.com/example/repo.git",
+                "https://github.com/example/repo.git",
+            ),
+            (
+                "git@github.com:example/repo.git",
+                "git@github.com:example/repo.git",
+            ),
+            (
+                "git@github.com:example/repo.git?token=query#access_token=fragment",
+                "git@github.com:example/repo.git",
+            ),
+        ];
+
+        for (remote_url, expected) in cases {
+            let info = serde_json::to_value(
+                record(Some(json!({"git": {"remote_url": remote_url}}))).to_info(),
+            )
+            .unwrap();
+            assert_eq!(info["metadata"]["git"]["remote_url"], expected);
         }
     }
 

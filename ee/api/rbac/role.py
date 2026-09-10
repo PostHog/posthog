@@ -32,7 +32,9 @@ def role_memberships_prefetch() -> Prefetch:
     """
     return Prefetch(
         "roles",
-        queryset=RoleMembership.objects.select_related("user", "organization_member__user").prefetch_related(
+        queryset=RoleMembership.objects.valid_for_authorization()
+        .select_related("user", "organization_member__user")
+        .prefetch_related(
             Prefetch(
                 "organization_member__user__totpdevice_set",
                 queryset=TOTPDevice.objects.filter(confirmed=True),
@@ -196,7 +198,7 @@ class RoleMembershipViewSet(
     scope_object = "organization"
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     serializer_class = RoleMembershipSerializer
-    queryset = RoleMembership.objects.select_related("role")
+    queryset = RoleMembership.objects.valid_for_authorization().select_related("role")
     filter_rewrite_rules = {"organization_id": "role__organization_id"}
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

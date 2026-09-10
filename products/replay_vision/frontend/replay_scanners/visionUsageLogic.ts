@@ -14,7 +14,6 @@ import type { VisionQuotaApi, VisionSpendSeriesApi } from '../generated/api.sche
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { fleetContributions } from '../utils/quotaContributions'
 import { hasCreditLimit } from '../utils/quotaProjection'
-import { currentQuotaScenario } from '../utils/quotaScenarios'
 import { type SpendVerdict, spendVerdict } from '../utils/spendVerdict'
 import type { ReplayScanner } from './types'
 
@@ -82,10 +81,6 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
             null as VisionSpendSeriesApi | null,
             {
                 loadSpendSeries: async (): Promise<VisionSpendSeriesApi | null> => {
-                    const scenario = currentQuotaScenario()
-                    if (scenario) {
-                        return scenario.dailySpend
-                    }
                     const teamId = teamLogic.values.currentTeamId
                     return teamId ? await environmentVisionQuotaSpendSeriesRetrieve(String(teamId)) : null
                 },
@@ -186,11 +181,6 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadUsageScanners: async () => {
-            const scenario = currentQuotaScenario()
-            if (scenario?.usageScanners) {
-                actions.loadUsageScannersSuccess(scenario.usageScanners as unknown as ReplayScanner[])
-                return
-            }
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.loadUsageScannersSuccess([])

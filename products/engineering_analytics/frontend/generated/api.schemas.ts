@@ -219,6 +219,11 @@ export interface LeadTimeBucketApi {
      */
     min_seconds: number | null
     /**
+     * 5th percentile of the stage's duration, in seconds — the lower whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p05_seconds: number | null
+    /**
      * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
@@ -239,6 +244,11 @@ export interface LeadTimeBucketApi {
      */
     p75_seconds: number | null
     /**
+     * 95th percentile of the stage's duration, in seconds — the upper whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p95_seconds: number | null
+    /**
      * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
      * @nullable
      */
@@ -248,7 +258,7 @@ export interface LeadTimeBucketApi {
 export interface DoraOverviewApi {
     /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
     deployment_frequency_series: DeploymentFrequencyBucketApi[]
-    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
     merge_to_deploy_series: LeadTimeBucketApi[]
     /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
     open_to_merge_series: LeadTimeBucketApi[]
@@ -256,10 +266,12 @@ export interface DoraOverviewApi {
     open_to_deploy_series: LeadTimeBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
-    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+    /** Display label for the selected environments, comma-separated, 'persistent' when no persistent environments were discovered. Use selected_environments for exact names. */
     environment_scope: string
-    /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
+    /** Distinct persistent environments from the metric scan window or the 30 days before its end, whichever starts earlier, most-deployed first. Transient environments are omitted. */
     environments: string[]
+    /** Exact environment names used for these metrics. Defaults to all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment. Explicit filters are trimmed and deduplicated. DRF rejects blank or unknown names; real transient names are allowed. */
+    selected_environments: string[]
     /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
     has_membership_data: boolean
     /** Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options. Empty when membership isn't synced. */
@@ -338,7 +350,7 @@ export interface DoraOverviewApi {
      * @nullable
      */
     latest_deploy_status_at: string | null
-    /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
+    /** Bucket width of every series: the granularity param when given, else chosen to fit the window: 'hour', 'day', or 'week'. */
     series_granularity: string
 }
 
@@ -1592,6 +1604,8 @@ export interface WorkflowHealthItemApi {
     success_rate_prev?: number | null
     /** Successful runs that did real CI work. This is the p50/p95 sample count. */
     percentile_run_count?: number
+    /** Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check. */
+    merge_queue_run_count?: number
 }
 
 export interface WorkflowJobApi {
@@ -1731,13 +1745,17 @@ export type EngineeringAnalyticsDoraParams = {
      */
     date_to?: string
     /**
-     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to include all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment when none match. Explicit names are trimmed, deduplicated, and validated against the source, including transient environments. Blank or unknown names are rejected with a 400 response.
      */
-    environment?: string
+    environment?: string[]
     /**
      * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
      */
     github_team?: string
+    /**
+     * Bucket width for every series. Omit to pick one that fits the window: hour up to 48h, day up to 90 days, week beyond.
+     */
+    granularity?: EngineeringAnalyticsDoraGranularity
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
@@ -1747,6 +1765,15 @@ export type EngineeringAnalyticsDoraParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsDoraGranularity =
+    (typeof EngineeringAnalyticsDoraGranularity)[keyof typeof EngineeringAnalyticsDoraGranularity]
+
+export const EngineeringAnalyticsDoraGranularity = {
+    Day: 'day',
+    Hour: 'hour',
+    Week: 'week',
+} as const
 
 export type EngineeringAnalyticsFlakyTestsParams = {
     /**
@@ -1805,6 +1832,10 @@ export type EngineeringAnalyticsJobAggregatesParams = {
      */
     repo?: string
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsJobAggregatesRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1813,6 +1844,16 @@ export type EngineeringAnalyticsJobAggregatesParams = {
      */
     workflow_name: string
 }
+
+export type EngineeringAnalyticsJobAggregatesRunScope =
+    (typeof EngineeringAnalyticsJobAggregatesRunScope)[keyof typeof EngineeringAnalyticsJobAggregatesRunScope]
+
+export const EngineeringAnalyticsJobAggregatesRunScope = {
+    All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
+    PullRequest: 'pull_request',
+} as const
 
 export type EngineeringAnalyticsMasterFailuresParams = {
     /**
@@ -2090,7 +2131,7 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      */
     repo?: string
     /**
-     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope
     /**
@@ -2104,6 +2145,8 @@ export type EngineeringAnalyticsWorkflowHealthRunScope =
 
 export const EngineeringAnalyticsWorkflowHealthRunScope = {
     All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
     PullRequest: 'pull_request',
 } as const
 
@@ -2159,6 +2202,10 @@ export type EngineeringAnalyticsWorkflowRunActivityParams = {
      */
     repo: string
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunActivityRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -2167,6 +2214,16 @@ export type EngineeringAnalyticsWorkflowRunActivityParams = {
      */
     workflow_name: string
 }
+
+export type EngineeringAnalyticsWorkflowRunActivityRunScope =
+    (typeof EngineeringAnalyticsWorkflowRunActivityRunScope)[keyof typeof EngineeringAnalyticsWorkflowRunActivityRunScope]
+
+export const EngineeringAnalyticsWorkflowRunActivityRunScope = {
+    All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
+    PullRequest: 'pull_request',
+} as const
 
 export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
     /**
@@ -2186,6 +2243,10 @@ export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
      */
     repo: string
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunnerCostsRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -2194,6 +2255,16 @@ export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
      */
     workflow_name: string
 }
+
+export type EngineeringAnalyticsWorkflowRunnerCostsRunScope =
+    (typeof EngineeringAnalyticsWorkflowRunnerCostsRunScope)[keyof typeof EngineeringAnalyticsWorkflowRunnerCostsRunScope]
+
+export const EngineeringAnalyticsWorkflowRunnerCostsRunScope = {
+    All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
+    PullRequest: 'pull_request',
+} as const
 
 export type EngineeringAnalyticsWorkflowRunsParams = {
     /**
@@ -2213,6 +2284,10 @@ export type EngineeringAnalyticsWorkflowRunsParams = {
      */
     repo: string
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunsRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -2221,3 +2296,13 @@ export type EngineeringAnalyticsWorkflowRunsParams = {
      */
     workflow_name: string
 }
+
+export type EngineeringAnalyticsWorkflowRunsRunScope =
+    (typeof EngineeringAnalyticsWorkflowRunsRunScope)[keyof typeof EngineeringAnalyticsWorkflowRunsRunScope]
+
+export const EngineeringAnalyticsWorkflowRunsRunScope = {
+    All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
+    PullRequest: 'pull_request',
+} as const

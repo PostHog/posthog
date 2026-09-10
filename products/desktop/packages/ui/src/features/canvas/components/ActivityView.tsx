@@ -8,9 +8,9 @@ import {
   EmptyMedia,
   EmptyTitle,
   MenuLabel,
-  Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityActionsMenu } from "@posthog/ui/features/canvas/components/ActivityActionsMenu";
@@ -19,12 +19,14 @@ import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/Ac
 import { InboxActivityOverflowRow } from "@posthog/ui/features/canvas/components/InboxActivityOverflowRow";
 import { InboxActivityRow } from "@posthog/ui/features/canvas/components/InboxActivityRow";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
+import { useActivityTaskMenu } from "@posthog/ui/features/canvas/hooks/useActivityTaskMenu";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useInboxActivityPreview } from "@posthog/ui/features/canvas/hooks/useInboxActivityPreview";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { Fragment, useCallback, useEffect, useMemo } from "react";
 import {
@@ -53,6 +55,7 @@ export function ActivityView() {
   });
   const taskActivity = useTaskActivity({ enabled: mentionsIncluded });
   const inboxActivity = useInboxActivityPreview();
+  const archivedTaskIds = useArchivedTaskIds();
   const {
     unreadItems,
     feedItems,
@@ -68,6 +71,7 @@ export function ActivityView() {
         mentionsIncluded,
         reportsIncluded: inboxActivity.isIncluded,
         unreadsOnly,
+        archivedTaskIds,
       }),
     [
       taskActivity.items,
@@ -76,6 +80,7 @@ export function ActivityView() {
       inboxActivity.isIncluded,
       mentionsIncluded,
       unreadsOnly,
+      archivedTaskIds,
     ],
   );
   const unreadCount = mentionsIncluded ? taskActivity.unreadCount : 0;
@@ -84,6 +89,8 @@ export function ActivityView() {
     (!unreadsOnly && inboxActivity.isLoading);
   // Selected once for the feed, not once per row.
   const blockedTaskIds = useBlockedTaskIds();
+  // One pin and one archive mutation for the feed, for the same reason.
+  const taskMenu = useActivityTaskMenu();
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   const dayStart = useLocalDayStart();
@@ -126,9 +133,7 @@ export function ActivityView() {
   // the layout's naming ("spaces" vs "channels").
   const feed =
     isLoading && feedItems.length === 0 ? (
-      <div className="flex justify-center py-16">
-        <Spinner />
-      </div>
+      <LoadingState className="py-16" />
     ) : feedItems.length === 0 ? (
       <>
         <Empty>
@@ -162,6 +167,7 @@ export function ActivityView() {
                   {item.kind === "task" ? (
                     <ActivityRow
                       item={item.task}
+                      menu={taskMenu(item.task)}
                       onMarkRead={markRead}
                       onActivate={openActivityItem}
                       currentUser={currentUser}

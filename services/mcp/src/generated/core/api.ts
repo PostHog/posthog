@@ -50,6 +50,8 @@ export const organizationsProjectsPartialUpdateBodyNameMax = 200
 
 export const organizationsProjectsPartialUpdateBodyProductDescriptionMax = 1000
 
+export const organizationsProjectsPartialUpdateBodyTagsItemMax = 255
+
 export const organizationsProjectsPartialUpdateBodyAppUrlsItemMax = 200
 
 export const organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
@@ -112,6 +114,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .nullish()
             .describe(
                 'Short description of what the project is about. This is helpful to give our AI agents context about your project.'
+            ),
+        tags: zod
+            .array(zod.string().max(organizationsProjectsPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                "Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags."
             ),
         app_urls: zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyAppUrlsItemMax).nullable())
@@ -2392,6 +2400,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'How credit is split across touchpoints when a person saw several campaigns before converting.\n\n\* `first_touch` - First Touch\n\* `last_touch` - Last Touch\n\* `linear` - Linear\n\* `time_decay` - Time Decay\n\* `position_based` - Position Based'
                     ),
+                filter_test_accounts: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether marketing analytics drops traffic matching the project's test-account filters. Off by default."
+                    ),
                 campaign_name_mappings: zod
                     .record(zod.string(), zod.record(zod.string(), zod.array(zod.string())))
                     .describe('Mapping of integration type to canonical campaign name to the aliases folded into it.')
@@ -2455,6 +2469,16 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
+            })
+            .optional(),
+        feature_flag_policy_config: zod
+            .object({
+                require_tags: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
                     ),
             })
             .optional(),
@@ -2648,7 +2672,9 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
         onboarding_tasks: zod.unknown().optional(),
         web_analytics_pre_aggregated_tables_enabled: zod.boolean().nullish(),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        "A project and its settings, including the settings that live on its passthrough Team.\n\nThis shape is a superset of TeamSerializer's, so a request rewritten from \/api\/environments\/\nonto \/api\/projects\/ never loses a field."
+    )
 
 export const ProductEnablementCreateParams = () => zod.object({
     project_id: zod

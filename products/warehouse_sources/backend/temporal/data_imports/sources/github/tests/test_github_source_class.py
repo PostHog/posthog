@@ -642,6 +642,36 @@ class TestGithubSource:
 
         assert valid is False
         assert message is not None and "a/missing" in message
+        assert message.count("read access") == 1
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"
+    )
+    def test_validate_credentials_states_the_next_step_once_for_several_repos(self, mock_validate):
+        # Guards against the next step moving back into the per-repo reason, where N inaccessible
+        # repos would read as the same sentence N times.
+        mock_validate.side_effect = [
+            (False, "Repository 'a/one' not found or not accessible"),
+            (False, "Repository 'a/two' not found or not accessible"),
+        ]
+
+        valid, message = self.source.validate_credentials(_pat_config(repositories=["a/one", "a/two"]), self.team_id)
+
+        assert valid is False
+        assert message is not None
+        assert "a/one" in message and "a/two" in message
+        assert message.count("read access") == 1
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"
+    )
+    def test_validate_credentials_omits_repo_guidance_for_other_failures(self, mock_validate):
+        mock_validate.side_effect = [(False, "Validation failed")]
+
+        valid, message = self.source.validate_credentials(_pat_config(repositories=["a/one"]), self.team_id)
+
+        assert valid is False
+        assert message == "Validation failed"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"
@@ -682,6 +712,7 @@ class TestGithubSource:
         inputs.schema_metadata = None
         inputs.s3_folder_name = "issues"
         inputs.should_use_incremental_field = False
+        inputs.last_synced_at = datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC)
 
         self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
 
@@ -689,6 +720,7 @@ class TestGithubSource:
         assert kwargs["repository"] == "legacy/repo"
         assert kwargs["endpoint"] == "issues"
         assert kwargs["response_name"] == "issues"
+        assert kwargs["reconcile_since"] == inputs.last_synced_at
 
     @pytest.mark.parametrize(
         "pin,expected",

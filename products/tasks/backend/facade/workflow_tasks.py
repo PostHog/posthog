@@ -5,6 +5,16 @@ and starts the task through this boundary.
 """
 
 from products.tasks.backend.facade.contracts import WorkflowTaskRateLimits, WorkflowTaskSlackContext
+from products.tasks.backend.logic.services.workflow_task_output import (
+    OUTPUT_FIELD_TYPES,
+    WorkflowTaskOutputFieldsInvalid,
+    build_output_schema,
+)
+from products.tasks.backend.logic.services.workflow_task_skills import (
+    MAX_ATTACHED_SKILLS,
+    WorkflowTaskSkillsInvalid,
+    validate_skill_names,
+)
 from products.tasks.backend.logic.services.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
@@ -18,15 +28,21 @@ from products.tasks.backend.logic.services.workflow_tasks import (
 )
 
 __all__ = [
+    "MAX_ATTACHED_SKILLS",
+    "OUTPUT_FIELD_TYPES",
     "WorkflowTaskConnectorsInvalid",
     "WorkflowTaskLimitExceeded",
     "WorkflowTaskOriginKeyConflict",
+    "WorkflowTaskOutputFieldsInvalid",
     "WorkflowTaskOwnerIneligible",
     "WorkflowTaskRateCapped",
     "WorkflowTaskRateLimits",
+    "WorkflowTaskSkillsInvalid",
     "WorkflowTaskSlackContext",
     "WorkflowTaskTeamRateCapped",
     "WorkflowTaskUsageLimited",
+    "build_output_schema",
     "create_workflow_task",
     "resolve_connectors",
+    "validate_skill_names",
 ]

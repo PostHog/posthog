@@ -93,11 +93,13 @@ export const ToolConfigSchema = z
                          * - `'string-int'` — casts strings that look like a base-10 integer
                          *   (e.g. `"123"`, `"-7"`) to a number. Anything else passes through
                          *   unchanged so zod still rejects with its honest error.
+                         * - `'boolean-string'` — casts a boolean to `"true"` / `"false"` for a
+                         *   string param that reads as a boolean to an agent (e.g. `enabled`).
                          *
                          * Mutually exclusive with `input_schema` and `schema_ref` (those
                          * fully replace the schema; cast composes with the existing one).
                          */
-                        cast: z.enum(['string-int']).optional(),
+                        cast: z.enum(['string-int', 'boolean-string']).optional(),
                         /**
                          * Alternate key names accepted for this param and normalized to it
                          * before validation — for identifier params agents guess different
@@ -175,6 +177,14 @@ export const ToolConfigSchema = z
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
+        /**
+         * Tool names that took over this tool's job. Set it on any tool a gate
+         * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
+         * name reports the successor instead of reading as an unknown tool.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
         /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
@@ -535,6 +545,14 @@ export const QueryWrapperToolConfigSchema = z
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
+        /**
+         * Tool names that took over this tool's job. Set it on any tool a gate
+         * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
+         * name reports the successor instead of reading as an unknown tool.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

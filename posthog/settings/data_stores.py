@@ -686,6 +686,14 @@ CACHES["organization_access"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Cohort dependency reads must see the writes made earlier in the same request: the create path
+# writes the new cohort's keys and then reads them back before responding, and a replica-lag miss
+# there rescans every cohort of the team inside the request.
+CACHES["cohort_dependencies"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -749,6 +757,7 @@ if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
     CACHES["query_cache"] = CACHES["default"]
     CACHES["organization_access"] = CACHES["default"]
+    CACHES["cohort_dependencies"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

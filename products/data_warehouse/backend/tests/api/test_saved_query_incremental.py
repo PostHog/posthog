@@ -49,10 +49,7 @@ class TestSavedQueryIncremental(APIBaseTest):
 
         assert response.status_code == 201, response.json()
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
-    )
-    def test_incremental_state_is_read_only(self, _workflow_exists):
+    def test_incremental_state_is_read_only(self):
         created = self._create(incremental=CONFIG)
         saved_query_id = created.json()["id"]
 
@@ -64,10 +61,7 @@ class TestSavedQueryIncremental(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert DataWarehouseSavedQuery.objects.get(id=saved_query_id).incremental_state is None
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
-    )
-    def test_changing_the_query_alone_is_checked_against_the_stored_config(self, _workflow_exists):
+    def test_changing_the_query_alone_is_checked_against_the_stored_config(self):
         """Otherwise a query incremental cannot serve saves while the view stays incremental, and
         only fails at the next run."""
         created = self._create(incremental=CONFIG)

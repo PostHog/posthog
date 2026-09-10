@@ -173,7 +173,16 @@ describe("artefacts", () => {
           last_name: "",
         },
       }),
-      expected: [{ github_login: "ada" }],
+      expected: [{ user_uuid: "uuid-1" }],
+    },
+    {
+      name: "stored user uuid",
+      reviewer: makeReviewer({
+        github_login: "stale-login",
+        user_uuid: "uuid-stable",
+        user: null,
+      }),
+      expected: [{ user_uuid: "uuid-stable" }],
     },
     {
       name: "user uuid fallback",

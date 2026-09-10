@@ -96,6 +96,99 @@ const deleteFeatureFlag = (): ToolBase<ReturnType<typeof DeleteFeatureFlagSchema
     },
 })
 
+const FeatureFlagArchiveSchema = () => {
+    const FeatureFlagsArchiveCreateParams = orvalSchemas.FeatureFlagsArchiveCreateParams()
+    return FeatureFlagsArchiveCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsArchiveCreateParams.shape['id']),
+    })
+}
+
+const featureFlagArchive = (): ToolBase<
+    ReturnType<typeof FeatureFlagArchiveSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-archive',
+    schema: FeatureFlagArchiveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagArchiveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/archive/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'status',
+            'version',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+    },
+})
+
+const FeatureFlagDisableSchema = () => {
+    const FeatureFlagsDisableCreateParams = orvalSchemas.FeatureFlagsDisableCreateParams()
+    return FeatureFlagsDisableCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsDisableCreateParams.shape['id']),
+    })
+}
+
+const featureFlagDisable = (): ToolBase<
+    ReturnType<typeof FeatureFlagDisableSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-disable',
+    schema: FeatureFlagDisableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagDisableSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/disable/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'status',
+            'version',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+    },
+})
+
+const FeatureFlagEnableSchema = () => {
+    const FeatureFlagsEnableCreateParams = orvalSchemas.FeatureFlagsEnableCreateParams()
+    return FeatureFlagsEnableCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsEnableCreateParams.shape['id']),
+    })
+}
+
+const featureFlagEnable = (): ToolBase<
+    ReturnType<typeof FeatureFlagEnableSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-enable',
+    schema: FeatureFlagEnableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagEnableSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/enable/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'status',
+            'version',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+    },
+})
+
 const FeatureFlagGetAllSchema = () => {
     const FeatureFlagsListQueryParams = orvalSchemas.FeatureFlagsListQueryParams()
     return FeatureFlagsListQueryParams.extend({
@@ -174,6 +267,37 @@ const featureFlagGetDefinition = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
         })
         return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+    },
+})
+
+const FeatureFlagUnarchiveSchema = () => {
+    const FeatureFlagsUnarchiveCreateParams = orvalSchemas.FeatureFlagsUnarchiveCreateParams()
+    return FeatureFlagsUnarchiveCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsUnarchiveCreateParams.shape['id']),
+    })
+}
+
+const featureFlagUnarchive = (): ToolBase<
+    ReturnType<typeof FeatureFlagUnarchiveSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-unarchive',
+    schema: FeatureFlagUnarchiveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagUnarchiveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/unarchive/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'status',
+            'version',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
     },
 })
 
@@ -286,6 +410,39 @@ const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
         const result = await context.api.request<Schemas.BulkUpdateTagsResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_update_tags/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsCopyDependenciesCheckSchema = () => {
+    const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody =
+        orvalSchemas.FeatureFlagsCopyFlagsDependencyRequirementsCreateBody()
+    return FeatureFlagsCopyFlagsDependencyRequirementsCreateBody
+}
+
+const featureFlagsCopyDependenciesCheck = (): ToolBase<
+    ReturnType<typeof FeatureFlagsCopyDependenciesCheckSchema>,
+    Schemas.CopyFlagsDependencyRequirementsResponse
+> => ({
+    name: 'feature-flags-copy-dependencies-check',
+    schema: FeatureFlagsCopyDependenciesCheckSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsCopyDependenciesCheckSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.feature_flag_key !== undefined) {
+            body['feature_flag_key'] = params.feature_flag_key
+        }
+        if (params.from_project !== undefined) {
+            body['from_project'] = params.from_project
+        }
+        if (params.target_project_ids !== undefined) {
+            body['target_project_ids'] = params.target_project_ids
+        }
+        const result = await context.api.request<Schemas.CopyFlagsDependencyRequirementsResponse>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/dependency_requirements/`,
             body,
         })
         return result
@@ -749,12 +906,17 @@ const updateFeatureFlag = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'create-feature-flag': createFeatureFlag,
     'delete-feature-flag': deleteFeatureFlag,
+    'feature-flag-archive': featureFlagArchive,
+    'feature-flag-disable': featureFlagDisable,
+    'feature-flag-enable': featureFlagEnable,
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
+    'feature-flag-unarchive': featureFlagUnarchive,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,
     'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
     'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,
     'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
+    'feature-flags-copy-dependencies-check': featureFlagsCopyDependenciesCheck,
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
     'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,

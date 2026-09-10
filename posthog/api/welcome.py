@@ -285,7 +285,9 @@ def _get_accessible_team_ids(organization: Organization, access_control: UserAcc
             organization_id=str(organization.id),
         )
         return []
-    return list(queryset.order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
+    # Sort after the bounded fetch: an `ORDER BY id ... LIMIT n` lets the planner walk the primary
+    # key and filter organization_id on the way, instead of seeking the organization index.
+    return sorted(queryset.values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
 
 
 def _filter_visible(members: list[dict[str, Any]], organization: Organization, user: User) -> list[dict[str, Any]]:
@@ -520,7 +522,7 @@ def _get_products_in_use(organization: Organization) -> list[str]:
     round-trip (vs. the prior N EXISTS queries), plus one extra pass over has_completed_onboarding_for
     to surface JSONB-encoded onboarding keys.
     """
-    team_ids = list(organization.teams.all().order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
+    team_ids = list(organization.teams.all().values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
     if not team_ids:
         return []
     from posthog.models import Team

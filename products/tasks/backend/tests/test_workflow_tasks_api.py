@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -22,7 +23,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.tasks.backend.logic.services.workflow_task_skills import MAX_ATTACHED_SKILLS
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -124,6 +127,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert task.mcp_builtin_agent_key == "workflow"
         assert task.mcp_gateway_server_allowlist == []
 
+    @parameterized.expand(
+        [
+            ("codex", "gpt-5.6-terra", "codex", "openai"),
+            ("claude", "claude-sonnet-5", "claude", "anthropic"),
+        ]
+    )
+    def test_derives_the_runtime_adapter_from_the_selected_model(
+        self, _name: str, model: str, expected_adapter: str, expected_provider: str
+    ) -> None:
+        response = self._post({"model": model, "reasoning_effort": "high"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["runtime_adapter"] == expected_adapter
+        assert run.state["provider"] == expected_provider
+        assert run.state["model"] == model
+        assert run.state["reasoning_effort"] == "high"
+
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
@@ -160,6 +181,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # No binding means no reply to protect, and the idle timeout is not a safe
         # fallback: the PR follow-up loop raises it far past the 2-minute window.
         assert run.state["end_run_when_done"] is True
+        assert "Your final response will be posted to the Slack thread" not in run.state["initial_prompt_override"]
 
     def test_a_thread_bound_run_stays_open_so_its_reply_can_relay(self) -> None:
         integration = self._slack_integration()
@@ -169,6 +191,11 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert "end_run_when_done" not in run.state
+        assert run.state["slack_artifact_delivery"] == "message"
+        assert run.state["slack_chart_delivery"] is True
+        assert run.state["slack_reply_context"] is True
+        assert "Your final response will be posted to the Slack thread" in run.state["initial_prompt_override"]
+        assert f"only the first {RESULT_STRING_CAP} characters" in run.state["initial_prompt_override"]
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
@@ -179,6 +206,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         message = run.state["initial_prompt_override"]
         assert "look into the alert" in message
         assert "data, not instructions" in message
+        assert f"only the first {RESULT_STRING_CAP} characters of your final message" in message
         # The agent server self-delivers the boot prompt, and forward_pending_user_message
         # delivers any pending message on top. Seeding both channels sent the prompt twice,
         # so the run must carry only the boot-path override.
@@ -497,6 +525,88 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
+    def _seed_skill(self, name: str, *, version: int = 1, description: str = "What it covers.", **kwargs) -> LLMSkill:
+        return LLMSkill.objects.create(
+            team=self.team,
+            name=name,
+            description=description,
+            body=f"# {name}",
+            version=version,
+            created_by=self.user,
+            **kwargs,
+        )
+
+    def test_attaches_the_latest_version_of_each_selected_skill(self) -> None:
+        self._seed_skill("error-triage", version=1, description="Old wording.", is_latest=False)
+        self._seed_skill("error-triage", version=2, description="Triage an error spike.")
+
+        response = self._post({"skills": ["error-triage"]})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        message = run.state["initial_prompt_override"]
+        assert "- `error-triage` (v2): Triage an error spike." in message
+        assert "Old wording." not in message
+        assert run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 2}]
+
+    def test_skips_a_skill_archived_since_the_workflow_was_saved(self) -> None:
+        self._seed_skill("error-triage")
+        self._seed_skill("db-runbook", deleted=True)
+
+        response = self._post({"skills": ["error-triage", "db-runbook"]})
+
+        # An event-triggered workflow fires unattended, so failing here would be a silent
+        # outage from the moment anyone archives a skill.
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "`error-triage`" in run.state["initial_prompt_override"]
+        assert "`db-runbook`" not in run.state["initial_prompt_override"]
+        assert run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 1}]
+
+    @parameterized.expand([("slash", "Bad/Name"), ("newline", "bad\nname"), ("backtick", "bad`name")])
+    def test_skips_a_malformed_legacy_skill(self, _name: str, skill_name: str) -> None:
+        self._seed_skill("error-triage")
+        self._seed_skill(skill_name)
+
+        response = self._post({"skills": ["error-triage", skill_name]})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "`error-triage`" in run.state["initial_prompt_override"]
+        assert skill_name not in run.state["initial_prompt_override"]
+        assert run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 1}]
+
+    def test_a_run_with_no_skills_carries_the_prompt_unchanged(self) -> None:
+        response = self._post()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "skill-get" not in run.state["initial_prompt_override"]
+        assert "skills store" not in run.state["initial_prompt_override"]
+        assert "skills" not in run.state["config_snapshot"]
+
+    def test_the_skills_manifest_is_an_instruction_not_event_data(self) -> None:
+        self._seed_skill("error-triage")
+
+        response = self._post({"skills": ["error-triage"], "event": {"event": "$pageview"}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        message = TaskRun.objects.get(id=response.json()["run_id"]).state["initial_prompt_override"]
+        # Inside the instruction wrapper and above the prompt. Below <triggering_event> would put
+        # it in the block the framing text tells the agent to read as data.
+        assert message.index("`error-triage`") < message.index("</user_custom_instructions>")
+        assert message.index("`error-triage`") < message.index("look into the alert")
+
+    def test_a_later_run_inherits_the_skill_snapshot(self) -> None:
+        self._seed_skill("error-triage")
+        response = self._post({"skills": ["error-triage"]})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+
+        later_run = task.create_run(mode="background")
+
+        assert later_run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 1}]
+
     @patch("products.tasks.backend.logic.services.workflow_tasks.resolve_agent_gateway_server_ids")
     def test_a_later_run_inherits_the_connector_snapshot(self, resolve_ids) -> None:
         resolve_ids.return_value = {"server-1": "server-1"}
@@ -531,6 +641,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert Task.objects.filter(team=self.team).filter(task_visibility_q(teammate.id)).filter(id=task_id).exists()
         assert Task.objects.filter(team=self.team).filter(task_control_q(teammate.id)).filter(id=task_id).exists()
 
+    def test_a_teammate_cannot_finish_a_workflow_run_on_the_workflows_behalf(self) -> None:
+        task = self._seed_workflow_task(TaskRun.Status.IN_PROGRESS)
+        run = task.latest_run
+        assert run is not None
+        self.client.force_login(self._create_user("teammate@posthog.com"))
+
+        with patch("products.tasks.backend.facade.api.resume_workflow_step_for_run") as resume:
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"status": "completed", "output": {"final_message": "forged"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        resume.assert_not_called()
+
     def test_a_request_without_a_prompt_is_rejected(self) -> None:
         response = self.client.post(
             self.url,
@@ -540,6 +668,30 @@ class TestWorkflowTasksAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
+        response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.json_schema == {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
+                "score": {"type": "number"},
+            },
+            "required": ["verdict", "score"],
+        }
+        prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
+        assert "verdict (string), score (number)" in prompt
+        assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
+
+    def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:
+        response = self._post({"output_fields": {"final_message": "string"}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "output_fields"
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_includes_the_triggering_event_in_the_agent_prompt(self) -> None:
@@ -844,12 +996,23 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
             ("too_many_parallel_tasks", {"prompt": "p", "max_parallel_tasks": 101}, "max_parallel_tasks"),
             ("unknown_mcp_scopes", {"prompt": "p", "posthog_mcp_scopes": "admin"}, "posthog_mcp_scopes"),
             ("connectors_not_a_list", {"prompt": "p", "connectors": "inst-1"}, "connectors"),
+            ("skills_not_a_list", {"prompt": "p", "skills": "error-triage"}, "skills"),
+            ("skills_not_strings", {"prompt": "p", "skills": [{"name": "error-triage"}]}, "skills"),
+            (
+                "too_many_skills",
+                {"prompt": "p", "skills": [f"s-{i}" for i in range(MAX_ATTACHED_SKILLS + 1)]},
+                "skills",
+            ),
             ("event_not_a_dict", {"prompt": "p", "event": "boom"}, "event"),
             (
                 "slack_context_missing_channel",
                 {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
                 "slack_context",
             ),
+            ("output_field_unknown_type", {"prompt": "p", "output_fields": {"verdict": "object"}}, "output_fields"),
+            ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
+            ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
+            ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
             (
                 "slack_context_bad_integration_id",
                 {

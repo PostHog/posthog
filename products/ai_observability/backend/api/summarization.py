@@ -522,7 +522,18 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             OpenApiExample(
                 "Success Response",
                 value={
-                    "summary": "## Summary\n- User initiated conversation with greeting [L5-8]\n- Assistant responded with friendly message [L12-15]\n\n## Interesting Notes\n- Standard greeting pattern with no errors",
+                    "summary": {
+                        "title": "User greets the assistant",
+                        "flow_diagram": "User → Assistant → Response",
+                        "summary_bullets": [
+                            {"text": "User initiated conversation with a greeting", "line_refs": "L5"},
+                            {"text": "Assistant responded with a friendly message", "line_refs": "L12"},
+                        ],
+                        "interesting_notes": [
+                            {"text": "Standard greeting pattern with no errors", "line_refs": ""},
+                        ],
+                    },
+                    "text_repr": "L001: user: hi\nL012: assistant: hello",
                     "metadata": {
                         "text_repr_length": 450,
                         "model": "gpt-4.1",

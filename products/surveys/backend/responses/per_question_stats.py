@@ -11,7 +11,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 
 from products.surveys.backend.models import Survey
-from products.surveys.backend.responses.fetch_rows import SUBMISSION_GROUPING_KEY, resolve_question_metadata
+from products.surveys.backend.responses.fetch_rows import (
+    RESPONSE_EVENT_FILTER,
+    SUBMISSION_GROUPING_KEY,
+    resolve_question_metadata,
+)
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,7 @@ def fetch_per_question_stats(
             "q_idx": ast.Constant(value=question_index),
             "q_id": ast.Constant(value=question_id),
             "grouping_key": parse_expr(SUBMISSION_GROUPING_KEY),
+            "response_events": parse_expr(RESPONSE_EVENT_FILTER),
         }
 
         # For open questions: just count non-empty responses — distribution across free-text
@@ -82,7 +87,7 @@ def fetch_per_question_stats(
                             timestamp,
                             {grouping_key} AS submission_key
                         FROM events
-                        WHERE event = 'survey sent'
+                        WHERE {response_events}
                             AND properties.`$survey_id` = {survey_id}
                             AND timestamp >= {start_date}
                             AND timestamp <= {end_date}
@@ -122,7 +127,7 @@ def fetch_per_question_stats(
                         timestamp,
                         {grouping_key} AS submission_key
                     FROM events
-                    WHERE event = 'survey sent'
+                    WHERE {response_events}
                         AND properties.`$survey_id` = {survey_id}
                         AND timestamp >= {start_date}
                         AND timestamp <= {end_date}
