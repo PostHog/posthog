@@ -89,6 +89,7 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 logger = structlog.get_logger(__name__)
 
@@ -1758,6 +1759,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             )
         verb_payload = entry.payload_serializer(data=payload.validated_data["payload"])
         verb_payload.is_valid(raise_exception=True)
+        if entry.starts_cloud_run:
+            if access_response := code_access_required_response(request, self.organization):
+                return access_response
+            if limit_response := usage_limit_response(user, self.team_id):
+                return limit_response
         try:
             result = entry.execute(self.team_id, user.id, canvas, verb_payload.validated_data)
         except ValueError as error:
