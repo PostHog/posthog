@@ -214,7 +214,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     )
     const alertThresholdLines = insight?.id ? alertsToThresholdGoalLines(alerts) : []
 
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { toggleChartSettingsPanel, loadData } = useActions(dataVisualizationLogic)
 
     const { queryId, pollResponse } = useValues(dataNodeLogic)
 
@@ -243,11 +243,26 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 />
             </div>
         )
-    } else if (!response || responseLoading) {
+    } else if (responseLoading) {
         // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+            </div>
+        )
+    } else if (!response) {
+        // The load has settled and produced neither a result nor an error. `dataNodeLogic` resolves
+        // with no response when it declines to run the source query at all — an empty query string,
+        // a funnel with one step, an invalid regex filter — and it never runs one on a node whose
+        // source is empty. Showing the spinner here left it turning for as long as the reader waited.
+        component = (
+            <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
+                <InsightErrorState
+                    query={props.query}
+                    excludeDetail
+                    title="This chart didn't load"
+                    onRetry={() => loadData(shouldQueryBeAsync(props.query.source) ? 'force_async' : 'force_blocking')}
+                />
             </div>
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {

@@ -4,8 +4,10 @@ import {
   isPullRequestReport,
   isReportTabReport,
 } from "@posthog/core/inbox/reportMembership";
+import { Text } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
+import { InboxReportStatusConfirmedContext } from "@posthog/ui/features/inbox/context/inboxReportStatusContext";
 import {
   asInboxBackTarget,
   type InboxListRoute,
@@ -73,7 +75,9 @@ function nonSuppressedDetailRoute(report: SignalReport): InboxDetailRoute {
 /**
  * Shared loading + missing-report shell for inbox detail screens. The actual
  * detail body is rendered by the `children` render prop once the report is
- * resolved (either from the fresh query or from the cached/seeded report).
+ * resolved (either from the fresh query or from the cached/seeded report), so a
+ * report the reader arrives with in cache paints at once and stays put while
+ * the query refreshes behind it.
  */
 export function InboxReportDetailGate({
   reportId,
@@ -125,15 +129,20 @@ export function InboxReportDetailGate({
 
   // The redirect above only fires once the fetch settles, so on a triage route we
   // still hold an unconfirmed cached/seeded status during the forced post-mount
-  // fetch. Rendering the children then would briefly expose full triage actions
-  // (create PR, discuss, archive) for a report that another session has already
-  // suppressed, before the redirect kicks in. Hold the spinner until that same
-  // fetch settles. Routes without status redirects and the Archive route render
-  // from cache: neither can expose actions for the wrong status route.
-  const statusUnconfirmed =
+  // fetch. Exposing full triage actions (create PR, discuss, archive) then would
+  // act on a report that another session has already suppressed, before the
+  // redirect kicks in. So the actions wait for that fetch, while the report
+  // itself stays readable. Blanking the whole frame instead put a spinner over a
+  // report the reader was already looking at, and it remounted the children,
+  // which counted one open twice. `requireFreshStatus` opts the canonical detail
+  // route (which carries no status↔route redirect) into the same wait. The
+  // Archive route renders from cache and can't expose actions for the wrong
+  // status route.
+  const statusConfirmed = !(
     (requireFreshStatus || (statusRedirect && !onDismissedRoute)) &&
     isFetching &&
-    !isFetchedAfterMount;
+    !isFetchedAfterMount
+  );
   const redirectReportId = resolvedReport?.id;
   useEffect(() => {
     if (!redirectTo || !redirectReportId) return;
@@ -161,7 +170,7 @@ export function InboxReportDetailGate({
     });
   }, [redirectTo, redirectReportId, navigate, backTo, backLabel, triageOrigin]);
 
-  if ((isLoading && !resolvedReport) || statusUnconfirmed) {
+  if (isLoading && !resolvedReport) {
     return <LoadingState className="py-16" />;
   }
 
@@ -179,17 +188,17 @@ export function InboxReportDetailGate({
             to={backLinkTo ?? backTo}
             label={backLinkLabel ?? backLabel}
           />
-          <p className="m-0 text-[13px] text-gray-11">{missingCopy}</p>
+          <Text className="text-[13px] text-gray-11">{missingCopy}</Text>
         </div>
       </div>
     );
   }
 
   return (
-    <>
+    <InboxReportStatusConfirmedContext.Provider value={statusConfirmed}>
       {trackTab && <ReportOpenTracker report={resolvedReport} tab={trackTab} />}
       {children(resolvedReport)}
-    </>
+    </InboxReportStatusConfirmedContext.Provider>
   );
 }
 

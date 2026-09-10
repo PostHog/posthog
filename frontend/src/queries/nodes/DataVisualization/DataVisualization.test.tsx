@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -81,4 +81,18 @@ describe('DataTableVisualization', () => {
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
+
+    it('offers a retry when the source query never ran', async () => {
+        render(
+            <DataTableVisualization
+                uniqueKey="data-visualization-unrunnable"
+                query={{ ...query, source: { kind: NodeKind.HogQLQuery, query: '' } }}
+                setQuery={jest.fn()}
+                readOnly
+            />
+        )
+
+        expect(await screen.findByText("This chart didn't load")).toBeTruthy()
+        expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy()
+    })
 })
