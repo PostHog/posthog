@@ -85,6 +85,31 @@ class TestOIDCAuthentication(APILicensedTest):
         request.session["oidc_organization_id"] = self.organization.id
         self.backend = MultitenantOIDCAuth(load_strategy(request), "https://app.example.com/complete/oidc/")
 
+    @parameterized.expand([("malformed", b"not-json"), ("non_object", b"[]")])
+    def test_oidc_rejects_invalid_discovery_json(self, _name, content):
+        response = Response()
+        response.status_code = 200
+        response._content = content
+        with patch.object(self.backend, "request", return_value=response):
+            with self.assertRaises(AuthFailed):
+                self.backend.get_json("https://idp.example.com/.well-known/openid-configuration")
+
+    @parameterized.expand([("missing_keys", {}), ("non_list_keys", {"keys": {}}), ("non_object_key", {"keys": [None]})])
+    def test_oidc_rejects_invalid_jwks_document(self, _name, document):
+        response = Response()
+        response.status_code = 200
+        response._content = json.dumps(document).encode()
+        with (
+            patch.object(self.backend, "jwks_uri", return_value="https://idp.example.com/keys"),
+            patch.object(self.backend, "request", return_value=response),
+        ):
+            with self.assertRaises(AuthFailed):
+                self.backend.get_remote_jwks_keys()
+
+    def test_oidc_rejects_malformed_id_token_header(self):
+        with self.assertRaises(AuthTokenError):
+            self.backend.find_valid_key("not-a-jwt")
+
     @parameterized.expand(
         [
             ("valid", None),

@@ -1,3 +1,4 @@
+import time
 from functools import cached_property
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -15,6 +16,10 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
 BasicAuthCredentials = tuple[str, str]
+
+OIDC_FETCH_TIMEOUT_SECONDS = 10
+OIDC_FETCH_MAX_BYTES = 1024 * 1024
+OIDC_FETCH_READ_CHUNK_BYTES = 64 * 1024
 
 
 @frozen
@@ -74,6 +79,15 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
     def oidc_config(self) -> dict[str, Any]:
         return self.discovery_document
 
+    def get_json(self, url: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        try:
+            document = super().get_json(url, *args, **kwargs)
+        except (TypeError, ValueError) as error:
+            raise AuthFailed(self, "The OIDC provider returned invalid JSON.") from error
+        if not isinstance(document, dict):
+            raise AuthFailed(self, "The OIDC provider returned an invalid JSON document.")
+        return document
+
     @cached_property
     def discovery_document(self) -> dict[str, Any]:
         document = self.get_json(f"{self.oidc_endpoint()}/.well-known/openid-configuration")
@@ -100,17 +114,31 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
     def get_jwks_keys(self) -> list[dict[str, Any]]:
         return self.get_remote_jwks_keys()
 
+    def get_remote_jwks_keys(self) -> list[dict[str, Any]]:
+        try:
+            document = self.request(self.jwks_uri()).json()
+        except (TypeError, ValueError) as error:
+            raise AuthFailed(self, "The OIDC provider returned invalid JWKS JSON.") from error
+        if not isinstance(document, dict) or not isinstance(document.get("keys"), list):
+            raise AuthFailed(self, "The OIDC provider returned an invalid JWKS document.")
+        if not all(isinstance(key, dict) for key in document["keys"]):
+            raise AuthFailed(self, "The OIDC provider returned invalid JWKS keys.")
+        return cast(list[dict[str, Any]], document["keys"])
+
     def find_valid_key(self, id_token: str) -> dict[str, Any] | None:
-        key_id = jwt.get_unverified_header(id_token).get("kid")
-        keys = [
-            {**key, "alg": "RS256"}
-            for key in self.get_jwks_keys()
-            if key.get("kty") == "RSA"
-            and key.get("alg", "RS256") == "RS256"
-            and key.get("use", "sig") == "sig"
-            and (key_id is None or key.get("kid") == key_id)
-        ]
-        return keys[0] if len(keys) == 1 else None
+        try:
+            key_id = jwt.get_unverified_header(id_token).get("kid")
+            keys = [
+                {**key, "alg": "RS256"}
+                for key in self.get_jwks_keys()
+                if key.get("kty") == "RSA"
+                and key.get("alg", "RS256") == "RS256"
+                and key.get("use", "sig") == "sig"
+                and (key_id is None or key.get("kid") == key_id)
+            ]
+            return keys[0] if len(keys) == 1 else None
+        except (AttributeError, KeyError, TypeError, ValueError, jwt.InvalidTokenError) as error:
+            raise AuthTokenError(self, "The OIDC ID token or JWKS is invalid.") from error
 
     def validate_claims(self, id_token: dict[str, Any]) -> None:
         client_id = self.identity_provider_config.oidc_client_id
@@ -125,15 +153,38 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
     def request(self, url: str, method: str = "GET", *args: Any, **kwargs: Any) -> Response:
         if urlsplit(url).scheme != "https":
             raise AuthFailed(self, "OIDC requires HTTPS endpoints.")
-        kwargs["timeout"] = 10
+        deadline = time.monotonic() + OIDC_FETCH_TIMEOUT_SECONDS
+        remaining_seconds = deadline - time.monotonic()
+        kwargs["timeout"] = (remaining_seconds, remaining_seconds)
         kwargs["allow_redirects"] = False
+        kwargs["stream"] = True
         try:
             with pinned_session(url) as session:
                 response = session.request(method, url, *args, **kwargs)
-                if response.is_redirect:
-                    raise AuthFailed(self, "OIDC endpoint redirects are not supported.")
-                response.raise_for_status()
-                return response
+                try:
+                    if response.is_redirect:
+                        raise AuthFailed(self, "OIDC endpoint redirects are not supported.")
+                    response.raise_for_status()
+
+                    content_length = response.headers.get("Content-Length")
+                    if content_length and content_length.isdigit() and int(content_length) > OIDC_FETCH_MAX_BYTES:
+                        raise RequestException("OIDC response exceeds the maximum size")
+
+                    chunks: list[bytes] = []
+                    bytes_read = 0
+                    for chunk in response.iter_content(chunk_size=OIDC_FETCH_READ_CHUNK_BYTES):
+                        bytes_read += len(chunk)
+                        if bytes_read > OIDC_FETCH_MAX_BYTES:
+                            raise RequestException("OIDC response exceeds the maximum size")
+                        chunks.append(chunk)
+                        if time.monotonic() > deadline:
+                            raise RequestException("OIDC response exceeded the total time limit")
+
+                    response._content = b"".join(chunks)
+                    response._content_consumed = True
+                    return response
+                finally:
+                    response.close()
         except (RequestException, SSRFBlockedError) as error:
             raise AuthConnectionError(self) from error
 
