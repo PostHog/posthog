@@ -1,3 +1,4 @@
+import re
 import json
 from io import StringIO
 from typing import Any
@@ -13,6 +14,13 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.feature_flags.backend.filters_validation import collect_filters_violations
+from products.feature_flags.backend.management.commands.audit_flag_filters import (
+    DIVERGENCE_ABSENT_GROUPS,
+    DIVERGENCE_DROPPED_KEY,
+    DIVERGENCE_NUMERIC_PROPERTY_KEY,
+    DIVERGENCE_OPERATOR_ALIAS,
+    DIVERGENCE_SHAPES,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 INVALID_MULTIVARIATE_FILTERS: dict[str, Any] = {
@@ -36,6 +44,11 @@ class TestAuditFlagFilters(BaseTest):
 
     def _rule(self, report: dict[str, Any], rule_id: str) -> dict[str, Any] | None:
         return next((rule for rule in report["rules"] if rule["rule_id"] == rule_id), None)
+
+    def _divergence_counts(self, report: dict[str, Any]) -> dict[str, int]:
+        # A clean violations run is the enforcement gate, so a divergence must never be a violation.
+        assert [rule for rule in report["rules"] if rule["rule_id"].startswith("roundtrip.")] == []
+        return {entry["shape_id"]: entry["flags_affected"] for entry in report["roundtrip_divergences"]}
 
     def test_clean_flags_report_no_violations(self) -> None:
         self._create_flag("clean", {"groups": [{"properties": [], "rollout_percentage": 50}]})
@@ -261,3 +274,143 @@ class TestAuditFlagFilters(BaseTest):
 
         assert len(report["unknown_keys"]) == 1
         assert report["untracked_unknown_keys"] == 1
+
+    @parameterized.expand(
+        [
+            (
+                "numeric_property_key",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": 987654, "type": "flag", "operator": "flag_evaluates_to", "value": True}
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+                [DIVERGENCE_NUMERIC_PROPERTY_KEY],
+            ),
+            (
+                "variant_description_dropped",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 50, "description": "baseline"},
+                            {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+                [DIVERGENCE_DROPPED_KEY],
+            ),
+            (
+                "multivariate_key_dropped",
+                {
+                    "groups": [],
+                    "multivariate": {
+                        "variants": [{"key": "control", "rollout_percentage": 100}],
+                        "description": "two-arm split",
+                    },
+                },
+                [DIVERGENCE_DROPPED_KEY],
+            ),
+            (
+                "holdout_key_dropped",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "holdout": {"id": 42, "exclusion_percentage": 10, "name": "Q3 holdout"},
+                },
+                [DIVERGENCE_DROPPED_KEY],
+            ),
+            (
+                "operator_alias_min",
+                {
+                    "groups": [
+                        {
+                            "properties": [{"key": "age", "type": "person", "operator": "min", "value": 18}],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+                [DIVERGENCE_OPERATOR_ALIAS],
+            ),
+            (
+                "operator_alias_max",
+                {
+                    "groups": [
+                        {
+                            "properties": [{"key": "age", "type": "person", "operator": "max", "value": 65}],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+                [DIVERGENCE_OPERATOR_ALIAS],
+            ),
+            ("absent_groups", {"payloads": {"true": '"x"'}}, [DIVERGENCE_ABSENT_GROUPS]),
+            (
+                "unknown_keys_at_round_tripped_levels",
+                {
+                    "junk_f": 1,
+                    "groups": [
+                        {
+                            "properties": [{"key": "k", "type": "person", "value": "x", "junk_p": 1}],
+                            "rollout_percentage": 100,
+                            "junk_g": 1,
+                        }
+                    ],
+                },
+                [],
+            ),
+            (
+                "integer_rollout_and_absent_variant_name",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                },
+                [],
+            ),
+            (
+                "boolean_property_key",
+                {"groups": [{"properties": [{"key": True, "type": "person"}], "rollout_percentage": 100}]},
+                [],
+            ),
+        ]
+    )
+    def test_roundtrip_divergence_shapes(self, name: str, filters: dict[str, Any], expected: list[str]) -> None:
+        flag = self._create_flag(name, filters)
+
+        report = self._run()
+
+        counts = self._divergence_counts(report)
+        assert counts == {shape_id: 1 if shape_id in expected else 0 for shape_id in DIVERGENCE_SHAPES}
+        for shape_id in expected:
+            entry = next(e for e in report["roundtrip_divergences"] if e["shape_id"] == shape_id)
+            assert entry["sample_flag_ids"] == [flag.id]
+
+    def test_roundtrip_divergence_counts_flag_once_per_shape(self) -> None:
+        self._create_flag(
+            "two-numeric-keys",
+            {
+                "groups": [
+                    {"properties": [{"key": 1, "type": "flag", "operator": "flag_evaluates_to", "value": True}]},
+                    {"properties": [{"key": 2, "type": "flag", "operator": "flag_evaluates_to", "value": True}]},
+                ]
+            },
+        )
+
+        report = self._run()
+
+        assert self._divergence_counts(report)[DIVERGENCE_NUMERIC_PROPERTY_KEY] == 1
+        assert report["flags_with_roundtrip_divergences"] == 1
+
+    def test_console_output_reports_divergences_and_their_meaning(self) -> None:
+        self._create_flag("absent-groups", {"payloads": {"true": '"x"'}})
+        out = StringIO()
+
+        call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
+
+        output = out.getvalue()
+        assert "Cache-write round-trip divergences (1 flags affected):" in output
+        assert re.search(rf"{re.escape(DIVERGENCE_ABSENT_GROUPS)}\s+1 flags", output)
+        assert "not enforcement violations" in output
