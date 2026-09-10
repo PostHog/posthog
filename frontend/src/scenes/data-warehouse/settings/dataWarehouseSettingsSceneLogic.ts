@@ -326,6 +326,10 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
                     return newState
                 },
                 toggleEditSchemaMode: () => ({}),
+                // Pending types belong to the row they were picked on. `saveSchema` posts them
+                // against whichever row is selected at save time, so they must not survive a move
+                // to another row.
+                selectRow: () => ({}),
             },
         ],
         isEditingSavedQuery: [
@@ -344,6 +348,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
 
                     return !state
                 },
+                selectRow: () => false,
             },
         ],
         editSchemaIsLoading: [

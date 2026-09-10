@@ -26,6 +26,14 @@ const SCHEMA = {
                 total: { name: 'total', hogql_value: 'total', type: 'string', schema_valid: true },
             },
         },
+        refunds_csv: {
+            id: 'table-2',
+            name: 'refunds_csv',
+            type: 'data_warehouse',
+            fields: {
+                total: { name: 'total', hogql_value: 'total', type: 'string', schema_valid: true },
+            },
+        },
     },
     joins: [],
 }
@@ -37,6 +45,13 @@ const TABLE: DataWarehouseTable = {
     url_pattern: 'https://example.com/orders/*.csv',
     credential: null,
     user_access_level: AccessControlLevel.Editor,
+}
+
+const OTHER_TABLE: DataWarehouseTable = {
+    ...TABLE,
+    id: 'table-2',
+    name: 'refunds_csv',
+    url_pattern: 'https://example.com/refunds/*.csv',
 }
 
 describe('SelfManagedColumnsSection', () => {
@@ -94,6 +109,26 @@ describe('SelfManagedColumnsSection', () => {
 
         await userEvent.click(screen.getByRole('button', { name: 'Edit column types' }))
         expect(screen.getByRole('button', { name: 'String' })).toBeInTheDocument()
+        expect(updateSchema).not.toHaveBeenCalled()
+    })
+
+    it('drops a pending type change when the page moves to another table', async () => {
+        const { rerender } = render(<SelfManagedColumnsSection table={TABLE} />)
+        await waitFor(() => expect(screen.getByText('total')).toBeInTheDocument())
+
+        await userEvent.click(screen.getByRole('button', { name: 'Edit column types' }))
+        await userEvent.click(screen.getByRole('button', { name: 'String' }))
+        await userEvent.click(await screen.findByText('Integer'))
+
+        // Both source pages are the same scene, so moving between them hands this section a new
+        // table without unmounting it. Both tables have a `total` column, which is what lets a
+        // pending type reach the wrong one.
+        rerender(<SelfManagedColumnsSection table={OTHER_TABLE} />)
+
+        expect(await screen.findByRole('button', { name: 'Edit column types' })).toBeInTheDocument()
+        await userEvent.click(screen.getByRole('button', { name: 'Edit column types' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Save types' }))
+
         expect(updateSchema).not.toHaveBeenCalled()
     })
 
