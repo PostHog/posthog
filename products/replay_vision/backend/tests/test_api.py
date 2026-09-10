@@ -16,9 +16,12 @@ from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.schema import ProductIntentContext, ProductKey
+
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.event_usage import EventSource
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.redis import get_client
@@ -4073,3 +4076,175 @@ class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
         assert kwargs["source_product"] == "replay_vision"
         assert kwargs["source_type"] == "scanner_finding"
         assert kwargs["extra_equals"] == {"scanner_id": str(scanner.id)}
+
+
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
+class TestReplayVisionProductIntent(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner()
+        get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
+
+    def observe_url(self, scanner_id: str) -> str:
+        return f"{self.scanners_url}{scanner_id}/observe/"
+
+    def bulk_url(self, scanner_id: str) -> str:
+        return f"{self.scanners_url}{scanner_id}/bulk_observe/"
+
+    def _intent(self) -> ProductIntent | None:
+        return ProductIntent.objects.filter(team=self.team, product_type=ProductKey.REPLAY_VISION).first()
+
+    def test_no_intent_before_anyone_touches_the_product(
+        self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock
+    ) -> None:
+        # Guards the baseline the other tests rest on: `_create_scanner` writes the row directly, so
+        # only requests through the API register intent.
+        self.assertIsNone(self._intent())
+
+    def test_creating_a_scanner_registers_intent(
+        self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock
+    ) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "intent-create",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+
+        intent = self._intent()
+        assert intent is not None
+        self.assertEqual(intent.contexts, {ProductIntentContext.REPLAY_VISION_SCANNER_CREATED: 1})
+
+    def test_on_demand_scan_registers_intent(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        resp = self.client.post(
+            self.observe_url(str(self.scanner.id)), data={"session_id": "sess-intent"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        intent = self._intent()
+        assert intent is not None
+        self.assertEqual(intent.contexts, {ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED: 1})
+
+    def test_bulk_scan_registers_intent_once_for_the_batch(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The load-bearing assertion in this file: `register()` writes the intent row on every call,
+        # and a bulk scan can carry hundreds of session ids. Registering per session would turn one
+        # click into hundreds of writes on a request path that already fans out to Temporal.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        resp = self.client.post(
+            self.bulk_url(str(self.scanner.id)),
+            data={"session_ids": ["sess-a", "sess-b", "sess-c", "sess-d"]},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        intent = self._intent()
+        assert intent is not None
+        self.assertEqual(intent.contexts, {ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED: 1})
+
+    def test_intent_records_the_calling_surface(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # `source` is what makes "do agent-triggered scans count toward activation" a filter rather
+        # than a re-instrumentation, so it has to reach the emitted event.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)),
+                data={"session_id": "sess-source"},
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        intent_events = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "user showed product intent"
+        ]
+        self.assertEqual(len(intent_events), 1)
+        properties = intent_events[0].kwargs["properties"]
+        self.assertEqual(properties["product_key"], ProductKey.REPLAY_VISION)
+        self.assertEqual(properties["intent_context"], ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED)
+        self.assertEqual(properties["source"], "mcp")
+        self.assertTrue(properties["is_first_intent_for_product"])
+
+    def test_repeat_actions_accumulate_contexts_without_moving_the_clock(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # One row per (team, product), so `created_at` must stay put across later actions — it's the
+        # funnel start date. The per-context counters are what activation criteria read.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-1"}, format="json")
+        first = self._intent()
+        assert first is not None
+        created_at = first.created_at
+
+        self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-2"}, format="json")
+        self.client.post(
+            self.scanners_url,
+            data={
+                "name": "intent-second-action",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+
+        self.assertEqual(ProductIntent.objects.filter(team=self.team, product_type=ProductKey.REPLAY_VISION).count(), 1)
+        intent = self._intent()
+        assert intent is not None
+        self.assertEqual(intent.created_at, created_at)
+        self.assertEqual(
+            intent.contexts,
+            {
+                ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED: 2,
+                ProductIntentContext.REPLAY_VISION_SCANNER_CREATED: 1,
+            },
+        )
+
+    def test_impersonated_session_does_not_register_intent(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Staff impersonating a customer would otherwise start that team's activation clock.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch("products.replay_vision.backend.api.scanners.is_impersonated_session", return_value=True):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-impersonated"}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(self._intent())
+
+    def test_intent_failure_does_not_fail_the_request(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Intent is registered after the workflow has started; a 500 here would make the caller
+        # retry a scan that already ran.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch.object(ProductIntent, "register", side_effect=Exception("intent backend down")):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-intent-down"}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(self._intent())

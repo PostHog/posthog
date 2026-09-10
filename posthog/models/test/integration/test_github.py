@@ -1,6 +1,8 @@
 """Tests for the GitHub App integration."""
 
 import time
+import base64
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -36,6 +38,7 @@ from posthog.models.integration import (
     Integration,
     invalidate_github_repository_caches_for_installation,
 )
+from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 
@@ -600,6 +603,57 @@ class TestGitHubIntegrationModel(BaseTest):
         assert len(result["diff"]) < len(oversized)
         assert result["diff"].startswith("x" * 100)
         assert "truncated" in result["diff"]
+
+    @parameterized.expand([("inline", False), ("over_contents_api_limit", True)])
+    def test_get_file_contents_returns_whole_file(self, _name: str, over_contents_api_limit: bool) -> None:
+        github = GitHubIntegration(self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"}))
+        text = b"version: 1\nsnapshots: {}\n"
+        contents = {
+            "sha": "abc123",
+            "size": len(text),
+            "encoding": "base64",
+            "content": base64.b64encode(text).decode(),
+        }
+        responses: dict[str, MagicMock] = {}
+        if over_contents_api_limit:
+            contents = {**contents, "encoding": "none", "content": ""}
+            responses["/repos/PostHog/posthog/git/blobs/abc123"] = MagicMock(
+                status_code=200, iter_content=MagicMock(return_value=[text[:8], text[8:]])
+            )
+        responses["/repos/PostHog/posthog/contents/snapshots.yml"] = MagicMock(
+            status_code=200, json=MagicMock(return_value=contents)
+        )
+
+        with patch.object(github, "api_request", side_effect=lambda method, path, **kwargs: responses[path]):
+            result = github.get_file_contents("PostHog/posthog", "snapshots.yml")
+        assert result == {"content": text.decode(), "sha": "abc123"}
+
+    @parameterized.expand(
+        [
+            ("over_size_limit", {"size": _MAX_FILE_CONTENTS_BYTES + 1, "encoding": "none", "content": ""}),
+            (
+                "inline_shorter_than_size",
+                {"size": 100, "encoding": "base64", "content": base64.b64encode(b"version: 1\n").decode()},
+            ),
+            ("blob_longer_than_size", {"size": 4, "encoding": "none", "content": ""}),
+        ]
+    )
+    def test_get_file_contents_rejects_file_it_cannot_return_whole(self, _name: str, contents: dict[str, Any]) -> None:
+        github = GitHubIntegration(self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"}))
+
+        def blob_chunks(chunk_size: int) -> Iterator[bytes]:
+            yield b"version: 1\n"
+            raise AssertionError("read past the declared size")
+
+        responses = {
+            "/repos/PostHog/posthog/contents/snapshots.yml": MagicMock(
+                status_code=200, json=MagicMock(return_value={"sha": "abc123", **contents})
+            ),
+            "/repos/PostHog/posthog/git/blobs/abc123": MagicMock(status_code=200, iter_content=blob_chunks),
+        }
+        with patch.object(github, "api_request", side_effect=lambda method, path, **kwargs: responses[path]):
+            with pytest.raises(GitHubIntegrationError):
+                github.get_file_contents("PostHog/posthog", "snapshots.yml")
 
     @parameterized.expand(
         [
