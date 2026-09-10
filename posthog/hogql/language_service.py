@@ -51,8 +51,12 @@ def is_language_service_enabled(team: Team, user: User) -> bool:
         posthoganalytics.feature_enabled(
             FEATURE_FLAG,
             str(user.distinct_id),
+            person_properties={"email": user.email},
             groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )

@@ -73,14 +73,15 @@ class TestLanguageServiceFeatureFlag(SimpleTestCase):
     @patch("posthog.hogql.language_service.posthoganalytics.feature_enabled", return_value=True)
     def test_production_uses_local_feature_flag_evaluation(self, feature_enabled: MagicMock) -> None:
         team = MagicMock(id=12, organization_id=56)
-        user = MagicMock(distinct_id="user-distinct-id")
+        user = MagicMock(distinct_id="user-distinct-id", email="person@example.com")
 
         assert is_language_service_enabled(team, user)
         feature_enabled.assert_called_once_with(
             "hogql-language-service",
             "user-distinct-id",
+            person_properties={"email": "person@example.com"},
             groups={"organization": "56", "project": "12"},
-            group_properties={"organization": {"id": "56"}},
+            group_properties={"organization": {"id": "56"}, "project": {"id": "12"}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
