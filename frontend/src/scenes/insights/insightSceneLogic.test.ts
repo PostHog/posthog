@@ -223,19 +223,29 @@ describe('insightSceneLogic', () => {
     // refusal has to stay narrow: a navigation that names a type, or one that arrives from another
     // page, is a person asking for a blank insight and must still reset.
     test.each([
-        ['keeps a drill-down when the same page drops the query hash', () => urls.insightNew(), NodeKind.DataTableNode],
+        [
+            'keeps a drill-down when the same page drops the query hash',
+            { kind: NodeKind.ActorsQuery, select: ['person'] },
+            () => urls.insightNew(),
+            NodeKind.DataTableNode,
+        ],
+        [
+            // The retention modal's "View events" button builds its table over an events query.
+            'keeps an events drill-down when the same page drops the query hash',
+            { kind: NodeKind.EventsQuery, select: ['*', 'event', 'person', 'timestamp'] },
+            () => urls.insightNew(),
+            NodeKind.DataTableNode,
+        ],
         [
             'replaces a drill-down when the navigation names a type',
+            { kind: NodeKind.ActorsQuery, select: ['person'] },
             () => urls.insightNew({ type: InsightType.TRENDS }),
             NodeKind.InsightVizNode,
         ],
-    ])('%s', async (_name, buildUrl, expectedKind) => {
+    ])('%s', async (_name, source, buildUrl, expectedKind) => {
         const dataTableQuery = {
             kind: NodeKind.DataTableNode,
-            source: {
-                kind: NodeKind.ActorsQuery,
-                select: ['person'],
-            },
+            source,
         }
 
         router.actions.push(urls.insightNew())
