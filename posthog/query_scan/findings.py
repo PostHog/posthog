@@ -78,10 +78,10 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.NEGATED): _Copy(
         lead=(
-            "Queries are fastest when they name the events they want. This query only excludes events, so that "
-            "filter cannot be used and it still reads every event, which is slow."
+            "Queries are fastest when they explicitly enumerate the events they want. This query only excludes "
+            "events, so that filter cannot be used and it still reads most events, which is slow."
         ),
-        advice="Name the events you want instead.",
+        advice="Explicitly enumerate the events you want instead.",
         fix=(
             "If the events to keep can be named, replace the exclusion with a filter that names them, and "
             "change nothing else. If they cannot, leave the query as it is and explain that ClickHouse "
