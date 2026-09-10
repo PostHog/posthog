@@ -26,22 +26,9 @@
 #   stay apples-to-apples, they just have no consumer here; canonical mints the
 #   telemetry token from the GH_APP_TELEMETRY_APP_ID org variable rather than the
 #   secret, which the shadow has no token step to mirror),
-#   --store-durations write, test-selection verdict (so the guard skipping it when both
-#   test matrices were skipped has nothing to mirror), Trunk flaky-test quarantine
-#   gate (canonical runs per-shard analytics-uploader steps that post to the
-#   external Trunk service; the upload is best-effort and a local "Fail on test
-#   failure" step owns the pass/fail verdict. Canonical stages JUnit under per-product
-#   filenames before this upload, and can hold a product back from quarantine by naming
-#   its report as an exclusion. The shadow strips all of it because a non-blocking timing
-#   trial must not post to Trunk, and so it also omits the test
-#   steps' continue-on-error and that verdict step, letting each shard's test
-#   exit code be the verdict directly. Canonical gates each quarantine gate on the
-#   TRUNK_UPLOAD_ENABLED repo variable as an upload kill-switch, and its verdict step
-#   on TRUNK_QUARANTINE_ENABLED to decide whether known flakes are masked; since the
-#   shadow strips both the gate and the verdict step entirely, both variables are
-#   no-ops here and there is nothing to mirror. Canonical's turbo-tests gate now calls
-#   ./.github/actions/trunk-quarantine-gate to retry once. The shadow has no gate, so it
-#   does not need a mirrored action)
+#   --store-durations write, and test-selection verdict.
+# - Trunk uploads and quarantine verdicts match canonical only when side effects
+#   are enabled. Disabled test steps retain their direct failure verdict.
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
@@ -895,7 +882,8 @@ jobs:
     # A status function is required to inspect dependency results after failures.
     # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
     turbo-tests:
-        needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
+        needs:
+            [sample, changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
         if: >-
             !cancelled() && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/') || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
         runs-on: depot-ubuntu-24.04
@@ -1069,6 +1057,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Run product tests
+              continue-on-error: ${{ needs.sample.outputs.side_effects == 'true' }}
+              id: run-product-tests
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
               # legs: one turbo invocation per entry, each with its own pytest-split flags
@@ -1104,6 +1094,7 @@ jobs:
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
+                      ${{ needs.sample.outputs.side_effects == 'true' && '--junitxml=junit-product.xml' || '' }}
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
@@ -1157,6 +1148,33 @@ jobs:
                   done
                   set -e
                   exit $overall
+
+            - name: Prepare product JUnit for Trunk
+              id: prepare_product_junit
+              if: ${{ needs.sample.outputs.side_effects == 'true' && (always()) }}
+              shell: bash
+              env:
+                  PRODUCT_FILTERS: ${{ matrix.filters }}
+              run: |
+                  bash .github/scripts/prepare-product-junit-for-trunk.sh \
+                      trunk-junit \
+                      "$PRODUCT_FILTERS"
+
+            - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
+              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
+              uses: ./.github/actions/trunk-quarantine-gate
+              with:
+                  junit-paths: trunk-junit/junit-product-*.xml
+                  previous-step-outcome: ${{ steps.run-product-tests.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            - name: Fail on test failure
+              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success')))) }}
+              shell: bash
+              run: exit 1
+
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
@@ -1971,7 +1989,7 @@ jobs:
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
     django:
-        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
+        needs: [sample, changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
@@ -2345,6 +2363,7 @@ jobs:
                   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
                   echo "==================================="
             - name: Run Core tests
+              continue-on-error: ${{ needs.sample.outputs.side_effects == 'true' }}
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
@@ -2488,6 +2507,7 @@ jobs:
                   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
                   echo "==================================="
             - name: Run Temporal tests
+              continue-on-error: ${{ needs.sample.outputs.side_effects == 'true' }}
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
@@ -2583,6 +2603,38 @@ jobs:
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
+
+            - name: Quarantine gate (Core)
+              id: quarantine_gate_core
+              continue-on-error: true
+              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-core.xml
+                  org-slug: posthog-inc
+                  cli-version: '0.13.7'
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-core-tests.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            - name: Quarantine gate (Temporal)
+              id: quarantine_gate_temporal
+              continue-on-error: true
+              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-temporal.xml
+                  org-slug: posthog-inc
+                  cli-version: '0.13.7'
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            - name: Fail on test failure
+              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success')))) }}
+              shell: bash
+              run: exit 1
+
     # Read ClickHouse versions for the compat test matrix.
     get_clickhouse_versions:
         name: Get ClickHouse versions

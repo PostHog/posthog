@@ -17,3 +17,11 @@ is zero; downstream jobs retain their existing sampling behavior when disabled.
 The gate initially has no effects attached. Later layers attach each group.
 Hourly scheduling and `mirror-schema-cache` remain excluded: the shadow does not
 own GitHub Actions' schema cache or its scheduled master baseline.
+
+## Trunk uploads and quarantine
+
+Enabled shards use canonical Trunk uploads and failure verdicts.
+`TRUNK_UPLOAD_ENABLED` remains the upload kill switch, and
+`TRUNK_QUARANTINE_ENABLED` controls whether a successful quarantine result can
+clear a test failure. An unavailable uploader never clears a failing test.
+With side effects disabled, test failures stop the shard directly.
