@@ -25,7 +25,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         DEFAULT = "default", "default"
 
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     title = models.CharField(max_length=256, blank=True, null=True)
     content: JSONField = JSONField(default=None, null=True, blank=True)
     text_content = models.TextField(blank=True, null=True)
@@ -33,7 +33,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     visibility = models.CharField(choices=Visibility, default=Visibility.DEFAULT, max_length=20)
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "posthog.User",
@@ -163,10 +163,10 @@ class KernelRuntime(UUIDTModel):
         DISCARDED = "discarded", "discarded"
         ERROR = "error", "error"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.SET_NULL, null=True, blank=True)
     notebook_short_id = models.CharField(max_length=12)
-    user = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(default=timezone.now)
     status = models.CharField(choices=Status, default=Status.STARTING, max_length=20)
@@ -188,6 +188,12 @@ class KernelRuntime(UUIDTModel):
     # arrive out of order, so a slow older callback must not overwrite a newer snapshot. Runs
     # are created before dispatch, so created_at orders them the same way the kernel ran them.
     frames_run_created_at = models.DateTimeField(null=True, blank=True)
+    # The shape this sandbox was actually provisioned with. The notebook holds the configured
+    # shape, which a live kernel does not adopt until it restarts, so pricing the running sandbox
+    # needs the size recorded here rather than derived from the notebook. Null on rows created
+    # before this was captured.
+    provisioned_cpu_cores = models.FloatField(null=True, blank=True)
+    provisioned_memory_gb = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
@@ -216,7 +222,7 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
 
     # db_constraint=False: creating a real FK to the hot posthog_team table locks it on deploy.
     # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
     # Who ran it. Kernels are per user, so this is the second half of a KernelRuntime's scope —
     # the callback needs it to file the frame snapshot without a user-blind lookup by id.
@@ -227,7 +233,13 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # table that grows fastest. Nothing enforces referential integrity here anyway
     # (db_constraint=False), and a dangling id already reads back as None.
     user = models.ForeignKey(
-        "posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True, db_constraint=False, db_index=False
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
     )
     node_id = models.CharField(max_length=128)
     # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and

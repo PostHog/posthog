@@ -10,9 +10,7 @@ const meta: Meta<typeof ModelSwitchCacheDialog> = {
     toModelId: "claude-haiku-4-5",
     toModelLabel: "Claude Haiku 4.5",
     contextTokens: 84_000,
-    sessionCostUsd: 1.42,
     onConfirm: async () => {},
-    onCopyHandoffSummary: async () => {},
     onCancel: () => {},
   },
 };
@@ -38,10 +36,8 @@ export const UnknownPricing: Story = {
   },
 };
 
-export const SwitchOnly: Story = {
+export const WithoutCostEstimate: Story = {
   args: {
     contextTokens: undefined,
-    sessionCostUsd: undefined,
-    onCopyHandoffSummary: undefined,
   },
 };

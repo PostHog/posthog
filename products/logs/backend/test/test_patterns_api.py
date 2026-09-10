@@ -1,6 +1,6 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from rest_framework import status
@@ -18,7 +18,7 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
 
-    @freeze_time("2026-06-23T13:00:00Z")
+    @time_machine.travel("2026-06-23T13:00:00Z", tick=False)
     def test_patterns_endpoint_returns_mined_patterns(self) -> None:
         self._insert(
             [
@@ -50,7 +50,7 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
         assert pattern["estimated_error_count"] == 3
         assert pattern["services"] == ["auth"]
 
-    @freeze_time("2026-06-23T13:00:00Z")
+    @time_machine.travel("2026-06-23T13:00:00Z", tick=False)
     def test_patterns_endpoint_accepts_flat_filter_group(self) -> None:
         self._insert(
             [

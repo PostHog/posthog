@@ -123,8 +123,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa: boolean
     /** Default statistical method for new experiments in this organization.
      *
      * * `bayesian` - Bayesian
@@ -231,8 +231,8 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown?: boolean | null
-    /** @nullable */
-    readonly is_hipaa?: boolean | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa?: boolean
     /** Default statistical method for new experiments in this organization.
      *
      * * `bayesian` - Bayesian
@@ -1398,6 +1398,7 @@ export type ActivityLogListParams = {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1494,6 +1495,7 @@ export const ActivityLogListScope = {
     DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
+    StamphogRepoConfig: 'StamphogRepoConfig',
 } as const
 
 /**
@@ -1577,6 +1579,7 @@ export const ActivityLogListScope = {
  * * `DataQualityCheck` - DataQualityCheck
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `StamphogRepoConfig` - StamphogRepoConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1661,6 +1664,7 @@ export const ActivityLogListScopesItem = {
     DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
+    StamphogRepoConfig: 'StamphogRepoConfig',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -1805,6 +1809,10 @@ export type CommentsListParams = {
      * @minLength 1
      */
     completed?: CommentsListCompleted
+    /**
+     * Filter by the numeric ID of the user who wrote the comment.
+     */
+    created_by?: number
     /**
      * The pagination cursor value.
      */

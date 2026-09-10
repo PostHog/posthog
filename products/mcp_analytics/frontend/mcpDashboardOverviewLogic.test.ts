@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -16,7 +17,6 @@ import {
     type BucketRow,
     buildDailyActivity,
     buildKPIs,
-    buildKpiWindow,
     buildToolDailySeries,
     deltaPct,
     mcpDashboardOverviewLogic,
@@ -24,7 +24,6 @@ import {
     type SessionRow,
     type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
-import { BUCKET_FORMAT } from './timeBuckets'
 
 jest.mock('lib/api')
 jest.mock('./generated/api', () => ({
@@ -220,44 +219,6 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('buildKpiWindow', () => {
-        it.each([
-            ['2024-01-08', '2024-01-15', 'day', '2024-01-08 00:00:00', '2023-12-31'],
-            ['2024-01-01', '2024-01-31', 'day', '2024-01-01 00:00:00', '2023-12-01'],
-        ])(
-            'extends [%s, %s] back to an equal-length prior window with cutoff at the selected start',
-            (dateFrom, dateTo, interval, expectedCutoff, expectedPriorStart) => {
-                const window = buildKpiWindow({ dateFrom, dateTo }, 'UTC', interval as 'day')
-                expect(window.currentStartBucket).toBe(expectedCutoff)
-                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe(expectedPriorStart)
-            }
-        )
-
-        it('rolls an hour-level range from now and steps the prior window back equally', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:30:00Z'))
-            try {
-                // "-1h" resolves to the trailing hour; prior window is the hour before that.
-                const window = buildKpiWindow({ dateFrom: '-1h', dateTo: null }, 'UTC', 'minute')
-                expect(window.currentStartBucket).toBe('2026-06-18 11:30:00')
-                expect(dayjs(window.dateFrom).toISOString()).toBe('2026-06-18T10:29:00.000Z')
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('resolves the relative -7d default against now', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                const window = buildKpiWindow({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
-                expect(window.currentStartBucket).toBe('2026-06-11 00:00:00')
-                // doubled window: prior 8 day-buckets before the cutoff
-                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe('2026-06-03')
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-    })
-
     describe('buildKPIs', () => {
         it('splits current vs prior buckets and computes values, deltas, and sparklines', () => {
             const rows: BucketRow[] = [
@@ -426,6 +387,32 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
+    describe('model visibility', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+        })
+
+        it('shows model data only when at least one identified model has calls', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.loadModelRowsSuccess([{ model: 'Unknown', total_calls: 12 }])
+            expect(logic.values.hasKnownModelData).toBe(false)
+
+            logic.actions.loadModelRowsSuccess([{ model: 'gpt-5.6-sol', total_calls: 1 }])
+            expect(logic.values.hasKnownModelData).toBe(true)
+
+            logic.actions.loadModelRowsSuccess([
+                { model: 'Unknown', total_calls: 12 },
+                { model: 'claude-sonnet-5', total_calls: 0 },
+            ])
+            expect(logic.values.hasKnownModelData).toBe(false)
+        })
+    })
+
     describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -438,8 +425,8 @@ describe('mcpDashboardOverviewLogic', () => {
         }
 
         // HogQL query nodes carry filters under `.filters`; the typed
-        // MCPHarnessBreakdownQuery node carries dateRange/properties/filterTestAccounts
-        // at the top level. This reads whichever shape a reload used.
+        // Typed MCP breakdown nodes carry dateRange/properties/filterTestAccounts at the
+        // top level. This reads whichever shape a reload used.
         const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
         // The users query returns a single [current_users, prior_users] row; loadUsers maps
@@ -493,11 +480,11 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            // Seven tiles: KPI + users + the five breakdown queries.
-            expect(reloads.length).toBe(7)
-            // The five breakdowns pass the raw selected range straight through.
+            // Eight tiles: KPI + users + the six breakdown queries.
+            expect(reloads.length).toBe(8)
+            // The six breakdowns pass the raw selected range straight through.
             const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
-            expect(breakdowns).toHaveLength(5)
+            expect(breakdowns).toHaveLength(6)
             // The KPI and users tiles widen to an absolute doubled window so they can compare against the prior period.
             const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
@@ -521,7 +508,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(7)
+            expect(reloads.length).toBe(8)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
@@ -534,7 +521,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
-            expect(reloads.length).toBeGreaterThanOrEqual(7)
+            expect(reloads.length).toBeGreaterThanOrEqual(8)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
@@ -566,7 +553,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(7)
+            expect(reloads.length).toBe(8)
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
             ).toBe(true)

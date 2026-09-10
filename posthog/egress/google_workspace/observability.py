@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 import requests
 from prometheus_client import Counter, Gauge
 
@@ -7,6 +9,7 @@ from posthog.egress.observability.observability import (
     EgressObservability,
     RateLimitSnapshot,
     register_egress_observability,
+    unpack_requests_response,
 )
 
 _metrics = EgressMetrics(
@@ -33,7 +36,7 @@ _metrics = EgressMetrics(
 )
 
 
-def _parse_google_workspace_rate_limit(_response: requests.Response) -> RateLimitSnapshot:
+def _parse_google_workspace_rate_limit(_headers: Mapping[str, str] | None, _url: str | None) -> RateLimitSnapshot:
     return RateLimitSnapshot(resource="api")
 
 
@@ -53,12 +56,16 @@ def record_google_workspace_api_response(
     method: str,
     endpoint: str,
 ) -> None:
+    primitives = unpack_requests_response(response)
     google_workspace_egress.record_response(
-        response,
+        primitives.status_code,
+        primitives.headers,
         source=source,
         scope=account_id,
         method=method,
         endpoint=endpoint,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
     )
 
 

@@ -238,19 +238,28 @@ export const ConversationsTicketsBulkUpdateStatusCreateBody = /* @__PURE__ */ zo
  */
 export const conversationsTicketsBulkUpdateTagsCreateBodyIdsMax = 500
 
-export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number())
-        .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
-        .describe('List of object IDs to update tags on.'),
-    action: zod
-        .enum(['add', 'remove', 'set'])
-        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
-        .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
-        ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
-})
+export const conversationsTicketsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const conversationsTicketsBulkUpdateTagsCreateBodyTagsMax = 100
+
+export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
+    .object({
+        ids: zod
+            .array(zod.uuid())
+            .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
+            .describe('List of object UUIDs to update tags on.'),
+        action: zod
+            .enum(['add', 'remove', 'set'])
+            .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+            .describe(
+                "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+            ),
+        tags: zod
+            .array(zod.string().max(conversationsTicketsBulkUpdateTagsCreateBodyTagsItemMax))
+            .max(conversationsTicketsBulkUpdateTagsCreateBodyTagsMax)
+            .describe('Tag names to add, remove, or set.'),
+    })
+    .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 
 /**
  * Create a new outbound ticket and send the first message to the customer.
@@ -260,6 +269,10 @@ export const conversationsTicketsComposeCreateBodyRecipientDistinctIdMax = 400
 export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
 
 export const conversationsTicketsComposeCreateBodyMessageMax = 5000
+
+export const conversationsTicketsComposeCreateBodyTagsItemMax = 255
+
+export const conversationsTicketsComposeCreateBodyTagsMax = 100
 
 export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object({
     recipient_email: zod.email().describe('Recipient email address.'),
@@ -276,6 +289,13 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
     email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    tags: zod
+        .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
+        .max(conversationsTicketsComposeCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.'
+        ),
 })
 
 export const conversationsViewsCreateBodyNameMax = 400
@@ -283,7 +303,10 @@ export const conversationsViewsCreateBodyNameMax = 400
 export const conversationsViewsCreateBodyFiltersOneSearchMax = 200
 
 export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsCreateBodyNameMax),
+    name: zod
+        .string()
+        .max(conversationsViewsCreateBodyNameMax)
+        .describe('Display name of the view, as it appears in the ticket views list.'),
     filters: zod
         .object({
             status: zod
@@ -350,7 +373,7 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list."
+                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter."
                 ),
             tags: zod.array(zod.string()).optional().describe('Tag names to match, combined according to tagsMatch.'),
             tagsMatch: zod
@@ -419,7 +442,11 @@ export const conversationsViewsPartialUpdateBodyNameMax = 400
 export const conversationsViewsPartialUpdateBodyFiltersOneSearchMax = 200
 
 export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsPartialUpdateBodyNameMax).optional(),
+    name: zod
+        .string()
+        .max(conversationsViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the view, as it appears in the ticket views list.'),
     filters: zod
         .object({
             status: zod
@@ -486,7 +513,7 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list."
+                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter."
                 ),
             tags: zod.array(zod.string()).optional().describe('Tag names to match, combined according to tagsMatch.'),
             tagsMatch: zod

@@ -17,13 +17,9 @@ use crate::storage::types::AttachOutcome;
 /// Callers dedupe; sorted insert order keeps row locks deadlock-free.
 ///
 /// Two guards keep a racing lifecycle op from acquiring a mapping it can
-/// no longer sweep. The join on a live person row rejects committed
-/// deletions. The mark check rejects persons held by a live op: the
-/// destructive transaction sweeps the person's distinct ids before it
-/// tombstones the person, so an attach overlapping it would insert a row
-/// the sweep already missed — a live mapping onto a tombstoned person.
-/// The saga commits its mark before any destructive statement, so an
-/// attach that could land in that window always observes the mark.
+/// no longer sweep: the join rejects committed deletions, and the mark
+/// check rejects persons held by a live op. The rare statement that slips
+/// both leaves an orphaned mapping the next resolve treats as absent.
 pub(super) async fn attach_distinct_ids(
     pool: &PgPool,
     tables: &IdentityTables,
@@ -59,11 +55,12 @@ pub(super) async fn attach_distinct_ids(
         pdi = tables.person_distinct_id,
         person = tables.person,
     );
+    let mut conn = super::acquire_timed(pool).await?;
     let written = sqlx::query(&insert_sql)
         .bind(&sorted)
         .bind(person_id)
         .bind(team_id as i32)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
     let mut outcomes: HashMap<String, AttachOutcome> = HashMap::new();
@@ -94,7 +91,7 @@ pub(super) async fn attach_distinct_ids(
     let rows = sqlx::query(&losers_sql)
         .bind(team_id as i32)
         .bind(&losers)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
     for row in rows {
         let distinct_id: String = row.try_get("distinct_id")?;

@@ -2,11 +2,13 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
 from posthog.cloud_utils import get_cached_instance_license
@@ -24,15 +26,18 @@ from products.signals.backend.implementation_pr import PrCloseReason, close_impl
 from products.signals.backend.models import (
     SignalReport,
     SignalReportRefund,
+    SignalReportTrackerIssue,
     SignalRepositoryAreaActivity,
     SignalScoutEmission,
     SignalScoutRun,
+    SignalScratchpad,
 )
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -45,6 +50,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     slack_api_error_code,
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
+from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -84,6 +90,69 @@ _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
 @with_team_scope()
 def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReason = "suppressed") -> None:
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
+    # Suppression and snoozing are reversible. Keep their tracker issue open for a restored report.
+    if reason == "resolved":
+        close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=False)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.close_report_tracker_issue",
+    ignore_result=True,
+    bind=True,
+    max_retries=5,
+)
+@with_team_scope()
+def close_report_tracker_issue(self, report_id: str, team_id: int, completed: bool = False) -> None:
+    if close_tracker_issue_for_report(team_id=team_id, report_id=report_id, completed=completed):
+        return
+    retry_needed = (
+        SignalReportTrackerIssue.objects.for_team(team_id)
+        .filter(
+            report_id=report_id,
+            status__in=[SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED],
+            closed_at__isnull=True,
+        )
+        .exists()
+    )
+    if retry_needed:
+        raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
+
+
+@shared_task(
+    name="products.signals.backend.tasks.link_report_tracker_issues",
+    ignore_result=True,
+    bind=True,
+    max_retries=5,
+)
+@with_team_scope()
+def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) -> None:
+    """Cross-reference a task's new pull request with the tracker issue of every report it answers."""
+    report_ids = (
+        SignalReport.objects.filter(team_id=team_id)
+        .filter(SignalReport.reports_for_task_filter(task_id))
+        .values_list("id", flat=True)
+    )
+    retry_needed = False
+    for report_id in report_ids:
+        linked = link_pull_request_to_tracker_issue(team_id=team_id, report_id=str(report_id), pr_url=pr_url)
+        if not linked:
+            retry_needed = (
+                retry_needed
+                or SignalReportTrackerIssue.objects.for_team(team_id)
+                .filter(
+                    # PENDING counts too: a fast run can report its pull request while the
+                    # provider call is still in flight, and that issue still needs the reference.
+                    report_id=report_id,
+                    status__in=(
+                        SignalReportTrackerIssue.Status.CREATED,
+                        SignalReportTrackerIssue.Status.PENDING,
+                    ),
+                    pr_linked_at__isnull=True,
+                )
+                .exists()
+            )
+    if retry_needed:
+        raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
 
 
 def _slack_retry_after_seconds(exc: Exception) -> int | None:
@@ -282,7 +351,10 @@ def enqueue_scout_slack_delivery(
 )
 @with_team_scope()
 def send_reviewer_added_slack_notifications(
-    report_id: str, team_id: int, added_github_logins: list[str], exclude_user_id: int | None = None
+    report_id: str,
+    team_id: int,
+    added_github_logins: list[str],
+    exclude_user_id: int | None = None,
 ) -> None:
     """Slack-ping reviewers a human just added to a report.
 
@@ -308,13 +380,32 @@ def send_reviewer_added_slack_notifications(
             report_id=report_id,
             team_id=team_id,
         )
+    github_logins = [value for value in added_github_logins if not value.startswith("user:")]
+    user_uuids = [value.removeprefix("user:") for value in added_github_logins if value.startswith("user:")]
     dispatch_reviewer_added_notifications(
         report_id=report_id,
         team_id=team_id,
-        added_github_logins=added_github_logins,
+        added_github_logins=github_logins,
+        added_user_uuids=user_uuids,
         source_products=source_products,
         exclude_user_id=exclude_user_id,
     )
+
+
+@shared_task(
+    name="products.signals.backend.tasks.assign_reviewers_on_implementation_pr",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
+    """Add a report's opted-in suggested reviewers as GitHub assignees on its implementation PR.
+
+    Runs on a worker because the GitHub calls (integration probe, PR read, assign) must not hold up
+    the claim, sync, or reviewer edit that queued it. Best-effort end to end, so the assigner
+    reports its own failures and this never retries: the next pull request event queues it again.
+    """
+    assign_reviewers_to_pull_request(team_id=team_id, report_id=report_id, pr_url=pr_url)
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:
@@ -594,6 +685,56 @@ def pause_inactive_signal_scouts() -> None:
                     },
                     groups=groups(organization=organization),
                 )
+
+
+# Grace before a lapsed scratchpad entry is hard-deleted. Expiry already hides the row from scout
+# searches; the grace keeps it readable through the `include_expired` audit path for two more weeks,
+# so a human can still see what the fleet remembered and when it lapsed before the row is gone.
+SCRATCHPAD_EXPIRY_GRACE_DAYS = 14
+
+
+def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_DAYS) -> int:
+    """Hard-delete scratchpad rows whose `expires_at` passed more than `grace_days` ago.
+
+    Cross-team janitor sweep. A durable entry (`expires_at` NULL) is the large majority of the
+    store and is never touched — only a lapsed, time-boxed memory past its grace is removed.
+    Returns the count deleted.
+    """
+    cutoff = timezone.now() - timedelta(days=grace_days)
+    deleted, _ = (
+        # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+        SignalScratchpad.objects.unscoped().filter(expires_at__isnull=False, expires_at__lt=cutoff).delete()
+    )
+    return deleted
+
+
+@shared_task(
+    name="products.signals.backend.tasks.prune_expired_scratchpad_entries",
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=110,
+    time_limit=170,
+)
+@skip_team_scope_audit
+def prune_expired_scratchpad_entries_task() -> None:
+    """Daily janitor: hard-delete scratchpad entries long past their expiry.
+
+    A scout that writes a time-boxed memory almost never comes back to `forget` it, so expired
+    rows would otherwise pile up forever — expiry only hides a row from searches, it never removed
+    one. Runs here rather than on the coordinator's 30-minute tick, which stays bounded.
+    """
+    deleted = 0
+    try:
+        deleted = prune_expired_scratchpad_entries()
+    except SoftTimeLimitExceeded:
+        raise
+    except OperationalError as exc:
+        # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
+        logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
+    except Exception as exc:
+        capture_exception(exc)
+        logger.exception("signals_scout.scratchpad_prune_failed")
+    logger.info("signals_scout scratchpad prune finished", deleted=deleted)
 
 
 @shared_task(

@@ -68,4 +68,4 @@ The agentic provisioning rate limits (`ee/api/agentic_provisioning/ratelimits.py
 
 ## Testing
 
-Under `settings.TEST`, `posthog.redis.get_client()` returns fakeredis, which executes the Lua scripts (via lupa). Control time with `freeze_time` (the script's clock is passed in from Python), reset between tests with `posthog.redis.TEST_clear_clients()` + `posthog.token_bucket.TEST_reset_scripts()`, and see `posthog/test/test_token_bucket.py` for the pattern.
+Under `settings.TEST`, `posthog.redis.get_client()` returns fakeredis, which executes the Lua scripts (via lupa). Control time with `time_machine.travel(..., tick=False)` (the script's clock is passed in from Python), reset between tests with `posthog.redis.TEST_clear_clients()` + `posthog.token_bucket.TEST_reset_scripts()`, and see `posthog/test/test_token_bucket.py` for the pattern.

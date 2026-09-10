@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -14,7 +14,7 @@ from products.dashboards.backend.widget_availability import get_widget_feature_e
 from products.dashboards.backend.widget_specs.registry import get_widget_registry_entry, validate_widget_config
 
 
-@freeze_time("2026-08-10 12:00:00")
+@time_machine.travel("2026-08-10 12:00:00", tick=False)
 class TestConversationsRecentTicketsWidget(BaseTest):
     @parameterized.expand(
         [

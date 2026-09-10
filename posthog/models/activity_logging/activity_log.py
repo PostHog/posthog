@@ -113,6 +113,7 @@ ActivityScope = Literal[
     "DataQualityCheck",
     "Billing",
     "Loop",
+    "StamphogRepoConfig",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -184,18 +185,17 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
-            # Used for searching on the detail field, e.g. containing a specific value
-            GinIndex(
-                name="activitylog_detail_gin",
-                fields=["detail"],
-                opclasses=["jsonb_ops"],
-            ),
-            # Used primarily for available_filters queries
+            # Serves whole-column containment (`detail @> ...`), the only detail lookup an index
+            # can answer. Key-path lookups and the `detail::text` search are not GIN-servable
+            # under any opclass. `jsonb_path_ops` stores one hash per root-to-leaf path, so it is
+            # smaller and cheaper to maintain than `jsonb_ops`, whose only extra operators are the
+            # key-existence family (`?`, `?|`, `?&`) that no query path uses. It also stores no
+            # entry for a JSON structure that holds no scalar, so containment against an empty
+            # object or array (`detail @> '{"changes": []}'`) falls back to a full index scan.
             GinIndex(
                 name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
-                condition=models.Q(detail__isnull=False),
             ),
             # User-specific filtered queries
             models.Index(
@@ -335,6 +335,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
+    "AlertConfiguration": {
+        "schedule_start_time": "schedule start time",
+    },
     "HogFunction": {
         "execution_order": "priority",
     },
@@ -364,6 +367,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "emit": "emit findings",
         "pause_reason": "pause reason",
         "auto_pause_exempt": "never pause for inactivity",
+        "write_scopes": "write access",
     },
     # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
     "SignalTeamConfig": {
@@ -371,6 +375,8 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
         "autostart_base_branches": "base branch overrides",
+        "issue_tracking_integration": "issue tracker",
+        "issue_tracking_config": "issue tracker target",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -514,6 +520,11 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "StamphogRepoConfig": [
+        # Reverse relation to the repo's review history. The diff would read every pull request row
+        # on each settings toggle, and none of it is configuration.
+        "pull_requests",
+    ],
     "HogFlow": [
         # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
         # writes — bookkeeping, not a user edit, so keep it out of change diffs.
@@ -722,7 +733,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "domain_whitelist",
         "setup_section_2_completed",
         "plugins_access_level",
-        "is_hipaa",
         "never_drop_data",
     ],
     "BatchExport": [
@@ -843,12 +853,18 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # schema save (even ones that don't touch this field) — the extra queries have
         # deadlocked with concurrent DDL in production.
         "table",
+        # Written by the model on the stop-syncing transition to record whether PostHog halted
+        # the schema itself, so it is derived state and not user intent. Diffing it also puts a
+        # second change on the entry that turns syncing on or off, which makes the schema
+        # activity feed read "updated schema" in place of "enabled schema".
+        "auto_disabled_at",
     ],
     "Evaluation": [
         # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
         "directory",
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
+        "backfills",
     ],
     "SignalScoutConfig": [
         # Run bookkeeping, not user intent — keep it out of change detection even when it
@@ -1076,10 +1092,12 @@ def _report_activity_log_write_failure(e: Exception, error_context: dict, deferr
     ACTIVITY_LOG_WRITE_FAILURES.labels(deferred=str(deferred).lower()).inc()
 
 
-def _handle_activity_log_transaction(create_fn, error_context: dict):
+def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None):
     try:
         # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
-        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
+        if not transaction.get_autocommit(using=using) and getattr(
+            settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True
+        ):
             # The transaction already committed by the time this callback runs, so its own guard
             # keeps a slow audit write from failing a request whose data is already durable.
             def _deferred_create():
@@ -1090,7 +1108,7 @@ def _handle_activity_log_transaction(create_fn, error_context: dict):
                     if settings.TEST:
                         raise
 
-            transaction.on_commit(_deferred_create)
+            transaction.on_commit(_deferred_create, using=using)
             return None
         else:
             return create_fn()
@@ -1116,6 +1134,9 @@ def log_activity(
     ip_address: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
+    # A product on its own database passes `router.db_for_write(Model)`, so the audit write waits
+    # for that connection's commit and is dropped when it rolls back. `None` uses the default one.
+    using: str | None = None,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
@@ -1184,6 +1205,7 @@ def log_activity(
                 "scope": scope,
                 "activity": activity,
             },
+            using=using,
         )
 
     except Exception as e:
@@ -1216,13 +1238,16 @@ class LogActivityEntry(TypedDict, total=False):
 
 
 def bulk_log_activity(
-    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True
+    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True, using: str | None = None
 ) -> list[ActivityLog]:
     """Write activity log rows in bulk.
 
     Each row created also fires `post_save`, which produces a CDP internal event so customer
     destinations and workflows can react. Pass `notify=False` for a maintenance sweep, where that
     fan-out would put one event per affected row onto the internal-events topic.
+
+    A product on its own database passes `using=router.db_for_write(Model)`, so the audit write
+    waits for that connection's commit and is dropped when it rolls back.
     """
     if not log_entries:
         return []
@@ -1273,6 +1298,7 @@ def bulk_log_activity(
                 "activity": "bulk_create",
                 "log_entries": log_entries,
             },
+            using=using,
         )
         or []
     )
