@@ -175,8 +175,18 @@ def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple
 
     _ensure_valid_schema(definition, HogQLQuery)
 
+    # Both run paths substitute `values` as parse-time placeholders and set no globals, so this
+    # parses the same way: `HogQLQueryRunner._parse_query` for a metric run, and `bind_metric_query`
+    # for a data quality check on a metric. Resolving them as globals instead would accept a bare
+    # field that carries a value's name, which neither run path can resolve.
+    values = definition.get("values")
+    placeholders: dict[str, ast.Expr] | None = (
+        {name: ast.Constant(value=value) for name, value in values.items()}
+        if isinstance(values, dict) and values
+        else None
+    )
     try:
-        ast_node = parse_select(definition["query"])
+        ast_node = parse_select(definition["query"], placeholders=placeholders)
     except ExposedHogQLError as e:
         _fail(f"Invalid HogQL query: {e}", "Fix the SQL syntax.")
     except ResolutionError as e:

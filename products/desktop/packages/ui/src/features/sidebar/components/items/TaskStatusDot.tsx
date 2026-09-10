@@ -16,7 +16,7 @@ import {
   TONE_ICON_VAR,
   taskBadges,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import type { ReactElement, ReactNode } from "react";
 
 const DOT_SIZE = 8;
@@ -81,7 +81,7 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
           height: SPINNER_BOX,
         }}
       >
-        <Spinner
+        <DotsCircleSpinner
           size={SPINNER_SIZE}
           className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2"
         />

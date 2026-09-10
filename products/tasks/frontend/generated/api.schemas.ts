@@ -45,6 +45,8 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
+    /** After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
+    retry_token?: string
     /** Why PostHog Desktop access was denied, when applicable.
      *
      * * `startup_plan` - startup_plan
@@ -88,11 +90,6 @@ export interface SandboxComputePricingApi {
     history: ComputeRateCardApi[]
 }
 
-export interface DesktopBetaTermsAcceptanceDTOApi {
-    /** Whether the organization has accepted the PostHog Desktop beta terms. */
-    readonly is_desktop_beta_terms_accepted: boolean
-}
-
 export interface DesktopAccessResponseApi {
     /** Whether the selected project can use PostHog Desktop. */
     allowed: boolean
@@ -101,6 +98,11 @@ export interface DesktopAccessResponseApi {
      * * `startup_plan` - startup_plan
      * * `prepaid_credits` - prepaid_credits */
     reason: DesktopAccessReasonEnumApi | null
+}
+
+export interface DesktopBetaTermsAcceptanceDTOApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
 }
 
 export interface LoopRepositoryEntryDTOApi {
@@ -1777,13 +1779,81 @@ export interface TaskDetailDTOApi {
     origin_key?: string | null
 }
 
-export interface PaginatedTaskDetailDTOListApi {
+/**
+ * @nullable
+ */
+export type TaskBasicApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Basic list response for a task, returned when the list is asked for ``basic=true``.
+ *
+ * A surface that renders only a summary of each task asks for the basic payload and gets this
+ * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+ * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+ * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+ * always returns it. A client uses the ``search`` query parameter to match description text
+ * server-side.
+ */
+export interface TaskBasicApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime: TaskRuntimeEnumApi
+    /** @nullable */
+    repository: string | null
+    repositories: string[]
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskBasicApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
+    /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
+    readonly description_preview: string
+}
+
+export type TaskListItemApi = TaskDetailDTOApi | TaskBasicApi
+
+export interface PaginatedTaskListItemListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: TaskDetailDTOApi[]
+    results: TaskListItemApi[]
 }
 
 /**
@@ -2568,6 +2638,17 @@ export const InitialPermissionModeEnumApi = {
 } as const
 
 /**
+ * * `posthog-gateway` - posthog-gateway
+ * * `own-subscription` - own-subscription
+ */
+export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+
+export const ClaudeModelAccessEnumApi = {
+    PosthogGateway: 'posthog-gateway',
+    OwnSubscription: 'own-subscription',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
@@ -2667,6 +2748,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -2793,6 +2879,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3055,10 +3146,9 @@ export interface PaginatedTaskRunDetailDTOListApi {
  * * `local` - local
  * * `cloud` - cloud
  */
-export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
-    (typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi)[keyof typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi]
+export type RunEnvironmentEnumApi = (typeof RunEnvironmentEnumApi)[keyof typeof RunEnvironmentEnumApi]
 
-export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
+export const RunEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
 } as const
@@ -3081,7 +3171,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      *
      * * `local` - local
      * * `cloud` - cloud */
-    environment?: TaskRunBootstrapCreateRequestEnvironmentEnumApi
+    environment?: RunEnvironmentEnumApi
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -3164,6 +3254,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -3722,6 +3817,7 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `credential_response` - credential_response
  * * `pi/rpc` - pi/rpc
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
@@ -3737,6 +3833,7 @@ export const TaskRunCommandRequestMethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    CredentialResponse: 'credential_response',
     PiRpc: 'pi/rpc',
     QueueGet: 'queue_get',
     QueueClear: 'queue_clear',
@@ -3759,6 +3856,7 @@ export interface TaskRunCommandRequestApi {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
@@ -3771,7 +3869,7 @@ export interface TaskRunCommandRequestApi {
 }
 
 /**
- * Error details on failure
+ * JSON-RPC error details, including failures returned with HTTP 200
  */
 export type TaskRunCommandResponseApiError = { [key: string]: unknown }
 
@@ -3783,9 +3881,9 @@ export interface TaskRunCommandResponseApi {
     jsonrpc: string
     /** Request ID echoed back (string or number) */
     id?: unknown
-    /** Command result on success */
+    /** Command result. Permission responses confirm acceptance only with resolved=true. */
     result?: unknown
-    /** Error details on failure */
+    /** JSON-RPC error details, including failures returned with HTTP 200 */
     error?: TaskRunCommandResponseApiError
 }
 
@@ -3905,6 +4003,11 @@ export interface TaskRunRelayMessageRequestApi {
      * @items.maxLength 10000
      */
     text_parts?: string[]
+    /**
+     * AI observability trace id of the turn that wrote this answer, when the sandbox reported one.
+     * @nullable
+     */
+    trace_id?: string | null
 }
 
 export interface TaskRunRelayMessageResponseApi {
@@ -3973,9 +4076,9 @@ export interface TaskSessionSyncResponseApi {
  * * `file` - file
  * * `github_pr` - github_pr
  */
-export type ArtifactTypeEnumApi = (typeof ArtifactTypeEnumApi)[keyof typeof ArtifactTypeEnumApi]
+export type ArtifactType2f0EnumApi = (typeof ArtifactType2f0EnumApi)[keyof typeof ArtifactType2f0EnumApi]
 
-export const ArtifactTypeEnumApi = {
+export const ArtifactType2f0EnumApi = {
     SlackMessage: 'slack_message',
     SlackCanvas: 'slack_canvas',
     Document: 'document',
@@ -4035,7 +4138,7 @@ export interface TaskRunLivingArtifactResponseApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
+    artifact_type: ArtifactType2f0EnumApi
     /** Adapter that currently stores or edits the artifact.
      *
      * * `slack_message` - slack_message
@@ -4094,7 +4197,7 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type?: ArtifactTypeEnumApi
+    artifact_type?: ArtifactType2f0EnumApi
     /** Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.
      *
      * * `slack_message` - slack_message
@@ -4145,7 +4248,7 @@ export interface TaskRunLivingArtifactOpenResponseApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
+    artifact_type: ArtifactType2f0EnumApi
     /** Adapter that currently stores or edits the artifact.
      *
      * * `slack_message` - slack_message
@@ -4414,6 +4517,101 @@ export interface ModelCatalogueResponseApi {
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
+}
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface RepoRoutingRuleApi {
+    readonly id: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository: string
+    readonly priority: number
+    /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedRepoRoutingRuleApi {
+    readonly id?: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text?: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository?: string
+    readonly priority?: number
+    /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 export interface TaskRepositoriesResponseApi {
@@ -5040,6 +5238,10 @@ export type TasksListParams = {
      * @minLength 1
      */
     archived?: TasksListArchived
+    /**
+     * With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.
+     */
+    basic?: boolean
     /**
      * Filter tasks to a channel's feed.
      */

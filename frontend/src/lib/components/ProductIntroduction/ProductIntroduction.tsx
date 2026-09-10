@@ -1,41 +1,36 @@
-import { useActions, useValues } from 'kea'
-
 import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
 import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
+import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
-import { userLogic } from 'scenes/userLogic'
-
-import { ProductKey } from '~/queries/schema/schema-general'
-
-import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
-import type { SurfaceKey } from '../MCPHint/prompts'
 
 const HedgehogConstruction2 = pngHoggie(construction2)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
 /**
- * A component to introduce new users to a product, and to show something
- * other than an empty table when there are no items.
- * Not to be confused with the `OnboardingProductIntroduction` scene,
- * which is shown when a team has yet to go through onboarding for the product.
+ * Inline empty panel for one part of a surface: a tab or sub-list, a widget tile, a notebook
+ * node, a settings section, an activity log, or a state that is not about setup. It renders
+ * where the list would be, so the rest of the surface stays usable around it.
+ *
+ * A whole product landing scene that is empty because the product is not set up uses the
+ * scene-level gate instead: declare {@link SceneExport.emptyState} with a
+ * {@link ProductEmptyState} config (see `lib/components/ProductEmptyState/README.md`).
+ * Not to be confused with the `OnboardingProductIntroduction` scene, which is shown when a
+ * team has yet to go through onboarding for the product.
  */
 
 export type ProductIntroductionProps = {
-    /** The name of the product, e.g. "Cohorts" */
-    productName: string
-    productKey?: ProductKey
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
-    /** Overrides the default "Your team is already using {productName}..." copy shown when `isEmpty` is false. */
-    secondaryDescription?: string
     /** If you want to override the title, defaults to "Create your first *thing*" */
     titleOverride?: string
-    /** If we should show the empty state */
+    /**
+     * Pass `false` to render nothing while the surface has content. Defaults to `true`. Prefer
+     * branching at the call site; this exists so callers can pass their emptiness check through.
+     */
     isEmpty?: boolean
     /** The action to take when the user clicks the CTA */
     action?: () => void
@@ -62,33 +57,13 @@ export type ProductIntroductionProps = {
      * for wide empty states (e.g. template grids). Passed through `cn` with tailwind-merge so `max-w-*` replaces default.
      */
     contentClassName?: string
-    /**
-     * When set, renders an MCP use-case card below the actions, promoting the same product via PostHog MCP from
-     * the user's IDE. Auto-hides if the user has opted out of MCP hints.
-     */
-    mcpSurfaceKey?: SurfaceKey
 }
 
-/**
- * @deprecated Use {@link ProductEmptyState} instead: declare {@link SceneExport.emptyState} on the
- * scene's {@link SceneExport} (see {@link ../ProductEmptyState | ProductEmptyState} and the
- * `building-product-empty-states` skill).
- *
- * {@link ProductEmptyState} covers both of this component's jobs -
- * "product not installed" via real data detection and "no entities yet" via an
- * entity-count status - with a local-only skip instead of {@link UserType.has_seen_product_intro_for}.
- * Don't add new call sites; existing ones should migrate product by product.
- *
- * The Growth team is responsible for migrating all call sites to {@link ProductEmptyState}.
- */
 export const ProductIntroduction = ({
-    productName,
-    productKey,
     thingName,
     description,
-    secondaryDescription,
     titleOverride,
-    isEmpty,
+    isEmpty = true,
     action,
     disabledReason,
     actionElementOverride,
@@ -99,17 +74,8 @@ export const ProductIntroduction = ({
     hogLayout = 'default',
     useMainContentContainerQueries = false,
     contentClassName,
-    mcpSurfaceKey,
 }: ProductIntroductionProps): JSX.Element | null => {
-    const { updateHasSeenProductIntroFor } = useActions(userLogic)
-    const { user } = useValues(userLogic)
-
-    if (!user) {
-        return null
-    }
-
-    if (!isEmpty && (!productKey || user.has_seen_product_intro_for?.[productKey])) {
-        // Hide if its not an empty list but the user has seen it before
+    if (!isEmpty) {
         return null
     }
 
@@ -127,20 +93,6 @@ export const ProductIntroduction = ({
             )}
             data-attr={`product-introduction-${thingName}`}
         >
-            {/* Below md the copy starts in the top-right corner (no hog beside it), so only pull it up under the dismiss button from md on. */}
-            {!isEmpty && (
-                <div className="flex justify-end md:-mb-6 -mt-2 -mr-2 relative z-10">
-                    <div>
-                        <LemonButton
-                            icon={<IconX />}
-                            size="small"
-                            onClick={() => {
-                                productKey && updateHasSeenProductIntroFor(productKey)
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
             <div
                 className={cn(
                     'flex w-full justify-center',
@@ -189,26 +141,8 @@ export const ProductIntroduction = ({
                         contentClassName
                     )}
                 >
-                    <h2>
-                        {!isEmpty
-                            ? `Welcome to ${productName}!`
-                            : actionable
-                              ? titleOverride
-                                  ? titleOverride
-                                  : `Create your first ${thingName}`
-                              : `No ${thingName}s yet`}
-                    </h2>
+                    <h2>{actionable ? (titleOverride ?? `Create your first ${thingName}`) : `No ${thingName}s yet`}</h2>
                     <p className="ml-0">{description}</p>
-                    {!isEmpty && (
-                        <p className="ml-0">
-                            {secondaryDescription ?? (
-                                <>
-                                    Your team is already using {productName}. You can take a look at what they're doing,
-                                    or get started yourself.
-                                </>
-                            )}
-                        </p>
-                    )}
                     <div
                         className={cn(
                             'flex items-center gap-x-4 gap-y-2 mt-6 flex-wrap',
@@ -223,10 +157,7 @@ export const ProductIntroduction = ({
                             <LemonButton
                                 type="primary"
                                 icon={<IconPlus />}
-                                onClick={() => {
-                                    productKey && updateHasSeenProductIntroFor(productKey)
-                                    action?.()
-                                }}
+                                onClick={action}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
                                 disabledReason={disabledReason}
                             >
@@ -247,7 +178,6 @@ export const ProductIntroduction = ({
                             </LemonButton>
                         )}
                     </div>
-                    {mcpSurfaceKey && <MCPUseCaseCard surfaceKey={mcpSurfaceKey} className="max-w-140" />}
                 </div>
             </div>
         </div>

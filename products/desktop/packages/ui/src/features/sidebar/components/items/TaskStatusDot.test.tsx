@@ -19,7 +19,7 @@ const idle: TaskDot = {
 };
 
 describe("TaskStatusDot", () => {
-  it("uses a standard spinner without changing the status column width", () => {
+  it("uses the braille spinner without changing the status column width", () => {
     render(
       <>
         <TaskStatusDot dot={working} />
@@ -32,7 +32,7 @@ describe("TaskStatusDot", () => {
     const mark = screen.getByRole("img", { name: "Loading" });
 
     expect(mark.style.width).toBe(column);
-    expect(mark.firstElementChild).toHaveClass("animate-spin");
-    expect(mark.querySelector("svg")).toBeInTheDocument();
+    expect(mark.querySelector(".ph-dots-frame")).toHaveTextContent("⠋");
+    expect(mark.querySelector("svg")).not.toBeInTheDocument();
   });
 });
