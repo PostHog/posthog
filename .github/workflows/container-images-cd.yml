@@ -13,17 +13,15 @@ on:
     push:
         branches:
             - master
-        # `paths` with negations, because GitHub refuses `paths` and `paths-ignore`
-        # on the same trigger. Later patterns win, so the last line puts back the one
-        # desktop package that stays in the image build context (see .dockerignore) —
-        # every other desktop path is stripped from the context, so a change there
-        # cannot alter the image, and a build plus its deploy fan-out is pure cost.
-        paths:
-            - '**'
-            - '!rust/**'
-            - '!livestream/**'
-            - '!products/desktop/**'
-            - 'products/desktop/packages/agent-shadow/**'
+        # Desktop-only pushes are filtered out in the `changes` job below, not here.
+        # GitHub reads only the first 3,000 files of a push diff for a trigger-level
+        # path filter, and skips the workflow when the paths that match the filter
+        # fall outside that window. The desktop tree is larger than that window, so a
+        # push that rewrites most of it could drop the image build and every deploy
+        # for a backend change in the same push, with no failed run to show it.
+        paths-ignore:
+            - 'rust/**'
+            - 'livestream/**'
     # Break-glass: a manual dispatch must run from master. The ECR publish role
     # (AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
     # refs/heads/master, so a dispatch from any other branch is denied at
@@ -48,12 +46,58 @@ env:
     ECR_REPOSITORY: posthog-cloud
 
 jobs:
+    changes:
+        name: Check whether the push can change the image
+        # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        outputs:
+            image: ${{ steps.filter.outputs.image }}
+            agent_shadow: ${{ steps.filter.outputs.agent_shadow }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+
+            # On a push the action diffs the whole push range with local git, which has
+            # no file cap, so it also reads a batch push that carries several commits.
+            # continue-on-error keeps a broken filter from cancelling a production build:
+            # the step then publishes no verdict, and the empty value builds.
+            - uses: ./.github/actions/paths-filter
+              id: filter
+              continue-on-error: true
+              with:
+                  token: ${{ github.token }}
+                  # `.dockerignore` strips every desktop path from the image build
+                  # context except agent-shadow, so a change anywhere else under
+                  # products/desktop cannot alter the image. An exclude cannot be
+                  # reversed inside one filter, so agent-shadow needs its own.
+                  filters: |
+                      image:
+                        - '**'
+                        - '!products/desktop/**'
+                      agent_shadow:
+                        - 'products/desktop/packages/agent-shadow/**'
+
     posthog_build:
         name: Build and push PostHog
+        needs: changes
         outputs:
             image-digest: ${{ steps.image.outputs.digest }}
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
-        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
+        # A push that only touches desktop code skips the build and its deploy fan-out.
+        # Every other verdict builds, including the empty one a failed filter leaves,
+        # so an unresolved verdict costs one build instead of a missed deploy.
+        if: |
+            github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && (
+                github.event_name != 'push' ||
+                needs.changes.outputs.image != 'false' ||
+                needs.changes.outputs.agent_shadow == 'true'
+            )
         runs-on: depot-ubuntu-24.04
         # Covers two bounded build attempts plus the post-build image-boot verification before
         # dispatch.
