@@ -183,6 +183,10 @@ describe('dashboardLogic', () => {
             13: {
                 ...dashboardResult(13, []),
             },
+            17: {
+                ...dashboardResult(17, [tileFromInsight(uncached(insights['800']))]),
+                persisted_filters: { date_from: '-24h' },
+            },
         }
         useMocks({
             get: {
@@ -209,6 +213,7 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/10/': { ...dashboards[10] },
                 '/api/environments/:team_id/dashboards/11/': { ...dashboards[11] },
                 '/api/environments/:team_id/dashboards/12/': { ...dashboards[12] },
+                '/api/environments/:team_id/dashboards/17/': { ...dashboards[17] },
                 '/api/environments/:team_id/dashboards/': {
                     count: 6,
                     next: null,
@@ -1761,6 +1766,57 @@ describe('dashboardLogic', () => {
                 expect(logic.values.filtersOverrideForLoad).toEqual(
                     expect.objectContaining({ date_from: '-7d', date_to: null })
                 )
+            })
+        })
+
+        describe('external filter overrides', () => {
+            // Dashboards 12 and 17 persist `date_from: '-24h'`, like the dashboards that scenes such as
+            // AI observability embed and drive with their own date picker.
+            const openWithExternalFilters = async (dashboardId: number): Promise<void> => {
+                logic.unmount()
+                router.actions.push(`/dashboard/${dashboardId}`)
+                logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Builtin })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            it('lets an external date beat the persisted dashboard filters', async () => {
+                await openWithExternalFilters(12)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setExternalFilters({ date_from: '-30d', date_to: null })
+                }).toFinishAllListeners()
+
+                expect(logic.values.currentDashboardSettings.filters).toEqual(
+                    expect.objectContaining({ date_from: '-24h' })
+                )
+                expect(logic.values.filtersOverrideForLoad).toEqual(
+                    expect.objectContaining({ date_from: '-30d', date_to: null })
+                )
+                expect(logic.values.effectiveRefreshFilters).toEqual(
+                    expect.objectContaining({ date_from: '-30d', date_to: null })
+                )
+            })
+
+            it('refreshes the tiles with the external date, not the persisted one', async () => {
+                await openWithExternalFilters(17)
+
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => insight)
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.setExternalFilters({ date_from: '-30d', date_to: null })
+                    }).toFinishAllListeners()
+
+                    expect(getInsightWithRetrySpy).toHaveBeenCalled()
+                    expect(getInsightWithRetrySpy.mock.calls[0][6]).toEqual(
+                        expect.objectContaining({ date_from: '-30d', date_to: null })
+                    )
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
             })
         })
 
