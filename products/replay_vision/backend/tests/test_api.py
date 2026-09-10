@@ -4111,7 +4111,7 @@ class TestReplayVisionProductIntent(_VisionAPITestCase):
                 "name": "intent-create",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "did checkout complete?"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
             },
             format="json",
         )
@@ -4201,7 +4201,7 @@ class TestReplayVisionProductIntent(_VisionAPITestCase):
                 "name": "intent-second-action",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "did checkout complete?"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
             },
             format="json",
         )
