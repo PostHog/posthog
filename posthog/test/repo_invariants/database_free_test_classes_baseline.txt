@@ -130,7 +130,6 @@ posthog/hogql/test/test_escape_sql.py::TestPrintString
 posthog/hogql/test/test_hogqlx.py::TestHogQLX
 posthog/hogql/test/test_log_query_settings.py::TestTooManyBytesError
 posthog/hogql/test/test_parser_cache.py::TestParserCache
-posthog/hogql/test/test_placeholders.py::TestParser
 posthog/hogql/test/test_timings.py::TestHogQLTimings
 posthog/hogql/test/test_utils.py::TestUtils
 posthog/hogql/test/test_visitor.py::TestVisitor
