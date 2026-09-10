@@ -193,6 +193,15 @@ class TestRunDetection(BaseTest):
 
         assert TicketPattern.objects.for_team(self.team.id).count() == 0
 
+    @parameterized.expand([("requesters", "--min-requesters"), ("tickets", "--min-tickets")])
+    def test_command_rejects_a_threshold_override_outside_a_backtest(self, _name, flag):
+        self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
+
+        with self.assertRaises(CommandError):
+            call_command("run_ticket_pattern_detection", "--team-id", str(self.team.id), flag, "3")
+
+        assert TicketPattern.objects.for_team(self.team.id).count() == 0
+
     def test_quiet_pattern_auto_resolves(self):
         self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
         run_detection(self.team, now=self.now)

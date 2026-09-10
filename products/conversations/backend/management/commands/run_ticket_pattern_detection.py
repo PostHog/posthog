@@ -41,10 +41,19 @@ class Command(BaseCommand):
         parser.add_argument(
             "--backtest", type=_positive_int, metavar="DAYS", help="Replay the last DAYS days read-only"
         )
-        parser.add_argument("--min-requesters", type=_positive_int, help="Override the team setting for this run")
-        parser.add_argument("--min-tickets", type=_positive_int, help="Override the team setting for this run")
+        parser.add_argument(
+            "--min-requesters", type=_positive_int, help="Override the team setting. Only applies to --backtest"
+        )
+        parser.add_argument(
+            "--min-tickets", type=_positive_int, help="Override the team setting. Only applies to --backtest"
+        )
 
     def handle(self, *args, **options) -> None:
+        overrides = [name for name in ("min_requesters", "min_tickets") if options[name] is not None]
+        if overrides and options["backtest"] is None:
+            flags = ", ".join(f"--{name.replace('_', '-')}" for name in overrides)
+            raise CommandError(f"{flags} only works with --backtest. A live run uses the team's own settings.")
+
         team = Team.objects.select_related("organization").filter(id=options["team_id"]).first()
         if team is None:
             raise CommandError(f"Team {options['team_id']} not found")
