@@ -135,6 +135,27 @@ class TestMigrateSiteApps(BaseTest):
         assert not self.plugin_config.enabled
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_disables_a_second_config_of_an_app_already_covered(self, mock_transpile_fn):
+        # Teams do run the same site app twice. The second one is replaced by the hog function the
+        # first produced, so leaving it enabled would render the app twice.
+        second = PluginConfig.objects.create(
+            plugin=self.plugin_config.plugin,
+            enabled=True,
+            order=2,
+            team=self.team,
+            config=self.plugin_config.config,
+            web_token="token-second",
+        )
+
+        migrate_legacy_plugins(dry_run=False, test_mode=False, kind="site_app")
+
+        assert HogFunction.objects.filter(team=self.team, template_id="template-pineapple-mode").count() == 1
+        second.refresh_from_db()
+        self.plugin_config.refresh_from_db()
+        assert not second.enabled
+        assert not self.plugin_config.enabled
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_migration_is_idempotent(self, mock_transpile_fn):
         migrate_legacy_plugins(dry_run=False, test_mode=False, kind="site_app")
         PluginConfig.objects.filter(id=self.plugin_config.id).update(enabled=True)

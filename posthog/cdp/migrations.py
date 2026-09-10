@@ -49,9 +49,14 @@ def coerce_input_value(value: object, schema: Mapping[str, Any]) -> object:
 
 def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
     hog_functions = []
-    # Only a config that produced a replacement may be disabled. A skipped one still runs on the
-    # customer's site, and disabling it would take it away with nothing in its place.
-    migrated_plugin_config_ids: list[int] = []
+    # A config may be disabled once something replaces it, whether that is a hog function this run
+    # created or one that already existed. A config we skipped for having no template is still
+    # serving the customer, so disabling it would take it away with nothing in its place.
+    covered_plugin_config_ids: list[int] = []
+    affected_team_ids: set[int] = set()
+    # bulk_create only runs at the end of the batch, so a second config of the same app would not
+    # see the row the first one produced and would create the app twice.
+    covered_pairs: set[tuple[int, str]] = set()
     teams_cache: dict[int, Team] = {}
 
     with transaction.atomic():
@@ -141,10 +146,16 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 "is_create": True,
             }
 
-            if HogFunction.objects.filter(
-                template_id=template.template_id, type=kind, team_id=team.id, enabled=True, deleted=False
-            ).exists():
+            pair = (team.id, template.template_id)
+            if (
+                pair in covered_pairs
+                or HogFunction.objects.filter(
+                    template_id=template.template_id, type=kind, team_id=team.id, enabled=True, deleted=False
+                ).exists()
+            ):
                 print(f"Skipping plugin {plugin_name} as it already exists as a hog function")  # noqa: T201
+                covered_plugin_config_ids.append(plugin_config["id"])
+                affected_team_ids.add(team.id)
                 continue
 
             data = {
@@ -171,11 +182,13 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             )
             serializer.is_valid(raise_exception=True)
             hog_functions.append(HogFunction(**serializer.validated_data))
-            migrated_plugin_config_ids.append(plugin_config["id"])
+            covered_plugin_config_ids.append(plugin_config["id"])
+            covered_pairs.add(pair)
+            affected_team_ids.add(team.id)
 
         print(hog_functions)  # noqa: T201
 
-        if not hog_functions:
+        if not hog_functions and not covered_plugin_config_ids:
             print("No hog functions to create")  # noqa: T201
             return []
 
@@ -190,12 +203,13 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             print("Disabling old plugins")  # noqa: T201
             # Disable the old plugins
             # nosemgrep: idor-lookup-without-team (internal migration; IDs from prior team-scoped query)
-            PluginConfig.objects.filter(id__in=migrated_plugin_config_ids).update(enabled=False)
+            PluginConfig.objects.filter(id__in=covered_plugin_config_ids).update(enabled=False)
 
         if kind == "site_app":
             # bulk_create and queryset.update() skip the post_save receivers that rebuild the
-            # team's remote config, so the browser would keep serving the old site app
-            for team_id in {hog_function.team_id for hog_function in hog_functions}:
+            # team's remote config, so the browser would keep serving the old site app. Disabling a
+            # config changes what is served even when this run created nothing for that team.
+            for team_id in affected_team_ids:
                 transaction.on_commit(partial(update_team_remote_config.delay, team_id))
 
         print("Done")  # noqa: T201
