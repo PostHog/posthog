@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Protocol
 
 import pytest
 from freezegun import freeze_time
@@ -13,12 +13,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.
     AppfollowResumeConfig,
     _clamp_future_value_to_now,
     _extract_rows,
+    _resolve_country,
     _to_date_str,
     _to_datetime_str,
     appfollow_source,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import APPFOLLOW_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
+    APPFOLLOW_ENDPOINTS,
+    DEFAULT_START_DATE,
+)
 
 
 class _FakeManager:
@@ -70,7 +74,11 @@ class _FakeApi:
         raise AssertionError(f"unexpected url {url}")
 
 
-def _collect(endpoint: str, manager: _FakeManager, monkeypatch: Any, api: _FakeApi, **kwargs: Any) -> list[dict]:
+class _CannedApi(Protocol):
+    def fetch(self, session: Any, url: str, params: dict[str, Any], logger: Any) -> Any: ...
+
+
+def _collect(endpoint: str, manager: _FakeManager, monkeypatch: Any, api: _CannedApi, **kwargs: Any) -> list[dict]:
     monkeypatch.setattr(appfollow, "_fetch", api.fetch)
     monkeypatch.setattr(appfollow, "make_tracked_session", lambda **k: mock.MagicMock())
     rows: list[dict] = []
@@ -95,6 +103,12 @@ class TestExtractRows:
             ({"detail": "Invalid API token"}, "reviews", []),
             ("boom", None, []),
             ({"reviews": None}, "reviews", []),
+            # Endpoints whose envelope AppFollow does not publish pass candidate keys, in order.
+            ({"rankings": [{"a": 1}]}, ("ranks", "rankings"), [{"a": 1}]),
+            ({"ranks": [{"a": 1}], "rankings": [{"b": 2}]}, ("ranks", "rankings"), [{"a": 1}]),
+            # ...and fall back to a root list rather than syncing nothing on a key we guessed wrong.
+            ([{"a": 1}], ("ranks", "rankings"), [{"a": 1}]),
+            ({"detail": "Not enough credits."}, ("ranks", "rankings"), []),
         ],
     )
     def test_extract_rows(self, data, key, expected):
@@ -361,3 +375,187 @@ class TestSourceResponse:
             assert response.partition_keys == [config.partition_key]
         else:
             assert response.partition_mode is None
+
+
+class _FanoutApi:
+    """Canned responses for the per-app fan-out endpoints, plus a record of every request made."""
+
+    def __init__(
+        self,
+        collections: list[dict[str, Any]],
+        apps_by_collection: dict[Any, list[dict[str, Any]]],
+        pages: list[list[dict[str, Any]]],
+        envelope: str,
+    ) -> None:
+        self.collections = collections
+        self.apps_by_collection = apps_by_collection
+        self.pages = pages
+        self.envelope = envelope
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def fetch(self, session: Any, url: str, params: dict[str, Any], logger: Any) -> Any:
+        self.calls.append((url, params))
+        if url.endswith("/account/apps/app"):
+            return {"apps_app": self.apps_by_collection.get(params["apps_id"], [])}
+        if url.endswith("/account/apps"):
+            return {"apps": self.collections}
+        page = params.get("page", 1)
+        rows = self.pages[page - 1] if 1 <= page <= len(self.pages) else []
+        return {self.envelope: rows}
+
+
+def _fanout_api(
+    pages: list[list[dict[str, Any]]],
+    envelope: str,
+    collection: dict[str, Any] | None = None,
+    app: dict[str, Any] | None = None,
+) -> _FanoutApi:
+    return _FanoutApi(
+        collections=[collection or {"id": 10, "title_normalized": "team"}],
+        apps_by_collection={10: [app or {"app_id": 1, "ext_id": "111", "store": "gp", "app": {}}]},
+        pages=pages,
+        envelope=envelope,
+    )
+
+
+def _calls_to(api: _FanoutApi, suffix: str) -> list[dict[str, Any]]:
+    return [p for (u, p) in api.calls if u.endswith(suffix)]
+
+
+class TestResolveCountry:
+    @pytest.mark.parametrize(
+        "collection,app,expected",
+        [
+            ({}, {"country": "DE"}, "de"),
+            ({}, {"app": {"country": "fr"}}, "fr"),
+            ({"default_country": "gb"}, {}, "gb"),
+            ({"countries": ["jp", "kr"]}, {}, "jp"),
+            # `/meta/versions` rejects a request with no country, so there is always a last resort.
+            ({}, {}, "us"),
+            ({"default_country": "gb", "countries": ["jp"]}, {"country": "de"}, "de"),
+        ],
+    )
+    def test_resolution_order(self, collection, app, expected):
+        assert _resolve_country(collection, app) == expected
+
+
+class TestSnapshotFanOut:
+    @freeze_time("2026-06-15T09:00:00Z")
+    def test_rankings_requests_today_once_per_app_and_stamps_the_key_fields(self, monkeypatch):
+        # `/meta/rankings` has no pagination and no date range, so one request per app is the whole
+        # walk. `ext_id` and `date` are stamped because the primary key and partition key need them.
+        api = _fanout_api([[{"position": 3, "genre_id": "6003"}]], envelope="ranks")
+        rows = _collect("rankings", _FakeManager(), monkeypatch, api)
+        assert rows == [{"position": 3, "genre_id": "6003", "ext_id": "111", "date": "2026-06-15"}]
+        params = _calls_to(api, "/meta/rankings")
+        assert len(params) == 1
+        assert params[0] == {"ext_id": "111", "date": "2026-06-15"}
+
+    @freeze_time("2026-06-15T09:00:00Z")
+    def test_a_row_that_carries_its_own_date_is_not_overwritten(self, monkeypatch):
+        api = _fanout_api([[{"keyword": "photos", "date": "2026-06-14"}]], envelope="keywords")
+        rows = _collect("keywords", _FakeManager(), monkeypatch, api)
+        assert rows[0]["date"] == "2026-06-14"
+
+    def test_keywords_pages_until_a_page_comes_back_empty(self, monkeypatch):
+        # The endpoint publishes neither a page count nor a total, so an empty page is the only signal.
+        api = _fanout_api([[{"keyword": "a"}], [{"keyword": "b"}]], envelope="keywords")
+        rows = _collect("keywords", _FakeManager(), monkeypatch, api)
+        assert [r["keyword"] for r in rows] == ["a", "b"]
+        assert [p["page"] for p in _calls_to(api, "/aso/keywords")] == [1, 2, 3]
+
+    def test_paging_stops_at_the_cap(self, monkeypatch):
+        # An endpoint that never returns an empty page must not spend credits forever.
+        monkeypatch.setattr(appfollow, "MAX_PAGES_PER_APP", 3)
+        api = _fanout_api([[{"keyword": "a"}]] * 50, envelope="keywords")
+        logger = mock.MagicMock()
+        monkeypatch.setattr(appfollow, "_fetch", api.fetch)
+        monkeypatch.setattr(appfollow, "make_tracked_session", lambda **k: mock.MagicMock())
+        list(
+            get_rows(
+                api_key="tok",
+                endpoint="keywords",
+                logger=logger,
+                resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
+            )
+        )
+        assert [p["page"] for p in _calls_to(api, "/aso/keywords")] == [1, 2, 3]
+        assert logger.warning.called
+
+    def test_resume_starts_from_the_saved_page(self, monkeypatch):
+        api = _fanout_api([[{"keyword": "a"}], [{"keyword": "b"}]], envelope="keywords")
+        rows = _collect("keywords", _FakeManager(AppfollowResumeConfig(ext_id="111", cursor=2)), monkeypatch, api)
+        assert [r["keyword"] for r in rows] == ["b"]
+
+
+class TestCountryScopedFanOut:
+    def test_app_versions_sends_and_stamps_the_resolved_country(self, monkeypatch):
+        # `country` is required by the endpoint and is part of the primary key, so it must be both
+        # sent and present on every row.
+        api = _fanout_api(
+            [[{"version": "2.1.0"}]],
+            envelope="versions",
+            collection={"id": 10, "title_normalized": "team", "countries": ["gb"]},
+        )
+        rows = _collect("app_versions", _FakeManager(), monkeypatch, api)
+        assert rows[0] == {"version": "2.1.0", "ext_id": "111", "country": "gb"}
+        assert _calls_to(api, "/meta/versions")[0] == {"ext_id": "111", "country": "gb", "page": 1}
+
+    def test_one_app_tracked_in_two_countries_is_fetched_per_country(self, monkeypatch):
+        # Unlike reviews, versions vary by country, so de-duplicating on ext_id alone would drop data.
+        api = _FanoutApi(
+            collections=[
+                {"id": 10, "title_normalized": "eu", "countries": ["gb"]},
+                {"id": 20, "title_normalized": "us", "countries": ["us"]},
+            ],
+            apps_by_collection={
+                10: [{"app_id": 1, "ext_id": "111", "store": "as", "app": {}}],
+                20: [{"app_id": 1, "ext_id": "111", "store": "as", "app": {}}],
+            },
+            pages=[[{"version": "2.1.0"}]],
+            envelope="versions",
+        )
+        _collect("app_versions", _FakeManager(), monkeypatch, api)
+        assert sorted(p["country"] for p in _calls_to(api, "/meta/versions") if p["page"] == 1) == ["gb", "us"]
+
+
+class TestWindowedFanOut:
+    @freeze_time("2026-06-15T09:00:00Z")
+    def test_full_refresh_opens_the_whole_window(self, monkeypatch):
+        api = _fanout_api([[{"date": "2026-06-01", "reviews": 4}]], envelope="stats")
+        _collect(
+            "reviews_stats",
+            _FakeManager(),
+            monkeypatch,
+            api,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=date(2026, 6, 10),
+        )
+        params = _calls_to(api, "/reviews/stats")[0]
+        assert params == {"ext_id": "111", "from": DEFAULT_START_DATE, "to": "2026-06-15"}
+
+    @freeze_time("2026-06-15T09:00:00Z")
+    def test_incremental_sync_moves_from_to_the_watermark(self, monkeypatch):
+        api = _fanout_api([[{"date": "2026-06-11", "reviews": 4}]], envelope="stats")
+        _collect(
+            "reviews_stats",
+            _FakeManager(),
+            monkeypatch,
+            api,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 6, 10),
+        )
+        assert _calls_to(api, "/reviews/stats")[0]["from"] == "2026-06-10"
+
+    @freeze_time("2026-06-15T09:00:00Z")
+    def test_a_future_watermark_is_clamped_so_the_table_cannot_freeze(self, monkeypatch):
+        api = _fanout_api([[{"date": "2026-06-11"}]], envelope="stats")
+        _collect(
+            "reviews_stats",
+            _FakeManager(),
+            monkeypatch,
+            api,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2027, 1, 1),
+        )
+        assert _calls_to(api, "/reviews/stats")[0]["from"] == "2026-06-15"
