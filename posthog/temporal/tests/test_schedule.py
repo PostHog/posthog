@@ -41,7 +41,7 @@ async def test_subscription_schedule_has_bounded_inputs_and_explicit_recovery_po
     schedule = captured[0]
     assert isinstance(schedule.action, ScheduleActionStartWorkflow)
     assert schedule.action.task_queue == settings.ANALYTICS_PLATFORM_TASK_QUEUE
-    assert schedule.action.execution_timeout == timedelta(minutes=10)
+    assert schedule.action.execution_timeout == timedelta(minutes=20)
     assert schedule.action.retry_policy is not None
     assert schedule.action.retry_policy.maximum_attempts == 1
     assert schedule.action.args == [
