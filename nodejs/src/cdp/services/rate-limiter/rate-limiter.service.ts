@@ -208,9 +208,9 @@ if deniedIndex > 0 then
     if reserveOnDenyMaxMs <= 0 then
         return {0, deniedIndex, retryAfterMs, 0}
     end
-    -- First in line waits only for the pair's shortfall (retryAfterMs is the slower
-    -- bucket's deficit); callers behind a live cursor chain a further requested/refill
-    -- of the slowest bucket each. Same shape as the claim-up-to script above.
+    -- First in line: wait only for the pair's shortfall (that is retryAfterMs).
+    -- Behind someone: take the slot after theirs, one interval of the slowest
+    -- bucket later. Same idea as the claim-up-to script above.
     local rawResv = redis.call('hget', KEYS[slowIndex], 'resv')
     local slotAt
     if rawResv ~= false and tonumber(rawResv) > now then
@@ -366,13 +366,12 @@ export class RateLimiterService {
      * Atomically claim `requested` tokens from BOTH buckets, or neither. A denial consumes no
      * tokens, so a caller that retries a multi-token claim cannot drain the buckets while never
      * succeeding. Returns which bucket denied (index into `buckets`), or null when granted.
-     * A denial also carries `retryAfterMs`. Both buckets are measured, so a pair that is short
-     * on the hourly and the daily bucket paces on the slower one. With `reserveOnDenyMs` = 0
-     * that is only the deficit horizon, a shared lower bound. With `reserveOnDenyMs` > 0 the
-     * denial also reserves the caller's place in line on the slowest short bucket (see
-     * claimOrReserve), so each denied caller parks for a distinct slot, never earlier than the
-     * deficit horizon and never further out than `reserveOnDenyMs`. The slot is a place in
-     * line, not a guarantee — the wake must still claim.
+     * A denial also says when to come back (`retryAfterMs`), paced by the slower of the two
+     * buckets. With `reserveOnDenyMs` = 0 that is a shared answer and every denied caller gets
+     * the same one. With `reserveOnDenyMs` > 0 the denial books the caller its own slot in
+     * line instead, like claimOrReserve does, never further out than `reserveOnDenyMs`.
+     * `reserved` tells the caller which of the two it got. A slot is a place in line, not a
+     * promise: the wake still has to claim.
      * Runtime errors deny with `deniedIndex: null` and `retryAfterMs: null` — fail-closed, like
      * claimUpTo.
      *
