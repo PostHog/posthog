@@ -43,6 +43,8 @@ Trino lowering supports keyed `JSONExtractArrayRaw` as an array of serialized JS
 values, numeric epoch arguments to `toDateTime`, array literal membership, and shared
 CTEs across UNION branches. Day-time intervals use native interval arithmetic.
 `JSONExtractRaw` also accepts dynamic string keys with JSON-escaped path construction.
+Numeric JSON path components use Trino `element_at` so one-based and negative indexes
+retain ClickHouse array semantics.
 
 An executable SELECT is not sufficient to establish materialization compatibility:
 connectors may reject anonymous nested row fields or untyped NULL output columns.
