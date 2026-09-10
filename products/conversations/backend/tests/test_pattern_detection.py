@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from io import StringIO
 
 from posthog.test.base import BaseTest
 
@@ -213,6 +214,20 @@ class TestRunDetection(BaseTest):
         outcome = run_detection(self.team, now=self.now)
 
         assert len(outcome.opened) == expected_patterns
+
+    def test_backtest_reports_a_burst_that_straddles_a_window_boundary(self):
+        # Half the burst each side of the hour mark a window-at-a-time replay would step on.
+        for i in range(6):
+            self._ticket(
+                "Cannot login to the dashboard",
+                f"user{i}@company{i}.example",
+                created_at=self.now - timedelta(minutes=63 if i < 3 else 57),
+            )
+
+        out = StringIO()
+        call_command("run_ticket_pattern_detection", "--team-id", str(self.team.id), "--backtest", "1", stdout=out)
+
+        assert "1 patterns would have opened" in out.getvalue()
 
     @parameterized.expand([("zero", "0"), ("negative", "-5")])
     def test_command_rejects_a_backtest_that_is_not_a_positive_day_count(self, _name, days):

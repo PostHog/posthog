@@ -31,9 +31,13 @@ with workflow.unsafe.imports_passed_through():
 logger = structlog.get_logger(__name__)
 
 
-def tick_bucket(now: datetime) -> str:
+def floor_to_tick(now: datetime) -> datetime:
     floored_minute = (now.minute // COORDINATOR_INTERVAL_MINUTES) * COORDINATOR_INTERVAL_MINUTES
-    return now.replace(minute=floored_minute, second=0, microsecond=0).isoformat()
+    return now.replace(minute=floored_minute, second=0, microsecond=0)
+
+
+def tick_bucket(now: datetime) -> str:
+    return floor_to_tick(now).isoformat()
 
 
 def build_detect_workflow_id(team_id: int, tick: str) -> str:
