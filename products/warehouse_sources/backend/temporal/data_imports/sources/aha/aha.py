@@ -1,10 +1,11 @@
 import re
-import dataclasses
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.settings import (
     AHA_ENDPOINTS,
@@ -40,7 +41,7 @@ AHA_API_PATH = "/api/v1"
 _SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
-@dataclasses.dataclass
+@frozen
 class AhaResumeConfig:
     # Top-level endpoints resume from the next 1-indexed page. None means "start from page 1".
     next_page: int | None = None
