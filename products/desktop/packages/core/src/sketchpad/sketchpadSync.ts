@@ -66,6 +66,10 @@ const OPS_PAGE_LIMIT = 1000;
 const RETRY_INITIAL_MS = 1000;
 const RETRY_MAX_MS = 15_000;
 const CATCH_UP_PAGE_BUDGET = 500;
+// Every page can carry a fresh copy of a fragment's source, so a page count
+// alone does not bound one catch-up pass. Spent budget ends the pass; the poll
+// loop picks the rest up on the next one.
+const CATCH_UP_BYTE_BUDGET = 8 * 1024 * 1024;
 const pendingEntrySchema = sketchpadLogEntrySchema
   .omit({ seq: true })
   .extend({ baseSeq: z.number().int().nonnegative().default(0) });
@@ -518,6 +522,7 @@ export class SketchpadSyncClient {
   }
 
   private async fetchPages(cursor: () => number): Promise<void> {
+    let ingestedBytes = 0;
     for (let page = 0; page < CATCH_UP_PAGE_BUDGET; page++) {
       const since = cursor();
       if (page > 0 && since >= this.headSeq) return;
@@ -533,6 +538,8 @@ export class SketchpadSyncClient {
       this.headSeq = Math.max(this.headSeq, result.headSeq);
       if (result.results.length === 0) return;
       this.ingest(result.results);
+      ingestedBytes += estimateJsonBytes(result.results);
+      if (ingestedBytes >= CATCH_UP_BYTE_BUDGET) return;
       if (cursor() <= since) return;
     }
   }
