@@ -9,6 +9,7 @@ import {
     type HarnessRow,
     type KPIData,
     type KPIMetric,
+    type ModelRow,
     type NotableSession,
     type ToolDailySeries,
     type ToolRow,
@@ -16,6 +17,7 @@ import {
 import { ActivityChart } from './ActivityChart'
 import { HarnessBarChart } from './HarnessBarChart'
 import { KpiTiles } from './KpiTiles'
+import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
 import { ToolUsageChart } from './ToolUsageChart'
@@ -63,6 +65,17 @@ const HARNESS_ROWS: HarnessRow[] = [
     { category: 'Cowork', total_calls: 800, errors: 8, error_rate_pct: 1, sessions: 120 },
     { category: 'Claude.ai', total_calls: 400, errors: 12, error_rate_pct: 3, sessions: 80 },
     { category: 'Other', total_calls: 200, errors: 10, error_rate_pct: 5, sessions: 50 },
+]
+
+const MODEL_ROWS: ModelRow[] = [
+    { model: 'claude-sonnet-5', total_calls: 4200 },
+    { model: 'gpt-5.6-sol', total_calls: 3100 },
+    { model: 'claude-opus-4', total_calls: 2200 },
+    { model: 'Unknown', total_calls: 1400 },
+    { model: 'gemini-2.5-pro', total_calls: 900 },
+    { model: 'gpt-4o', total_calls: 750 },
+    { model: 'Other', total_calls: 580 },
+    { model: 'grok-3', total_calls: 320 },
 ]
 
 const NOTABLE_SESSIONS: NotableSession[] = [
@@ -254,6 +267,30 @@ export const ShareByHarnessOtherOnly: Story = {
             theme={theme}
         />
     )),
+}
+
+export const ShareByModel: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
+}
+
+export const ShareByModelNarrow: Story = {
+    render: () => (
+        <div className="w-80">
+            <ModelBarChart
+                rows={[
+                    { model: 'Other', total_calls: 30 },
+                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+                    { model: 'gpt-5.6-sol', total_calls: 3100 },
+                    { model: 'Unknown', total_calls: 1400 },
+                    { model: 'example-model-c', total_calls: 800 },
+                    { model: 'example-model-d', total_calls: 600 },
+                    { model: 'example-model-e', total_calls: 400 },
+                    { model: 'example-model-f', total_calls: 1 },
+                ]}
+                theme={buildTheme()}
+            />
+        </div>
+    ),
 }
 
 export const ErrorRateByTool: Story = {
