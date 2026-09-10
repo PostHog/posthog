@@ -17,7 +17,6 @@ import { TaskRunSceneShell } from './TaskRunSceneShell'
 
 export interface TaskDetailPageProps {
     taskId: string
-    /** Mobile shows the single-column layout, where a back button is needed to return to the list. */
     isMobile: boolean
 }
 
