@@ -951,6 +951,9 @@ async def test_free_trial_gate_blocks_autostart(
         )
 
     assert (mock_create.call_count == 1) is expect_task
+    if expect_task:
+        # The verdict travels with the create, so the gate behind it re-reads no flag under the lock.
+        assert mock_create.call_args.kwargs["free_trial_enabled"] is False
     assert (capture_mock.call_count == 1) is expect_pause_event
     if expect_pause_event:
         assert capture_mock.call_args.kwargs == {"report_id": str(report.id), "stage": "autostart"}

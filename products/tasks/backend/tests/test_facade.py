@@ -2074,3 +2074,19 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             )
         self.assertFalse(Task.objects.filter(team=self.team).exists())
         self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
+
+    def test_create_and_run_task_takes_a_pre_resolved_free_trial_verdict(self):
+        # Auto-start resolves the flag before it takes the report row lock, so the create-time gate
+        # must use the verdict it is given instead of making its own flag request under the lock.
+        with self._on_trial() as flag_mock:
+            dto = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                free_trial_enabled=False,
+                start_workflow=False,
+            )
+        flag_mock.assert_not_called()
+        self.assertTrue(Task.objects.filter(id=dto.task_id).exists())

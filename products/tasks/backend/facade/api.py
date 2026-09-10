@@ -1398,6 +1398,7 @@ def create_and_run_task(
     start_workflow: bool = True,
     branch: str | None = None,
     signal_report_id: str | None = None,
+    free_trial_enabled: bool | None = None,
     internal: bool = False,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
@@ -1412,6 +1413,10 @@ def create_and_run_task(
     ``channel_id`` files the task into a channel's feed; left NULL for non-channel surfaces.
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
+
+    ``free_trial_enabled`` is a free-trial verdict the caller already resolved. Auto-start reads
+    that flag before it takes the report row lock, so handing the result over keeps the flag
+    request out of the lock. Left NULL, the gate reads the flag itself.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1420,7 +1425,9 @@ def create_and_run_task(
         # auto-start pipeline, whose over-quota hits must not pollute the manual-path
         # dark-launch bucket.
         enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
-        enforce_self_driving_free_trial(team, report_id=signal_report_id, stage="task_create")
+        enforce_self_driving_free_trial(
+            team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
+        )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
         channel = _ensure_personal_channel(team.id, user_id)[0]
@@ -2645,13 +2652,19 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
 
-def enforce_self_driving_free_trial(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
+def enforce_self_driving_free_trial(
+    team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
+) -> None:
     """Refuse to create or start a PR-opening self-driving task while the team's org is on a
     Self-driving free trial: a trial org gets reports, not pull requests, on any path (the
     auto-start gate in products/signals/backend/auto_start.py holds the pipeline back the same
     way). Emits `signal_report_free_trial_paused` at ``stage``. Raises
     ``FreeTrialPullRequestRefused`` (402, code ``self_driving_free_trial``) so clients can show
     the trial message.
+
+    ``enabled`` takes a verdict the caller already resolved, and then the gate reads no flag of
+    its own. A caller that holds a database lock resolves the flag before it takes the lock,
+    because the read does network I/O.
     """
     from products.signals.backend.free_trial import (  # noqa: PLC0415 — cross-product read kept off the api import path
         FreeTrialPullRequestRefused,
@@ -2659,7 +2672,7 @@ def enforce_self_driving_free_trial(team: Team, *, report_id: str | None = None,
         self_driving_free_trial_enabled,
     )
 
-    if not self_driving_free_trial_enabled(team):
+    if not (self_driving_free_trial_enabled(team) if enabled is None else enabled):
         return
     capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
     raise FreeTrialPullRequestRefused()
