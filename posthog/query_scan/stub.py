@@ -23,6 +23,10 @@ _IN_SUBQUERY_OPS = frozenset(
 )
 
 
+def _TRUE() -> ast.Constant:
+    return ast.Constant(value=1, type=ast.IntegerType(nullable=False))
+
+
 @frozen
 class StubResult:
     """The stubbed tree and the subqueries taken out of it, in the order they were visited."""
@@ -49,14 +53,16 @@ def _in_subquery_right(node: ast.Expr) -> ast.SelectQuery | ast.SelectSetQuery |
 
 class _StubVisitor(CloningVisitor):
     def __init__(self) -> None:
-        super().__init__()
+        # The stubbed tree is printed as ClickHouse SQL, and the printer refuses a FROM clause
+        # whose types were cleared, so the clone keeps the resolved types.
+        super().__init__(clear_types=False)
         self.subqueries: list[ast.SelectQuery | ast.SelectSetQuery] = []
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         right = _in_subquery_right(node)
         if right is not None:
             self.subqueries.append(right)
-            return ast.Constant(value=1)
+            return _TRUE()
         return super().visit_compare_operation(node)
 
     def visit_not(self, node: ast.Not) -> ast.Expr:
@@ -65,7 +71,7 @@ class _StubVisitor(CloningVisitor):
         right = _in_subquery_right(node.expr)
         if right is not None:
             self.subqueries.append(right)
-            return ast.Constant(value=1)
+            return _TRUE()
         return super().visit_not(node)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
@@ -74,5 +80,5 @@ class _StubVisitor(CloningVisitor):
             right = _in_subquery_right(node.args[0])
             if right is not None:
                 self.subqueries.append(right)
-                return ast.Constant(value=1)
+                return _TRUE()
         return super().visit_call(node)

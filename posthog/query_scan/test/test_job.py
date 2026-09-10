@@ -14,7 +14,6 @@ from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan
 FIXTURES = Path(__file__).parent / "fixtures"
 FLAG = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
-_TOO_MANY_ROWS = InternalCHQueryError("Too many rows", code=158)
 _OTHER_ERROR = InternalCHQueryError("Estimated execution time too long", code=160)
 
 
@@ -91,26 +90,18 @@ class TestQueryScanJob(BaseTest):
 
     @parameterized.expand(
         [
-            # The exact SQL plans, so the outer plan's finding is stored.
-            ("exact path", {"ORIGINAL_MARKER": "plan_no_date_bound"}, (), ["no_start_date"], True),
-            # The exact SQL begins reading an IN set (158), so the stubbed SQL is explained instead.
-            (
-                "158 falls back to the stubbed sql",
-                {"ORIGINAL_MARKER": _TOO_MANY_ROWS, "STUBBED_MARKER": "plan_no_date_bound"},
-                (),
-                ["no_start_date"],
-                True,
-            ),
+            # The stubbed SQL plans, so the outer plan's finding is stored.
+            ("the stubbed sql plans", {"STUBBED_MARKER": "plan_no_date_bound"}, (), ["no_start_date"], True),
             # A finding on a stubbed subquery is merged into the slot.
             (
                 "a subquery finding is merged",
-                {"ORIGINAL_MARKER": "plan_event_filter_used", "SUB_MARKER": "plan_no_event_filter"},
+                {"STUBBED_MARKER": "plan_event_filter_used", "SUB_MARKER": "plan_no_event_filter"},
                 ("SUB_MARKER",),
                 ["no_event_filter"],
                 True,
             ),
-            # Any EXPLAIN error other than 158 ends the analysis for that execution, findings and all.
-            ("an explain failure fails closed", {"ORIGINAL_MARKER": _OTHER_ERROR}, (), [], False),
+            # Any EXPLAIN error ends the analysis for that execution, findings and all.
+            ("an explain failure fails closed", {"STUBBED_MARKER": _OTHER_ERROR}, (), [], False),
         ]
     )
     def test_analyzes_each_execution(self, _name, dispatch, subqueries, expected_kinds, expected_explain_ok) -> None:
@@ -131,17 +122,18 @@ class TestQueryScanJob(BaseTest):
         # The rollout analysis groups the event by these, so they travel from the trigger to here.
         assert (properties["insight_id"], properties["dashboard_id"]) == (7, 3)
 
-    def test_158_explains_both_the_exact_and_the_stubbed_sql(self) -> None:
-        self._run({"ORIGINAL_MARKER": _TOO_MANY_ROWS, "STUBBED_MARKER": "plan_no_date_bound"})
+    def test_never_explains_the_unstubbed_sql(self) -> None:
+        # EXPLAIN executes every IN subquery of the SQL it is given, so only the stubbed SQL may reach it.
+        self._run({"STUBBED_MARKER": "plan_no_date_bound"})
 
         explained = self._explained()
-        assert any("ORIGINAL_MARKER" in query for query in explained)
+        assert not any("ORIGINAL_MARKER" in query for query in explained)
         assert any("STUBBED_MARKER" in query for query in explained)
 
     def test_runs_both_denominators_and_stores_the_shares(self) -> None:
         # plan_no_event_filter has a lower timestamp bound, so the range denominator runs with that
         # bound, and both shares reach the slot.
-        self._run({"ORIGINAL_MARKER": "plan_no_event_filter"})
+        self._run({"STUBBED_MARKER": "plan_no_event_filter"})
 
         stored = slot.get(self.team.pk, "cache_key_1")
         assert stored is not None

@@ -31,10 +31,7 @@ from posthog.query_scan.slot import QueryScanSlot, set_done
 
 logger = structlog.get_logger(__name__)
 
-# Aborts an EXPLAIN that starts reading an IN subquery (code 158), so the stubbed SQL is tried instead.
-EXPLAIN_MAX_ROWS = 1000
 EXPLAIN_MAX_SECONDS = 10
-TOO_MANY_ROWS_CODE = 158
 
 
 @frozen
@@ -112,9 +109,7 @@ def _run(job: QueryScanJob, started: float) -> None:
 
     # The team's whole data on the initiator shard, run once for every execution's share.
     team_granules = _denominator_granules(
-        _explain(
-            "SELECT count() FROM events WHERE team_id = %(scan_team_id)s", {"scan_team_id": job.team.pk}, job.team.pk
-        )
+        _explain("SELECT uuid FROM events WHERE team_id = %(scan_team_id)s", {"scan_team_id": job.team.pk}, job.team.pk)
     )
     range_cache: dict[tuple[int | None, int | None], int | None] = {}
 
@@ -160,11 +155,10 @@ def _run(job: QueryScanJob, started: float) -> None:
 
 
 def _outer_plan(execution: Execution, team_id: int) -> QueryPlan | None:
-    """The plan for the run's outer query. Tries the exact SQL first, and the stubbed SQL when the
-    exact one begins reading an ``IN`` set. None when EXPLAIN failed for any other reason."""
-    rows, hit_row_limit = _explain(execution.sql, execution.values, team_id)
-    if hit_row_limit:
-        rows, _ = _explain(execution.stubbed_sql, execution.values, team_id)
+    """The plan for the run's outer query, from the stubbed SQL: `EXPLAIN` executes every `IN
+    (subquery)` to build its set before planning, and a rows cap cannot guard that because ClickHouse
+    checks it against the planned read's own estimate. None when EXPLAIN failed."""
+    rows, _ = _explain(execution.stubbed_sql, execution.values, team_id)
     if rows is None:
         return None
     return parse_query_plan(rows[0][0])
@@ -206,7 +200,9 @@ def _explain_range(team_id: int, bounds: TimestampBounds) -> tuple[list[Any] | N
     if bounds.upper is not None:
         conditions.append("timestamp < toDateTime(%(scan_upper)s)")
         values["scan_upper"] = bounds.upper
-    return _explain("SELECT count() FROM events WHERE " + " AND ".join(conditions), values, team_id)
+    # A bare count() can be answered from a count projection with no table read in the plan, so the
+    # denominator selects a column; EXPLAIN reads nothing either way.
+    return _explain("SELECT uuid FROM events WHERE " + " AND ".join(conditions), values, team_id)
 
 
 def _denominator_granules(explained: tuple[list[Any] | None, bool]) -> int | None:
@@ -218,16 +214,15 @@ def _denominator_granules(explained: tuple[list[Any] | None, bool]) -> int | Non
 
 
 def _explain(sql: str, values: dict[str, Any], team_id: int) -> tuple[list[Any] | None, bool]:
-    """EXPLAIN on the offline pool. Returns the rows, None on any failure, and whether the failure was
-    the row-limit abort (code 158).
-    """
+    """EXPLAIN on the offline pool. Returns the rows and False; rows is None on any failure, which
+    fails the analysis closed."""
     try:
         with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY_SCAN):
             # nosemgrep: clickhouse-fstring-param-audit - sql is compiled from the HogQL AST by the printer, and its values stay parameterized
             rows = sync_execute(
                 f"EXPLAIN indexes = 1, json = 1 {sql}",
                 values,
-                settings={"max_rows_to_read": EXPLAIN_MAX_ROWS, "max_execution_time": EXPLAIN_MAX_SECONDS},
+                settings={"max_execution_time": EXPLAIN_MAX_SECONDS},
                 workload=Workload.OFFLINE,
                 team_id=team_id,
                 readonly=True,
@@ -236,9 +231,7 @@ def _explain(sql: str, values: dict[str, Any], team_id: int) -> tuple[list[Any] 
     except SoftTimeLimitExceeded:
         # Never swallow the task's timeout as an explain failure; the task leaves the slot pending.
         raise
-    except Exception as error:
-        if getattr(error, "code", None) == TOO_MANY_ROWS_CODE:
-            return None, True
+    except Exception:
         logger.warning("query_scan_explain_failed", team_id=team_id, exc_info=True)
         return None, False
 
