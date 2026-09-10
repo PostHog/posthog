@@ -14,6 +14,21 @@ export const SKETCHPAD_FIELD_KEY_MAX_CHARS = 64;
 export const sketchpadFieldKindSchema = z.enum(["text", "list"]);
 export type SketchpadFieldKind = z.infer<typeof sketchpadFieldKindSchema>;
 
+// What a fragment may reach through ph.*, declared the way a canvas declares
+// its manifest. The runtime denies anything the fragment does not name here.
+export const sketchpadCapabilitiesSchema = z.object({
+  inlineQueries: z.boolean().default(false),
+  insights: z.array(z.string().min(1).max(128)).max(100).default([]),
+  state: z.array(z.literal("shared")).max(1).default([]),
+});
+export type SketchpadCapabilities = z.infer<typeof sketchpadCapabilitiesSchema>;
+
+export const SKETCHPAD_NO_CAPABILITIES: SketchpadCapabilities = {
+  inlineQueries: false,
+  insights: [],
+  state: [],
+};
+
 export const sketchpadFragmentSchema = z.object({
   id: z
     .string()
@@ -30,6 +45,7 @@ export const sketchpadFragmentSchema = z.object({
   codeVersion: z.number().int().default(1),
   surface: z.enum(["card", "plain"]).default("card"),
   hidden: z.boolean().default(false),
+  capabilities: sketchpadCapabilitiesSchema.optional(),
 });
 export type SketchpadFragment = z.infer<typeof sketchpadFragmentSchema>;
 
