@@ -17,7 +17,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing
 
 if typing.TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 DATA_INTERVAL_START_PLACEHOLDER = "data_interval_start"
 DATA_INTERVAL_END_PLACEHOLDER = "data_interval_end"
@@ -108,7 +108,9 @@ def replace_interval_placeholders(
     )
 
 
-def create_hogql_context_for_batch_export(team: "Team", values: dict[str, typing.Any] | None = None) -> HogQLContext:
+def create_hogql_context_for_batch_export(
+    team: "Team", values: dict[str, typing.Any] | None = None, user: "User | None" = None
+) -> HogQLContext:
     """Build the HogQLContext batch exports use to resolve and print a query.
 
     Both API-side validation and worker-side execution must build the context the same
@@ -122,6 +124,7 @@ def create_hogql_context_for_batch_export(team: "Team", values: dict[str, typing
     context = HogQLContext(
         team=team,
         team_id=team.id,
+        user=user,
         enable_select_queries=True,
         limit_top_select=False,
         values=values if values is not None else {},
@@ -151,7 +154,7 @@ def _validate_select_columns_are_named(parsed: ast.SelectQuery | ast.SelectSetQu
             )
 
 
-def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> None:
+def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team", user: "User | None" = None) -> None:
     """Validate a HogQL query can power a batch export for the given team.
 
     Parses the query, checks output columns are named, and resolves types against the
@@ -170,7 +173,7 @@ def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> Non
 
     parsed = replace_interval_placeholders(parsed, _VALIDATION_DATA_INTERVAL_START, _VALIDATION_DATA_INTERVAL_END)
 
-    context = create_hogql_context_for_batch_export(team)
+    context = create_hogql_context_for_batch_export(team, user=user)
     try:
         prepare_ast_for_printing(parsed, context=context, dialect="clickhouse", stack=[])
     except ExposedHogQLError as e:

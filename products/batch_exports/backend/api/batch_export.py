@@ -1756,8 +1756,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if not hogql_query:
             raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
 
+        user = self.context["request"].user
         try:
-            validate_hogql_query_for_batch_export(hogql_query, team)
+            validate_hogql_query_for_batch_export(hogql_query, team, user=user)
         except UnsupportedHogQLQueryError as e:
             raise serializers.ValidationError({"hogql_query": str(e)}) from e
 
