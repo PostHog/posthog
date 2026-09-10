@@ -94,6 +94,36 @@ class TestReserveSchedulerClaims(TestCase):
             1,
         )
 
+    def test_retry_with_same_reservation_token_returns_owned_claim_without_double_counting(self) -> None:
+        claim_token = uuid.uuid4()
+        request = SchedulerClaimRequest(
+            tenant_key="team:1",
+            occurrence_key="one",
+            workflow_id="workflow-one",
+            claim_token=claim_token,
+        )
+
+        first = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request],
+            limits=_limits(),
+        )
+        retried = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request],
+            limits=_limits(),
+        )
+
+        self.assertEqual(retried.reservations, first.reservations)
+        self.assertEqual(retried.already_claimed, 0)
+        self.assertEqual(TemporalSchedulerClaim.objects.count(), 1)
+        self.assertEqual(
+            TemporalSchedulerPermitPool.objects.get(scheduler=SCHEDULER, region=REGION, tenant_key="").in_flight,
+            1,
+        )
+
     def test_duplicate_deferred_requests_are_all_counted_as_deferred(self) -> None:
         reserve_scheduler_claims(
             scheduler=SCHEDULER,

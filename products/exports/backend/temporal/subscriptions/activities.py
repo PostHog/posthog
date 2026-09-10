@@ -5,9 +5,10 @@ import typing
 import asyncio
 import datetime as dt
 import dataclasses
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 
+from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Case, Q, Value, When
 from django.utils import timezone as tz
@@ -27,6 +28,7 @@ from posthog.temporal.scheduler.admission import (
     SchedulerClaimRequest,
     complete_scheduler_claim,
     confirm_scheduler_claim,
+    defer_scheduler_claim_recovery,
     list_expired_scheduler_claims,
     prune_inactive_scheduler_claims,
     release_scheduler_claim,
@@ -91,8 +93,9 @@ from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_
 LOGGER = get_logger(__name__)
 
 _SUBSCRIPTION_SCHEDULER_NAME = "subscriptions"
-_SUBSCRIPTION_RESERVATION_LEASE = dt.timedelta(minutes=30)
+_SUBSCRIPTION_RESERVATION_LEASE = dt.timedelta(minutes=25)
 _SUBSCRIPTION_EXECUTION_LEASE = dt.timedelta(hours=2, minutes=15)
+_SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF = dt.timedelta(minutes=5)
 _SUBSCRIPTION_MAX_IN_FLIGHT = MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
 _SUBSCRIPTION_MAX_IN_FLIGHT_PER_TENANT = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
 _SUBSCRIPTION_RECOVERY_CONCURRENCY = 20
@@ -132,13 +135,26 @@ class _DueSubscriptionsPage:
 @frozen
 class _ClaimReservations:
     reservations: dict[str, tuple[str, str]]
-    capacity_deferred: bool
 
 
 @frozen
 class _ExpiredSchedulerClaimsSnapshot:
     claims: list[tuple[uuid.UUID, uuid.UUID, str, dt.datetime]]
     pruned: int
+
+
+@frozen
+class _WorkflowClaimStatus:
+    is_open: bool | None
+    error: str = ""
+
+
+def _validate_scheduler_region(region: str) -> None:
+    if not region.strip() or len(region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+    configured_region = (settings.CLOUD_DEPLOYMENT or "").lower()
+    if configured_region and region != configured_region:
+        raise ValueError(f"region {region!r} does not match configured deployment region {configured_region!r}")
 
 
 def _subscription_child_workflow_id(subscription: DueSubscription) -> str:
@@ -328,8 +344,9 @@ async def _fetch_due_subscriptions(
         raise ValueError(f"max_subscriptions_per_run must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
     if not 0 <= inputs.buffer_minutes <= 60:
         raise ValueError("buffer_minutes must be between 0 and 60")
-    if not inputs.region.strip() or len(inputs.region) > 32:
-        raise ValueError("region must contain between 1 and 32 characters")
+    _validate_scheduler_region(inputs.region)
+    if inputs.use_durable_claims and not inputs.claim_token_seed:
+        raise ValueError("claim_token_seed is required when durable claims are enabled")
 
     now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
     await LOGGER.ainfo(
@@ -460,6 +477,10 @@ async def _fetch_due_subscriptions(
                     tenant_key=str(candidate.team_id),
                     occurrence_key=_subscription_occurrence_key(candidate),
                     workflow_id=_subscription_child_workflow_id(candidate),
+                    claim_token=uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"{inputs.claim_token_seed}:{_subscription_occurrence_key(candidate)}",
+                    ),
                 )
                 for candidate in candidates
             ],
@@ -474,11 +495,10 @@ async def _fetch_due_subscriptions(
                 reservation.occurrence_key: (str(reservation.claim_id), str(reservation.claim_token))
                 for reservation in result.reservations
             },
-            capacity_deferred=result.deferred_for_capacity > 0,
         )
 
-    covered_team_ids: set[int] = set()
-    capacity_deferred = False
+    candidate_counts_by_team = Counter(candidate.team_id for candidate in page.subscriptions)
+    examined_counts_by_team: Counter[int] = Counter()
     if inputs.use_durable_claims:
         claimed_subscriptions: list[DueSubscription] = []
         candidate_index = 0
@@ -506,9 +526,7 @@ async def _fetch_due_subscriptions(
             safe_candidates = candidates[:safe_candidate_count]
             candidate_index += safe_candidate_count
             reservation_result = await reserve_candidates(safe_candidates)
-            capacity_deferred = capacity_deferred or reservation_result.capacity_deferred
-            if not reservation_result.capacity_deferred:
-                covered_team_ids.update(candidate.team_id for candidate in safe_candidates)
+            examined_counts_by_team.update(candidate.team_id for candidate in safe_candidates)
             for candidate in safe_candidates:
                 claim = reservation_result.reservations.get(_subscription_occurrence_key(candidate))
                 if claim is not None:
@@ -544,14 +562,11 @@ async def _fetch_due_subscriptions(
 
         await release_payload_deferred_claims()
     if inputs.use_durable_claims:
-        selected_item_team_ids = {subscription.team_id for subscription in selection.items}
-        covered_team_ids.update(selected_item_team_ids)
         cursor_team_id: str | None = None
-        if not capacity_deferred:
-            for team_id in page.selected_team_ids:
-                if team_id not in covered_team_ids:
-                    break
-                cursor_team_id = str(team_id)
+        for team_id in page.selected_team_ids:
+            if examined_counts_by_team[team_id] < candidate_counts_by_team[team_id]:
+                break
+            cursor_team_id = str(team_id)
     else:
         cursor_team_id = str(selection.items[-1].team_id) if selection.items else None
 
@@ -638,8 +653,7 @@ async def fetch_claimed_due_subscriptions_activity(
 async def advance_subscription_scheduler_cursor_activity(
     inputs: AdvanceSubscriptionSchedulerCursorInputs,
 ) -> bool:
-    if not inputs.region.strip() or len(inputs.region) > 32:
-        raise ValueError("region must contain between 1 and 32 characters")
+    _validate_scheduler_region(inputs.region)
     return await database_sync_to_async(_advance_subscription_scheduler_cursor, thread_sensitive=False)(inputs)
 
 
@@ -647,8 +661,7 @@ async def advance_subscription_scheduler_cursor_activity(
 async def recover_subscription_scheduler_claims_activity(
     inputs: RecoverSubscriptionSchedulerClaimsInputs,
 ) -> dict[str, int]:
-    if not inputs.region.strip() or len(inputs.region) > 32:
-        raise ValueError("region must contain between 1 and 32 characters")
+    _validate_scheduler_region(inputs.region)
     if not 1 <= inputs.limit <= MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN:
         raise ValueError(f"limit must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
 
@@ -682,15 +695,17 @@ async def recover_subscription_scheduler_claims_activity(
     temporal = await async_connect()
     semaphore = asyncio.Semaphore(_SUBSCRIPTION_RECOVERY_CONCURRENCY)
 
-    async def workflow_is_open(workflow_id: str) -> bool | None:
+    async def workflow_is_open(workflow_id: str) -> _WorkflowClaimStatus:
         async with semaphore:
             try:
                 description = await temporal.get_workflow_handle(workflow_id).describe()
             except RPCError as error:
-                return False if error.status == RPCStatusCode.NOT_FOUND else None
-            except Exception:
-                return None
-            return description.status == WorkflowExecutionStatus.RUNNING
+                if error.status == RPCStatusCode.NOT_FOUND:
+                    return _WorkflowClaimStatus(is_open=False)
+                return _WorkflowClaimStatus(is_open=None, error=f"{type(error).__name__}: {error}")
+            except Exception as error:
+                return _WorkflowClaimStatus(is_open=None, error=f"{type(error).__name__}: {error}")
+            return _WorkflowClaimStatus(is_open=description.status == WorkflowExecutionStatus.RUNNING)
 
     statuses = await asyncio.gather(*(workflow_is_open(workflow_id) for _, _, workflow_id, _ in expired_claims))
 
@@ -699,8 +714,8 @@ async def recover_subscription_scheduler_claims_activity(
         released = 0
         renewed = 0
         retained = 0
-        for (claim_id, claim_token, _, lease_expires_at), is_open in zip(expired_claims, statuses, strict=True):
-            if is_open is True:
+        for (claim_id, claim_token, _, lease_expires_at), status in zip(expired_claims, statuses, strict=True):
+            if status.is_open is True:
                 renewed += int(
                     confirm_scheduler_claim(
                         claim_id,
@@ -708,7 +723,7 @@ async def recover_subscription_scheduler_claims_activity(
                         lease_duration=_SUBSCRIPTION_EXECUTION_LEASE,
                     )
                 )
-            elif is_open is False:
+            elif status.is_open is False:
                 released += int(
                     release_scheduler_claim(
                         claim_id,
@@ -718,6 +733,13 @@ async def recover_subscription_scheduler_claims_activity(
                     )
                 )
             else:
+                defer_scheduler_claim_recovery(
+                    claim_id,
+                    claim_token,
+                    lease_duration=_SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF,
+                    error=status.error or "Temporal workflow status could not be determined",
+                    expected_lease_expires_at=lease_expires_at,
+                )
                 retained += 1
         return {"released": released, "renewed": renewed, "retained": retained, "pruned": pruned}
 
@@ -762,8 +784,8 @@ async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAb
 
     # Idempotency: a Temporal redispatch (e.g. worker crash mid-acknowledge) after a
     # prior auto-disable committed must not re-fire side effects.
-    if not subscription.enabled:
-        await LOGGER.ainfo("validate_subscription.already_disabled_skipping", subscription_id=subscription_id)
+    if not subscription.enabled or subscription.deleted:
+        await LOGGER.ainfo("validate_subscription.inactive_skipping", subscription_id=subscription_id)
         return DeliveryAbort()
 
     reason = get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
@@ -951,8 +973,8 @@ async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSub
     # subscription (UPDATE committed) and Temporal redispatched the activity (e.g.
     # worker crash mid-acknowledge), don't re-fire the disable side effects — UUID4
     # campaign keys mean MessagingRecord wouldn't dedup the duplicate email.
-    if not subscription.enabled:
-        LOGGER.info("deliver_subscription.skipped_disabled", subscription_id=inputs.subscription_id)
+    if not subscription.enabled or subscription.deleted:
+        LOGGER.info("deliver_subscription.skipped_inactive", subscription_id=inputs.subscription_id)
         return DeliverSubscriptionResult(recipient_results=[])
 
     previous_target_value = inputs.previous_target_value
@@ -1196,8 +1218,8 @@ async def advance_next_delivery_date(subscription_id: int) -> None:
     subscription = await database_sync_to_async(Subscription.objects.get, thread_sensitive=False)(pk=subscription_id)
     # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
     # future delivery date — avoids showing a misleading "next delivery" in the UI.
-    if not subscription.enabled:
-        await LOGGER.ainfo("advance_next_delivery_date.skipped_disabled", subscription_id=subscription_id)
+    if not subscription.enabled or subscription.deleted:
+        await LOGGER.ainfo("advance_next_delivery_date.skipped_inactive", subscription_id=subscription_id)
         return
     subscription.set_next_delivery_date(subscription.next_delivery_date)
     await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
