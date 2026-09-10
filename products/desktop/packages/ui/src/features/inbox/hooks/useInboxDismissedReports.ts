@@ -1,9 +1,11 @@
 import {
   buildArchiveListOrdering,
   INBOX_DISMISSED_STATUS_FILTER,
-  INBOX_REFETCH_INTERVAL_MS,
 } from "@posthog/core/inbox/reportFiltering";
-import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  DESKTOP_INBOX_REFETCH_INTERVAL_MS,
+  useInboxReportsInfinite,
+} from "@posthog/ui/features/inbox/hooks/useInboxReports";
 
 /**
  * Archived reports for the Archive tab — suppressed (user-dismissed) and
@@ -22,7 +24,7 @@ export function useInboxDismissedReports() {
       status: INBOX_DISMISSED_STATUS_FILTER,
       ordering: buildArchiveListOrdering("updated_at", "desc"),
     },
-    { refetchInterval: INBOX_REFETCH_INTERVAL_MS },
+    { refetchInterval: DESKTOP_INBOX_REFETCH_INTERVAL_MS },
   );
 
   return {

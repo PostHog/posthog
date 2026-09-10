@@ -124,7 +124,10 @@ function renderCounts(options?: {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return renderHook(() => useInboxAllReports(options), { wrapper });
+  return {
+    ...renderHook(() => useInboxAllReports(options), { wrapper }),
+    queryClient,
+  };
 }
 
 describe("useInboxAllReports", () => {
@@ -149,6 +152,21 @@ describe("useInboxAllReports", () => {
     // with the list it labels.
     expect(reportsCountParams()?.status).toBe("ready");
     expect(reportsCountParams()?.count_only).toBe(true);
+  });
+
+  it("polls desktop inbox queries every 30 seconds", async () => {
+    const { result, queryClient } = renderCounts();
+
+    await waitFor(() => {
+      expect(result.current.allReports).toHaveLength(50);
+    });
+
+    expect(
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .map((query) => query.options.refetchInterval),
+    ).toEqual([30_000, 30_000, 30_000]);
   });
 
   it("stitches subsequent pages without gaps or duplicate reports", async () => {

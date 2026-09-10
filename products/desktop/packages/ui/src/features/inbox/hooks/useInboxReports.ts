@@ -28,6 +28,8 @@ import { useEffect, useMemo } from "react";
 
 const REPORTS_PAGE_SIZE = 50;
 
+export const DESKTOP_INBOX_REFETCH_INTERVAL_MS = 30_000;
+
 export const reportKeys = inboxReportKeys;
 
 export function useInboxReports(
