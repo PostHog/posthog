@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -152,7 +152,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
             ]
         )
 
-        with freeze_time("2024-01-15T12:00:00Z"):
+        with time_machine.travel("2024-01-15T12:00:00Z", tick=False):
             response = self.client.post(f"/api/organizations/@current/domains/{domain.id}/verify")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["is_verified"])
