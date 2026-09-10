@@ -126,8 +126,9 @@ const MANUAL_RUN_WATCH_TIMEOUT_MS = 45_000
 interface ManualRunWatch {
     skillName: string
     /** The scout's run ids at dispatch. Any id outside this set is the new run, whatever its status:
-     * a run that already failed on spawn ends the watch as surely as one that is still working. */
-    knownRunIds: Set<string>
+     * a run that already failed on spawn ends the watch as surely as one that is still working.
+     * Null when the dispatch beat the first runs load, so there was no history to diff against. */
+    knownRunIds: Set<string> | null
     expiresAt: number
 }
 // The findings feed's fixed lookback: the runs endpoint caps each page at 100 rows newest-first, so
@@ -1256,7 +1257,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             const watches: Map<string, ManualRunWatch> = (cache.manualRunWatches ??= new Map())
             for (const [configId, watch] of watches) {
                 const runs = values.rollups.get(watch.skillName)?.runs ?? []
-                const landed = runs.some((run) => !watch.knownRunIds.has(run.run_id))
+                // A dispatch on a page that opened straight to a scout can beat the first runs load,
+                // and an absent history diffs as "everything is new". This response is that history,
+                // so adopt it as the baseline: a row from last week must not read as the run the
+                // click just started. The timeout below still bounds the wait.
+                const baseline = (watch.knownRunIds ??= new Set(runs.map((run) => run.run_id)))
+                const landed = runs.some((run) => !baseline.has(run.run_id))
                 if (landed || performance.now() >= watch.expiresAt) {
                     watches.delete(configId)
                     actions.runScoutNowFinished(configId)
@@ -1353,9 +1359,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 return
             }
             const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
-            const knownRunIds = new Set(
-                (values.rollups.get(config?.skill_name ?? '')?.runs ?? []).map((run) => run.run_id)
-            )
+            const knownRunIds = values.scoutRunsLoadedOnce
+                ? new Set((values.rollups.get(config?.skill_name ?? '')?.runs ?? []).map((run) => run.run_id))
+                : null
             try {
                 await signalsScoutConfigRun(String(teamId), configId)
                 captureScoutAction({

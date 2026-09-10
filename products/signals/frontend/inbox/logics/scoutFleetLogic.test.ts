@@ -727,10 +727,31 @@ describe('scoutFleetLogic', () => {
         // A run that fails on spawn is terminal before the first catch-up poll, and it is exactly the
         // one a person wants to retry. Waiting for a running row would hold the button for 45 seconds.
         it('clears the dispatch once a run row lands, whatever status it landed in', async () => {
+            logic.actions.loadScoutRunsSuccess([])
             mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'spawned', status: 'failed' })])
 
             logic.actions.runScoutNow(BASE_CONFIG.id)
+            await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
+
+            expect(logic.values.manualRunScoutIds).toEqual([])
+        })
+
+        // Opening a scout by direct link renders the button before the runs load answers, so the
+        // dispatch has no history to diff against. Every row in the first response is then "new",
+        // and the oldest of them would release the button before the real run row exists.
+        it('waits past a history that only arrives after the dispatch', async () => {
+            const historical = makeRun({ run_id: 'last-week' })
+            mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([historical])
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess'])
+
+            expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
+
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([historical, makeRun({ run_id: 'spawned' })])
+            logic.actions.loadScoutRuns()
             await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
 
             expect(logic.values.manualRunScoutIds).toEqual([])
