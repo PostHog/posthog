@@ -670,11 +670,18 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     // would otherwise pass a truthy-but-empty external_schema and fail at bind time.
                     const synced = collected.filter((table) => !!table.external_schema?.id)
                     // Keep the currently-selected table in the list even if the active search filters it
-                    // out, so the picker can still render its label rather than a bare id.
+                    // out, so the picker can still render its label rather than a bare id. Prefer this
+                    // response's own copy when the table is still present here (the search term matches
+                    // its name) — its schema id reflects the table's current state, so a table that lost
+                    // its schema while the modal was open drops out instead of surviving on a stale cached
+                    // copy. Only fall back to the last-known entry when this response's search excluded
+                    // the table by name entirely.
                     const selectedId = values.customPropertyForm.warehouseTable
                     if (selectedId && !synced.some((table) => table.id === selectedId)) {
-                        const selected = values.warehouseTables.find((table) => table.id === selectedId)
-                        if (selected) {
+                        const selected =
+                            collected.find((table) => table.id === selectedId) ??
+                            values.warehouseTables.find((table) => table.id === selectedId)
+                        if (selected?.external_schema?.id) {
                             return [selected, ...synced]
                         }
                     }

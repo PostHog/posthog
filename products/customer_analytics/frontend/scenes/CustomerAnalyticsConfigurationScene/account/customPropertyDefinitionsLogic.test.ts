@@ -449,6 +449,51 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.warehouseTables.map((table) => table.id)).toEqual(['table-1'])
     })
 
+    it('keeps a selected table alive when search excludes it by name, but drops it when it loses its schema', async () => {
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
+                    if (search === 'lost-schema') {
+                        // Same id, name still matches this search, but the schema was removed server-side.
+                        return [
+                            200,
+                            {
+                                count: 1,
+                                next: null,
+                                results: [buildTable({ id: 'table-1', name: 'users', external_schema: {} })],
+                            },
+                        ]
+                    }
+                    if (search === 'nope') {
+                        return [200, { count: 0, next: null, results: [] }]
+                    }
+                    return [200, { count: 1, next: null, results: [buildTable({ id: 'table-1', name: 'users' })] }]
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValues({ warehouseTable: 'table-1' })
+
+        // A search that excludes table-1 by name alone still shows it, from the cached copy.
+        await expectLogic(logic, () => logic.actions.loadWarehouseTables({ search: 'nope' })).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseTables.map((table) => table.id)).toEqual(['table-1'])
+
+        // A search table-1 still matches by name, but its schema is now gone — the fresh response
+        // must win over the stale cached copy that still carries the old schema id.
+        await expectLogic(logic, () => logic.actions.loadWarehouseTables({ search: 'lost-schema' })).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseTables).toEqual([])
+    })
+
     it('passes the search term to the backend when the picker searches', async () => {
         let searchedFor: string | null = null
         useMocks({
