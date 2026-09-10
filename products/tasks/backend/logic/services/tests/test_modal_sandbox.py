@@ -35,6 +35,7 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
     HOST_PRESSURE_PROBE_SCRIPT,
     STARTUP_LOG_MAX_BYTES,
+    _egress_failure_reason,
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
@@ -1390,18 +1391,50 @@ class TestStartupFailureDiagnostics:
         assert "poll=137" in diagnostics["failure_reason"]
         sandbox._sandbox.exec.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "probe_stdout, expected, unexpected",
+        [
+            (
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "egress blocked",
+                "timed out",
+            ),
+            (
+                "api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000\nFAILED",
+                "egress blocked",
+                "timed out",
+            ),
+            (
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=28",
+                "timed out",
+                "egress blocked",
+            ),
+            (
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "egress blocked",
+                "timed out",
+            ),
+            (
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com  curl_exit=127",
+                "did not run",
+                "no egress block detected",
+            ),
+        ],
+        ids=[
+            "refused",
+            "legacy_image_without_curl_exit",
+            "every_host_timed_out",
+            "one_refused_one_timed_out",
+            "curl_never_ran",
+        ],
+    )
     @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
-    def test_reports_blocked_egress_host(self):
+    def test_reports_blocked_egress_host(self, probe_stdout: str, expected: str, unexpected: str):
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "http_code=" in command:
-                return ExecutionResult(
-                    stdout="api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000",
-                    stderr="",
-                    exit_code=0,
-                    error=None,
-                )
+                return ExecutionResult(stdout=probe_stdout, stderr="", exit_code=0, error=None)
             if "agent-server.log" in command:
                 return ExecutionResult(stdout="agent log tail", stderr="", exit_code=0, error=None)
             return ExecutionResult(stdout='{"status":"ok","hasSession":false}', stderr="", exit_code=0, error=None)
@@ -1413,8 +1446,12 @@ class TestStartupFailureDiagnostics:
             diagnostics = sandbox._diagnose_startup_failure(allowed_domains=["github.com"])
 
         assert diagnostics["sandbox_terminated"] == "false"
-        assert "egress blocked" in diagnostics["failure_reason"]
+        assert expected in diagnostics["failure_reason"]
+        assert unexpected not in diagnostics["failure_reason"]
         assert "mcp-eu.posthog.com" in diagnostics["failure_reason"]
+
+    def test_transfer_error_after_a_response_is_not_an_egress_failure(self):
+        assert _egress_failure_reason("api.anthropic.com http_code=200 curl_exit=56") is None
 
     def test_reports_alive_without_session_when_no_block(self):
         sandbox = self._sandbox()

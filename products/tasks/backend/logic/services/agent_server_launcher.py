@@ -8,6 +8,7 @@ inherit it unchanged.
 
 from __future__ import annotations
 
+import re
 import json
 import time
 import shlex
@@ -79,6 +80,11 @@ HOST_PRESSURE_PROBE_SCRIPT = (
     'else echo "cold_read_ms=unavailable file=${probe_file:-none} size=$probe_size"; fi'
 )
 
+EGRESS_PROBE_MAX_TIME_SECONDS = 3
+# curl(1): "Operation timeout. The specified time-out period was reached according to the conditions."
+CURL_EXIT_OPERATION_TIMEOUT = 28
+CURL_EXIT_PATTERN = re.compile(r"curl_exit=(\d+)$")
+
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
     "gateway.eu.posthog.com",
@@ -101,6 +107,54 @@ def _session_init_probe_hosts() -> list[str]:
         if gateway_host and gateway_host not in hosts:
             hosts.insert(0, gateway_host)
     return hosts
+
+
+def _curl_exit_code(line: str) -> int | None:
+    """Read the exit code the probe appends, or None for output from an image that predates it."""
+    match = CURL_EXIT_PATTERN.search(line)
+    return int(match.group(1)) if match else None
+
+
+def _egress_failure_reason(egress: str) -> str | None:
+    """Name the failure the egress probe saw, or None when every host answered.
+
+    A refused connection (curl exit 7) or a failed lookup (exit 6) proves a network policy block.
+    A timeout (exit 28) proves nothing on its own: a slow sandbox and a policy that drops packets
+    silently both look like one. So a timeout is reported as a timeout, and the reader is sent to
+    the host-pressure probe in the same diagnostics rather than to the allowlist. A nonzero exit
+    with no HTTP code means curl never ran or was killed, so that host was never probed at all.
+    """
+    failed: list[str] = []
+    blocked: list[str] = []
+    unprobed: list[str] = []
+    for line in egress.splitlines():
+        exit_code = _curl_exit_code(line)
+        if exit_code == 0:
+            continue
+        curl_reported_no_response = "http_code=000" in line or line.endswith("FAILED")
+        if not curl_reported_no_response and (exit_code is None or "http_code=" in line):
+            continue
+        failed.append(line)
+        if exit_code == CURL_EXIT_OPERATION_TIMEOUT:
+            continue
+        if curl_reported_no_response:
+            blocked.append(line)
+        else:
+            unprobed.append(line)
+    if not failed:
+        return None
+    if blocked:
+        return "egress blocked to required session-init host(s): " + "; ".join(failed)
+    if unprobed:
+        return (
+            "egress probe did not run for required session-init host(s); curl exited without an HTTP code, "
+            "so nothing here rules an allowlist block in or out: " + "; ".join(failed)
+        )
+    return (
+        f"egress probe timed out after {EGRESS_PROBE_MAX_TIME_SECONDS}s to every session-init host it could "
+        "not reach, and none refused the connection; read the host-pressure probe before the allowlist, "
+        "because a starved sandbox and a policy that drops packets silently both time out: " + "; ".join(failed)
+    )
 
 
 def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS) -> str:
@@ -282,9 +336,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
             egress = self._probe_session_init_egress()
             diagnostics["egress_probe"] = egress
-            blocked = [line for line in egress.splitlines() if "http_code=000" in line or line.endswith("FAILED")]
-            if blocked:
-                diagnostics["failure_reason"] = "egress blocked to required session-init host(s): " + "; ".join(blocked)
+            egress_reason = _egress_failure_reason(egress)
+            if egress_reason:
+                diagnostics["failure_reason"] = egress_reason
             else:
                 diagnostics["failure_reason"] = (
                     "agent server alive but never reported hasSession=true; no egress block detected, "
@@ -313,7 +367,9 @@ class AgentServerLaunchMixin(SandboxBase):
         hosts = _session_init_probe_hosts()
         checks = "; ".join(
             f"printf '%s ' {shlex.quote(host)}; "
-            f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
+            f"curl -sS --max-time {EGRESS_PROBE_MAX_TIME_SECONDS} -o /dev/null -w 'http_code=%{{http_code}}' "
+            f"https://{host}/ 2>/dev/null; "
+            'echo " curl_exit=$?"'
             for host in hosts
         )
         return self.execute(checks, timeout_seconds=30).stdout.strip()
