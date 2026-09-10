@@ -1104,6 +1104,18 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.hasUnrenderableWindow).toBe(true)
         })
 
+        it('leaves a recording with no full snapshot at all to the unplayable takeover', () => {
+            // the full-screen error replaces the player here, so a banner behind it would count
+            // recordings this warning never helped
+            seedRecording(
+                [w1move(START), w1move(START + 5000)],
+                [w1move(START + 61000), ...w2moves(START + 66000, START + 126000)]
+            )
+
+            expect(logic.values.unrenderableWindowSpans).toEqual([])
+            expect(logic.values.hasUnrenderableWindow).toBe(false)
+        })
+
         it('holds the unrenderable-window warning back while earlier data is still loading', () => {
             seedRecording(null, [w1move(START + 61000), ...w2moves(START + 62000, START + 122000)])
 

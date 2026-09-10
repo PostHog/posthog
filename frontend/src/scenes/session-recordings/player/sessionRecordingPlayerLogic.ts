@@ -1939,6 +1939,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 seekRenderability: (timestamp: number) => SeekRenderability,
                 leadingUnplayableMs: number
             ): UnplayableSpan[] => {
+                // A recording where no window ever rendered belongs to the unplayable takeover, which
+                // replaces the player instead of warning over it. Leaving it out also keeps this
+                // countable against `recording_window_missing_full_snapshot`, which skips the same
+                // recordings.
+                const someWindowHasFullSnapshot = Object.values(sessionPlayerData.snapshotsByWindowId).some((events) =>
+                    events.some((event) => event.type === EventType.FullSnapshot)
+                )
+                if (!someWindowHasFullSnapshot) {
+                    return []
+                }
+
                 const lastEndByWindow = new Map<number, number>()
                 for (const segment of sessionPlayerData.segments) {
                     if (segment.kind === 'window' && segment.windowId !== undefined) {
