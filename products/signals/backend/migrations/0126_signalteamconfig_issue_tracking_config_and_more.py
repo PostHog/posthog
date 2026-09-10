@@ -10,7 +10,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1344_squash_2026_09_07_finalize_fks"),
-        ("signals", "0123_alter_signalsourceconfig_team"),
+        ("signals", "0125_signalreport_scout_idem_key_index"),
     ]
 
     operations = [
