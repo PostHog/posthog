@@ -8,7 +8,14 @@ Creation runs with the workflow owner's current customer task permissions. The o
 
 ## Deployment
 
-Provision the same dedicated `CUSTOMER_TASKS_CREATE_JWT_SECRET` in Django and the workflow worker before enabling the action in production. Django accepts comma-separated verification keys for rotation; the worker signs with its configured key. Development and test environments use the matching local default. The action fails closed when its signing key is missing.
+Task creation reuses `CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET`, the signing key for account actions.
+Configure matching keys in Django and the workflow worker before enabling the action in production.
+Both accept comma-separated keys for rotation. The worker signs with the first key, and Django verifies against all keys.
+Development and test environments use the matching local default.
+
+Task tokens retain their own `posthog:customer-tasks:create` audience. Account tokens cannot call the task endpoint.
+The shared key couples service access and rotation for both surfaces. See [Workflow task signing key](../../products/customer_analytics/backend/COMPROMISES.md#workflow-task-signing-key).
+Task creation fails when the shared key is missing. Unlike account actions, it has no fallback to the project secret API token.
 
 The worker calls `POST /api/projects/{team_id}/workflow_customer_tasks/` through `INTERNAL_API_BASE_URL`, with a short-lived service token scoped to the project, workflow, and invocation/action key. The call goes directly to the backend, avoiding login redirects on the public app URL. Redirects and responses without a valid task UUID fail the workflow step. User API credentials and tokens for other actions cannot call this endpoint. No database migration is required.
 

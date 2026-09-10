@@ -55,7 +55,7 @@ describe('posthog create customer task template', () => {
         })
         const claims = jwt.verify(
             new Headers(params.headers as Record<string, string>).get('authorization')!.replace('Bearer ', ''),
-            defaultConfig.CUSTOMER_TASKS_CREATE_JWT_SECRET,
+            defaultConfig.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET,
             {
                 audience: 'posthog:customer-tasks:create',
                 algorithms: ['HS256'],

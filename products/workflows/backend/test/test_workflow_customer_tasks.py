@@ -24,7 +24,7 @@ from products.workflows.backend.models import HogFlow
 SECRET = "test-customer-tasks-workflow-key"
 
 
-@override_settings(CUSTOMER_TASKS_CREATE_JWT_SECRETS=[SECRET])
+@override_settings(CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS=[SECRET])
 class TestWorkflowCustomerTasks(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -100,13 +100,19 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         assert response.status_code == expected_status, response.data
         assert not CustomerTask.objects.for_team(self.team.id).exists()
 
-    def test_rejects_user_credentials_and_other_purpose_tokens(self) -> None:
+    @parameterized.expand(
+        [
+            ("tasks_create", PosthogJwtAudience.TASKS_CREATE),
+            ("customer_analytics_accounts", PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS),
+        ]
+    )
+    def test_rejects_user_credentials_and_other_purpose_tokens(self, _name: str, audience: PosthogJwtAudience) -> None:
         self.client.force_login(self.user)
         assert self.client.post(self.url, {"name": "Follow up", "idempotency_key": "run:step"}).status_code == 401
         other_purpose = encode_jwt(
             {"team_id": self.team.id, "hog_flow_id": str(self.workflow.id), "idempotency_key": "run:step"},
             timedelta(minutes=30),
-            PosthogJwtAudience.TASKS_CREATE,
+            audience,
             signing_key=SECRET,
         )
         assert self._post(token=other_purpose).status_code == 401

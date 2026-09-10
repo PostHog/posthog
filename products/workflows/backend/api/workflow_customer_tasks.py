@@ -25,7 +25,7 @@ from products.workflows.backend.models import HogFlow
 class WorkflowCustomerTasksJWTAuthentication(ScopedServiceJWTAuthentication):
     purpose = ScopedServiceJwtPurpose(
         audience=PosthogJwtAudience.CUSTOMER_TASKS_CREATE,
-        settings_name="CUSTOMER_TASKS_CREATE_JWT_SECRETS",
+        settings_name="CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS",
     )
 
 

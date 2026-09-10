@@ -12,7 +12,7 @@ let customerTasksJwt: ScopedServiceJwt | undefined
 const getCustomerTasksJwt = (): ScopedServiceJwt =>
     (customerTasksJwt ??= new ScopedServiceJwt(
         PosthogJwtAudience.CUSTOMER_TASKS_CREATE,
-        defaultConfig.CUSTOMER_TASKS_CREATE_JWT_SECRET
+        defaultConfig.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
     ))
 
 // The workflow step test panel mocks async functions by default, so `mock` runs these checks too.
@@ -49,7 +49,9 @@ registerAsyncFunction('postHogCreateCustomerTask', {
 
         const jwt = getCustomerTasksJwt()
         if (!jwt.enabled) {
-            throw new Error('Customer task creation is not configured (CUSTOMER_TASKS_CREATE_JWT_SECRET unset)')
+            throw new Error(
+                'Customer task creation is not configured. Set CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET on the worker and Django to matching keys.'
+            )
         }
         // Bind both the request and token to the trusted run and step, never to user input.
         const idempotencyKey = `${context.invocation.id}:${actionId}`

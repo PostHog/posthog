@@ -191,7 +191,6 @@ export type CdpConfig = ClickhouseConfig & {
     WORKFLOWS_CANCEL_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
     // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
-    CUSTOMER_TASKS_CREATE_JWT_SECRET: string
     TASKS_CREATE_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's run-scout calls to Django. Its own key, not
     // TASKS_CREATE_JWT_SECRET — see products/workflows/backend/service_jwt.py. Same
@@ -373,14 +372,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev default must equal Django's CONVERSATIONS_TICKETS_JWT_SECRETS default so local
         // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
         CONVERSATIONS_TICKETS_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-conversations-tickets-jwt' : '',
-        // Dev default must equal Django's CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS default so local
-        // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
+        // Dev/test default must match Django's CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS so local calls work.
+        // When empty, account actions use legacy auth. Customer task creation fails closed without a fallback.
         CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET:
             isTestEnv() || isDevEnv() ? 'local-dev-customer-analytics-accounts-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_CANCEL_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-cancel-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
-        CUSTOMER_TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-customer-tasks-create-jwt' : '',
         TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_SCOUT_RUN_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-scout-run-jwt' : '',
