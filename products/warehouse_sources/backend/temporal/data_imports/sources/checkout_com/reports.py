@@ -9,8 +9,7 @@ come from here:
   every report file of that type, discovered dynamically from the account's
   reports. Column sets vary per account because report templates are
   configurable, so rows keep the file's own (normalized) headers plus injected
-  ``report_*`` / ``file_*`` metadata columns. A CSV cell carries no type, so
-  amounts, fees and timestamps are typed by column name (see ``_typed_report_value``).
+  ``report_*`` / ``file_*`` metadata columns.
 """
 
 import re
@@ -128,14 +127,10 @@ def _normalize_header(header: str) -> str:
     return re.sub(r"[^0-9a-zA-Z]+", "_", header).strip("_").lower()
 
 
-# Report templates are account-configurable, so a column set cannot be enumerated per table:
-# the type follows the normalized column name, and an unlisted name stays text. A currency
-# column names the unit of the amounts beside it, so it is excluded before the float rules.
 _CURRENCY_COLUMN_NAMES = frozenset({"currency"})
 _CURRENCY_COLUMN_SUFFIXES = ("_currency",)
 _FLOAT_COLUMN_NAMES = frozenset({"amount", "fee", "fees", "tax", "net", "gross", "balance"})
 _FLOAT_COLUMN_SUFFIXES = ("_amount", "_fee", "_fees", "_tax")
-# The three names below are the injected metadata columns, which the API sends as ISO 8601.
 _DATETIME_COLUMN_NAMES = frozenset({"report_from", "report_to", "report_created_on"})
 _DATETIME_COLUMN_SUFFIXES = ("_on", "_at", "_timestamp", "_time")
 _DATE_COLUMN_SUFFIXES = ("_date",)
@@ -144,13 +139,6 @@ _DATE_FORMAT = "%Y-%m-%d"
 
 
 class _ParseFailureCounter:
-    """Counts typed cells that failed to parse and were stored as null.
-
-    One malformed cell must not fail a whole sync, and keeping the raw string would flip the
-    column's type between batches. A report body carries transaction data, so the counter logs
-    counts once per file and never logs a value.
-    """
-
     def __init__(self, logger: FilteringBoundLogger, file_id: str) -> None:
         self._logger = logger
         self._file_id = file_id
@@ -171,17 +159,14 @@ class _ParseFailureCounter:
 
 
 def _parse_report_float(text: str) -> Optional[float]:
-    # Commas only ever appear as US-style thousands separators; the decimal separator is a point.
     try:
         number = float(text.replace(",", ""))
     except ValueError:
         return None
-    # float() accepts "nan" and "inf", which no report legitimately contains.
     return number if math.isfinite(number) else None
 
 
 def _parse_report_datetime(text: str) -> Optional[datetime]:
-    # A naive value reads as UTC and an offset value converts to it, so one column holds one zone.
     try:
         parsed = datetime.fromisoformat(text)
     except ValueError:
@@ -211,7 +196,6 @@ def _column_parser(column: str) -> Optional[Callable[[str], Any]]:
 
 
 def _typed_report_value(column: str, value: Any, failures: _ParseFailureCounter) -> Any:
-    """Parse one report cell into its typed value, or null when the name is typed and the text is not."""
     if not isinstance(value, str):
         return value
     parse = _column_parser(column)
@@ -219,7 +203,6 @@ def _typed_report_value(column: str, value: Any, failures: _ParseFailureCounter)
         return value
     text = value.strip()
     if not text:
-        # A blank cell is routine, so it is a null rather than a parse failure.
         return None
     parsed = parse(text)
     if parsed is None:

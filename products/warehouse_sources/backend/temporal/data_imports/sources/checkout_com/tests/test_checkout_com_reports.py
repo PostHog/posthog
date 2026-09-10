@@ -294,7 +294,6 @@ class TestParseReportFileRows:
         assert row["payout_fee"] == -0.75
         assert row["processed_on"] == datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
         assert row["payout_date"] == date(2024, 1, 3)
-        # A currency code names the unit of the amounts beside it, so it is not a quantity.
         assert row["processing_currency"] == "GBP"
         assert row["fee_type"] == "scheme"
         assert row["action_id"] == "act_1"
@@ -329,7 +328,6 @@ class TestParseReportFileRows:
         ]
         logger.warning.assert_called_once()
         assert logger.warning.call_args.kwargs["failures_by_column"] == {"amount": 2}
-        # Report bodies carry transaction data, so a failure is counted and never logged.
         assert "oops" not in str(logger.warning.call_args)
 
     def test_metadata_timestamps_are_typed_and_metadata_ids_stay_text(self):
@@ -346,7 +344,6 @@ class TestParseReportFileRows:
 
         assert row["report_created_on"] == datetime(2024, 2, 1, tzinfo=UTC)
         assert row["report_from"] == datetime(2024, 1, 1, tzinfo=UTC)
-        # A report with no range sends a null `to`, which must not fail the file.
         assert row["report_to"] is None
         assert row["report_id"] == "rpt_1"
         assert row["report_entity_id"] == "ent_1"
