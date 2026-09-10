@@ -1,1 +1,1 @@
-0005_alertconfiguration_forecast_config
+0007_alertconfiguration_forecast_config

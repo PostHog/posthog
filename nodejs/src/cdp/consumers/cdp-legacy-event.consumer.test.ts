@@ -200,7 +200,6 @@ describe('CdpLegacyEventsConsumer', () => {
                 customerioSiteId: { value: '1234567890' },
                 customerioToken: { value: 'cio-token' },
                 email: { value: 'test@posthog.com' },
-                legacy_plugin_config_id: { value: pluginConfig.id },
             })
         })
 
@@ -236,7 +235,6 @@ describe('CdpLegacyEventsConsumer', () => {
             expect(result?.inputs).toMatchObject({
                 customerioSiteId: { value: '1234567890' },
                 customerioToken: { value: 'cio-token' },
-                legacy_plugin_config_id: { value: pluginConfig.id },
                 mappings: {
                     value: {
                         event1: 'action1',
@@ -271,9 +269,7 @@ describe('CdpLegacyEventsConsumer', () => {
             const result = consumer['convertPluginConfigToHogFunction'](lightweightConfig, attachments)
 
             expect(result).toBeTruthy()
-            expect(result?.inputs).toMatchObject({
-                legacy_plugin_config_id: { value: pluginConfig.id },
-            })
+            expect(result?.inputs).toEqual({})
             expect(result?.inputs?.mappings).toBeUndefined()
         })
 

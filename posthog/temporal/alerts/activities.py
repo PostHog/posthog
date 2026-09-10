@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, Value, When
+from django.db.models import Case, F, IntegerField, Q, Value, When, Window
+from django.db.models.functions import RowNumber
 
 import structlog
 import temporalio.activity
@@ -47,6 +48,7 @@ from posthog.temporal.alerts.types import (
     PrepareAlertResult,
     RecordFailedEvaluationActivityInputs,
     RecordFailedEvaluationResult,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -74,7 +76,10 @@ _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name
 
 
 @temporalio.activity.defn
-async def retrieve_due_alerts() -> list[AlertInfo]:
+async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> list[AlertInfo]:
+    if inputs is None:
+        inputs = ScheduleDueAlertChecksWorkflowInputs()
+
     @database_sync_to_async(thread_sensitive=False)
     def get_alerts() -> list[AlertInfo]:
         now = datetime.now(UTC)
@@ -95,8 +100,25 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
             .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
             .filter(insight__deleted=False)
             .annotate(_interval_order=calculation_interval_order)
-            .order_by("_interval_order", F("next_check_at").asc(nulls_first=True))
-            .only("id", "team_id", "calculation_interval", "insight_id")
+            .annotate(
+                _team_rank=Window(
+                    expression=RowNumber(),
+                    partition_by=[F("team_id")],
+                    order_by=[
+                        F("_interval_order").asc(),
+                        F("next_check_at").asc(nulls_first=True),
+                        F("id").asc(),
+                    ],
+                ),
+            )
+            .order_by(
+                "_team_rank",
+                "_interval_order",
+                F("next_check_at").asc(nulls_first=True),
+                "team_id",
+                "id",
+            )
+            .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
         )
 
         return [
@@ -244,6 +266,32 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
     return add_alert_check(alert, None, error)
 
 
+def _evaluation_inputs(alert: AlertConfiguration) -> dict[str, object]:
+    return {
+        "insight_id": alert.insight_id,
+        "insight_query": alert.insight.query,
+        "condition": alert.condition,
+        "config": alert.config,
+        "threshold_id": alert.threshold_id,
+        "threshold_configuration": alert.threshold.configuration if alert.threshold else None,
+        "calculation_interval": alert.calculation_interval,
+        "detector_config": alert.detector_config,
+        "forecast_config": alert.forecast_config,
+        "project_timezone": alert.team.timezone,
+    }
+
+
+def _discarded_evaluation(alert: AlertConfiguration, evaluated_inputs: dict[str, object]) -> EvaluateAlertResult | None:
+    if alert.enabled and _evaluation_inputs(alert) == evaluated_inputs:
+        return None
+    logger.info("alerts.discarded_obsolete_evaluation", alert_id=str(alert.id))
+    return EvaluateAlertResult(
+        alert_check_id=None,
+        should_notify=False,
+        new_state=AlertState(alert.state),
+    )
+
+
 @temporalio.activity.defn
 async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertResult:
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
@@ -266,6 +314,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 f"Alert {inputs.alert_id} disabled between prepare and evaluate",
                 non_retryable=True,
             )
+        evaluated_inputs = _evaluation_inputs(alert)
 
         # CH workload management keys off these tags to isolate alert queries from other tenants.
         # calculation_interval / config_type also let query_log cost be grouped by alert cadence
@@ -298,6 +347,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     .select_related("insight", "team", "threshold")
                     .get(id=inputs.alert_id)
                 )
+                if discarded := _discarded_evaluation(locked, evaluated_inputs):
+                    return discarded
                 alert_check, _ = add_alert_check(
                     locked,
                     AlertEvaluationResult(value=None, breaches=[], is_inconclusive=True),
@@ -364,6 +415,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     .select_related("insight", "team", "threshold")
                     .get(id=inputs.alert_id)
                 )
+                if discarded := _discarded_evaluation(alert, evaluated_inputs):
+                    return discarded
                 alert_check, should_notify = _write_errored_alert_check(alert, error)
             return EvaluateAlertResult(
                 alert_check_id=str(alert_check.id),
@@ -380,6 +433,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 .select_related("insight", "team", "threshold")
                 .get(id=inputs.alert_id)
             )
+            if discarded := _discarded_evaluation(alert, evaluated_inputs):
+                return discarded
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
 

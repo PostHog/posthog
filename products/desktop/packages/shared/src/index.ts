@@ -52,6 +52,7 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
+export { omitNullCallToolResultFields } from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -298,7 +299,6 @@ export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
 export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult } from "./saga";
-export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
   type AcpMessage,
   IMPORTED_USER_PROMPT_META_KEY,

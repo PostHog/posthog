@@ -52,7 +52,10 @@ from products.alerts.backend.insight_alert_destinations import (
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.alerts.backend.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts.backend.scheduling import (
+    validate_and_normalize_schedule_restriction,
+    validate_and_normalize_schedule_start_time,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -279,4 +282,5 @@ __all__ = [
     "validate_destination_data",
     "validate_and_normalize_schedule_restriction",
     "validate_forecast_horizon",
+    "validate_and_normalize_schedule_start_time",
 ]

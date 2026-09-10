@@ -1,9 +1,10 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { UserNameWithEmail } from 'lib/components/ActivityLog/UserNameWithEmail'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -30,7 +31,7 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the organization{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the organization{' '}
                     <strong>{nameOrLinkToOrganization(logItem?.detail.name)}</strong>
                 </>
             ),
@@ -41,7 +42,7 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the organization{' '}
+                    <ActivityLogUserName logItem={logItem} /> deleted the organization{' '}
                     <strong>{logItem.detail.name || 'Organization'}</strong>
                 </>
             ),
@@ -62,8 +63,8 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> {changeDescription} for
-                        organization {nameOrLinkToOrganization(logItem?.detail.name)}
+                        <ActivityLogUserName logItem={logItem} /> {changeDescription} for organization{' '}
+                        {nameOrLinkToOrganization(logItem?.detail.name)}
                     </>
                 ),
             }
@@ -71,9 +72,8 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated{' '}
-                        <strong>{changes.length} settings</strong> for organization{' '}
-                        {nameOrLinkToOrganization(logItem?.detail.name)}
+                        <ActivityLogUserName logItem={logItem} /> updated <strong>{changes.length} settings</strong> for
+                        organization {nameOrLinkToOrganization(logItem?.detail.name)}
                     </>
                 ),
             }
@@ -93,7 +93,7 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> added user{' '}
+                    <ActivityLogUserName logItem={logItem} /> added user{' '}
                     <strong>
                         {userName} ({userEmail})
                     </strong>{' '}
@@ -107,7 +107,7 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> removed user{' '}
+                    <ActivityLogUserName logItem={logItem} /> removed user{' '}
                     <strong>
                         {userName} ({userEmail})
                     </strong>{' '}
@@ -130,7 +130,7 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> changed{' '}
+                        <ActivityLogUserName logItem={logItem} /> changed{' '}
                         <strong>
                             {userName} ({userEmail})
                         </strong>
@@ -144,7 +144,7 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated{' '}
+                    <ActivityLogUserName logItem={logItem} /> updated{' '}
                     <strong>
                         {userName} ({userEmail})
                     </strong>
@@ -162,15 +162,22 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
     const targetEmail = context?.target_email || ''
     const organizationName = context?.organization_name || 'the organization'
     const level = context?.level || 'member'
-    const inviterName = context?.inviter_user_name || userNameForLogItem(logItem) || 'System'
+    // The context names whoever created the invite, who is not always the person who acted on this
+    // row, so the email must come from the same context as the name. A system or impersonated row
+    // hides it, as the actor's name and avatar do.
+    const inviterEmail = logItem.is_system || logItem.was_impersonated ? undefined : context?.inviter_user_email
+    const inviter = context?.inviter_user_name ? (
+        <UserNameWithEmail name={context.inviter_user_name} email={inviterEmail} />
+    ) : (
+        <ActivityLogUserName logItem={logItem} />
+    )
 
     if (logItem.activity == 'created') {
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{inviterName}</strong> sent an invitation to{' '}
-                    <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)} as{' '}
-                    <strong>{level}</strong>
+                    {inviter} sent an invitation to <strong>{targetEmail}</strong> to join organization{' '}
+                    {nameOrLinkToOrganization(organizationName)} as <strong>{level}</strong>
                 </>
             ),
         }
@@ -180,8 +187,8 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{inviterName}</strong> revoked the invitation for{' '}
-                    <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
+                    {inviter} revoked the invitation for <strong>{targetEmail}</strong> to join organization{' '}
+                    {nameOrLinkToOrganization(organizationName)}
                 </>
             ),
         }
@@ -201,9 +208,8 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{inviterName}</strong> {changeDescription} for the invitation
-                        sent to <strong>{targetEmail}</strong> to join organization{' '}
-                        {nameOrLinkToOrganization(organizationName)}
+                        {inviter} {changeDescription} for the invitation sent to <strong>{targetEmail}</strong> to join
+                        organization {nameOrLinkToOrganization(organizationName)}
                     </>
                 ),
             }
@@ -211,8 +217,7 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{inviterName}</strong> updated{' '}
-                        <strong>{changes.length} settings</strong> for the invitation sent to{' '}
+                        {inviter} updated <strong>{changes.length} settings</strong> for the invitation sent to{' '}
                         <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
                     </>
                 ),
@@ -264,7 +269,7 @@ export function organizationDomainActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
+                        <ActivityLogUserName logItem={logItem} />{' '}
                         {descriptions.length === 1 ? (
                             descriptions[0]
                         ) : (
@@ -284,8 +289,7 @@ export function organizationDomainActivityDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted domain{' '}
-                    <strong>{domainName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> deleted domain <strong>{domainName}</strong>
                 </>
             ),
         }
@@ -295,8 +299,7 @@ export function organizationDomainActivityDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> added domain{' '}
-                    <strong>{domainName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> added domain <strong>{domainName}</strong>
                 </>
             ),
         }
@@ -318,8 +321,8 @@ export function legalDocumentActivityDescriber(logItem: ActivityLogItem, asNotif
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> generated {article}{' '}
-                    <strong>{documentType}</strong> for <strong>{companyName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> generated {article} <strong>{documentType}</strong> for{' '}
+                    <strong>{companyName}</strong>
                 </>
             ),
         }
@@ -329,8 +332,8 @@ export function legalDocumentActivityDescriber(logItem: ActivityLogItem, asNotif
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted {article}{' '}
-                    <strong>{documentType}</strong> for <strong>{companyName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> deleted {article} <strong>{documentType}</strong> for{' '}
+                    <strong>{companyName}</strong>
                 </>
             ),
         }

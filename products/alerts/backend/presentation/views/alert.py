@@ -84,6 +84,7 @@ from products.alerts.backend.facade.api import (
     create_alert_destination_hog_functions,
     simulate_forecast_on_insight,
     soft_delete_alert_destinations,
+    validate_and_normalize_schedule_start_time,
     validate_destination_data,
     validate_forecast_horizon,
 )
@@ -522,6 +523,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         required=False,
         help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
+    schedule_start_time = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.",
+    )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
         required=False,
@@ -584,6 +590,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "enabled",
             "last_notified_at",
             "last_checked_at",
+            "schedule_start_time",
             "next_check_at",
             "checks",
             "checks_total",
@@ -631,6 +638,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         return threshold_instance
 
+    @transaction.atomic
     def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -650,6 +658,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             validated_data["threshold"] = threshold_instance
 
         instance: AlertConfiguration = super().create(validated_data)
+        if instance.schedule_start_time is not None:
+            instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
+            instance.save(update_fields=["next_check_at"])
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -664,6 +675,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        instance = AlertConfiguration.objects.select_for_update().get(pk=instance.pk)
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled)
         if enabled_changed and validated_data["enabled"]:
@@ -744,13 +756,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             )
 
         schedule_restriction_changed = False
+        schedule_start_time_changed = False
         if "schedule_restriction" in validated_data:
             new_sr = validated_data["schedule_restriction"]
             if new_sr != instance.schedule_restriction:
                 schedule_restriction_changed = True
+        if "schedule_start_time" in validated_data:
+            schedule_start_time_changed = validated_data["schedule_start_time"] != instance.schedule_start_time
 
         instance = super().update(instance, validated_data)
-        if schedule_restriction_changed:
+        if schedule_restriction_changed and not schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
 
@@ -759,6 +774,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         return instance
+
+    def validate_schedule_start_time(self, value: str | None) -> str | None:
+        try:
+            return validate_and_normalize_schedule_start_time(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid schedule start time.")
 
     def validate_detector_config(self, value):
         if value is None:

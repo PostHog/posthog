@@ -668,7 +668,7 @@ jobs:
                       echo "Skipping toolbar bundle section — script not present on this checkout"
                   fi
 
-            - name: Check eager graph budgets (warn only)
+            - name: Check eager graph budgets and forbidden imports
               if: always() && github.event_name == 'pull_request'
               run: |
                   if [ ! -f frontend/bin/check-eager-graph.mjs ]; then
@@ -683,7 +683,7 @@ jobs:
                       echo "Skipping eager graph check — no report found (branch may predate the check)"
                       exit 0
                   fi
-                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT"
+                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT" --fail-forbidden-hits
 
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
@@ -1198,7 +1198,7 @@ jobs:
                       }
 
     frontend_tests:
-        needs: [jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs: [changes, jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1207,6 +1207,14 @@ jobs:
             - run: exit 0
             - name: Check outcomes
               run: |
+                  # Change detection gates every job below. A failure there skips them all, and
+                  # this gate reads a skip as a pass, so test its result directly. select-jest-tests
+                  # is not tested here: an empty selection makes jest take the full matrix, so a
+                  # failed selector costs runner time but never coverage.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
                   if [[ "${{ needs.jest.result }}" != "success" && "${{ needs.jest.result }}" != "skipped" ]]; then
                     echo "Frontend jest tests failed."
                     exit 1
