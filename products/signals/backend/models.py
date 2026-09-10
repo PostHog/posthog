@@ -90,14 +90,14 @@ class SignalSourceConfig(UUIDModel):
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
         SEARCH_OPPORTUNITY = "search_opportunity", "Search opportunity"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
     source_type = models.CharField(max_length=100, choices=signal_source_type_choices)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     @classmethod
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
@@ -249,7 +249,7 @@ class SignalReport(UUIDModel):
         POSTHOG_ONBOARDING = "posthog_onboarding", "PostHog onboarding"
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
@@ -312,6 +312,11 @@ class SignalReport(UUIDModel):
     # ID de-duplication would not. Null for reports that never notified or predate the field.
     inbox_notified_at = models.DateTimeField(null=True, blank=True)
 
+    # The emit key of the scout `emit_report` call that authored this report. An emission can take
+    # minutes, so the caller can time out at a proxy while the request keeps running here, and the
+    # key is what makes the retry that follows return this report instead of authoring a second one.
+    scout_idempotency_key = models.CharField(max_length=255, null=True, blank=True)
+
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
         ArrayField(
@@ -337,6 +342,15 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+        ]
+        constraints = [
+            # The barrier itself, not a lookup aid: two emits racing on one key both reach the
+            # insert, and Postgres is what lets exactly one through.
+            models.UniqueConstraint(
+                fields=["team", "scout_idempotency_key"],
+                condition=models.Q(scout_idempotency_key__isnull=False),
+                name="signals_report_scout_idem_key",
             ),
         ]
 
@@ -874,7 +888,7 @@ class SignalEmissionRecord(UUIDModel):
     One row per source record, upserted on emission.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_product = models.CharField(max_length=100)
     source_type = models.CharField(max_length=100)
     source_id = models.CharField(max_length=200)
@@ -954,7 +968,7 @@ class SignalReportArtefact(UUIDModel):
         }
     )
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
     type = models.CharField(max_length=100, choices=signal_report_artefact_type_choices)
     content = models.TextField()
@@ -1209,7 +1223,7 @@ class SignalReportTask(UUIDModel):
     solely for the implementation gate during that transition.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="report_tasks")
     task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="signal_report_tasks")
     # "implementation" for the rows the gate reads; legacy rows also carry "research" /
@@ -1265,7 +1279,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
 
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on those parents (app-level enforcement only).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # RESTRICT: hard-deleting a report must never silently destroy this financial record (it drives
     # the quota offset and refund audit). Team deletion still cascades in via the team FK above.
     report = models.OneToOneField(SignalReport, on_delete=models.RESTRICT, related_name="refund")
@@ -1332,7 +1346,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
 
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on those parents (app-level enforcement only).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="actions")
     # CASCADE, unlike the artefact log's SET_NULL: a row here is evidence that a specific person
     # interacted, so with the person gone it proves nothing and can go with them.
@@ -1512,6 +1526,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
     # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
+    display_name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Name shown in the UI. Does not change the skill name. Leave blank to use the default name.",
+    )
     # Derived from `status` (`enabled = status in RUNNABLE_STATUSES`), but kept as a real
     # column because the coordinator filters on it at SQL level and the warehouse mirrors it.
     # `save` reconciles the pair for writers that only set one side; a DB constraint backstop
