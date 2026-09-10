@@ -118,6 +118,7 @@ _SCORES_PARQUET = "data/scores.parquet"
 _SCRIPT_LOG = "data/script.log"
 # The fitted model the train run produces and the predict run loads (relative to _WORKDIR).
 _MODEL_PKL = "model.pkl"
+_SMOKE_MODEL_PKL = "smoke_model.pkl"
 # The feature columns the champion was fitted on, persisted next to model.pkl so every
 # predict run sends the same columns in the same order, whatever the scoring population
 # happens to contain.
@@ -131,6 +132,10 @@ _MAX_READBACK_BYTES = MAX_ARTIFACT_BYTES
 _MAX_SCRIPT_LOG_BYTES = 4000
 # Keys train.py must write into output.json.
 _REQUIRED_METRIC_KEYS = ("holdout_auc", "n_train", "n_features")
+# The worker expands every feature column across every row before the matrix reaches the
+# sandbox. The row cap alone does not bound that, because the agent's SQL chooses the
+# column count.
+_MAX_FEATURE_COLS = 512
 _NUMERIC_TYPES = (int, float, Decimal)
 
 
@@ -427,6 +432,12 @@ def _materialize_rows(
 
     if not result.rows or not result.columns:
         return []
+    # as_dicts() zips column names onto values, so two columns of the same name keep only
+    # the last value. The agent's SQL can produce that with unaliased joined fields, and
+    # the matrix would then hold fewer features than the SQL declares.
+    duplicates = sorted({str(c) for c in result.columns if list(result.columns).count(c) > 1})
+    if duplicates:
+        raise SandboxInferenceError(f"Feature SQL returned duplicate output columns: {', '.join(duplicates)}")
     rows = result.as_dicts()
     # A result that fills the bound is almost certainly truncated, and completing anyway
     # would advance last_scored_at while skipping the users past the cap. Pagination is
@@ -495,7 +506,16 @@ def _prepare_workspace(sandbox: SandboxExecutor, bundle: ArtifactBundle) -> None
     if result.exit_code != 0:
         raise SandboxInferenceError(f"could not create the sandbox workspace (exit {result.exit_code})")
     for name, content in bundle.as_files().items():
-        sandbox.write_file(f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
+        _write_file(sandbox, f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
+
+
+def _write_file(sandbox: SandboxExecutor, path: str, payload: bytes) -> None:
+    # The providers report a failed write through the exit code instead of raising. A
+    # discarded result lets a script run against a missing or half-written input, and a
+    # bundle that tolerates a missing model would emit complete-looking scores.
+    result = sandbox.write_file(path, payload)
+    if result.exit_code != 0:
+        raise SandboxInferenceError(f"could not write {path} into the sandbox (exit {result.exit_code})")
 
 
 def _run_script(sandbox: SandboxExecutor, *, script: str, args: str, timeout_seconds: int) -> None:
@@ -517,11 +537,11 @@ def _run_train_in_sandbox(
     smoke_rows = data.holdout_rows or data.train_rows
     with Sandbox.create(_sandbox_config(pipeline, "train", _TRAIN_TIMEOUT_S)) as sandbox:
         _prepare_workspace(sandbox, bundle)
-        sandbox.write_file(f"{_WORKDIR}/data/train_features.parquet", features_parquet(data.train_rows, cols))
-        sandbox.write_file(f"{_WORKDIR}/data/train_labels.parquet", labels_parquet(data.train_rows))
-        sandbox.write_file(f"{_WORKDIR}/data/holdout_features.parquet", features_parquet(data.holdout_rows, cols))
-        sandbox.write_file(f"{_WORKDIR}/data/holdout_labels.parquet", labels_parquet(data.holdout_rows))
-        sandbox.write_file(f"{_WORKDIR}/data/smoke_features.parquet", features_parquet(smoke_rows, cols))
+        _write_file(sandbox, f"{_WORKDIR}/data/train_features.parquet", features_parquet(data.train_rows, cols))
+        _write_file(sandbox, f"{_WORKDIR}/data/train_labels.parquet", labels_parquet(data.train_rows))
+        _write_file(sandbox, f"{_WORKDIR}/data/holdout_features.parquet", features_parquet(data.holdout_rows, cols))
+        _write_file(sandbox, f"{_WORKDIR}/data/holdout_labels.parquet", labels_parquet(data.holdout_rows))
+        _write_file(sandbox, f"{_WORKDIR}/data/smoke_features.parquet", features_parquet(smoke_rows, cols))
 
         _run_script(
             sandbox,
@@ -535,10 +555,14 @@ def _run_train_in_sandbox(
         metrics = _read_metrics(sandbox)
         model_bytes = _read_binary_file(sandbox, _MODEL_PKL)
 
+        # Smoke-test the bytes the caller persists, not the path train.py wrote. The two
+        # differ if the script leaves anything still writing model.pkl, and the persisted
+        # model would then be one predict.py never loaded.
+        _write_file(sandbox, f"{_WORKDIR}/{_SMOKE_MODEL_PKL}", model_bytes)
         _run_script(
             sandbox,
             script="predict.py",
-            args=f"data/smoke_features.parquet {_MODEL_PKL} {_SCORES_PARQUET}",
+            args=f"data/smoke_features.parquet {_SMOKE_MODEL_PKL} {_SCORES_PARQUET}",
             timeout_seconds=_PREDICT_TIMEOUT_S,
         )
         _join_scores(score_rows=smoke_rows, scores=_read_scores(sandbox, expected_rows=len(smoke_rows)))
@@ -557,8 +581,8 @@ def _run_predict_in_sandbox(
     """Run only the bundle's predict.py against the persisted model + score features."""
     with Sandbox.create(_sandbox_config(pipeline, "predict", _PREDICT_TIMEOUT_S)) as sandbox:
         _prepare_workspace(sandbox, bundle)
-        sandbox.write_file(f"{_WORKDIR}/{_MODEL_PKL}", model_bytes)
-        sandbox.write_file(f"{_WORKDIR}/data/score_features.parquet", features_parquet(score_rows, feature_cols))
+        _write_file(sandbox, f"{_WORKDIR}/{_MODEL_PKL}", model_bytes)
+        _write_file(sandbox, f"{_WORKDIR}/data/score_features.parquet", features_parquet(score_rows, feature_cols))
 
         _run_script(
             sandbox,
@@ -573,9 +597,13 @@ def _run_predict_in_sandbox(
 
 def features_parquet(rows: list[dict[str, Any]], feature_cols: list[str]) -> bytes:
     """Serialize the feature matrix to parquet bytes: string `distinct_id` + float feature columns."""
+    if len(feature_cols) > _MAX_FEATURE_COLS:
+        raise SandboxInferenceError(
+            f"Feature SQL produced {len(feature_cols)} feature columns, over the {_MAX_FEATURE_COLS} column cap"
+        )
     data: dict[str, list[Any]] = {"distinct_id": [str(r.get("distinct_id", "")) for r in rows]}
     for col in feature_cols:
-        data[col] = [_num(r.get(col)) for r in rows]
+        data[col] = [_num(r.get(col), col=col) for r in rows]
     return _to_parquet_bytes(pd.DataFrame(data))
 
 
@@ -596,11 +624,19 @@ def _to_parquet_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 
-def _num(value: Any) -> float:
-    try:
-        return float(value) if value is not None else 0.0
-    except (TypeError, ValueError):
+def _num(value: Any, *, col: str) -> float:
+    # An absent or null cell is a zero-filled feature. A present cell that is not a number
+    # means the population drifted away from the fitted schema, because the fitted columns
+    # bypass _numeric_feature_cols. Zero-filling it would emit a plausible wrong prediction.
+    if value is None:
         return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise SandboxInferenceError(
+            f"Feature column {col!r} holds the non-numeric value {value!r}; "
+            "the scoring population no longer matches the fitted schema"
+        ) from exc
 
 
 def _read_metrics(sandbox: SandboxExecutor) -> dict[str, Any]:

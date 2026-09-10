@@ -79,6 +79,7 @@ class _FakeSandbox:
         train_exit: int = 0,
         predict_exit: int = 0,
         readback_exit: int = 0,
+        write_exit_for: str = "",
     ):
         self.written: dict[str, bytes] = {}
         self.commands: list[str] = []
@@ -88,6 +89,7 @@ class _FakeSandbox:
         self._train_exit = train_exit
         self._predict_exit = predict_exit
         self._readback_exit = readback_exit
+        self._write_exit_for = write_exit_for
         self.destroyed = False
 
     def __enter__(self) -> "_FakeSandbox":
@@ -97,6 +99,8 @@ class _FakeSandbox:
         self.destroyed = True
 
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
+        if self._write_exit_for and path.endswith(self._write_exit_for):
+            return ExecutionResult(stdout="", stderr="no space left on device", exit_code=1)
         self.written[path] = payload
         return ExecutionResult(stdout="", stderr="", exit_code=0)
 
@@ -239,6 +243,12 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
                 )
                 assert len(rows) == n_rows
 
+    def test_materialize_rows_rejects_duplicate_output_columns(self):
+        page = HogQLResult(columns=["distinct_id", "events_total", "events_total"], rows=[["p1", 1, 2]])
+        with patch.object(sandbox_inference, "run_hogql", return_value=page):
+            with self.assertRaises(SandboxInferenceError):
+                sandbox_inference._materialize_rows(team=self.team, sql="SELECT person_id FROM events", values={})
+
 
 class TestParquetSerialization(SimpleTestCase):
     def test_features_parquet_columns_and_rows(self):
@@ -260,6 +270,16 @@ class TestParquetSerialization(SimpleTestCase):
         # both feature cols present; missing/None coerced to 0.0
         assert df.iloc[0]["events_total"] == 0.0
         assert df.iloc[0]["pageviews"] == 0.0
+
+    def test_features_parquet_rejects_a_non_numeric_value_in_a_fitted_column(self):
+        rows = [{"distinct_id": "x", "events_total": "unknown"}]
+        with self.assertRaises(SandboxInferenceError):
+            features_parquet(rows, ["events_total"])
+
+    def test_features_parquet_rejects_more_columns_than_the_cap(self):
+        cols = [f"f{i}" for i in range(sandbox_inference._MAX_FEATURE_COLS + 1)]
+        with self.assertRaises(SandboxInferenceError):
+            features_parquet([{"distinct_id": "x"}], cols)
 
     def test_features_parquet_distinct_id_is_string(self):
         rows = [{"distinct_id": 12345, "events_total": 1}]
@@ -518,6 +538,21 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         assert fake.destroyed is True
         assert "boom" in str(ctx.exception)  # the bounded script log tail, not execute().stderr
 
+    def test_model_upload_failure_aborts_before_predict_runs(self):
+        pipeline, model = self._pipeline_and_model()
+        fake = _FakeSandbox(write_exit_for=sandbox_inference._MODEL_PKL)
+        with (
+            patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
+            patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
+            self._no_fitted_columns(),
+            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
+            patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
+        ):
+            with self.assertRaises(SandboxInferenceError):
+                score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
+        assert not fake.ran("predict.py")
+        assert fake.destroyed is True
+
     def test_empty_score_rows_raises_before_sandbox(self):
         pipeline, model = self._pipeline_and_model()
         create_mock = MagicMock()
@@ -559,11 +594,21 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         assert any(p.endswith("data/train_features.parquet") for p in fake.written)  # train run materializes training
         assert not any(p.endswith("data/score_features.parquet") for p in fake.written)
         assert fake.ran("train.py") and fake.ran("predict.py")  # predict.py exercised against the holdout
+        assert fake.written[f"{sandbox_inference._WORKDIR}/{sandbox_inference._SMOKE_MODEL_PKL}"] == b"FITTED"
+        assert any(sandbox_inference._SMOKE_MODEL_PKL in c for c in fake.commands if "predict.py" in c)
 
     @parameterized.expand(
         [
             ("predict_exits_nonzero", {"predict_exit": 1}),
             ("predict_skips_a_holdout_row", {"scores_parquet": _scores_parquet([("someone-else", 0.5)])}),
+            (
+                "train_features_upload_fails",
+                {"write_exit_for": "data/train_features.parquet", "scores_parquet": _scores_parquet([("p3", 0.5)])},
+            ),
+            (
+                "bundle_upload_fails",
+                {"write_exit_for": "bundle/train.py", "scores_parquet": _scores_parquet([("p3", 0.5)])},
+            ),
         ]
     )
     def test_fit_champion_model_does_not_persist_when_predict_smoke_test_fails(self, _name, fake_kwargs):
