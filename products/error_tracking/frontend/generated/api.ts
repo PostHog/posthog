@@ -11,8 +11,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ErrorTrackingAlertApi,
     ErrorTrackingAlertCreateRequestApi,
+    ErrorTrackingAlertPreviewApi,
     ErrorTrackingAlertPutRequestApi,
     ErrorTrackingAlertsListParams,
+    ErrorTrackingAlertsPreviewRetrieveParams,
     ErrorTrackingAssignmentRuleApi,
     ErrorTrackingAssignmentRuleCreateRequestApi,
     ErrorTrackingAssignmentRuleUpdateRequestApi,
@@ -234,6 +236,39 @@ export const errorTrackingAlertsDestroy = async (
     return apiMutator<void>(getErrorTrackingAlertsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getErrorTrackingAlertsPreviewRetrieveUrl = (
+    projectId: string,
+    params?: ErrorTrackingAlertsPreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/alerts/preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/alerts/preview/`
+}
+
+/**
+ * The Slack thread an alert would open, rendered from the project's most recent issue.
+ */
+export const errorTrackingAlertsPreviewRetrieve = async (
+    projectId: string,
+    params?: ErrorTrackingAlertsPreviewRetrieveParams,
+    options?: RequestInit
+): Promise<ErrorTrackingAlertPreviewApi> => {
+    return apiMutator<ErrorTrackingAlertPreviewApi>(getErrorTrackingAlertsPreviewRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

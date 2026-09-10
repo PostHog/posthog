@@ -4,10 +4,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal
 
-from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
+from products.error_tracking.backend.logic.alerts import NATIVE_ALERTS_FLAG
+from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination, ErrorTrackingIssue
 
 # Sentinel swapped for a real integration id inside the test body; parameterized
 # cases are built before setUp so they cannot reference one directly.
@@ -98,6 +101,8 @@ class TestErrorTrackingAlerts(APIBaseTest):
                 format="json",
             )
             assert create.status_code == 403
+            with self.settings(PERSISTED_FEATURE_FLAGS=[NATIVE_ALERTS_FLAG]):
+                assert self.client.get(f"/api/projects/{self.team.id}/error_tracking/alerts/").status_code == 200
         assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 0
 
     def test_alert_create_compiles_filter_bytecode(self):
@@ -329,3 +334,144 @@ class TestErrorTrackingAlerts(APIBaseTest):
 
         retrieve = self.client.get(f"/api/projects/{self.team.id}/error_tracking/alerts/{foreign_alert.id}/")
         assert retrieve.status_code == 404
+
+
+class TestErrorTrackingAlertDestinationReconciliation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        flag_patcher = patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True)
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    def test_put_keeps_destination_rows_whose_channel_is_unchanged(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"team": {"name": "PostHog"}})
+        payload = {
+            "name": "Production errors",
+            "triggers": ["issue_created"],
+            "filters": {},
+            "throttle_seconds": 0,
+            "destinations": [
+                {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C1"}},
+                {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C2"}},
+            ],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/error_tracking/alerts/", payload, format="json")
+        assert created.status_code == 201, created.json()
+        ids = {d["config"]["channel"]: d["id"] for d in created.json()["destinations"]}
+
+        # Rename the alert, rename C1 for display, and repoint C2 to C3: only C2's row should be replaced.
+        payload["name"] = "Renamed"
+        payload["destinations"] = [
+            {
+                "channel_type": "slack",
+                "integration_id": integration.id,
+                "config": {"channel": "C1", "channel_name": "#one"},
+            },
+            {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C3"}},
+        ]
+        updated = self.client.put(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/{created.json()['id']}/", payload, format="json"
+        )
+        assert updated.status_code == 200, updated.json()
+        after = {d["config"]["channel"]: d for d in updated.json()["destinations"]}
+        assert set(after) == {"C1", "C3"}
+        assert after["C1"]["id"] == ids["C1"]
+        assert after["C1"]["config"]["channel_name"] == "#one"
+        assert after["C3"]["id"] not in ids.values()
+        assert ErrorTrackingAlertDestination.objects.for_team(self.team.id).count() == 2
+
+
+class TestErrorTrackingAlertPreview(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        flag_patcher = patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True)
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    def test_preview_renders_the_thread_for_the_latest_issue(self):
+        ErrorTrackingIssue.objects.create(team=self.team, name="Old", description="older")
+        latest = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError", description="boom")
+        # Access is per environment, so a newer issue in a sibling environment is not sampled.
+        sibling = Team.objects.create(organization=self.organization, project_id=self.team.project_id, name="staging")
+        ErrorTrackingIssue.objects.create(team=sibling, name="Sibling secret", description="hidden")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/preview/", {"trigger": "issue_reopened"}
+        )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["issue_id"] == str(latest.id)
+        kinds = [message["kind"] for message in body["messages"]]
+        assert kinds == ["root", "reply", "reply", "root_edit"]
+        root = body["messages"][0]
+        assert root["event"] == "$error_tracking_issue_reopened"
+        assert "TypeError" in root["text"]
+        assert "Sibling secret" not in str(body)
+        assert root["blocks"][0]["type"] == "header"
+
+        # The editor names its active environment; a member sees that environment's issue.
+        scoped = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/preview/",
+            {"trigger": "issue_reopened", "environment_id": sibling.id},
+        )
+        assert scoped.status_code == 200, scoped.json()
+        assert "Sibling secret" in scoped.json()["messages"][0]["text"]
+
+        other_project = Team.objects.create(organization=self.organization, name="elsewhere")
+        assert (
+            self.client.get(
+                f"/api/projects/{self.team.id}/error_tracking/alerts/preview/",
+                {"trigger": "issue_reopened", "environment_id": other_project.id},
+            ).status_code
+            == 404
+        )
+        with patch(
+            "products.error_tracking.backend.presentation.views.alerts.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            denied = self.client.get(
+                f"/api/projects/{self.team.id}/error_tracking/alerts/preview/",
+                {"trigger": "issue_reopened", "environment_id": sibling.id},
+            )
+        assert denied.status_code == 403
+        assert "Sibling secret" not in str(denied.json())
+
+        # A key confined to the root environment cannot widen its reach through the parameter.
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["error_tracking:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        scoped_key = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/preview/",
+            {"trigger": "issue_reopened", "environment_id": sibling.id},
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+        assert scoped_key.status_code == 403, scoped_key.json()
+        assert "Sibling secret" not in str(scoped_key.json())
+        assert body["messages"][2]["text"] == "✅ Resolved"
+        assert self.user.email not in str(body)
+        assert "Resolved" in body["messages"][3]["text"] or any(
+            "Resolved" in element.get("text", "")
+            for block in body["messages"][3]["blocks"]
+            if block["type"] == "context"
+            for element in block["elements"]
+        )
+
+    def test_preview_without_issues_uses_a_sample(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/alerts/preview/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["issue_id"] is None
+        assert response.json()["messages"][0]["event"] == "$error_tracking_issue_created"
+
+    def test_preview_rejects_unknown_triggers(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/preview/", {"trigger": "issue_deleted"}
+        )
+        assert response.status_code == 400
