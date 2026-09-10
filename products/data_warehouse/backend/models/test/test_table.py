@@ -713,7 +713,7 @@ class TestTable(BaseTest):
         assert len(definition.fields) == 2
         assert (
             definition.structure
-            == "`id` Nullable(String), `nested` Array(Tuple( Nullable(String),  Tuple( Nullable(DateTime64(6, 'UTC')),  Nullable(String)),  Nullable(String),  Nullable(String),  Nullable(String),  Tuple( Nullable(String),  Map(String, Nullable(String))),  Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String))),  Nullable(Float64),  Nullable(Bool),  Tuple( Array(Nullable(String)),  Array(Nullable(String)),  Map(String, Nullable(String))),  Tuple( Nullable(String),  Nullable(String),  Nullable(String),  Nullable(Bool),  Map(String, Nullable(String))),  Nullable(String),  Nullable(String),  Map(String, Nullable(String))))"
+            == "`id` Nullable(String), `nested` Array(Tuple(url Nullable(String), date Tuple(member0 Nullable(DateTime64(6, 'UTC')), member1 Nullable(String)), text Nullable(String), type Nullable(String), email Nullable(String), field Tuple(id Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), choice Tuple(id Nullable(String), label Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), number Nullable(Float64), boolean Nullable(Bool), choices Tuple(ids Array(Nullable(String)), labels Array(Nullable(String)), _airbyte_additional_properties Map(String, Nullable(String))), payment Tuple(name Nullable(String), last4 Nullable(String), amount Nullable(String), success Nullable(Bool), _airbyte_additional_properties Map(String, Nullable(String))), file_url Nullable(String), phone_number Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))))"
         )
 
     def test_hogql_definition_tuple_patch(self):
@@ -741,7 +741,7 @@ class TestTable(BaseTest):
         )
         self.assertEqual(
             definition.structure,
-            "`id` String, `timestamp` DateTime64(3, 'UTC'), `mrr` Nullable(Int64), `complex_field` Array(Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String)))), `tuple_field` Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), `offset` UInt32",
+            "`id` String, `timestamp` DateTime64(3, 'UTC'), `mrr` Nullable(Int64), `complex_field` Array(Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String)))), `tuple_field` Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), `offset` UInt32",
         )
 
     def test_hogql_definition_nullable(self):
@@ -987,7 +987,10 @@ class TestTable(BaseTest):
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"
 
-    def test_hogql_definition_tuple_with_backtick_positional_names(self):
+    def test_hogql_definition_keeps_tuple_element_names(self):
+        # The structure is how ClickHouse parses every read of the table. A row-oriented format
+        # matches object keys to the element names, so dropping them makes the column a positional
+        # array and each read raises CANNOT_PARSE_INPUT_ASSERTION_FAILED.
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="test_table",
@@ -1006,7 +1009,10 @@ class TestTable(BaseTest):
         )
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
-        assert definition.structure == "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))"
+        assert (
+            definition.structure
+            == "`id` String, `deal_details` Array(Tuple(`1` String, `2` String, `3` Nullable(String)))"
+        )
 
     def assert_raises_with_invalid_hog_column_type(self, column_type):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

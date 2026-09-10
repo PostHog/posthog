@@ -57,7 +57,6 @@ from products.warehouse_sources.backend.models.util import (
     STR_TO_HOGQL_MAPPING,
     clean_type,
     reconstruct_ordered_columns,
-    remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
@@ -252,6 +251,10 @@ def hogql_fields_and_structure_for_columns(
     tables; direct virtual tables ignore them. ``column_order`` restores the SELECT order the
     jsonb column store drops (see ``reconstruct_ordered_columns``); omit it for column dicts
     whose insertion order is already meaningful.
+
+    A nested ``Tuple`` keeps the element names the stored type carries. A row-oriented format
+    matches object keys to the structure by name, so a nameless ``Tuple`` inside an ``Array`` is
+    read as a positional array and every read of that table fails to parse.
     """
     fields: dict[str, FieldOrTable] = {}
     structure = []
@@ -267,10 +270,6 @@ def hogql_fields_and_structure_for_columns(
         if clickhouse_type.startswith("Nullable("):
             clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
             is_nullable = True
-
-        # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-        if clickhouse_type.startswith("Array("):
-            clickhouse_type = remove_named_tuples(clickhouse_type)
 
         if isinstance(type, dict):
             column_invalid = not type.get("valid", True)

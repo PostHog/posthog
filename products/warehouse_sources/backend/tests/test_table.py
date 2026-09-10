@@ -1,4 +1,6 @@
+import tempfile
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +16,7 @@ from parameterized import parameterized
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.escape_sql import escape_param_clickhouse
 
 from posthog.exceptions import ClickHouseAtCapacity
 
@@ -238,6 +241,50 @@ class TestRunChdbQuery:
                 run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
 
         assert not DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
+
+
+class TestStructureAgainstTheEngine(BaseTest):
+    # chdb embeds the same ClickHouse engine that introspects a table and that every warehouse read
+    # runs against, over local files instead of S3. These cases therefore prove what the engine does
+    # with a structure we built, which no mock-based test can.
+
+    def _json_file(self, lines: list[str]) -> str:
+        path = Path(tempfile.mkdtemp()) / "rows.json"
+        path.write_text("".join(f"{line}\n" for line in lines))
+        return str(path)
+
+    def test_array_of_objects_is_readable_through_the_stored_structure(self) -> None:
+        # The element names are what makes the column parseable. Without them ClickHouse reads
+        # `items` as a positional array, so every query over the table raises code 27, including
+        # queries that never mention the column.
+        import chdb
+
+        table = DataWarehouseTable(
+            name="orders",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/orders/*",
+            columns={
+                "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
+                "items": {
+                    "clickhouse": "Array(Tuple(sku Nullable(String), qty Nullable(Int64)))",
+                    "hogql": "StringArrayDatabaseField",
+                    "valid": True,
+                },
+            },
+        )
+        path = self._json_file(['{"id": 1, "items": [{"sku": "widget", "qty": 2}]}'])
+
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.structure is not None
+        result = chdb.query(
+            f"SELECT items.sku FROM file({escape_param_clickhouse(path)}, JSONEachRow, "
+            f"{escape_param_clickhouse(definition.structure)})",
+            output_format="CSV",
+        )
+
+        assert "widget" in str(result)
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):
