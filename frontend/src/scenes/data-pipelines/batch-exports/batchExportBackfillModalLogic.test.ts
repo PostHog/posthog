@@ -8,9 +8,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { BatchExportConfiguration, BatchExportInterval } from '~/types'
+import { BatchExportConfiguration, BatchExportInterval, BatchExportService } from '~/types'
 
-import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
+import { backfillCanDuplicateRows, batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import { batchExportDataLogic } from './batchExportDataLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
@@ -209,6 +209,41 @@ describe('batchExportBackfillModalLogic', () => {
             logic.actions.setBackfillFormValues(values)
 
             expect(logic.values.backfillFormValidationErrors).toEqual(expectedErrors)
+        })
+    })
+
+    describe('backfillCanDuplicateRows', () => {
+        const destination = (type: string, config: Record<string, string> = {}): BatchExportService =>
+            ({ type, config }) as unknown as BatchExportService
+
+        const duplicationCases: { name: string; destination: BatchExportService; model: string; expected: boolean }[] =
+            [
+                { name: 'Snowflake events', destination: destination('Snowflake'), model: 'events', expected: true },
+                { name: 'Snowflake persons', destination: destination('Snowflake'), model: 'persons', expected: false },
+                { name: 'BigQuery events', destination: destination('BigQuery'), model: 'events', expected: true },
+                {
+                    name: 'Redshift events with VARCHAR properties',
+                    destination: destination('Redshift', { properties_data_type: 'varchar' }),
+                    model: 'events',
+                    expected: true,
+                },
+                {
+                    name: 'Redshift events with SUPER properties',
+                    destination: destination('Redshift', { properties_data_type: 'super' }),
+                    model: 'events',
+                    expected: false,
+                },
+                {
+                    name: 'Redshift events with no properties type set',
+                    destination: destination('Redshift'),
+                    model: 'events',
+                    expected: true,
+                },
+                { name: 'S3 events', destination: destination('AwsS3'), model: 'events', expected: false },
+            ]
+
+        it.each(duplicationCases)('returns $expected for $name', ({ destination, model, expected }) => {
+            expect(backfillCanDuplicateRows(destination, model)).toBe(expected)
         })
     })
 })
