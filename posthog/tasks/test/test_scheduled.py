@@ -20,12 +20,12 @@ class TestInstanceSpreadMinute(SimpleTestCase):
         # A literal, because the minute has to survive a beat restart. A hash that
         # is only stable inside one process, such as the built-in hash(), passes an
         # equality check between two calls and still moves the schedule on restart.
-        with self.settings(SECRET_KEY="an-installation-secret"):
-            assert instance_spread_minute("send license usage", 40) == "6"
+        with self.settings(SITE_URL="https://an-installation.example.com"):
+            assert instance_spread_minute("send license usage", 40) == "18"
 
     def test_installations_do_not_all_get_the_same_minute(self) -> None:
         minutes = set()
-        for secret in ("secret-one", "secret-two", "secret-three", "secret-four"):
-            with self.settings(SECRET_KEY=secret):
+        for site_url in ("site-one", "site-two", "site-three", "site-four"):
+            with self.settings(SITE_URL=site_url):
                 minutes.add(instance_spread_minute("send license usage", 40))
         assert len(minutes) > 1

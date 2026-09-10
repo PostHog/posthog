@@ -200,16 +200,18 @@ def instance_spread_minute(key: str, window_minutes: int) -> str:
 
     Use this helper only where separate installations must not share a minute,
     such as a task that calls an endpoint PostHog hosts. A minute derived from
-    SECRET_KEY holds still across restarts and still differs between
-    installations. Installations that leave SECRET_KEY at its default share a
-    minute with each other.
+    SITE_URL holds still across restarts and still differs between
+    installations. Installations that leave SITE_URL at its default share a
+    minute with each other. SECRET_KEY would serve as well but is deliberately
+    not used: `.agents/security.md` keeps new code off it, and this value ends
+    up observable in the schedule.
 
     Every other task takes a fixed minute written at the call site, because a
     reader can then tell when it runs. Pick an odd minute that is not a multiple
     of 5 and that no other task in the same hour holds, which keeps it off both
     the */2 and */5 entries and off its neighbours.
     """
-    return str(zlib.crc32(f"{settings.SECRET_KEY}:{key}".encode()) % window_minutes)
+    return str(zlib.crc32(f"{settings.SITE_URL}:{key}".encode()) % window_minutes)
 
 
 def add_periodic_task_with_expiry(
