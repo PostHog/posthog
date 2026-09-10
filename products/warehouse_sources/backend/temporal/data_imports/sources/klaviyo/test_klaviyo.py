@@ -29,8 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
     klaviyo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
+    FORM_REPORT_STATISTICS,
     KLAVIYO_ENDPOINTS,
     SERIES_REPORT_TIMEFRAME_WEEKS,
+    VALUES_REPORT_TIMEFRAME_KEY,
     KlaviyoEndpointConfig,
     KlaviyoValuesReportConfig,
 )
@@ -1197,7 +1199,8 @@ class TestReportVariants:
             fetched_urls.append(url)
             if json_body is not None:
                 captured["body"] = json_body
-            return {"data": {"attributes": {"results": []}}, "links": {}}
+                return {"data": {"attributes": {"results": []}}, "links": {}}
+            return {"data": [], "links": {}}
 
         with patch.object(klaviyo, "_fetch_page", fake_fetch):
             list(
@@ -1212,11 +1215,80 @@ class TestReportVariants:
         attributes = captured["body"]["data"]["attributes"]
         assert captured["body"]["data"]["type"] == report_type
         assert "conversion_metric_id" not in attributes
-        assert fetched_urls == [f"https://a.klaviyo.com/api{path}"]
+        assert fetched_urls[0] == f"https://a.klaviyo.com/api{path}"
+        assert all("/metrics" not in url for url in fetched_urls)
         if expected_group_by is None:
             assert "group_by" not in attributes
         else:
             assert attributes["group_by"] == expected_group_by
+
+    def test_form_values_report_lists_every_form_and_zero_fills_the_quiet_ones(self) -> None:
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            if json_body is not None:
+                return {
+                    "data": {
+                        "attributes": {
+                            "results": [
+                                {
+                                    "groupings": {"form_id": "FORM_ACTIVE"},
+                                    "statistics": {"viewed_form": 40, "submits": 4, "submit_rate": 0.1},
+                                }
+                            ]
+                        }
+                    },
+                    "links": {},
+                }
+            assert url.startswith("https://a.klaviyo.com/api/forms?")
+            return {"data": [{"id": "FORM_ACTIVE"}, {"id": "FORM_QUIET"}], "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            rows = [
+                row
+                for table in get_rows(
+                    api_key="pk_test",
+                    endpoint="form_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+                for row in table.to_pylist()
+            ]
+
+        by_form = {row["form_id"]: row for row in rows}
+        assert set(by_form) == {"FORM_ACTIVE", "FORM_QUIET"}
+        assert (by_form["FORM_ACTIVE"]["viewed_form"], by_form["FORM_ACTIVE"]["submits"]) == (40, 4)
+        assert by_form["FORM_ACTIVE"]["submit_rate"] == 0.1
+        quiet = by_form["FORM_QUIET"]
+        assert quiet["timeframe_key"] == VALUES_REPORT_TIMEFRAME_KEY
+        assert quiet["submit_rate"] is None
+        assert all(quiet[statistic] == 0 for statistic in FORM_REPORT_STATISTICS if statistic != "submit_rate")
+        assert len(fetched_urls) == 2
+
+    def test_a_report_without_a_list_all_ids_path_stays_empty(self) -> None:
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            return {"data": {"attributes": {"results": []}}, "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            tables = list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="segment_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        assert tables == []
+        assert fetched_urls == ["https://a.klaviyo.com/api/segment-values-reports"]
 
     @parameterized.expand(
         [
