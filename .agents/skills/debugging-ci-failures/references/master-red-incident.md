@@ -75,8 +75,11 @@ Choose it from the verdict evidence you still need:
 | `posthog:engineering-analytics-broken-tests`    | grouped pytest failures and their current triage state |
 | `posthog:engineering-analytics-flaky-tests`     | same-commit recovery or known flakiness                |
 | `posthog:engineering-analytics-ci-failure-logs` | failure evidence across one PR's pushes                |
+| The parent's job base-rate query                | transient infrastructure versus a standing outage      |
 | GitHub compare or commit history                | a first-bad boundary or candidate regression           |
 
+For an infrastructure signature, spend this lookup on the parent's base-rate check unless a status page already confirms an outage.
+If the rate is unavailable, classify the infrastructure evidence but do not call it transient; name the missing rate as an evidence gap.
 If a needed MCP tool is exposed, inspect its schema once before calling it.
 Do not spend a tool call searching for a missing optional tool; use the `gh` fallback.
 Do not call every tool, repeat a failed access path, or inspect commit history for an infrastructure verdict.
