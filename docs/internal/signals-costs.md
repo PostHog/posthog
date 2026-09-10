@@ -1,49 +1,70 @@
-# Signal costs
+# Signal processing costs
 
-Signals store `token_cost` and `compute_cost` in the metadata of their canonical `document_embeddings` row (`text-embedding-3-small-1536`).
-Both objects have `research` and `implementation` keys with integer USD cent values.
+Signals accumulate costs during processing, before their first ClickHouse publication.
+There is no cost lookup against product analytics and no later cost-update write to ClickHouse.
 
-The signal that triggers work receives its full cost.
-Other signals grouped into the report do not share that cost.
-Each signal receives its own emission, safety, query-generation, matching, and specificity-check spend.
-The signal that promotes a report receives the report safety, repository-selection, and research costs.
-Implementation uses the trigger from the research pass that settles the report.
-When a running report researches again, the signal that crosses the next research bucket becomes that pass's trigger.
-Assignment counts determine this identity, rather than source timestamps or the last signal absorbed during debounce.
+```json
+{
+  "token_cost": { "research": 12, "implementation": 0 },
+  "compute_cost": { "research": 0, "implementation": 0 }
+}
+```
 
-## Sources and pricing
+Every amount is an integer number of cents.
+`research` includes emission checks, safety, grouping, repository selection, and research.
+An implementation run charges only the signal that triggered it, not every signal in the report.
 
-Direct model calls carry `triggering_signal_id` on their existing AI observability events.
-Research, repository selection, and implementation tasks store the signal ID when the task is created, including runs that fail before returning their first response.
-Later runs of the same task retain that attribution.
-Deferred implementation starts recover the trigger from the report's latest attributed task.
+## Pricing
 
-`token_cost` sums priced `$ai_generation` and `$ai_embedding` events from the regional AI observability project.
-A generation matched by both its signal ID and task-run ID is counted once.
-The embedding worker does not emit these cost events, so its embedding requests are not included.
-`compute_cost` uses the Tasks sandbox-session ledger and compute rate cards, without the customer-billability filters.
-This accounting does not change customer charges.
+`signal_costs.token_usage_to_spend` maps returned token usage to cents using the gateway model catalog.
+It accounts for uncached input, output, cache reads, and cache writes.
+Catalog rates remain strings; Decimal arithmetic is local to that conversion.
+Each response rounds to the nearest cent, with halves rounded up.
+Only integer cents enter signal metadata or cross a stage boundary.
 
-`normalise_cost(model, spend)` receives Decimal USD spend and returns it unchanged.
-It is the shared hook for future pricing adjustments.
-`add_cost` accumulates normalized spend by stage.
-Conversion to cents happens after accumulation, using half-even rounding so sub-cent calls contribute to the total.
+`normalise_cost(model, spend)` is a passthrough hook for future pricing policy.
+`add_cost` applies it when recording spend; `merge_costs` combines amounts that were already normalized.
+Validation retries count every returned model response, not just the final accepted response.
+The catalog cache expires after one hour, and an unpriced model raises rather than silently reporting zero.
 
-## Refresh and recovery
+`TaskRun.get_current_spend()` is deliberately a placeholder returning zero token and compute cents.
+Repository selection, research, and implementation call it through the Tasks facade.
+Task-backed costs therefore remain zero until runtime accounting replaces the placeholder.
+No task-runtime instrumentation or database fields are added.
+Embedding API usage is not priced by this mapping.
+Publication reuses the canonical vector prepared during grouping, rather than requesting another embedding.
 
-New signals start with zero amounts and `costs_pending: true`.
-Grouping emission, report safety, task creation, and task status changes schedule a refresh after a five-minute ingestion grace period.
-Grouping queues the refresh before assigning the signal, so an enqueue failure can retry without repeating assignment.
-The refresh replaces amounts from source totals instead of incrementing them, so replaying a refresh does not charge twice.
-Missing signal rows, unpriced generations, and active or recently completed task runs cause up to twelve further five-minute retries.
-Known amounts remain a lower bound while `costs_pending` is true.
-A later task transition schedules another refresh even if an earlier retry chain expired.
+## Handoffs
 
-A metadata refresh copies the existing canonical embedding into the ClickHouse ingestion topic.
-It preserves the signal's timestamp, content, and other metadata, and does not request another paid embedding.
-The refresh waits for Kafka delivery confirmation before completing.
-Reingestion preserves the signal ID, timestamp, and accounting start time.
+- Grouping assigns the signal to its report before choosing the next destination.
+- A signal that triggers research goes to `signals/processing/<team_id>/<signal_id>.json` in object storage.
+- A signal that triggers no further work publishes directly to ClickHouse with its accumulated metadata.
+- Arrivals during active research also wait in S3 until Temporal can decide whether they cross the next research bucket.
+- Research combines the report's existing ClickHouse signals with its S3 handoffs, then saves updated costs to S3.
+- A detached finalizer waits for an implementation workflow to complete, including cleanup, before adding its spend and publishing.
+- If there is no implementation, the finalizer publishes after research ends.
 
-To repair a projection, enqueue `products.signals.backend.tasks.refresh_signal_costs` with `team_id` and `signal_id`.
-Check `signals.cost_update_schedule_failed` and `signals.unpriced_generations` logs when costs remain pending.
-Existing signals without `costs_started_at` are not backfilled because their earlier model calls lack signal attribution.
+Temporal's in-flight registry stores S3 keys rather than copies of signal payloads or vectors.
+Grouping includes in-flight handoffs in semantic matching, so later batches can find reports whose triggering signals have not published yet.
+The grouping workflow carries those keys across `continue_as_new`, including idle runs.
+A finalizer releases a key only after ClickHouse confirms the signal is visible.
+S3 objects remain available for retries and overlapping research snapshots.
+
+The first promotion, ordered by its assigned signal count, owns the initial research pass's cost.
+A later pass charges the handoff that crosses the next research bucket.
+Other signals covered by a pass keep their own earlier costs.
+Arrivals below the next bucket publish without another research pass.
+Implementation runs carry their owning handoff key in existing run state, so an activity retry can recover the same run without charging another signal.
+
+Task costs are added once per task ID within a handoff.
+Later manual runs do not revise an already-published signal's costs.
+Final publication preserves the signal ID and timestamp and records an S3 publication marker after Kafka acknowledges delivery.
+Delivery retries can repeat the same final record, but do not calculate new costs or buy new embeddings.
+Unsafe or deleted reports publish deleted signal metadata so their content stays out of semantic matching.
+
+## Temporal compatibility
+
+`signals-stage-handoffs-v1` gates the new workflow commands and handoff behavior.
+Histories without that patch retain the original emission and summary path.
+New activity fields have defaults for payloads written before this change.
+The summary tests record a patch-disabled history and replay it against the current workflow implementation.

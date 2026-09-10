@@ -1,9 +1,8 @@
 import os
 import json
-import uuid
 import asyncio
 import dataclasses
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -26,6 +25,7 @@ from products.signals.backend.emission.registry import (
 )
 from products.signals.backend.emission.steering import apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.signal_costs import add_cost, get_model_pricing, token_usage_to_spend
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
@@ -82,8 +82,6 @@ def _signals_extra_headers(
         "source_product": output.source_product,
         "source_type": output.source_type,
     }
-    if output.signal_id is not None:
-        labels["triggering_signal_id"] = output.signal_id
     if gateway_mode:
         blob = {"ai_product": EMISSION_AI_PRODUCT, **labels}
         if team_id is not None:
@@ -162,13 +160,7 @@ def build_emitter_outputs(
                     output,
                     extra={k: v.isoformat() if isinstance(v, datetime) else v for k, v in output.extra.items()},
                 )
-            outputs.append(
-                dataclasses.replace(
-                    output,
-                    signal_id=output.signal_id or str(uuid.uuid4()),
-                    costs_started_at=output.costs_started_at or datetime.now(UTC).isoformat(),
-                )
-            )
+            outputs.append(output)
     return outputs, error_count
 
 
@@ -184,6 +176,7 @@ async def _summarize_description(
         {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
     ]
     extra_headers = _signals_extra_headers(output, stage="summarization", gateway_mode=gateway_mode, team_id=team_id)
+    pricing = await get_model_pricing(LLM_MODEL)
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
@@ -200,6 +193,7 @@ async def _summarize_description(
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
+            add_cost(output.metadata, LLM_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             summary = _extract_text(response).strip()
             if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
@@ -326,6 +320,7 @@ async def check_actionability(
         description = f"{description}\n\n<record_metadata>\n{metadata}\n</record_metadata>"
     prompt = actionability_prompt.format(description=description)
     extra_headers = _signals_extra_headers(output, stage="actionability", gateway_mode=gateway_mode, team_id=team_id)
+    pricing = await get_model_pricing(LLM_MODEL)
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
@@ -341,6 +336,7 @@ async def check_actionability(
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
+            add_cost(output.metadata, LLM_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             response_text = _extract_text(response).strip().upper()
             return "NOT_ACTION" not in response_text
         except Exception as e:
@@ -434,8 +430,7 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
                 "description": output.description,
                 "weight": output.weight,
                 "extra": output.extra,
-                "signal_id": output.signal_id,
-                "costs_started_at": output.costs_started_at,
+                "metadata": output.metadata,
             },
         ).encode("utf-8")
     )
@@ -482,8 +477,7 @@ async def _emit_signals(
                     description=output.description,
                     weight=output.weight,
                     extra=output.extra,
-                    signal_id=output.signal_id,
-                    costs_started_at=output.costs_started_at,
+                    metadata=output.metadata,
                 )
                 return True
             except Exception as e:

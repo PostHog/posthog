@@ -74,9 +74,6 @@ class EmitSignalInputs:
     # the Temporal/S3 JSON round-trip. Surfaced to the research agent as authoritative direction when
     # present; not required by any source.
     remediation: Optional[dict] = None
-    signal_id: str | None = None
-    costs_started_at: str | None = None
-    timestamp: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -134,6 +131,7 @@ MatchMetadata = MatchedMetadata | NoMatchMetadata
 class ExistingReportMatch:
     report_id: str
     match_metadata: MatchedMetadata
+    costs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -141,6 +139,7 @@ class NewReportMatch:
     title: str
     summary: str
     match_metadata: NoMatchMetadata
+    costs: dict[str, Any] = field(default_factory=dict)
 
 
 MatchResult = ExistingReportMatch | NewReportMatch
@@ -172,6 +171,7 @@ class TeamSignalGroupingV2Input:
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
     paused_until: Optional[datetime] = None
+    pending_signal_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -197,7 +197,8 @@ class SignalReportSummaryWorkflowInputs:
     # Seconds to wait before the first cycle, so a burst of signals is researched in one run rather
     # than one run each. Defaults to 0 so histories written before this field replay unchanged.
     debounce_seconds: int = 0
-    triggering_signal_id: str | None = None
+    signal_keys: list[str] = field(default_factory=list)
+    context_signal_keys: list[str] = field(default_factory=list)
 
 
 @dataclass

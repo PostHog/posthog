@@ -1,4 +1,5 @@
 import uuid
+from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -62,12 +63,17 @@ async def _run(
     signals: list[WaitForClickHouseSignal],
     max_wait_time_seconds: int = 600,
     mode: WaitForClickHouseMode = WaitForClickHouseMode.CH_CONFIRMED,
+    require_visible: bool = False,
 ) -> None:
     env = ActivityEnvironment()
     await env.run(
         wait_for_signal_in_clickhouse_activity,
         WaitForClickHouseInput(
-            team_id=TEAM_ID, signals=signals, max_wait_time_seconds=max_wait_time_seconds, mode=mode
+            team_id=TEAM_ID,
+            signals=signals,
+            max_wait_time_seconds=max_wait_time_seconds,
+            mode=mode,
+            require_visible=require_visible,
         ),
     )
 
@@ -146,7 +152,8 @@ async def test_unconfirmed_store_defers_clickhouse_until_grace_period_elapses(st
 
 
 @pytest.mark.asyncio
-async def test_gives_up_after_max_wait_and_records_timeout():
+@pytest.mark.parametrize("require_visible", [False, True])
+async def test_gives_up_after_max_wait_and_records_timeout(require_visible: bool):
     signals = _signals(1)
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),
@@ -155,7 +162,8 @@ async def test_gives_up_after_max_wait_and_records_timeout():
         patch(f"{MODULE}.asyncio.sleep", AsyncMock()),
         patch(f"{MODULE}.metrics.increment_ch_wait_timeout") as timeout_metric,
     ):
-        await _run(signals, max_wait_time_seconds=30)
+        with pytest.raises(TimeoutError, match="not yet visible") if require_visible else nullcontext():
+            await _run(signals, max_wait_time_seconds=30, require_visible=require_visible)
 
     # A wait shorter than the grace period still checks ClickHouse once, on the final
     # attempt, before giving up and recording the timeout.

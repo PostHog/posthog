@@ -1,17 +1,20 @@
 import uuid
 import random
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import patch
 
+from django.conf import settings
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio import activity
+from temporalio import activity, workflow
+from temporalio.client import WorkflowHistory
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
@@ -23,11 +26,10 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
-from products.signals.backend.temporal.report_safety_judge import (
-    SafetyJudgeInput,
-    SafetyJudgeOutput,
-    SafetyJudgeResponse,
-    judge_report_safety,
+from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
+from products.signals.backend.temporal.signal_implementation import (
+    SignalImplementationFinalizerWorkflow,
+    SignalImplementationInput,
 )
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
@@ -35,20 +37,19 @@ from products.signals.backend.temporal.summary import (
     CheckReportQuotaGateInput,
     MarkReportFailedInput,
     MarkReportInProgressInput,
-    MarkReportReadyInput,
     ReportHasAssignedSignalsInput,
     ResetReportToPotentialInput,
     RevertReportToCandidateInput,
     SignalReportSummaryWorkflow,
-    _triggering_signal_for_reresearch,
     check_report_quota_gate_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
+    select_research_signal_key,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
 
 SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
-TASK_QUEUE = "test-summary-workflow-queue"
+TASK_QUEUE = settings.VIDEO_EXPORT_TASK_QUEUE
 
 
 @pytest_asyncio.fixture
@@ -183,18 +184,10 @@ class _Recorder:
         # Signals returned by successive fetches; the last entry repeats once exhausted.
         fetch_results: list[list[SignalData]] | None = None,
         has_assigned_signals: bool = True,
-        triggering_signal_id: str | None = None,
-        research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
-        mark_ready_answers: list[bool] | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
         self.has_assigned_signals = has_assigned_signals
-        self.triggering_signal_id = triggering_signal_id
-        self.research_choice = research_choice
-        self.mark_ready_answers = mark_ready_answers or [False]
-        self.mark_ready_checks = 0
-        self.stage_triggering_signal_ids: list[str | None] = []
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
@@ -206,6 +199,13 @@ class _Recorder:
         self.reverts = 0
         self.resets = 0
         self.failures = 0
+        self.safety_signal_keys: list[str | None] = []
+        self.research_signal_keys: list[str | None] = []
+        self.finalizer_inputs: list[SignalImplementationInput] = []
+        self.expected_finalizer_keys: list[str] = []
+        self.research_started = asyncio.Event()
+        self.continue_research = asyncio.Event()
+        self.continue_research.set()
 
 
 def _signal_data() -> SignalData:
@@ -220,54 +220,24 @@ def _signal_data() -> SignalData:
     )
 
 
-@pytest.mark.asyncio
-async def test_safety_judge_passes_triggering_signal_to_llm():
-    captured: dict[str, str | None] = {}
-
-    async def fake_call_llm(**kwargs):
-        captured["triggering_signal_id"] = kwargs["triggering_signal_id"]
-        return SafetyJudgeResponse(choice=True)
-
-    with patch("products.signals.backend.temporal.report_safety_judge.call_llm", new=fake_call_llm):
-        await judge_report_safety(
-            team_id=1,
-            signals=[_signal_data()],
-            triggering_signal_id="causing-signal",
+@workflow.defn(name="signal-implementation-finalizer")
+class StubSignalImplementationFinalizerWorkflow:
+    @workflow.run
+    async def run(self, input: SignalImplementationInput) -> None:
+        await workflow.execute_activity(
+            "record_signal_finalizer_input_activity",
+            input,
+            start_to_close_timeout=timedelta(seconds=10),
         )
 
-    assert captured["triggering_signal_id"] == "causing-signal"
 
-
-def test_reresearch_trigger_uses_first_eligible_assigned_count():
-    causing_signal_id = "causing-signal"
-    later_debounced_signal_id = "later-debounced-signal"
-    signals = [
-        SignalData(
-            signal_id=later_debounced_signal_id,
-            content="later signal",
-            source_product="error_tracking",
-            source_type="issue",
-            source_id="later",
-            weight=1.0,
-            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-            metadata={"report_signal_count": 3},
-        ),
-        SignalData(
-            signal_id=causing_signal_id,
-            content="causing signal",
-            source_product="error_tracking",
-            source_type="issue",
-            source_id="causing",
-            weight=1.0,
-            timestamp=datetime(2026, 1, 2, tzinfo=UTC),
-            metadata={"report_signal_count": 2},
-        ),
-    ]
-
-    assert _triggering_signal_for_reresearch(signals, previous_processed_signal_count=1) == causing_signal_id
-
-
-async def _run_summary_workflow(recorder: _Recorder) -> None:
+async def _run_summary_workflow(
+    recorder: _Recorder,
+    inputs: SignalReportSummaryWorkflowInputs | None = None,
+    *,
+    legacy_stage_handoffs: bool = False,
+    signal_during_first_pass: list[str] | None = None,
+) -> WorkflowHistory:
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
         recorder.gate_checks.append(input.stage)
@@ -291,35 +261,30 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
         recorder.safety_checks += 1
-        recorder.stage_triggering_signal_ids.append(input.triggering_signal_id)
+        recorder.safety_signal_keys.append(input.signal_key)
         return SafetyJudgeOutput(safe=True, explanation="ok")
 
     @activity.defn(name="select_repository_activity")
     async def fake_select_repo(input: SelectRepositoryInput) -> RepoSelectionResult:
         recorder.repo_selections += 1
-        recorder.stage_triggering_signal_ids.append(input.triggering_signal_id)
         return RepoSelectionResult(repository="owner/repo", reason="selected")
 
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.researches += 1
-        recorder.stage_triggering_signal_ids.append(input.triggering_signal_id)
+        recorder.research_signal_keys.append(input.signal_key)
+        recorder.research_started.set()
+        await recorder.continue_research.wait()
         # NOT_ACTIONABLE terminates the workflow via the reset path, keeping the fake surface small.
         return RunAgenticReportOutput(
             title="t",
             summary="s",
-            choice=recorder.research_choice,
+            choice=ActionabilityChoice.NOT_ACTIONABLE,
             priority=None,
             explanation="e",
             already_addressed=False,
             repository="owner/repo",
         )
-
-    @activity.defn(name="mark_report_ready_activity")
-    async def fake_mark_ready(input: MarkReportReadyInput) -> bool:
-        answer = recorder.mark_ready_answers[min(recorder.mark_ready_checks, len(recorder.mark_ready_answers) - 1)]
-        recorder.mark_ready_checks += 1
-        return answer
 
     @activity.defn(name="revert_report_to_candidate_activity")
     async def fake_revert(input: RevertReportToCandidateInput) -> None:
@@ -334,6 +299,10 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         recorder.failures += 1
         recorder.failure_reasons.append(input.failure_reason)
 
+    @activity.defn(name="record_signal_finalizer_input_activity")
+    async def record_finalizer_input(input: SignalImplementationInput) -> None:
+        recorder.finalizer_inputs.append(input)
+
     # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
     # ActionabilityChoice), sending the workflow down the wrong decision branch.
@@ -341,7 +310,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         async with Worker(
             env.client,
             task_queue=TASK_QUEUE,
-            workflows=[SignalReportSummaryWorkflow],
+            workflows=[SignalReportSummaryWorkflow, StubSignalImplementationFinalizerWorkflow],
             activities=[
                 fake_quota,
                 fake_fetch,
@@ -350,67 +319,51 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_safety,
                 fake_select_repo,
                 fake_research,
-                fake_mark_ready,
                 fake_revert,
                 fake_reset,
                 fake_failed,
+                record_finalizer_input,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await asyncio.wait_for(
-                env.client.execute_workflow(
+            workflow_inputs = inputs or SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()))
+            if signal_during_first_pass:
+                recorder.continue_research.clear()
+            if legacy_stage_handoffs:
+                original_patched = workflow.patched
+
+                def pre_handoff_patched(patch_id: str) -> bool:
+                    return False if patch_id == "signals-stage-handoffs-v1" else original_patched(patch_id)
+
+                with patch(f"{SUMMARY_MODULE_PATH}.workflow.patched", side_effect=pre_handoff_patched):
+                    handle = await env.client.start_workflow(
+                        SignalReportSummaryWorkflow.run,
+                        workflow_inputs,
+                        id=f"summary-workflow-{uuid.uuid4()}",
+                        task_queue=TASK_QUEUE,
+                    )
+                    await asyncio.wait_for(handle.result(), timeout=30)
+            else:
+                handle = await env.client.start_workflow(
                     SignalReportSummaryWorkflow.run,
-                    SignalReportSummaryWorkflowInputs(
-                        team_id=1,
-                        report_id=str(uuid.uuid4()),
-                        triggering_signal_id=recorder.triggering_signal_id,
-                    ),
+                    workflow_inputs,
                     id=f"summary-workflow-{uuid.uuid4()}",
                     task_queue=TASK_QUEUE,
-                ),
-                timeout=30,
-            )
-
-
-@pytest.mark.asyncio
-async def test_initial_trigger_reaches_all_direct_report_stages():
-    causing_signal_id = "causing-signal"
-    recorder = _Recorder(
-        fetch_results=[[_signal_data(), _signal_data()]],
-        triggering_signal_id=causing_signal_id,
-    )
-
-    await _run_summary_workflow(recorder)
-
-    assert recorder.stage_triggering_signal_ids == [causing_signal_id] * 3
-
-
-@pytest.mark.asyncio
-async def test_reresearch_uses_the_signal_that_crossed_the_next_bucket():
-    initial_signal_id = "initial-signal"
-    causing_signal_id = "causing-signal"
-    sibling_signal_id = "sibling-signal"
-    initial_signal = _signal_data()
-    initial_signal.signal_id = initial_signal_id
-    initial_signal.metadata = {"report_signal_count": 1}
-    causing_signal = _signal_data()
-    causing_signal.signal_id = causing_signal_id
-    causing_signal.metadata = {"report_signal_count": 2}
-    sibling_signal = _signal_data()
-    sibling_signal.signal_id = sibling_signal_id
-    sibling_signal.metadata = {"report_signal_count": 3}
-    recorder = _Recorder(
-        fetch_results=[[initial_signal], [initial_signal, causing_signal, sibling_signal]],
-        triggering_signal_id=initial_signal_id,
-        research_choice=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
-        mark_ready_answers=[True],
-    )
-
-    await _run_summary_workflow(recorder)
-
-    assert recorder.stage_triggering_signal_ids[:3] == [initial_signal_id] * 3
-    assert recorder.stage_triggering_signal_ids[3:6] == [causing_signal_id] * 3
-    assert sibling_signal_id not in recorder.stage_triggering_signal_ids[3:6]
+                )
+                if signal_during_first_pass:
+                    await asyncio.wait_for(recorder.research_started.wait(), timeout=30)
+                    await handle.signal("submit_signal_keys", signal_during_first_pass)
+                    recorder.continue_research.set()
+                await asyncio.wait_for(handle.result(), timeout=30)
+            history = await handle.fetch_history()
+            for signal_key in recorder.expected_finalizer_keys:
+                await asyncio.wait_for(
+                    env.client.get_workflow_handle(
+                        SignalImplementationFinalizerWorkflow.workflow_id_for(workflow_inputs.team_id, signal_key)
+                    ).result(),
+                    timeout=30,
+                )
+            return history
 
 
 @pytest.mark.asyncio
@@ -443,7 +396,6 @@ async def test_open_gates_let_the_run_flow_through():
     recorder = _Recorder(gate_answers={})
     await _run_summary_workflow(recorder)
     assert recorder.gate_checks == ["summary_entry", "pre_repo_selection", "pre_research"]
-    assert recorder.stage_triggering_signal_ids == [None] * 3
     assert recorder.researches == 1
     assert recorder.reverts == 0
     assert recorder.failures == 0
@@ -483,6 +435,98 @@ async def test_persistently_empty_fetch_fails_report_with_no_assigned_signals():
     assert recorder.fetches == 1 + EMPTY_FETCH_RETRY_ATTEMPTS
     assert recorder.researches == 0
     assert recorder.failure_reasons == ["no_signals_found"]
+
+
+# ---------------------------------------------------------------------------
+# Signal handoff finalization
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handoff_finalizes_each_submitted_key_after_the_first_pass() -> None:
+    recorder = _Recorder()
+    recorder.expected_finalizer_keys = ["first", "covered"]
+    await _run_summary_workflow(
+        recorder,
+        SignalReportSummaryWorkflowInputs(
+            team_id=1,
+            report_id=str(uuid.uuid4()),
+            signal_keys=["first", "covered"],
+            context_signal_keys=["previous"],
+        ),
+    )
+
+    assert recorder.safety_signal_keys == ["first"]
+    assert recorder.research_signal_keys == ["first"]
+    assert [(input.signal_key, input.task_id, input.run_id) for input in recorder.finalizer_inputs] == [
+        ("first", None, None),
+        ("covered", None, None),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("pass_completed", "next_bucket", "keys", "metadata", "expected"),
+    [
+        (
+            False,
+            None,
+            ["late", "early"],
+            [
+                {"research_trigger": True, "report_signal_count": 4},
+                {"research_trigger": True, "report_signal_count": 2},
+            ],
+            "early",
+        ),
+        (True, 4, ["midpoint"], [{"research_trigger": False, "report_signal_count": 3}], None),
+        (True, 4, ["crossed"], [{"research_trigger": False, "report_signal_count": 4}], "crossed"),
+        (True, None, ["promoted"], [{"research_trigger": True, "report_signal_count": 3}], "promoted"),
+    ],
+)
+def test_select_research_signal_key_respects_buckets_and_promoted_owners(
+    pass_completed: bool,
+    next_bucket: int | None,
+    keys: list[str],
+    metadata: list[dict],
+    expected: str | None,
+) -> None:
+    signals = [_signal_data() for _ in keys]
+    for signal, signal_metadata in zip(signals, metadata):
+        signal.metadata = signal_metadata
+    result = FetchSignalsForReportOutput(
+        signals=signals,
+        signal_key_by_id={signal.signal_id: key for signal, key in zip(signals, keys)},
+    )
+
+    assert select_research_signal_key(keys, result, pass_completed, next_bucket) == expected
+
+
+@pytest.mark.asyncio
+async def test_handoff_finalizes_a_key_submitted_while_the_first_pass_runs() -> None:
+    recorder = _Recorder()
+    recorder.expected_finalizer_keys = ["first", "covered", "arrived-during-pass"]
+    await _run_summary_workflow(
+        recorder,
+        SignalReportSummaryWorkflowInputs(
+            team_id=1,
+            report_id=str(uuid.uuid4()),
+            signal_keys=["first", "covered"],
+        ),
+        signal_during_first_pass=["arrived-during-pass"],
+    )
+
+    assert recorder.research_signal_keys == ["first"]
+    assert [input.signal_key for input in recorder.finalizer_inputs] == recorder.expected_finalizer_keys
+
+
+@pytest.mark.asyncio
+async def test_summary_replays_history_recorded_before_stage_handoffs() -> None:
+    history = await _run_summary_workflow(_Recorder(), legacy_stage_handoffs=True)
+
+    await Replayer(
+        workflows=[SignalReportSummaryWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+        data_converter=pydantic_data_converter,
+    ).replay_workflow(history)
 
 
 # ---------------------------------------------------------------------------

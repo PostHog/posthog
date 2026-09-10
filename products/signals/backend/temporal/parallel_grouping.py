@@ -1,6 +1,7 @@
+import uuid
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 import structlog
@@ -9,6 +10,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.signal_costs import merge_costs
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.grouping import (
     AssignAndEmitSignalInput,
@@ -158,6 +160,9 @@ async def _process_signal(
     queries: list[str],
     augmented_results: list[list[SignalCandidate]],
     report_contexts: dict[str, ReportContext],
+    defer_emission: bool,
+    pending_signal_keys: list[str],
+    track_costs: bool,
 ) -> _SignalResult:
     """
     Process a single signal through the match → specificity → assign pipeline.
@@ -174,11 +179,14 @@ async def _process_signal(
             queries=queries,
             query_results=augmented_results,
             report_contexts=report_contexts,
-            triggering_signal_id=signal_id,
+            track_costs=track_costs,
         ),
         start_to_close_timeout=timedelta(minutes=10),
         retry_policy=RetryPolicy(maximum_attempts=5),
     )
+
+    if track_costs:
+        merge_costs(signal.metadata, match_result.costs)
 
     # Step 5.5: PR-specificity verification for existing matches
     updated_title: Optional[str] = None
@@ -189,7 +197,9 @@ async def _process_signal(
 
         group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
-            FetchSignalsForReportInput(team_id=team_id, report_id=match_result.report_id),
+            FetchSignalsForReportInput(
+                team_id=team_id, report_id=match_result.report_id, signal_keys=pending_signal_keys
+            ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -204,11 +214,14 @@ async def _process_signal(
                 new_signal_source_product=signal.source_product,
                 new_signal_source_type=signal.source_type,
                 group_signals=group_signals_result.signals,
-                triggering_signal_id=signal_id,
+                track_costs=track_costs,
             ),
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=5),
         )
+
+        if track_costs:
+            merge_costs(signal.metadata, specificity_result.costs)
 
         specificity_meta = SpecificityMetadata(
             pr_title=specificity_result.pr_title,
@@ -245,9 +258,8 @@ async def _process_signal(
             match_result=match_result,
             updated_title=updated_title,
             remediation=signal.remediation,
-            costs_started_at=signal.costs_started_at,
             metadata=signal.metadata,
-            timestamp=datetime.fromisoformat(signal.timestamp) if signal.timestamp else None,
+            defer_emission=defer_emission,
         ),
         start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -271,6 +283,9 @@ async def _process_signal_safe(
     queries: list[str],
     augmented_results: list[list[SignalCandidate]],
     report_contexts: dict[str, ReportContext],
+    defer_emission: bool,
+    pending_signal_keys: list[str],
+    track_costs: bool,
 ) -> Optional[_SignalResult]:
     """Wrapper around _process_signal that catches exceptions and returns None on failure."""
     try:
@@ -283,6 +298,9 @@ async def _process_signal_safe(
             queries=queries,
             augmented_results=augmented_results,
             report_contexts=report_contexts,
+            defer_emission=defer_emission,
+            pending_signal_keys=pending_signal_keys,
+            track_costs=track_costs,
         )
     except Exception as e:
         logger.exception(
@@ -309,13 +327,15 @@ async def _process_parallel_batch(
     batch_indices: list[int],
     batch: list[EmitSignalInputs],
     team_id: int,
-    signal_ids: list[str],
     per_signal_queries: list[list[str]],
     per_signal_query_embeddings: list[list[list[float]]],
     per_signal_ch_results: list[list[list[SignalCandidate]]],
     signal_embeddings: list[list[float]],
     processed_batch_signals: list[_ProcessedBatchSignal],
     report_contexts: dict[str, ReportContext],
+    defer_emission: bool,
+    pending_signal_keys: list[str],
+    track_costs: bool,
 ) -> ParallelBatchResult:
     """
     Process a single parallel batch. All signals in batch_indices are processed
@@ -333,7 +353,7 @@ async def _process_parallel_batch(
     coroutines = []
     for idx in batch_indices:
         signal = batch[idx]
-        signal_id = signal_ids[idx]
+        signal_id = str(workflow.uuid4() if defer_emission else uuid.uuid4())
 
         # Augment CH candidates with all previously processed signals (from earlier batches)
         augmented_results = _augment_candidates_with_batch(
@@ -353,6 +373,9 @@ async def _process_parallel_batch(
                 queries=per_signal_queries[idx],
                 augmented_results=augmented_results,
                 report_contexts=report_contexts,
+                defer_emission=defer_emission,
+                pending_signal_keys=pending_signal_keys,
+                track_costs=track_costs,
             )
         )
 
@@ -396,18 +419,15 @@ async def _process_parallel_batch(
                 signal_count=1,
             )
 
-        if result.assign_result.promoted:
-            promoted_reports.setdefault(
-                result.assign_result.report_id,
-                (
-                    SignalReportSummaryWorkflowInputs(
-                        team_id=signal.team_id,
-                        report_id=result.assign_result.report_id,
-                        debounce_seconds=result.assign_result.research_debounce_seconds,
-                        triggering_signal_id=result.signal_id,
-                    ),
-                    result.assign_result.run_count,
+        if result.assign_result.promoted or result.assign_result.signal_key is not None:
+            promoted_reports[result.assign_result.report_id] = (
+                SignalReportSummaryWorkflowInputs(
+                    team_id=signal.team_id,
+                    report_id=result.assign_result.report_id,
+                    debounce_seconds=result.assign_result.research_debounce_seconds,
+                    signal_keys=[result.assign_result.signal_key] if result.assign_result.signal_key else [],
                 ),
+                result.assign_result.run_count,
             )
 
     return ParallelBatchResult(
@@ -422,12 +442,14 @@ async def _process_parallel_batch(
 async def process_sequential_phase_parallel(
     batch: list[EmitSignalInputs],
     team_id: int,
-    signal_ids: list[str],
     per_signal_queries: list[list[str]],
     per_signal_query_embeddings: list[list[list[float]]],
     per_signal_ch_results: list[list[list[SignalCandidate]]],
     signal_embeddings: list[list[float]],
     report_contexts: dict[str, ReportContext],
+    defer_emission: bool,
+    pending_signal_keys: list[str],
+    track_costs: bool,
 ) -> SequentialPhaseResult:
     """
     Main public function: replaces the sequential phase of _process_signal_batch with
@@ -471,20 +493,21 @@ async def process_sequential_phase_parallel(
             batch_indices=batch_indices,
             batch=batch,
             team_id=team_id,
-            signal_ids=signal_ids,
             per_signal_queries=per_signal_queries,
             per_signal_query_embeddings=per_signal_query_embeddings,
             per_signal_ch_results=per_signal_ch_results,
             signal_embeddings=signal_embeddings,
             processed_batch_signals=all_processed_signals,
             report_contexts=report_contexts,
+            defer_emission=defer_emission,
+            pending_signal_keys=pending_signal_keys,
+            track_costs=track_costs,
         )
 
         report_contexts = result.report_contexts
         all_processed_signals.extend(result.processed_signals)
         all_emitted_signals.extend(result.emitted_signals)
-        for report_id, promoted_report in result.promoted_reports.items():
-            all_promoted_reports.setdefault(report_id, promoted_report)
+        all_promoted_reports.update(result.promoted_reports)
         total_dropped += result.dropped_count
 
     return SequentialPhaseResult(

@@ -290,7 +290,9 @@ _LABEL_RE = re.compile(r"^[A-Za-z0-9#/_.-]{1,64}$")
 _URL_RE = re.compile(r"^https?://[^\s()<>\[\]]{1,500}$")
 
 
-def fetch_source_references_for_report(team: Team, report_id: str) -> list[SignalSourceReference]:
+def fetch_source_references_for_report(
+    team: Team, report_id: str, pending_metadata: dict | None = None
+) -> list[SignalSourceReference]:
     """Return issue references (label + URL) for the report's non-deleted Linear/GitHub signals.
 
     Sources whose signals don't carry a stable human-facing URL (e.g. Zendesk's `url` extra is the
@@ -342,9 +344,26 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
         },
     )
 
+    rows = list(result.results or [])
+    if (
+        pending_metadata
+        and not pending_metadata.get("deleted")
+        and pending_metadata.get("source_product") in {"linear", "github"}
+    ):
+        extra = pending_metadata.get("extra") or {}
+        number = extra.get("number")
+        rows.append(
+            (
+                pending_metadata["source_product"],
+                str(extra.get("url") or ""),
+                str(extra.get("html_url") or ""),
+                str(extra.get("identifier") or ""),
+                number if isinstance(number, int) else 0,
+            )
+        )
     references: list[SignalSourceReference] = []
     seen_urls: set[str] = set()
-    for source_product, url, html_url, identifier, issue_number in result.results or []:
+    for source_product, url, html_url, identifier, issue_number in rows:
         if source_product == "linear":
             ref_url, label = url, (identifier if identifier and _LABEL_RE.match(identifier) else "Linear issue")
         else:

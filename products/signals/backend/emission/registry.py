@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import dataclasses
 from collections.abc import Callable
+from dataclasses import field
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -25,8 +26,7 @@ class SignalEmitterOutput:
     description: str
     weight: float
     extra: dict[str, Any]
-    signal_id: str | None = None
-    costs_started_at: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # Type for signal emitter functions (None if the source has not enough meaningful data)

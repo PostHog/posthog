@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -760,7 +759,6 @@ async def run_multi_turn_research(
     resolved_report_summary: str | None = None,
     charts_enabled: bool = False,
     steering_section: str = "",
-    triggering_signal_id: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.facade import api as tasks_facade
@@ -796,10 +794,6 @@ async def run_multi_turn_research(
         resolved_report_summary=resolved_report_summary,
         steering_section=steering_section,
     )
-
-    if triggering_signal_id is not None:
-        context = replace(context, triggering_signal_id=triggering_signal_id)
-
     session, first_response = await MultiTurnSession.start(
         prompt=initial_prompt,
         context=context,

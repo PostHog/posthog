@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
 from uuid import UUID
 
 from django.conf import settings
@@ -30,7 +29,7 @@ from products.tasks.backend.logic.services.sandbox_pricing import (
     calculate_sandbox_compute_cost,
     validate_compute_rate_cards,
 )
-from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
+from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance
 
 TASK_USAGE_SIGNATURE_HEADER = "X-PostHog-Task-Usage-Signature"
 TASK_USAGE_TIMESTAMP_HEADER = "X-PostHog-Task-Usage-Timestamp"
@@ -60,16 +59,6 @@ def get_task_usage(*, team_id: int, task_id: UUID, task_created_at: datetime) ->
 
 class TaskTokenUsageUnavailable(Exception):
     pass
-
-
-@frozen
-class SignalTaskRun:
-    run_id: UUID
-    task_id: UUID
-    ai_stage: Literal["research", "implementation"]
-    created_at: datetime
-    completed_at: datetime | None
-    status: str
 
 
 @frozen
@@ -164,10 +153,6 @@ def _internal_llm_analytics_team() -> Team:
         raise TaskTokenUsageUnavailable("The internal AI observability project is not readable here") from error
 
 
-def get_internal_llm_analytics_team() -> Team:
-    return _internal_llm_analytics_team()
-
-
 def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
     query = parse_select(
         """
@@ -191,7 +176,7 @@ def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: d
                 "team_id": ast.Constant(value=str(team_id)),
                 "task_id": ast.Constant(value=str(task_id)),
             },
-            team=get_internal_llm_analytics_team(),
+            team=_internal_llm_analytics_team(),
             query_type="TaskUsageTokenCost",
         )
     value = (result.results or [(0,)])[0][0]
@@ -267,96 +252,13 @@ def get_local_task_run_token_costs(
         result = execute_hogql_query(
             query=query,
             placeholders=placeholders,
-            team=get_internal_llm_analytics_team(),
+            team=_internal_llm_analytics_team(),
             query_type="TaskRunUsageTokenCost",
         )
     rows = result.results or []
     if task_run_ids is None and rows and int(rows[0][2]) > MAX_TASK_RUN_COST_ROWS:
         raise TaskTokenUsageUnavailable("The task-run cost result exceeded its safe row limit")
     return {str(row[0]): Decimal(str(row[1])) for row in rows if row[0] and row[1] is not None}
-
-
-def get_report_triggering_signal_id(*, team_id: int, report_id: str) -> str | None:
-    signal_id = (
-        Task.objects.filter(
-            team_id=team_id,
-            signal_report_id=report_id,
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            state__has_key="triggering_signal_id",
-        )
-        .order_by("-created_at")
-        .values_list("state__triggering_signal_id", flat=True)
-        .first()
-    )
-    return signal_id if isinstance(signal_id, str) and signal_id else None
-
-
-def get_task_triggering_signal_id(*, team_id: int, task_id: UUID) -> str | None:
-    signal_id = (
-        Task.objects.filter(id=task_id, team_id=team_id).values_list("state__triggering_signal_id", flat=True).first()
-    )
-    return signal_id if isinstance(signal_id, str) and signal_id else None
-
-
-def get_signal_task_runs(*, team_id: int, signal_id: str) -> list[SignalTaskRun]:
-    runs = (
-        TaskRun.objects.filter(
-            team_id=team_id,
-            task__team_id=team_id,
-            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            task__state__triggering_signal_id=signal_id,
-        )
-        .only("id", "task_id", "state", "created_at", "completed_at", "status")
-        .order_by("created_at", "id")
-    )
-    implementation_tasks = {run.task_id for run in runs if (run.state or {}).get("ai_stage") == "implementation"}
-    return [
-        SignalTaskRun(
-            run_id=run.id,
-            task_id=run.task_id,
-            ai_stage=(
-                "implementation"
-                if (run.state or {}).get("ai_stage") == "implementation"
-                or (not (run.state or {}).get("ai_stage") and run.task_id in implementation_tasks)
-                else "research"
-            ),
-            created_at=run.created_at,
-            completed_at=run.completed_at,
-            status=run.status,
-        )
-        for run in runs
-    ]
-
-
-def get_task_run_compute_costs(*, team_id: int, task_run_ids: Sequence[UUID]) -> dict[str, Decimal]:
-    if not task_run_ids or not COMPUTE_RATE_CARDS:
-        return {}
-
-    rate_cards = validate_compute_rate_cards(COMPUTE_RATE_CARDS)
-    calculated_at = timezone.now()
-    pricing_start = rate_cards[0].effective_at
-    if calculated_at <= pricing_start:
-        return {}
-
-    costs: dict[str, Decimal] = {}
-    sessions = SandboxSession.objects.for_team(team_id).filter(
-        task_run_id__in=task_run_ids,
-        task_run__team_id=team_id,
-        task_run__task__team_id=team_id,
-    )
-    for session in sessions.iterator():
-        task_run_id = str(session.task_run_id)
-        costs[task_run_id] = (
-            costs.get(task_run_id, Decimal(0))
-            + calculate_sandbox_compute_cost(
-                session,
-                pricing_start,
-                calculated_at,
-                calculated_at=calculated_at,
-                rate_cards=rate_cards,
-            ).total_cost_usd
-        )
-    return costs
 
 
 def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:

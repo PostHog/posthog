@@ -37,6 +37,7 @@ from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 from products.signals.backend.temporal.grouping import (
     TeamSignalGroupingWorkflow,
     assign_and_emit_signal_activity,
+    dispatch_signal_handoffs_activity,
     fetch_report_contexts_activity,
     generate_search_queries_activity,
     get_embedding_activity,
@@ -63,6 +64,11 @@ from products.signals.backend.temporal.reingestion import (
 )
 from products.signals.backend.temporal.report_safety_judge import report_safety_judge_activity
 from products.signals.backend.temporal.safety_filter import safety_filter_activity
+from products.signals.backend.temporal.signal_implementation import (
+    SignalImplementationFinalizerWorkflow,
+    finalize_signal_implementation_activity,
+    release_signal_key_activity,
+)
 from products.signals.backend.temporal.signal_queries import (
     fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
@@ -93,6 +99,7 @@ WORKFLOWS = [
     BufferSignalsWorkflow,
     SignalEmitterWorkflow,
     SignalReportSummaryWorkflow,
+    SignalImplementationFinalizerWorkflow,
     SignalReportReingestionWorkflow,
     TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
@@ -114,6 +121,9 @@ ACTIVITIES = [
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
+    dispatch_signal_handoffs_activity,
+    finalize_signal_implementation_activity,
+    release_signal_key_activity,
     capture_signal_dropped_activity,
     check_signals_quota_limited_activity,
     delete_report_activity,

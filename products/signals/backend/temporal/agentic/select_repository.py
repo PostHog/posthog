@@ -19,6 +19,7 @@ from products.signals.backend.report_generation.select_repo import (
     resolve_team_github_integration,
     select_repository_for_report,
 )
+from products.signals.backend.signal_handoffs import add_task_cost, read_handoff, write_handoff
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -26,6 +27,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.billing import get_task_spend
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
 GITHUB_ONLY_DOMAINS = [
@@ -45,7 +47,7 @@ class SelectRepositoryInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
-    triggering_signal_id: str | None = None
+    signal_key: str | None = None
 
 
 def _resolve_sandbox_user_id(team_id: int) -> int | None:
@@ -154,15 +156,20 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
                 allowed_domains=GITHUB_ONLY_DOMAINS,
             )
-
             result = await select_repository_for_report(
                 team_id=input.team_id,
                 user_id=user_id,
                 signals=input.signals,
                 signal_report_id=input.report_id,
                 sandbox_environment_id=sandbox_env_id,
-                triggering_signal_id=input.triggering_signal_id,
             )
+            if input.signal_key and result.task_id:
+                spend = await database_sync_to_async(get_task_spend, thread_sensitive=False)(
+                    input.team_id, result.task_id
+                )
+                handoff = await read_handoff(input.signal_key, input.team_id)
+                add_task_cost(handoff, result.task_id, spend, "research")
+                await write_handoff(handoff)
             logger.info(
                 "signals repo selection completed",
                 report_id=input.report_id,

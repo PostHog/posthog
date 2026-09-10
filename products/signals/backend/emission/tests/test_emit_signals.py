@@ -1,8 +1,8 @@
 import json
 import uuid
-import dataclasses
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -42,6 +42,14 @@ FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse
 ACTIVITY_MODULE_PATH = "products.signals.backend.emission.emit_signals"
 
 
+@pytest.fixture(autouse=True)
+def mock_model_pricing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        f"{PIPELINE_MODULE_PATH}.get_model_pricing",
+        AsyncMock(return_value={"prompt": "0.00001", "completion": "0.00001"}),
+    )
+
+
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
     defaults: dict[str, Any] = {
         "source_product": "test_product",
@@ -72,11 +80,20 @@ def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> Ma
         block.text = content
         response.content = [block]
     response.stop_reason = stop_reason
+    response.usage = SimpleNamespace(
+        input_tokens=1,
+        output_tokens=1,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
     return response
 
 
 def _make_output(
-    source_id: str = "1", description: str = "test signal", extra: dict[str, Any] | None = None
+    source_id: str = "1",
+    description: str = "test signal",
+    extra: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> SignalEmitterOutput:
     return SignalEmitterOutput(
         source_product="test_product",
@@ -85,6 +102,7 @@ def _make_output(
         description=description,
         weight=0.5,
         extra=extra or {},
+        metadata=metadata or {},
     )
 
 
@@ -396,7 +414,7 @@ class TestCheckActionability:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
-        output = dataclasses.replace(_make_output(source_id="42"), signal_id="signal-42")
+        output = _make_output(source_id="42")
         await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
@@ -405,7 +423,6 @@ class TestCheckActionability:
         assert headers["x-posthog-property-ai_stage"] == "actionability"
         assert headers["x-posthog-property-source_product"] == output.source_product
         assert headers["x-posthog-property-source_type"] == output.source_type
-        assert headers["x-posthog-property-triggering_signal_id"] == "signal-42"
         # ai_product and $ai_billable are owned by the gateway product config, not headers
         assert "x-posthog-property-ai_product" not in headers
         assert "x-posthog-property-$ai_billable" not in headers
@@ -431,7 +448,7 @@ class TestCheckActionability:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
-        output = dataclasses.replace(_make_output(source_id="42"), signal_id="signal-42")
+        output = _make_output(source_id="42")
         await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
         headers = mock_client.messages.create.call_args.kwargs["extra_headers"]
@@ -445,7 +462,6 @@ class TestCheckActionability:
             "source_product": output.source_product,
             "source_type": output.source_type,
             "team_id": "7",
-            "triggering_signal_id": "signal-42",
         }
 
 
@@ -590,10 +606,8 @@ class TestSummarizeLongDescriptions:
 class TestEmitSignals:
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_emit_signal(self):
-        output = dataclasses.replace(
-            _make_output(source_id="42", description="bug report"),
-            signal_id="signal-42",
-            costs_started_at="2026-01-01T00:00:00+00:00",
+        output = _make_output(
+            source_id="42", description="bug report", metadata={"token_cost": {"research": 1, "implementation": 0}}
         )
         team = MagicMock()
 
@@ -612,8 +626,7 @@ class TestEmitSignals:
             description="bug report",
             weight=0.5,
             extra={},
-            signal_id="signal-42",
-            costs_started_at="2026-01-01T00:00:00+00:00",
+            metadata={"token_cost": {"research": 1, "implementation": 0}},
         )
 
     @pytest.mark.asyncio

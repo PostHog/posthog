@@ -854,6 +854,12 @@ class TaskRunStateMetricsDTO:
     terminal_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class TaskRunSpend:
+    token_cost: int
+    compute_cost: int
+
+
 class ComputeQuotaDenialReason(StrEnum):
     """Why a compute request was refused. The value is the denial code the API returns."""
 

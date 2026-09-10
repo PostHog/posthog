@@ -75,7 +75,6 @@ async def select_repository_for_team(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
-    triggering_signal_id: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
 
@@ -105,7 +104,6 @@ async def select_repository_for_team(
             sandbox_environment_id=sandbox_environment_id,
             verbose=verbose,
             output_fn=output_fn,
-            triggering_signal_id=triggering_signal_id,
             model=agent_runtime.model,
             runtime_adapter=agent_runtime.runtime_adapter,
             reasoning_effort=agent_runtime.reasoning_effort,
@@ -141,7 +139,6 @@ async def select_repository_for_report(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
-    triggering_signal_id: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals."""
     from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
@@ -156,5 +153,4 @@ async def select_repository_for_report(
         sandbox_environment_id=sandbox_environment_id,
         verbose=verbose,
         output_fn=output_fn,
-        triggering_signal_id=triggering_signal_id,
     )

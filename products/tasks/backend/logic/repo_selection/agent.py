@@ -492,7 +492,6 @@ async def select_repository(
     verbose: bool = False,
     output_fn: OutputFn = None,
     on_research_session: Callable[[str, str], None] | None = None,
-    triggering_signal_id: str | None = None,
     model: str | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
@@ -568,7 +567,6 @@ async def select_repository(
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
-        triggering_signal_id=triggering_signal_id,
         repository=REPO_SELECTION_DUMMY_REPOSITORY,
         sandbox_environment_id=sandbox_environment_id,
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.

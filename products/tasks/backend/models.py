@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
+    from products.tasks.backend.facade.contracts import TaskRunSpend
     from products.tasks.backend.logic.services.sandbox import SandboxResources
 
 from django.conf import settings
@@ -950,7 +951,6 @@ class Task(DeletedMetaFields, models.Model):
         slack_thread_url: str | None = None,
         branch: str | None = None,
         signal_report_id: str | None = None,
-        triggering_signal_id: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         ai_stage: str | None = None,
@@ -1069,8 +1069,6 @@ class Task(DeletedMetaFields, models.Model):
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
 
         initial_state: dict[str, Any] = {}
-        if triggering_signal_id is not None:
-            initial_state["triggering_signal_id"] = triggering_signal_id
         if mcp_builtin_agent_key:
             initial_state[MCP_BUILT_IN_AGENT_STATE_KEY] = mcp_builtin_agent_key
             # Only ever recorded alongside the agent marker: without one there is no agent
@@ -1298,7 +1296,6 @@ class Task(DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
-        triggering_signal_id: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
@@ -1349,7 +1346,6 @@ class Task(DeletedMetaFields, models.Model):
             slack_thread_url=slack_thread_url,
             branch=branch,
             signal_report_id=signal_report_id,
-            triggering_signal_id=triggering_signal_id,
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
             sandbox_environment_id=sandbox_environment_id,
@@ -2868,6 +2864,12 @@ class TaskRun(models.Model):
         if self.completed_at and self.created_at:
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
+
+    def get_current_spend(self) -> "TaskRunSpend":
+        """Current token and compute spend in integer cents; a placeholder until runtime accounting is available."""
+        from products.tasks.backend.facade.contracts import TaskRunSpend  # noqa: PLC0415 - avoids a facade import cycle
+
+        return TaskRunSpend(token_cost=0, compute_cost=0)
 
     def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
         """Mark the progress as completed.

@@ -23,7 +23,6 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
-    _parse_signal_row,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     fetch_signals_for_report_sync,
@@ -31,23 +30,6 @@ from products.signals.backend.temporal.signal_queries import (
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 _EMBEDDING = [0.0] * 1536
-
-
-def test_parse_signal_row_retains_cost_metadata() -> None:
-    metadata = {
-        "source_product": "errors",
-        "source_type": "issue",
-        "source_id": "issue-1",
-        "weight": 1.0,
-        "costs_started_at": "2026-01-01T00:00:00+00:00",
-        "token_cost": {"research": 10, "implementation": 0},
-        "compute_cost": {"research": 3, "implementation": 0},
-    }
-    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
-
-    signal = _parse_signal_row(("signal-1", "content", json.dumps(metadata), timestamp, timestamp))
-
-    assert signal.metadata == metadata
 
 
 class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
@@ -268,6 +250,13 @@ class TestFetchSourceReferencesForReport(_SignalEmbeddingsTestBase):
         )
 
         assert fetch_source_references_for_report(self.team, "r1") == []
+
+    def test_source_reference_is_available_before_clickhouse_publication(self) -> None:
+        assert fetch_source_references_for_report(
+            self.team,
+            "r1",
+            {"source_product": "github", "extra": {"number": 7, "html_url": "https://example.com/issues/7"}},
+        ) == [SignalSourceReference(source_product="github", label="#7", url="https://example.com/issues/7")]
 
     def test_hostile_linear_identifier_falls_back_to_generic_label(self) -> None:
         self._emit_version(

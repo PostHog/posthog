@@ -1,47 +1,100 @@
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_HALF_UP, Decimal
+from time import monotonic
 from typing import Literal
 
-from django.core.cache import cache
-
-import structlog
+from posthog.llm.gateway_client import build_async_openai_client
 
 CostStage = Literal["research", "implementation"]
-COST_INGESTION_GRACE_SECONDS = 300
 _COST_STAGES: tuple[CostStage, ...] = ("research", "implementation")
+_model_pricings: dict[str, dict[str, str]] | None = None
+_model_pricings_expires_at = 0.0
 
-logger = structlog.get_logger(__name__)
+
+def _value(value: object, name: str, default: int | str | None = None) -> int | str | None:
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
 
 
-def normalise_cost(model: str, spend: Decimal) -> Decimal:
+def _token_count(usage: object, name: str) -> int:
+    value = _value(usage, name, 0)
+    return int(value) if value is not None else 0
+
+
+def token_usage_to_spend(usage: object, pricing: object) -> int:
+    """Convert one provider response's token usage to rounded integer USD cents."""
+    rates = (
+        ("input_tokens", "prompt"),
+        ("output_tokens", "completion"),
+        ("cache_read_input_tokens", "input_cache_read"),
+        ("cache_creation_input_tokens", "input_cache_write"),
+    )
+    spend = Decimal(0)
+    for usage_name, price_name in rates:
+        tokens = _token_count(usage, usage_name)
+        if not tokens:
+            continue
+        price = _value(pricing, price_name)
+        if price is None:
+            raise ValueError(f"Model pricing is missing {price_name} for {tokens} {usage_name}")
+        spend += Decimal(str(price)) * tokens
+    return int((spend * 100).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+async def get_model_pricing(model: str) -> dict[str, str]:
+    """Return the gateway catalog's per-token USD prices for a configured model."""
+    global _model_pricings, _model_pricings_expires_at
+    if _model_pricings is None or monotonic() >= _model_pricings_expires_at:
+        async with build_async_openai_client("signals") as client:
+            page = await client.models.list()
+        pricings: dict[str, dict[str, str]] = {}
+        for catalog_model in page.data:
+            pricing = _value(catalog_model, "pricing")
+            model_id = _value(catalog_model, "id")
+            if model_id is None or pricing is None:
+                continue
+            if _value(pricing, "prompt") is None or _value(pricing, "completion") is None:
+                continue
+            pricings[str(model_id)] = {
+                key: str(value)
+                for key in ("prompt", "completion", "input_cache_read", "input_cache_write")
+                if (value := _value(pricing, key)) is not None
+            }
+        _model_pricings = pricings
+        _model_pricings_expires_at = monotonic() + 3600
+    try:
+        return _model_pricings[model]
+    except KeyError as error:
+        raise LookupError(f"Model {model!r} is not priced by the gateway catalog") from error
+
+
+def normalise_cost(model: str, spend: int) -> int:
     return spend
 
 
-def add_cost(costs: dict[CostStage, Decimal], stage: CostStage, model: str, spend: Decimal) -> None:
-    costs[stage] = costs.get(stage, Decimal(0)) + normalise_cost(model, spend)
+def _cost_values(metadata: dict, name: str) -> dict[CostStage, int]:
+    values = metadata.setdefault(name, {})
+    for stage in _COST_STAGES:
+        values.setdefault(stage, 0)
+    return values
 
 
-def costs_in_cents(costs: dict[CostStage, Decimal]) -> dict[str, int]:
-    # Round the sum, not each generation: small calls must still contribute to the total.
-    return {
-        stage: int((costs.get(stage, Decimal(0)) * 100).to_integral_value(rounding=ROUND_HALF_EVEN))
-        for stage in _COST_STAGES
-    }
+def add_cost(
+    metadata: dict,
+    model: str,
+    token_cost: int = 0,
+    compute_cost: int = 0,
+    stage: CostStage = "research",
+) -> None:
+    token_costs = _cost_values(metadata, "token_cost")
+    compute_costs = _cost_values(metadata, "compute_cost")
+    token_costs[stage] += normalise_cost(model, token_cost)
+    compute_costs[stage] += normalise_cost(model, compute_cost)
 
 
-def schedule_signal_cost_update(team_id: int, signal_id: str, *, raise_on_error: bool = False) -> None:
-    try:
-        from products.signals.backend.tasks import refresh_signal_costs  # noqa: PLC0415 - avoids a task import cycle
-
-        key = f"signal-cost-update:{team_id}:{signal_id}"
-        if cache.add(key, True, timeout=60):
-            try:
-                refresh_signal_costs.apply_async(
-                    kwargs={"team_id": team_id, "signal_id": signal_id}, countdown=COST_INGESTION_GRACE_SECONDS
-                )
-            except Exception:
-                cache.delete(key)
-                raise
-    except Exception:
-        logger.exception("signals.cost_update_schedule_failed", team_id=team_id, signal_id=signal_id)
-        if raise_on_error:
-            raise
+def merge_costs(target: dict, source: dict) -> None:
+    for name in ("token_cost", "compute_cost"):
+        target_values = _cost_values(target, name)
+        source_values = _cost_values(source, name)
+        for stage in _COST_STAGES:
+            target_values[stage] += source_values[stage]

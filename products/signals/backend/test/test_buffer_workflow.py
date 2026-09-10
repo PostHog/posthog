@@ -31,7 +31,6 @@ def _signal(team_id: int) -> EmitSignalInputs:
         source_type="issue",
         source_id=str(uuid.uuid4()),
         description="something happened",
-        signal_id="signal-id",
     )
 
 
@@ -40,7 +39,6 @@ class _Recorder:
         self.over_quota = over_quota
         self.quota_checks = 0
         self.safety_checks = 0
-        self.safety_signal_ids: list[str | None] = []
         self.flushes = 0
         self.grouping_starts = 0
         # The drop path ends at the quota check; the pass-through path ends at grouping. Each path's
@@ -57,9 +55,8 @@ async def _drive(recorder: _Recorder) -> None:
         return recorder.over_quota
 
     @activity.defn(name="safety_filter_activity")
-    async def fake_safety(input: SafetyFilterInput) -> SafetyFilterOutput:
+    async def fake_safety(_input: SafetyFilterInput) -> SafetyFilterOutput:
         recorder.safety_checks += 1
-        recorder.safety_signal_ids.append(input.triggering_signal_id)
         return SafetyFilterOutput(safe=True, threat_type="", explanation=None)
 
     @activity.defn(name="flush_signals_to_s3_activity")
@@ -109,7 +106,6 @@ async def test_under_quota_batch_flows_through():
     await _drive(recorder)
     assert recorder.quota_checks >= 1
     assert recorder.safety_checks == 1
-    assert recorder.safety_signal_ids == ["signal-id"]
     assert recorder.flushes == 1
     assert recorder.grouping_starts == 1
 
