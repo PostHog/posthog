@@ -2412,6 +2412,14 @@ class SignalReportViewSet(
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    # `list` names the viewset's own action inside the class body, so the annotations use `Sequence`.
+    def _refreshable_reports_in_request_order(self, requested_ids: Sequence[str]) -> Sequence[SignalReport]:
+        by_id = {
+            str(report.id): report
+            for report in self.get_queryset().filter(id__in=requested_ids, status__in=CURRENT_REPORT_STATUSES)
+        }
+        return [by_id[report_id] for report_id in dict.fromkeys(requested_ids) if report_id in by_id]
+
     @validated_request(
         request_serializer=SignalReportMetricRefreshRequestSerializer,
         responses={200: OpenApiResponse(response=SignalReportMetricRefreshResponseSerializer)},
@@ -2434,15 +2442,15 @@ class SignalReportViewSet(
     @action(detail=False, methods=["post"], url_path="refresh_metrics", required_scopes=["task:read"])
     def refresh_metrics(self, request: ValidatedRequest, **kwargs) -> Response:
         requested_ids = [str(report_id) for report_id in request.validated_data["report_ids"]]
-        by_id = {
-            str(report.id): report
-            for report in self.get_queryset().filter(id__in=requested_ids, status__in=CURRENT_REPORT_STATUSES)
-        }
-        reports = [by_id[report_id] for report_id in dict.fromkeys(requested_ids) if report_id in by_id]
+        reports = self._refreshable_reports_in_request_order(requested_ids)
         policy = ReportMetricAccessPolicy(request=request, team=self.team)
         refresh_report_metric_snapshots(team=self.team, reports=reports, policy=policy)
+        # A refresh runs its queries between the read above and each compare-and-swap, and an edit
+        # landing in that window wins. Read the rows back so the response carries what the edit
+        # left rather than the state this request measured against.
         serializer = SignalReportMetricRefreshResponseSerializer(
-            {"reports": reports}, context=self.get_serializer_context()
+            {"reports": self._refreshable_reports_in_request_order(requested_ids)},
+            context=self.get_serializer_context(),
         )
         return Response(serializer.data)
 

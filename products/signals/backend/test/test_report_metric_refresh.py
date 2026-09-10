@@ -190,6 +190,22 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert response.json()["reports"][0]["metrics"][0]["value"] is None
         assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17
 
+    def test_an_edit_landing_during_the_refresh_is_what_the_response_returns(self) -> None:
+        report = self._report()
+        edited = [_metric(event="$pageview", value=5, value_at="2026-08-30T12:00:00Z")]
+
+        def edit_then_measure(*args, **kwargs) -> MetricMeasurement:
+            SignalReport.objects.filter(id=report.id).update(metrics=edited)
+            return _measurement(21)
+
+        with patch(_MEASURE, side_effect=edit_then_measure):
+            response = self._refresh(report)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SignalReport.objects.get(id=report.id).metrics == edited
+        [row] = response.json()["reports"]
+        assert row["metrics"][0]["value"] == 5.0
+
     def test_reports_that_are_not_current_are_left_out(self) -> None:
         archived = self._report(status=SignalReport.Status.SUPPRESSED)
         current = self._report()
