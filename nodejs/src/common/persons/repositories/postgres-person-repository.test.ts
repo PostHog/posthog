@@ -1370,6 +1370,53 @@ describe('PostgresPersonRepository', () => {
             }
         })
 
+        it('writeMergePointers points every source at the target in one batch', async () => {
+            const sourceA = await createTestPerson(team.id, 'batch-a', {})
+            const sourceB = await createTestPerson(team.id, 'batch-b', {})
+            const targetPerson = await createTestPerson(team.id, 'batch-target', {})
+            const target = asMergedTarget(targetPerson)
+
+            const result = await repository.writeMergePointers([sourceA, sourceB], target)
+
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('writeMergePointers should have succeeded')
+            }
+            expect(result.distinctIdsMoved.sort()).toEqual(['batch-a', 'batch-b'])
+            for (const source of [sourceA, sourceB]) {
+                const row = await fetchPersonRow(source.id)
+                expect(row).toMatchObject({ merged_into_id: target.id, is_deleted: false })
+            }
+            // One override per union mapping and one death message per source.
+            expect(result.messages.filter((m) => m.output === PERSON_DISTINCT_IDS_OUTPUT)).toHaveLength(2)
+            expect(result.messages.filter((m) => m.output === PERSONS_OUTPUT)).toHaveLength(2)
+        })
+
+        it('writeMergePointers fails the whole batch when one source is already pointered', async () => {
+            const sourceA = await createTestPerson(team.id, 'batch-a', {})
+            const sourceB = await createTestPerson(team.id, 'batch-b', {})
+            const targetPerson = await createTestPerson(team.id, 'batch-target', {})
+            const target = asMergedTarget(targetPerson)
+
+            const first = await repository.writeMergePointer(sourceA, target)
+            expect(first.success).toBe(true)
+
+            // The partial write is detected after the UPDATE, so all-or-nothing
+            // holds through the caller's rollback — run it inside a transaction
+            // the way the fold does.
+            await expect(
+                repository.inRawTransaction('writeMergePointersConflict', async (tx) => {
+                    const result = await repository.writeMergePointers([sourceA, sourceB], target, tx)
+                    expect(result.success).toBe(false)
+                    throw new Error('rollback')
+                })
+            ).rejects.toThrow('rollback')
+
+            // The untouched source survives the rolled-back batch unpointered.
+            const rowB = await fetchPersonRow(sourceB.id)
+            expect(rowB).toMatchObject({ merged_into_id: null, is_deleted: false })
+        })
+
         it('collects the whole union when merging a chained source, and reads resolve through the chain', async () => {
             const personA = await createTestPerson(team.id, 'distinct-a', {})
             const personB = await createTestPerson(team.id, 'distinct-b', {})

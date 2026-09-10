@@ -682,19 +682,18 @@ export class PostgresPersonMerge {
             let mappingMessages: PersonMessage[] = []
             let deleteMessages: PersonMessage[] = []
             if (this.pointerMergeEnabled()) {
-                // A pointer fold is N O(1) pointer writes; each also emits the
-                // source's ClickHouse death message, so no deletePersons call.
-                for (const source of mergeSources) {
-                    const pointerResult = await tx.writeMergePointer(source, person, this.targetDistinctId)
-                    if (!pointerResult.success) {
-                        // A concurrent merge claimed the source after our locked fetch
-                        // released its locks; abort so the sequential fallback re-reads
-                        // committed state instead of merging stale source properties.
-                        throw new MergeFoldConflictError('fold source was pointered or deleted concurrently')
-                    }
-                    this.recordOverrideCount('bothExistPointer', pointerResult.distinctIdsMoved.length)
-                    mappingMessages.push(...pointerResult.messages)
+                // A pointer fold is one batched pointer write over every source
+                // plus one union read; it also emits each source's ClickHouse
+                // death message, so no deletePersons call.
+                const pointerResult = await tx.writeMergePointers(mergeSources, person, this.targetDistinctId)
+                if (!pointerResult.success) {
+                    // A concurrent merge claimed a source after our locked fetch
+                    // released its locks; abort so the sequential fallback re-reads
+                    // committed state instead of merging stale source properties.
+                    throw new MergeFoldConflictError('fold source was pointered or deleted concurrently')
                 }
+                this.recordOverrideCount('bothExistPointer', pointerResult.distinctIdsMoved.length)
+                mappingMessages = pointerResult.messages
             } else {
                 const moveResult = await tx.moveDistinctIdsFromPersons(
                     mergeSources,

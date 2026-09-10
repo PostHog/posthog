@@ -106,6 +106,13 @@ export interface RawPostgresPersonRepository {
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
 
+    /** Batched writeMergePointer for folded merges; any already-claimed source fails the whole batch. */
+    writeMergePointers(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<MoveDistinctIdsResult>
+
     /** Distinct-id counts per person id (single team), for the folded-merge limit pre-check. */
     countDistinctIdsForPersons(
         teamId: number,

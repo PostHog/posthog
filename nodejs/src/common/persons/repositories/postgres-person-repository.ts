@@ -1802,7 +1802,32 @@ export class PostgresPersonRepository
         target: InternalPerson,
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult> {
-        const updateResult = await this.postgres.query<{ version: string }>(
+        return await this.writeMergePointers([source], target, tx)
+    }
+
+    /**
+     * Batched writeMergePointer for folded merges: one guarded UPDATE over all
+     * sources and one union read, whatever the fold size. Any source already
+     * pointered or deleted fails the whole batch as SourceNotFound — the fold
+     * aborts and the sequential fallback re-reads committed state, matching
+     * the move path's all-or-nothing conflict semantics. A multi-source call
+     * must run inside a transaction: the partial batch is detected after the
+     * write, so all-or-nothing holds through the caller's rollback.
+     */
+    async writeMergePointers(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<MoveDistinctIdsResult> {
+        if (sources.length === 0) {
+            return { success: true, messages: [], distinctIdsMoved: [] }
+        }
+        const teamId = sources[0].team_id
+        const sourceById = new Map(sources.map((source) => [source.id, source]))
+        // Deterministic lock order across concurrent multi-row writers.
+        const sourceIds = [...sourceById.keys()].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
+
+        const updateResult = await this.postgres.query<{ id: string; version: string }>(
             tx ?? PostgresUse.PERSONS_WRITE,
             `UPDATE posthog_person
              SET merged_into_id = $1,
@@ -1810,19 +1835,19 @@ export class PostgresPersonRepository
                  properties = '{}'::jsonb,
                  properties_last_updated_at = '{}'::jsonb,
                  properties_last_operation = '{}'::jsonb
-             WHERE team_id = $2 AND id = $3 AND is_deleted = false AND merged_into_id IS NULL
-             RETURNING version`,
-            [target.id, source.team_id, source.id],
+             WHERE team_id = $2 AND id = ANY($3::bigint[]) AND is_deleted = false AND merged_into_id IS NULL
+             RETURNING id, version`,
+            [target.id, teamId, sourceIds],
             'writeMergePointer'
         )
-        if (updateResult.rows.length === 0) {
+        if (updateResult.rows.length !== sourceIds.length) {
             return { success: false, error: 'SourceNotFound' }
         }
 
         const { rows } = await this.postgres.query<{ distinct_id: string; version: string | null }>(
             tx ?? PostgresUse.PERSONS_WRITE,
             `WITH RECURSIVE members AS (
-                SELECT id, 1 AS depth FROM posthog_person WHERE team_id = $1 AND id = $2
+                SELECT id, 1 AS depth FROM posthog_person WHERE team_id = $1 AND id = ANY($2::bigint[])
                 UNION ALL
                 SELECT p.id, m.depth + 1 FROM posthog_person p
                 JOIN members m ON p.merged_into_id = m.id
@@ -1832,7 +1857,7 @@ export class PostgresPersonRepository
             FROM posthog_persondistinctid d
             JOIN members m ON d.person_id = m.id
             WHERE d.team_id = $1 AND d.is_deleted = false`,
-            [source.team_id, source.id, MERGE_POINTER_MAX_DEPTH],
+            [teamId, sourceIds, MERGE_POINTER_MAX_DEPTH],
             'fetchUnionDistinctIdsForPointerMerge'
         )
 
@@ -1840,7 +1865,7 @@ export class PostgresPersonRepository
             output: PERSON_DISTINCT_IDS_OUTPUT,
             value: Buffer.from(
                 JSON.stringify({
-                    team_id: source.team_id,
+                    team_id: teamId,
                     distinct_id: row.distinct_id,
                     person_id: target.uuid,
                     version: Number(row.version || 0) + target.version,
@@ -1849,15 +1874,20 @@ export class PostgresPersonRepository
             ),
         }))
 
-        // The CH person row dies while the PG row lives on as the pointer; the +100
+        // Each CH person row dies while its PG row lives on as a pointer; the +100
         // headroom mirrors the hard delete's, outranking concurrently landed bumps.
-        messages.push(
-            generateKafkaPersonUpdateMessage(
-                { ...source, properties: {} },
-                true,
-                Number(updateResult.rows[0].version || 0) + 100
-            )
-        )
+        for (const row of updateResult.rows) {
+            const source = sourceById.get(String(row.id))
+            if (source) {
+                messages.push(
+                    generateKafkaPersonUpdateMessage(
+                        { ...source, properties: {} },
+                        true,
+                        Number(row.version || 0) + 100
+                    )
+                )
+            }
+        }
 
         return { success: true, messages, distinctIdsMoved: rows.map((row) => row.distinct_id) }
     }

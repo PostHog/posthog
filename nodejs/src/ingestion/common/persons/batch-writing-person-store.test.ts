@@ -179,6 +179,7 @@ describe('BatchWritingPersonStore', () => {
                 .fn()
                 .mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             writeMergePointer: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
+            writeMergePointers: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             countDistinctIdsForPersons: jest.fn().mockResolvedValue(new Map()),

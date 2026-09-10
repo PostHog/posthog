@@ -50,6 +50,9 @@ export interface PersonRepositoryTransaction {
     /** See RawPostgresPersonRepository.writeMergePointer. */
     writeMergePointer(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult>
 
+    /** See RawPostgresPersonRepository.writeMergePointers. */
+    writeMergePointers(sources: InternalPerson[], target: InternalPerson): Promise<MoveDistinctIdsResult>
+
     /** Distinct-id counts per person id (single team), for the folded-merge limit pre-check. */
     countDistinctIdsForPersons(teamId: Team['id'], personIds: InternalPerson['id'][]): Promise<Map<string, number>>
 

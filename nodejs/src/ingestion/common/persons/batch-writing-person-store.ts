@@ -73,6 +73,7 @@ type MethodName =
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
     | 'writeMergePointer'
+    | 'writeMergePointers'
     | 'fetchPersonsForUpdateByDistinctIds'
     | 'countDistinctIdsForPersons'
     | 'fetchPersonDistinctIds'
@@ -1656,6 +1657,41 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.clearAllCachesForPersonId(source.team_id, source.id)
 
         // Mirror moveDistinctIds' target-cache handling for the triggering distinct id
+        const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
+        if (existingTargetCache) {
+            const mergedPersonUpdate = { ...existingTargetCache, distinct_id: distinctId }
+            this.setCachedPersonForUpdate(target.team_id, distinctId, mergedPersonUpdate, batchId)
+        } else {
+            this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId), batchId)
+        }
+        if (response.success) {
+            for (const unionDistinctId of response.distinctIdsMoved) {
+                this.setDistinctIdToPersonId(target.team_id, unionDistinctId, target.id, batchId)
+            }
+        }
+
+        return response
+    }
+
+    async writeMergePointers(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string,
+        tx: PersonRepositoryTransaction,
+        batchId: number
+    ): Promise<MoveDistinctIdsResult> {
+        this.incrementCount('writeMergePointers', distinctId)
+        this.incrementDatabaseOperation('writeMergePointers', distinctId)
+        const start = performance.now()
+        const response = await tx.writeMergePointers(sources, target)
+        observeLatencyByVersion(target, start, 'writeMergePointers')
+
+        // The source rows live on as pointers, but cached copies of them are stale.
+        for (const source of sources) {
+            this.clearAllCachesForPersonId(source.team_id, source.id)
+        }
+
+        // Mirror moveDistinctIdsFromPersons' target-cache handling for the triggering distinct id
         const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
         if (existingTargetCache) {
             const mergedPersonUpdate = { ...existingTargetCache, distinct_id: distinctId }
