@@ -85,10 +85,7 @@ async def repair_anthropic_stream(stream: AsyncIterator[Any], backend: str) -> A
 
     async for chunk in stream:
         payloads = _payloads_from_chunk(chunk, sse_decoder)
-        # A raw SSE chunk can hold several events, so only a dict chunk can drop one.
-        drop_chunk = isinstance(chunk, dict) and any(
-            _leaks_reasoning_into_text_block(payload, active_blocks) for payload in payloads
-        )
+        drop_chunk = any(_leaks_reasoning_into_text_block(payload, active_blocks) for payload in payloads)
         for payload in payloads:
             _observe_payload(payload, backend, active_blocks, recorded_violations)
         if drop_chunk:

@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from litellm.llms.anthropic.experimental_pass_through.adapters.streaming_iterator import AnthropicStreamWrapper
 from litellm.types.utils import Delta, ModelResponseStream, StreamingChoices
 
 from llm_gateway.anthropic_stream import repair_anthropic_stream
+from llm_gateway.baseten import BASETEN_GLM53_FLASH_PUBLIC_MODEL, make_baseten_anthropic_call
 from llm_gateway.metrics.prometheus import ANTHROPIC_BRIDGE_INVALID_STREAM
 
 
@@ -228,7 +230,7 @@ async def test_duplicate_start_preserves_original_block_type() -> None:
     assert mismatch_labels._value.get() == initial_mismatch_value
 
 
-async def test_glm_reasoning_never_reaches_a_visible_text_block() -> None:
+async def test_glm_reasoning_never_reaches_visible_anthropic_sse() -> None:
     chunks = [
         _chunk(reasoning_content="weigh the options"),
         _chunk(content="Here is the answer"),
@@ -242,18 +244,17 @@ async def test_glm_reasoning_never_reaches_a_visible_text_block() -> None:
         for chunk in chunks:
             yield chunk
 
-    wrapper = AnthropicStreamWrapper(source(), model="zai-org/GLM-5.3-Flash")
-    events = [event async for event in repair_anthropic_stream(wrapper, "test") if isinstance(event, dict)]
+    with patch("litellm.acompletion", new=AsyncMock(return_value=source())):
+        stream = await make_baseten_anthropic_call("https://baseten.test/v1", "bt-key")(
+            model=BASETEN_GLM53_FLASH_PUBLIC_MODEL,
+            messages=[{"role": "user", "content": "hi"}],
+            max_tokens=64,
+            stream=True,
+        )
 
-    _assert_valid_event_order(events)
-    visible = "".join(
-        event["delta"]["text"]
-        for event in events
-        if event.get("type") == "content_block_delta" and event["delta"]["type"] == "text_delta"
-    )
-    assert "second thought" not in visible
-    assert "weigh the options" not in visible
-    assert "Here is the answer" in visible
+    response = b"".join([chunk async for chunk in stream])
+
+    assert (b"second thought" in response, b"Here is the answer" in response) == (False, True)
 
 
 @pytest.mark.parametrize(
