@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { type Ref, Suspense, useEffect, useRef } from 'react'
 
 import { IconWarning, IconWrench } from '@posthog/icons'
-import { LemonButton, LemonDrawer, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDrawer, LemonSwitch, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -110,7 +110,8 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         loadingFullTraces,
         expandedGenerationIds,
     } = useValues(aiObservabilitySessionDataLogic)
-    const { sessionId, dateRange } = useValues(aiObservabilitySessionLogic)
+    const { sessionId, dateRange, conversationOnly } = useValues(aiObservabilitySessionLogic)
+    const { setConversationOnly } = useActions(aiObservabilitySessionLogic)
     const { summarizeAllTraces, loadNextData, closeStepsDrawer, toggleGenerationExpanded, focusGenerationExpanded } =
         useActions(aiObservabilitySessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
@@ -241,11 +242,21 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
                         <LLMASessionEvaluationsDisplay sessionId={sessionId} />
                     </Suspense>
                 </div>
-                <SummarizeAllButton
-                    loading={summariesLoading}
-                    dataProcessingAccepted={dataProcessingAccepted}
-                    onSummarize={summarizeAllTraces}
-                />
+                <div className="flex items-center gap-3">
+                    <LemonSwitch
+                        size="small"
+                        checked={conversationOnly}
+                        onChange={setConversationOnly}
+                        label="Conversation only"
+                        tooltip="Hide tool calls and internal messages to see the chat as the user saw it"
+                        data-attr="llm-session-conversation-only"
+                    />
+                    <SummarizeAllButton
+                        loading={summariesLoading}
+                        dataProcessingAccepted={dataProcessingAccepted}
+                        onSummarize={summarizeAllTraces}
+                    />
+                </div>
             </header>
 
             <div className="flex flex-col flex-1">
@@ -359,10 +370,10 @@ function SummarizeAllButton({
                         type="primary"
                         size="small"
                         loading={loading}
-                        disabledReason="AI data processing must be approved to summarize traces"
+                        disabledReason="AI data processing must be approved to summarize the session"
                         data-attr="llm-session-summarize-all"
                     >
-                        Summarize all traces
+                        Summarize session
                     </LemonButton>
                 </AccessControlAction>
             </AIConsentPopoverWrapper>
@@ -380,7 +391,7 @@ function SummarizeAllButton({
                 loading={loading}
                 data-attr="llm-session-summarize-all"
             >
-                Summarize all traces
+                Summarize session
             </LemonButton>
         </AccessControlAction>
     )
@@ -398,11 +409,12 @@ function SessionTurnView({
     showSentiment: boolean
     traceSearchParams: Record<string, unknown>
     rootRef?: Ref<HTMLDivElement>
-}): JSX.Element {
+}): JSX.Element | null {
     const { traceSummaries, loadingFullTraces, fullTraces, expandedGenerationIds } = useValues(
         aiObservabilitySessionDataLogic
     )
     const { openStepsDrawer, toggleGenerationExpanded, loadFullTrace } = useActions(aiObservabilitySessionDataLogic)
+    const { conversationOnly } = useValues(aiObservabilitySessionLogic)
 
     const trace = turn.trace
     const summary: TraceSummary | undefined = traceSummaries[trace.id]
@@ -418,13 +430,18 @@ function SessionTurnView({
     ).length
     // Errors already surfaced by a red tool pill are excluded; the rest (e.g.
     // generation failures) render as their own pills in the same style.
-    const otherErrors = turn.errors.filter((e) => !turn.tools.includes(e.label))
+    const otherErrors = conversationOnly ? turn.errors : turn.errors.filter((e) => !turn.tools.includes(e.label))
 
     const hasTranscript = turn.isLoaded && !!turn.userVisibleTurn
     // Span-only turns have no transcript, so the span tree IS the conversation.
     const isSpanOnly = turn.isLoaded && !turn.userVisibleTurn
     // Only a settled turn shows its summary, tools, errors, steps, and sidebar.
     const isComplete = phase === 'complete'
+
+    // Span-only turns are invisible to the end user; keep only the ones that failed.
+    if (conversationOnly && isSpanOnly && turn.errors.length === 0) {
+        return null
+    }
 
     return (
         <div className="flex flex-col" ref={rootRef}>
@@ -442,10 +459,11 @@ function SessionTurnView({
                         phase={phase}
                         isLoading={isLoading}
                         sentiment={isComplete && showSentiment ? trace.sentiment : undefined}
+                        hideInternal={conversationOnly}
                         onLoad={() => loadFullTrace(trace.id)}
                     />
 
-                    {isComplete && turn.tools.length > 0 && (
+                    {isComplete && !conversationOnly && turn.tools.length > 0 && (
                         <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted">
                             {turn.tools.map((name) => {
                                 // Tool spans and error labels both come from `$ai_span_name`,
@@ -492,7 +510,7 @@ function SessionTurnView({
                         </div>
                     )}
 
-                    {isComplete && hasTranscript && (
+                    {isComplete && hasTranscript && !conversationOnly && (
                         <div>
                             <LemonButton
                                 size="xsmall"
@@ -505,7 +523,7 @@ function SessionTurnView({
                         </div>
                     )}
 
-                    {isComplete && isSpanOnly && (
+                    {isComplete && isSpanOnly && !conversationOnly && (
                         <StepsPanel
                             fullTrace={fullTrace}
                             expandedEventIds={expandedGenerationIds}
@@ -546,12 +564,14 @@ function TurnBody({
     phase = 'complete',
     isLoading,
     sentiment,
+    hideInternal,
     onLoad,
 }: {
     turn: SessionTurn
     phase?: TurnPhase
     isLoading: boolean
     sentiment?: LLMTrace['sentiment']
+    hideInternal: boolean
     onLoad: () => void
 }): JSX.Element | null {
     if (isLoading) {
@@ -583,7 +603,7 @@ function TurnBody({
     if (phase === 'aiThinking') {
         return (
             <div className="flex flex-col gap-1.5">
-                <TranscriptBubbleStream inputs={turn.newInputs} outputs={[]} />
+                <TranscriptBubbleStream inputs={turn.newInputs} outputs={[]} hideInternal={hideInternal} />
                 <TypingIndicator />
             </div>
         )
@@ -591,9 +611,9 @@ function TurnBody({
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.
     return (
         <div className="flex flex-col gap-1.5">
-            <TranscriptBubbleStream inputs={turn.newInputs} outputs={[]} />
+            <TranscriptBubbleStream inputs={turn.newInputs} outputs={[]} hideInternal={hideInternal} />
             {turn.newInputs.length > 0 && <SessionTraceSentimentBar sentiment={sentiment} />}
-            <TranscriptBubbleStream inputs={[]} outputs={turn.outputs} />
+            <TranscriptBubbleStream inputs={[]} outputs={turn.outputs} hideInternal={hideInternal} />
         </div>
     )
 }

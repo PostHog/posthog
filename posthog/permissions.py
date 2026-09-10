@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    ExportRendererAuthentication,
     IDJagAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
@@ -34,6 +35,7 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
@@ -98,6 +100,13 @@ def get_organization_from_view(view) -> Organization:
     raise ValueError("View not compatible with organization-based permissions!")
 
 
+def get_required_organization_membership(request: Request, organization: Organization) -> OrganizationMembership:
+    membership = get_cached_organization_membership(organization.id, cast(User, request.user))
+    if membership is None:
+        raise NotFound("Organization not found.")
+    return membership
+
+
 class CanCreateOrg(BasePermission):
     """Whether new organizations can be created in this instances."""
 
@@ -131,15 +140,11 @@ class OrganizationMemberPermissions(BasePermission):
             return True
 
         organization = get_organization_from_view(view)
-
-        # TODO: Optimize this - we can get it from view.user_access_control
-        return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
+        return get_cached_organization_membership(organization.id, cast(User, request.user)) is not None
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object, view)
-
-        # TODO: Optimize this - we can get it from view.user_access_control
-        return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
+        return get_cached_organization_membership(organization.id, cast(User, request.user)) is not None
 
 
 class UserNoOrgMembershipDeletePermission(BasePermission):
@@ -172,28 +177,16 @@ class OrganizationAdminWritePermissions(BasePermission):
         if view.basename == "organizations" and view.action not in ["create"]:
             return True
 
-        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = get_organization_from_view(view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
+        membership = get_required_organization_membership(request, organization)
         return membership.level >= OrganizationMembership.Level.ADMIN
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in SAFE_METHODS:
             return True
 
-        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = extract_organization(object, view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
+        membership = get_required_organization_membership(request, organization)
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
@@ -208,22 +201,12 @@ class OrganizationAdminReadPermissions(BasePermission):
 
     def has_permission(self, request: Request, view) -> bool:
         organization = get_organization_from_view(view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
+        membership = get_required_organization_membership(request, organization)
         return membership.level >= OrganizationMembership.Level.ADMIN
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object, view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
+        membership = get_required_organization_membership(request, organization)
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
@@ -270,15 +253,10 @@ class VerifiedDomainEnforcementPermission(BasePermission):
         if not isinstance(request.user, User):
             return True
 
-        # Root viewsets (organizations, projects, environments) carry no parent URL kwargs, and the
-        # mixin's `organization` falls back to the user's current organization there, which is not
-        # the request's target. Gate on the fetched object below instead. Views deriving their
-        # target from the current team (`param_derived_from_user_current_team`) are the exception:
-        # for those the current team is the target by construction.
-        if not view.parent_query_kwargs and not view.param_derived_from_user_current_team:
+        if not view_targets_one_organization(view):
             return True
 
-        organization = self._target_organization(view)
+        organization = url_target_organization(view)
         if organization is None:
             return True
         return self._admits(request, organization)
@@ -311,26 +289,130 @@ class VerifiedDomainEnforcementPermission(BasePermission):
 
         return True
 
-    def _target_organization(self, view) -> Optional[Organization]:
-        # Same resolution as `get_organization_from_view`, but the team's FK first: routing loads
-        # the team with `select_related("organization")` and `TeamMemberAccessPermission` has
-        # already resolved it, whereas `view.organization` would issue its own PK query on
-        # team-scoped views.
-        try:
-            organization = view.team.organization
-            if isinstance(organization, Organization):
-                return organization
-        except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
-            pass
 
-        try:
-            organization = view.organization
-            if isinstance(organization, Organization):
-                return organization
-        except (KeyError, AttributeError, AssertionError):
-            pass
+def url_target_organization(view) -> Optional[Organization]:
+    """The organization the request URL points at, or None when the view resolves no target.
 
-        return None
+    Same resolution as `get_organization_from_view`, but the team's FK first: routing loads the
+    team with `select_related("organization")` and `TeamMemberAccessPermission` has already
+    resolved it, whereas `view.organization` would issue its own PK query on team-scoped views.
+    """
+    try:
+        organization = view.team.organization
+        if isinstance(organization, Organization):
+            return organization
+    except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
+        pass
+
+    try:
+        organization = view.organization
+        if isinstance(organization, Organization):
+            return organization
+    except (KeyError, AttributeError, AssertionError):
+        pass
+
+    return None
+
+
+def view_targets_one_organization(view) -> bool:
+    """Whether the view acts on one organization that the URL identifies.
+
+    Root viewsets (organizations, projects, environments) carry no parent URL kwargs, and the
+    mixin's `organization` falls back to the user's current organization there, which is not the
+    request's target. Views deriving their target from the current team
+    (`param_derived_from_user_current_team`) are the exception: for those the current team is the
+    target by construction.
+    """
+    return bool(view.parent_query_kwargs or view.param_derived_from_user_current_team)
+
+
+ORGANIZATION_PENDING_DELETION_ERROR = (
+    "This organization is scheduled for deletion. API access is blocked. Contact support if you need it restored."
+)
+
+
+def organization_deactivated_error(reason: Optional[str]) -> str:
+    """The refusal shown to an API caller. `reason` is operator text, already user-facing."""
+    detail = f"This organization is deactivated. {reason.strip()}" if reason else "This organization is deactivated."
+    return f"{detail} API access stays blocked until it's restored. Contact support if you think this is a mistake."
+
+
+class ActiveOrganizationPermission(BasePermission):
+    """
+    Deny token-authenticated requests that target a deactivated organization.
+
+    `ActiveOrganizationMiddleware` redirects the browser away from a deactivated organization, but
+    it skips every `/api` path, so API keys kept full read and write access. Appended to every
+    `TeamAndOrgViewSetMixin` view in `get_permissions`, so it holds regardless of a view's own
+    `authentication_classes`.
+
+    Session auth passes through. The middleware already covers the browser, and a member of a
+    deactivated organization still has to reach the app to see why and to pay an unpaid balance.
+
+    A null `is_active` counts as deactivated. The column is nullable because the field was added
+    with `null=True`, and treating an unknown state as deactivated fails closed.
+
+    Checked against the URL-resolved organization, never `user.current_organization`, because the
+    current organization is a UI preference the API doesn't validate.
+    """
+
+    # Billing stays reachable, so an integration can still read the state that explains the refusal.
+    EXEMPT_SCOPE_OBJECTS = frozenset({"billing"})
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not self._applies(request, view):
+            return True
+
+        organization = self._target_organization(request, view)
+        if organization is None:
+            return True
+        return self._admits(organization)
+
+    def _target_organization(self, request: Request, view) -> Optional[Organization]:
+        """The organization this request acts on, or None when it has no single target.
+
+        On a root viewset the mixin falls back to the current organization, which is a UI
+        preference rather than the request's target. Reads pass, because listing organizations is
+        how a member switches away from a deactivated one. Detail routes pass to
+        `has_object_permission`, which judges the organization the URL names; gating them here
+        would refuse an active organization whenever a deactivated one happened to be current.
+        Creating an organization passes, because the new row lands outside the current one.
+        Every other root write does land in the current organization, so it is gated here.
+        """
+        if view_targets_one_organization(view):
+            return url_target_organization(view)
+        if request.method in SAFE_METHODS or getattr(view, "detail", False):
+            return None
+        if getattr(view, "basename", None) == "organizations" and getattr(view, "action", None) == "create":
+            return None
+        return url_target_organization(view)
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if not self._applies(request, view):
+            return True
+        if isinstance(object, Organization):
+            return self._admits(object)
+        if isinstance(object, Team | Project):
+            return self._admits(object.organization)
+        return True
+
+    def _applies(self, request: Request, view) -> bool:
+        if getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS:
+            return False
+        return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
+
+    def _admits(self, organization: Organization) -> bool:
+        if organization.is_pending_deletion:
+            raise PermissionDenied(
+                detail=ORGANIZATION_PENDING_DELETION_ERROR,
+                code="organization_pending_deletion",
+            )
+        if not organization.is_active:
+            raise PermissionDenied(
+                detail=organization_deactivated_error(organization.is_not_active_reason),
+                code="organization_deactivated",
+            )
+        return True
 
 
 def is_authenticated_via_team_secret_token(request: Request) -> bool:
@@ -642,6 +724,8 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
         return list(authenticator.scopes or [])
     if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
         return list(authenticator.project_secret_api_key.scopes or [])
+    if isinstance(authenticator, ExportRendererAuthentication):
+        return list(authenticator.scopes)
     return None
 
 
@@ -675,6 +759,8 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     credential = get_authenticator_user_credential(authenticator)
     if credential is not None:
         return list(credential.scoped_teams or []) or None
+    if isinstance(authenticator, ExportRendererAuthentication):
+        return [authenticator.team_id]
     return None
 
 
@@ -800,7 +886,8 @@ class APIScopePermission(ScopeBasePermission):
             OAuthAccessTokenAuthentication
             | PersonalAPIKeyAuthentication
             | JwtAuthentication
-            | IDJagAccessTokenAuthentication,
+            | IDJagAccessTokenAuthentication
+            | ExportRendererAuthentication,
         ):
             raise ValueError("Unexpected authentication type")
 
@@ -852,16 +939,15 @@ class APIScopePermission(ScopeBasePermission):
         if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
             return
 
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=org)
-
-            if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
-                raise PermissionDenied(
-                    f"Organization '{org.name}' does not allow using personal API keys. "
-                    f"Contact an admin to enable personal API keys for this organization."
-                )
-        except OrganizationMembership.DoesNotExist:
+        membership = get_cached_organization_membership(org.id, cast(User, request.user))
+        if membership is None:
             return
+
+        if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied(
+                f"Organization '{org.name}' does not allow using personal API keys. "
+                f"Contact an admin to enable personal API keys for this organization."
+            )
 
 
 class MCPAccessPermission(ScopeBasePermission):
@@ -1078,6 +1164,7 @@ def posthog_feature_flag_value(
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
+    only_evaluate_locally: bool = False,
 ) -> bool | None:
     """Server-side check of a PostHog-internal gating flag with org/project group context.
 
@@ -1102,7 +1189,7 @@ def posthog_feature_flag_value(
         distinct_id,
         groups=groups,
         group_properties=group_properties,
-        only_evaluate_locally=False,
+        only_evaluate_locally=only_evaluate_locally,
         send_feature_flag_events=False,
     )
 
@@ -1113,6 +1200,7 @@ def posthog_feature_flag_enabled(
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
+    only_evaluate_locally: bool = False,
 ) -> bool:
     return bool(
         posthog_feature_flag_value(
@@ -1120,6 +1208,7 @@ def posthog_feature_flag_enabled(
             distinct_id,
             organization_id=organization_id,
             team_id=team_id,
+            only_evaluate_locally=only_evaluate_locally,
         )
     )
 
@@ -1211,10 +1300,7 @@ class UserCanInvitePermission(BasePermission):
         if not org_invite_settings_available:
             return True
 
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+        membership = get_required_organization_membership(request, organization)
 
         members_can_invite = bool(organization.members_can_invite)
         user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
@@ -1240,10 +1326,7 @@ class UserCanCreateProjectPermission(BasePermission):
         except ValueError:
             return True
 
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+        membership = get_required_organization_membership(request, organization)
 
         if membership.level >= OrganizationMembership.Level.ADMIN:
             return True

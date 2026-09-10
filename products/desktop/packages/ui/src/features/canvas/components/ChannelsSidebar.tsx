@@ -27,6 +27,7 @@ import {
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -50,7 +51,11 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { useParams } from "@tanstack/react-router";
+import {
+  reportSourceHrefFromLocation,
+  resolveNavigationSource,
+} from "@posthog/ui/router/reportNavigation";
+import { useParams, useRouterState } from "@tanstack/react-router";
 import { memo, useDeferredValue, useEffect, useRef } from "react";
 
 /**
@@ -197,17 +202,29 @@ function ChannelsSidebarImpl() {
   const archivedTaskIds = useArchivedTaskIds();
 
   // Scoping lives in ChannelRouteSync: this column is not always drawn.
-  const { currentChannelId } = useCurrentChannel({ enabled: channelsLayout });
+  useCurrentChannel({ enabled: channelsLayout });
+  // The route's space, before the space list has resolved it. That hook withholds
+  // an unresolved id so nothing files against a dead space, but the pane only has
+  // to draw one — waiting held its tabs behind the fetch, and a stale id is
+  // dropped by the same hook a tick later.
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   // Browsing the list is view state, not navigation: you stay in the channel
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
   const { pane: railPane, showsActivityDetail } = useRailSurface();
   const selectedActivityId = useActivitySelection()?.id;
-  const feedId = useParams({
-    strict: false,
-    select: (params) => params.feedId,
+  const sourceFeedId = useRouterState({
+    select: (state) =>
+      resolveNavigationSource(
+        reportSourceHrefFromLocation(state.resolvedLocation ?? state.location),
+      )?.feedId ?? undefined,
   });
+  const feedId =
+    useParams({
+      strict: false,
+      select: (params) => params.feedId,
+    }) ?? sourceFeedId;
   const pane = useChannelPaneStore((s) => s.pane);
   const { isPending: pendingTabSwitch, viewState: pendingTabViewState } =
     usePendingTabViewState();

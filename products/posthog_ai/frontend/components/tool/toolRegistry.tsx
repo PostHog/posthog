@@ -43,6 +43,8 @@ export interface ToolRendererProps {
 type ToolRendererComponent = ComponentType<ToolRendererProps> | LazyExoticComponent<ComponentType<ToolRendererProps>>
 
 export interface ToolRegistryEntry {
+    /** Keep results such as charts, plans and questions outside collapsed activity groups. */
+    keepVisible?: boolean
     /**
      * Registry key. For single-exec PostHog tools, this is the **inner** tool name parsed from
      * `rawInput.command` (e.g. "execute-sql", "insight-create"); for `exec`'s discovery verbs,
@@ -165,7 +167,13 @@ const BUILTIN_TOOLS: { keys: string[]; displayName: string; icon: JSX.Element }[
 ]
 for (const { keys, displayName, icon } of BUILTIN_TOOLS) {
     for (const key of keys) {
-        toolRegistry.register({ key, displayName, icon, Renderer: BuiltinToolRenderer })
+        toolRegistry.register({
+            key,
+            displayName,
+            icon,
+            Renderer: BuiltinToolRenderer,
+            keepVisible: key === 'ExitPlanMode',
+        })
     }
 }
 
@@ -213,6 +221,7 @@ for (const { name, displayName, icon } of POSTHOG_CODE_TOOLS) {
 // lays the question + options out like the LangGraph question recap, rather than the generic JSON card.
 toolRegistry.register({
     key: 'AskUserQuestion',
+    keepVisible: true,
     displayName: 'Question',
     icon: <IconAI />,
     Renderer: QuestionRenderer,

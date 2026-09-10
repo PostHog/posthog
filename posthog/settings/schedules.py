@@ -40,6 +40,10 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
 CACHED_RESULTS_TTL_DAYS = 7
 CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 
+# TTL for cache entries written by API keys or OAuth clients outside any insight or dashboard.
+# retention_ttl in posthog/query_cache/cache.py decides which writes get it.
+CACHED_RESULTS_PROGRAMMATIC_TTL = get_from_env("CACHED_RESULTS_PROGRAMMATIC_TTL", 24 * 60 * 60, type_cast=int)
+
 # Per-team cache size limit (default 1GB, can be overridden per-team via Team.extra_settings)
 TEAM_CACHE_SIZE_LIMIT_BYTES = get_from_env("TEAM_CACHE_SIZE_LIMIT_BYTES", 1_000_000_000, type_cast=int)
 

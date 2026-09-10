@@ -72,6 +72,9 @@ function ProvisionedProductStrip(): JSX.Element {
             {FLAGSHIP_PRODUCT_KEYS.map((productKey) => {
                 const { Hoggie } = getProductPushDisplay(productKey)
                 const meta = brandingForProduct(productKey)
+                if (!Hoggie) {
+                    return null
+                }
                 return (
                     <Link
                         key={productKey}
@@ -236,7 +239,7 @@ export interface projectNoticeLogicActions {
     reportProjectNoticeShown: (variant: string) => {
         variant: string
     } // eventUsageLogic
-    requestVerificationLink: (uuid: string) => {
+    requestVerificationCode: (uuid: string) => {
         uuid: string
     } // verifyEmailLogic
     dismissProjectNotice: (dismissKey: string | null) => {
@@ -350,10 +353,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         actions: [
             eventUsageLogic,
             ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
-            // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
+            // Mount verifyEmailLogic so the "Verify email" banner CTA's loader fires.
             // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
             verifyEmailLogic,
-            ['requestVerificationLink'],
+            ['requestVerificationCode'],
         ],
     })),
     actions({
@@ -662,8 +665,17 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: 'Please verify your email address.',
                             action: {
                                 'data-attr': 'unverified-email-cta',
-                                onClick: () => user && verifyEmailLogic.actions.requestVerificationLink(user.uuid),
-                                children: 'Send verification email',
+                                onClick: () => {
+                                    if (!user) {
+                                        return
+                                    }
+                                    verifyEmailLogic.actions.requestVerificationCode(user.uuid)
+                                    // The email carries a 6-digit code, and only the verify-email scene has the
+                                    // entry form. `next` returns the user to this page once the code is accepted.
+                                    const { pathname, search, hash } = router.values.location
+                                    router.actions.push(urls.verifyEmail(user.uuid), { next: pathname + search + hash })
+                                },
+                                children: 'Verify email',
                             },
                             type: 'warning',
                         }

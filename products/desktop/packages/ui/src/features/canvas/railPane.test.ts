@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isRestorableVisitHref,
   RAIL_PANE_ROOT,
   railPaneForPath,
   railPaneHasSidebar,
@@ -11,6 +12,7 @@ describe("railPaneForPath", () => {
     ["/activity", "activity"],
     ["/command-center", "command-center"],
     ["/inbox", "inbox"],
+    ["/reports/$reportId", "reports"],
     ["/inbox/pulls/$reportId", "inbox"],
     ["/loops", "loops"],
     ["/loops/$loopId/edit", "loops"],
@@ -46,8 +48,36 @@ describe("railPaneForPath", () => {
   });
 });
 
+describe("isRestorableVisitHref", () => {
+  it.each([
+    ["spaces", "/spaces/chan-1/tasks/task-1"],
+    ["spaces", "/tasks/task-1"],
+    ["spaces", "/new"],
+    ["activity", "/activity?task=task-1"],
+    ["inbox", "/inbox/pulls/report-1"],
+    ["home", "/"],
+  ] as const)("lets %s replay %s", (pane, href) => {
+    expect(isRestorableVisitHref(pane, href)).toBe(true);
+  });
+
+  it.each([
+    ["spaces", "/settings"],
+    ["spaces", "/settings/general"],
+    ["spaces", "/settings/general?from=rail"],
+    ["spaces", "/folders/folder-1"],
+    ["spaces", "/skills"],
+    ["spaces", "/mcp-servers"],
+    ["spaces", "/usage"],
+    ["inbox", "/inbox/agents"],
+    ["spaces", "/activity"],
+    ["activity", "/spaces/chan-1"],
+  ] as const)("does not let %s replay %s", (pane, href) => {
+    expect(isRestorableVisitHref(pane, href)).toBe(false);
+  });
+});
+
 describe("railPaneHasSidebar", () => {
-  it.each(["home", "inbox", "command-center", "loops"] as const)(
+  it.each(["home", "inbox", "reports", "command-center", "loops"] as const)(
     "gives %s the whole screen",
     (pane) => {
       expect(railPaneHasSidebar(pane)).toBe(false);

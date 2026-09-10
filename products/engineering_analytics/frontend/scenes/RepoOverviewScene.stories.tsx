@@ -13,6 +13,7 @@ import type {
     WorkflowHealthItemApi,
     WorkflowRunActivityApi,
 } from '../generated/api.schemas'
+import { workflowHealthItem } from '../lib/storyFixtures'
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
 
@@ -98,31 +99,26 @@ const ACTIVITY: WorkflowRunActivityApi = {
     limit: 500,
 }
 
+const RUN_COUNT = 320
+
 function healthItem(
     workflowName: string,
     costUsd: number,
     failures: number[],
-    successRate: number
+    successRate: number,
+    mergeQueueRunCount: number = 0
 ): WorkflowHealthItemApi {
-    return {
-        repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+    return workflowHealthItem({
         workflow_name: workflowName,
-        run_count: 320,
-        successful_run_count: Math.round(320 * successRate),
-        conclusive_run_count: 320,
+        run_count: RUN_COUNT,
+        successful_run_count: Math.round(RUN_COUNT * successRate),
+        conclusive_run_count: RUN_COUNT,
         success_rate: successRate,
         success_rate_prev: successRate - 0.03,
-        p50_seconds: 540,
-        p95_seconds: 1680,
         last_failure_at: failures.some((f) => f > 0) ? '2026-07-01T16:00:00Z' : null,
-        latest_run_failed: false,
-        latest_run_conclusion: 'success',
-        latest_run_id: 123456,
-        latest_run_attempt: 1,
-        granularity: 'day',
         billable_minutes: costUsd * 12,
         estimated_cost_usd: costUsd,
-        rerun_cycles: 6,
+        merge_queue_run_count: mergeQueueRunCount,
         buckets: failures.map((failed, i) => ({
             bucket_start: `2026-06-${25 + i}T00:00:00Z`,
             run_count: 44 + i,
@@ -130,13 +126,14 @@ function healthItem(
             successes: 40 + i - failed,
             failures: failed,
         })),
-    }
+    })
 }
 
+// Two workflows the merge queue runs, so the table shows both the gating order and the muted rest.
 const WORKFLOW_HEALTH: WorkflowHealthItemApi[] = [
-    healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91),
+    healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91, 186),
     healthItem('E2E - Playwright', 130.2, [5, 3, 6, 2, 4, 5, 3], 0.78),
-    healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95),
+    healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95, 174),
 ]
 
 const PULL_REQUESTS: PullRequestListApi = {

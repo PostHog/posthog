@@ -1,5 +1,6 @@
 import gc
 import warnings
+import importlib
 
 import pytest
 
@@ -69,7 +70,7 @@ def _cache_reverse_rel_identity() -> None:
             self._identity_hash = h = hash(self.identity)
             return h
 
-    ForeignObjectRel.__hash__ = cached_hash  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    ForeignObjectRel.__hash__ = cached_hash  # type: ignore[assignment]
 
     # __eq__ compares the full identity tuples element by element (each element itself a
     # Field with a non-trivial __eq__), and dict probing in select-mask construction calls
@@ -93,7 +94,7 @@ def _cache_reverse_rel_identity() -> None:
     # object each rel is ever compared with. Bounded by schema size, not test count, so
     # harmless in practice — but don't mistake it for a per-test cache.
     cached_eq.__wrapped__ = orig_eq  # exposes the original for the canary tests
-    ForeignObjectRel.__eq__ = cached_eq  # type: ignore[method-assign, assignment]  # ty: ignore[invalid-assignment]
+    ForeignObjectRel.__eq__ = cached_eq  # type: ignore[method-assign, assignment]
 
 
 def _cache_select_masks() -> None:
@@ -121,7 +122,7 @@ def _cache_select_masks() -> None:
         return mask
 
     get_select_mask.__wrapped__ = orig_get_select_mask  # exposes the original for the canary tests
-    Query.get_select_mask = get_select_mask  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    Query.get_select_mask = get_select_mask  # type: ignore[method-assign]
 
 
 def _cache_drf_field_info() -> None:
@@ -177,7 +178,7 @@ def _cache_url_resolution() -> None:
         return match
 
     resolve.__wrapped__ = orig_resolve  # exposes the original for the canary tests
-    resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]
 
 
 def _cache_fixture_parent_nodeids() -> None:
@@ -200,7 +201,7 @@ def _cache_fixture_parent_nodeids() -> None:
                 yield fixturedef
 
     _matchfactories.__wrapped__ = orig_matchfactories  # exposes the original for the canary tests
-    fixtures.FixtureManager._matchfactories = _matchfactories  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    fixtures.FixtureManager._matchfactories = _matchfactories  # type: ignore[method-assign]
 
 
 def _cheapen_freezegun_module_hash() -> None:
@@ -229,6 +230,15 @@ def _cheapen_freezegun_module_hash() -> None:
     api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
 
 
+def _warm_urlconf() -> None:
+    # The URLconf builds the API router lazily on the first request. Under freeze_time that
+    # build fails for any pydantic model whose base was imported before the freeze: the
+    # inherited datetime annotation no longer matches the rebound datetime.datetime.
+    from django.conf import settings  # noqa: PLC0415 — deferred until collection finishes
+
+    importlib.import_module(settings.ROOT_URLCONF)
+
+
 def pytest_configure(config) -> None:
     _cache_reverse_rel_identity()
     _cache_select_masks()
@@ -238,7 +248,9 @@ def pytest_configure(config) -> None:
     _cheapen_freezegun_module_hash()
 
 
-def pytest_collection_finish() -> None:
+def pytest_collection_finish(session) -> None:
+    if session.items and not session.config.option.collectonly:
+        _warm_urlconf()
     _end_gc_boot_window()
 
 

@@ -2,14 +2,18 @@ import {
     AccountsTableAccountField,
     AccountsTableAccountFieldOperator,
     AccountsTableCustomPropertyOperator,
+    AccountsTableRelationshipOperator,
     AccountsTableSortDirection,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { AccountCustomPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    AccountRelationshipDefinitionApi,
+    CustomPropertyDefinitionApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import type { AccountPropertyFilter } from './accountsPropertyFilters'
+import type { AccountPropertyFilter, AccountRelationshipFilter } from './accountsPropertyFilters'
 import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
@@ -36,6 +40,16 @@ function accountFieldFilter(overrides: Partial<AccountPropertyFilter> = {}): Acc
     }
 }
 
+function relationshipFilter(overrides: Partial<AccountRelationshipFilter> = {}): AccountRelationshipFilter {
+    return {
+        type: PropertyFilterType.AccountRelationship,
+        key: RELATIONSHIP_ID,
+        operator: PropertyOperator.Exact,
+        value: [7],
+        ...overrides,
+    }
+}
+
 function customFilter(overrides: Partial<AccountCustomPropertyFilter> = {}): AccountCustomPropertyFilter {
     return {
         type: PropertyFilterType.AccountCustomProperty,
@@ -57,11 +71,14 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         visibleColumnNames: ['name', 'tag_names', 'notebook_count', 'csm'],
         searchQuery: '',
         tagsFilter: [],
-        allRolesUnassigned: false,
+        assignmentStatus: 'all',
         assignedToFilter: [],
         accountIdFilter: null,
         tileFilter: null,
         accountFilters: [],
+        relationshipDefinitionsById: {
+            [RELATIONSHIP_ID]: { id: RELATIONSHIP_ID, name: 'CSM' } as AccountRelationshipDefinitionApi,
+        },
         customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: definition },
         columnDisplay: {},
         sortOrder: null,
@@ -76,8 +93,9 @@ describe('accountsTableQuery', () => {
             queryInput({
                 searchQuery: ' acme ',
                 tagsFilter: ['enterprise'],
+                assignmentStatus: 'assigned',
                 assignedToFilter: [7, 9],
-                accountFilters: [customFilter()],
+                accountFilters: [relationshipFilter(), customFilter()],
                 sortOrder: { column: 'csm', direction: 'desc' },
                 canSortClientSide: false,
             })
@@ -95,6 +113,12 @@ describe('accountsTableQuery', () => {
                 { kind: 'search', query: 'acme' },
                 { kind: 'tags', tagNames: ['enterprise'] },
                 { kind: 'assigned_to', userIds: [7, 9] },
+                {
+                    kind: 'relationship',
+                    definitionId: RELATIONSHIP_ID,
+                    operator: AccountsTableRelationshipOperator.Exact,
+                    userIds: [7],
+                },
                 {
                     kind: 'custom_property',
                     definitionId: CUSTOM_PROPERTY_ID,
@@ -124,7 +148,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'account_field',
                 field: AccountsTableAccountField.IgnoredAt,
@@ -153,13 +176,29 @@ describe('accountsTableQuery', () => {
             })
         )
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual([])
     })
 
-    it('filters the default account list to accounts assigned to someone', () => {
-        const plan = buildAccountsTableQueryPlan(queryInput())
+    it.each([
+        ['all', undefined],
+        ['assigned', { kind: 'assigned' }],
+        ['unassigned', { kind: 'unassigned' }],
+    ] as const)('maps the %s assignment status to its query filter', (assignmentStatus, expected) => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus }))
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual(expected ? [expected] : [])
+    })
+
+    it('narrows the assigned status to specific users when any are selected', () => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus: 'assigned', assignedToFilter: [7] }))
+
+        expect(plan.query.filters).toEqual([{ kind: 'assigned_to', userIds: [7] }])
+    })
+
+    it('ignores selected users outside the assigned status', () => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus: 'all', assignedToFilter: [7] }))
+
+        expect(plan.query.filters).toEqual([])
     })
 
     it('translates saved custom-property history display configuration', () => {
@@ -193,7 +232,7 @@ describe('accountsTableQuery', () => {
                 accountIdFilter: RELATIONSHIP_ID,
                 searchQuery: 'ignored',
                 tagsFilter: ['ignored'],
-                allRolesUnassigned: true,
+                assignmentStatus: 'unassigned',
             })
         )
 
@@ -230,7 +269,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -256,7 +294,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -286,7 +323,7 @@ describe('accountsTableQuery', () => {
             })
         )
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual([])
     })
 
     it('keeps contains filters for link properties', () => {
@@ -299,7 +336,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,

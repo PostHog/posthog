@@ -163,6 +163,78 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("body",),
+            ("query_string",),
+        ]
+    )
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_burst_rate_limit_applies_to_every_personal_api_key_source(self, source, rate_limit_enabled_mock):
+        # The client is logged in by default, and a session would authenticate the request on its own,
+        # hiding whether the personal API key was picked up at all.
+        self.client.logout()
+
+        url = f"/api/projects/{self.team.pk}/feature_flags/"
+        body: dict = {}
+        if source == "body":
+            body["personal_api_key"] = self.personal_api_key
+        else:
+            url = f"{url}?personal_api_key={quote(self.personal_api_key)}"
+
+        for _ in range(5):
+            response = self.client.post(url, body, format="json")
+            # The body omits the required fields, so the endpoint rejects it. What matters is that
+            # the request reached the endpoint, which means it authenticated and was not throttled.
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+        response = self.client.post(url, body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
+
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_burst_rate_limit_shares_one_bucket_across_key_sources(self, rate_limit_enabled_mock):
+        # One key gets one budget. If each source got its own bucket, alternating between them
+        # would multiply what a single key is allowed.
+        self.client.logout()
+
+        url = f"/api/projects/{self.team.pk}/feature_flags/"
+        requests = [
+            lambda: self.client.post(url, {"personal_api_key": self.personal_api_key}, format="json"),
+            lambda: self.client.post(url, {}, headers={"authorization": f"Bearer {self.personal_api_key}"}),
+        ]
+
+        for index in range(5):
+            response = requests[index % 2]()
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+        response = requests[1]()
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
+
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_burst_rate_limit_ignores_an_unvalidated_query_string_key(self, rate_limit_enabled_mock):
+        # Authentication reads the header, then the body, then the query string, and stops at the
+        # first hit. A request that authenticates on its body key never validates the query string,
+        # so bucketing on that value would let a caller mint a fresh budget on every request.
+        self.client.logout()
+
+        for index in range(5):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/?personal_api_key=junk-{index}",
+                {"personal_api_key": self.personal_api_key},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/?personal_api_key=junk-5",
+            {"personal_api_key": self.personal_api_key},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
+
     @patch("posthog.rate_limit.SustainedRateThrottle.rate", new="5/hour")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)

@@ -148,7 +148,8 @@ tools:
         title: Report missing capability
         description: >
             Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool,
-            missing workflow support, or missing explanation blocks progress.
+            missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or
+            sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.
         include_params:
             - goal
             - missing_capability

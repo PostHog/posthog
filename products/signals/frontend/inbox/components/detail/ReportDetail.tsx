@@ -10,7 +10,7 @@ import {
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
-import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -23,6 +23,7 @@ import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
@@ -36,16 +37,16 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
-import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
+import { ImplementButton } from './ImplementButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
-import { canCreateImplementationPr, useReportDetailActions } from './ReportDetailActions'
+import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -79,10 +80,6 @@ export function ReportDetailBadges({
         </>
     )
 }
-
-/** Shared explainer for the signal count in the meta line and the Evidence section. */
-const SIGNALS_TOOLTIP =
-    'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
 
 /** Placeholder finding rows shown while the signals query is in flight, sized to the known count. */
 function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
@@ -211,14 +208,22 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
-    const backLabel = backOverride ? (backOverride.startsWith(urls.inboxTriage()) ? 'Triage' : 'Back') : 'Inbox'
+    const backLabel = backOverride
+        ? backOverride.startsWith(urls.inboxTriage())
+            ? 'Triage'
+            : 'Back'
+        : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
     const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
         useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
-    const signals = reportSignals ?? []
+    // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
+    // the rail rather than after a scroll.
+    const signals = [...(reportSignals ?? [])].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
@@ -240,14 +245,9 @@ export function InboxDetailFrame({
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
-    // Create PR is the report's main call to action, so it takes the primary slot (styled like
-    // "Open in GitHub" on PR-bearing reports). The rest render inline as buttons on wide layouts
-    // and as a standard `LemonMenu` on narrow ones.
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const createPrButton = showCreatePr ? <CreatePrButton report={report} /> : null
-    // `ReportSummaryBody` renders Create PR under the Solution section, so the header only carries it
-    // when the summary has no Solution section — otherwise an actionable report shows it twice.
+    const implementButton = showCreatePr ? <ImplementButton report={report} /> : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
@@ -313,7 +313,7 @@ export function InboxDetailFrame({
                     <ReportSummaryBody
                         summary={report.summary}
                         chartPlacements={chartPlacements}
-                        createPrButton={createPrButton}
+                        implementButton={implementButton}
                         pullRequestNote={pullRequestNote}
                     />
                 ) : (
@@ -386,16 +386,7 @@ export function InboxDetailFrame({
                                 title="Evidence"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('evidence')}
-                                rightSlot={
-                                    <span className="flex items-center gap-1">
-                                        <Tooltip title={SIGNALS_TOOLTIP}>
-                                            <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                                {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
-                                            </span>
-                                        </Tooltip>
-                                        {hideRailButton}
-                                    </span>
-                                }
+                                rightSlot={hideRailButton}
                             >
                                 {reportSignalsLoading && reportSignals === null ? (
                                     <EvidenceSkeleton count={evidenceCount} />
@@ -487,7 +478,7 @@ export function InboxDetailFrame({
                 </LemonButton>
                 <div className="flex items-center gap-2">
                     {primaryAction}
-                    {!summaryHasSolution && createPrButton}
+                    {!summaryHasSolution && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
@@ -495,7 +486,7 @@ export function InboxDetailFrame({
                         {reportActions.map((action) => (
                             <LemonButton
                                 key={action.key}
-                                type="secondary"
+                                type={action.primary ? 'primary' : 'secondary'}
                                 size="small"
                                 icon={action.icon}
                                 loading={action.loading}

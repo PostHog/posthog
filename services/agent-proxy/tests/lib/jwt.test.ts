@@ -57,6 +57,10 @@ interface TokenOptions {
     expiresIn?: string
     omitExp?: boolean
     signingKey?: CryptoKey
+    presenceGated?: unknown
+    isTerminal?: unknown
+    thinTail?: unknown
+    originProduct?: unknown
 }
 
 async function signToken(opts: TokenOptions = {}): Promise<string> {
@@ -68,9 +72,27 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
         expiresIn = '1h',
         omitExp = false,
         signingKey,
+        presenceGated,
+        isTerminal,
+        thinTail,
+        originProduct,
     } = opts
 
-    const builder = new SignJWT({ run_id: runId, task_id: taskId, team_id: teamId }).setProtectedHeader({
+    const claims: Record<string, unknown> = { run_id: runId, task_id: taskId, team_id: teamId }
+    if (presenceGated !== undefined) {
+        claims['presence_gated'] = presenceGated
+    }
+    if (isTerminal !== undefined) {
+        claims['is_terminal'] = isTerminal
+    }
+    if (thinTail !== undefined) {
+        claims['thin_tail'] = thinTail
+    }
+    if (originProduct !== undefined) {
+        claims['origin_product'] = originProduct
+    }
+
+    const builder = new SignJWT(claims).setProtectedHeader({
         alg: 'RS256',
     })
 
@@ -97,7 +119,72 @@ describe('jwt', () => {
             expect(payload.runId).toBe('run-abc-123')
             expect(payload.taskId).toBe('task-abc-123')
             expect(payload.teamId).toBe(42)
+            expect(payload.presenceGated).toBe(false)
+            expect(payload.isTerminal).toBe(false)
         })
+
+        it.each([
+            { name: 'true', claim: true, expected: true },
+            { name: 'false', claim: false, expected: false },
+        ])('carries a presence_gated claim of $name', async ({ claim, expected }) => {
+            const token = await signToken({ audience: STREAM_READ_AUDIENCE, presenceGated: claim })
+            const payload = await validateStreamReadToken(token, keys.publicKeys)
+
+            expect(payload.presenceGated).toBe(expected)
+        })
+
+        it.each([{ claim: 'yes' }, { claim: 1 }, { claim: null }])(
+            'rejects a non-boolean presence_gated claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: STREAM_READ_AUDIENCE, presenceGated: claim })
+
+                await expect(validateStreamReadToken(token, keys.publicKeys)).rejects.toThrow(
+                    'presence_gated must be a boolean'
+                )
+            }
+        )
+
+        it.each([
+            { name: 'true', claim: true, expected: true },
+            { name: 'false', claim: false, expected: false },
+        ])('carries an is_terminal claim of $name', async ({ claim, expected }) => {
+            const token = await signToken({ audience: STREAM_READ_AUDIENCE, isTerminal: claim })
+            const payload = await validateStreamReadToken(token, keys.publicKeys)
+
+            expect(payload.isTerminal).toBe(expected)
+        })
+
+        it.each([{ claim: 'yes' }, { claim: 1 }, { claim: null }])(
+            'rejects a non-boolean is_terminal claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: STREAM_READ_AUDIENCE, isTerminal: claim })
+
+                await expect(validateStreamReadToken(token, keys.publicKeys)).rejects.toThrow(
+                    'is_terminal must be a boolean'
+                )
+            }
+        )
+
+        it.each([
+            { name: 'a string claim', claim: 'signals_scout', expected: 'signals_scout' },
+            { name: 'an absent claim as unknown', claim: undefined, expected: 'unknown' },
+        ])('carries $name for origin_product', async ({ claim, expected }) => {
+            const token = await signToken({ audience: STREAM_READ_AUDIENCE, originProduct: claim })
+            const payload = await validateStreamReadToken(token, keys.publicKeys)
+
+            expect(payload.originProduct).toBe(expected)
+        })
+
+        it.each([{ claim: 1 }, { claim: null }, { claim: true }])(
+            'rejects a non-string origin_product claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: STREAM_READ_AUDIENCE, originProduct: claim })
+
+                await expect(validateStreamReadToken(token, keys.publicKeys)).rejects.toThrow(
+                    'origin_product must be a string'
+                )
+            }
+        )
 
         it('rejects a token with the wrong audience (sandbox_event_ingest)', async () => {
             const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE })
@@ -174,7 +261,51 @@ describe('jwt', () => {
             expect(payload.runId).toBe('run-abc-123')
             expect(payload.taskId).toBe('task-abc-123')
             expect(payload.teamId).toBe(42)
+            expect(payload.presenceGated).toBe(false)
+            expect(payload.thinTail).toBe(false)
         })
+
+        it.each([
+            { name: 'true', claim: true, expected: true },
+            { name: 'false', claim: false, expected: false },
+        ])('carries a thin_tail claim of $name', async ({ claim, expected }) => {
+            const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, thinTail: claim })
+            const payload = await validateSandboxEventIngestToken(token, keys.publicKeys)
+
+            expect(payload.thinTail).toBe(expected)
+        })
+
+        it.each([{ claim: 'yes' }, { claim: 1 }, { claim: null }])(
+            'rejects a non-boolean thin_tail claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, thinTail: claim })
+
+                await expect(validateSandboxEventIngestToken(token, keys.publicKeys)).rejects.toThrow(
+                    'thin_tail must be a boolean'
+                )
+            }
+        )
+
+        it.each([
+            { name: 'true', claim: true, expected: true },
+            { name: 'false', claim: false, expected: false },
+        ])('carries a presence_gated claim of $name', async ({ claim, expected }) => {
+            const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, presenceGated: claim })
+            const payload = await validateSandboxEventIngestToken(token, keys.publicKeys)
+
+            expect(payload.presenceGated).toBe(expected)
+        })
+
+        it.each([{ claim: 'yes' }, { claim: 1 }, { claim: null }])(
+            'rejects a non-boolean presence_gated claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, presenceGated: claim })
+
+                await expect(validateSandboxEventIngestToken(token, keys.publicKeys)).rejects.toThrow(
+                    'presence_gated must be a boolean'
+                )
+            }
+        )
 
         it('rejects a token with the wrong audience (stream_read)', async () => {
             const token = await signToken({ audience: STREAM_READ_AUDIENCE })

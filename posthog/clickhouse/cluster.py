@@ -450,6 +450,8 @@ class ClickhouseCluster:
         node_roles: list[NodeRole],
         concurrency: int | None = None,
         workload: Workload = Workload.DEFAULT,
+        *,
+        require_hosts: bool = False,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster with the given node role.
@@ -457,13 +459,12 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        hosts = self.__hosts_by_roles(self.__hosts, node_roles, workload)
+        if require_hosts and not hosts:
+            raise ValueError(f"No hosts found with roles {node_roles}")
+
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {
-                    host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts_by_roles(self.__hosts, node_roles, workload)
-                }
-            )
+            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
 
     def map_all_hosts_in_shard(
         self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None
@@ -796,12 +797,21 @@ class MutationWaiters:
             waiter.wait(client)
 
 
-@dataclass
+class MutationCapacityTimeout(Exception):
+    """Raised when another mutation held the table past a runner's ``capacity_timeout``."""
+
+
+# Mutability is intentional: subclasses set fields in __post_init__ and callers build these
+# incrementally. Stated explicitly so the bare-dataclass ratchet has a declared choice.
+@dataclass(frozen=False)
 class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     force: bool = field(default=False, kw_only=True)  # whether to force the mutation to run even if it already exists
+    # How long to wait for the table to be free of other mutations before giving up. 0 waits
+    # forever, which is what a caller with no deadline of its own wants.
+    capacity_timeout: float = field(default=0.0, kw_only=True)
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -867,7 +877,12 @@ class MutationRunner(abc.ABC):
         Block until the target table has no unfinished mutations before enqueueing a new one, since tables can be
         configured with ``number_of_mutations_to_throw`` to reject new mutations while others (e.g. a long-running
         backfill) are still in flight.
+
+        This runs before the mutation exists, so a caller's own wait-for-completion deadline cannot cover it. A
+        mutation nobody here started can hold the table indefinitely, so ``capacity_timeout`` is what stops that
+        from holding the caller open forever.
         """
+        deadline = time.monotonic() + self.capacity_timeout if self.capacity_timeout else None
         while True:
             [[count]] = client.execute(
                 """
@@ -879,6 +894,11 @@ class MutationRunner(abc.ABC):
             )
             if count == 0:
                 return
+            if deadline is not None and time.monotonic() > deadline:
+                raise MutationCapacityTimeout(
+                    f"{self.table} still has {count} unfinished mutation(s)"
+                    f" after {self.capacity_timeout:.0f}s waiting for capacity"
+                )
             logger.info(
                 "Waiting for %s unfinished mutation(s) on %s before enqueueing new mutation (checking again in %ss)...",
                 count,

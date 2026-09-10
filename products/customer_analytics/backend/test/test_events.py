@@ -310,6 +310,36 @@ class TestAccountCustomPropertyChangedEvent(BaseTest):
         assert event["properties"]["actor_type"] == "workflow"
         assert event["properties"]["workflow_id"] == WORKFLOW_ID
 
+    def test_workflow_clear_emits_null_current_value(self, mock_capture):
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        self._set_value(definition, "silver")
+        mock_capture.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            result = facade.set_external_account_custom_properties(
+                self.team.id, "acme-1", properties={str(definition.id): None}, workflow_id=WORKFLOW_ID
+            )
+
+        assert result.error is None
+        assert result.values == []
+        mock_capture.assert_called_once()
+        (event,) = mock_capture.call_args.kwargs["events"]
+        assert event["properties"]["previous_value"] == "silver"
+        assert event["properties"]["current_value"] is None
+        assert event["properties"]["actor_type"] == "workflow"
+
+    def test_clearing_an_unset_value_emits_nothing(self, mock_capture):
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            result = facade.set_external_account_custom_properties(
+                self.team.id, "acme-1", properties={str(definition.id): None}, workflow_id=WORKFLOW_ID
+            )
+
+        assert result.error is None
+        assert result.values == []
+        mock_capture.assert_not_called()
+
     def test_user_actor_populates_actor_fields(self, mock_capture):
         definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
         self._set_value(definition, "silver")

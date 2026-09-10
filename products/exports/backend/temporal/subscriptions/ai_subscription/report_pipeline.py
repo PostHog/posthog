@@ -14,6 +14,7 @@ from posthog.schema import AssistantHogQLQuery
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.ph_client import ph_background_capture
@@ -22,6 +23,7 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
+from products.exports.backend.models.subscription import AIQueryPlanStatus
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
@@ -36,6 +38,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
     SYNTHESIS_PROMPT_NAME,
+    prepend_hogql_query_writing_rules,
     render_prompt,
     resolve_prompt,
 )
@@ -59,8 +62,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     StoredPlanInvalidError,
     build_enriched_prompt,
     build_frozen_prompt,
+    get_ai_query_plan_status,
+    resolve_ai_query_plan_status,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_error_message, undisclosed_query_error_type
+from products.exports.backend.temporal.subscriptions.types import safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -163,9 +168,9 @@ class QueryStepDiagnostic:
     hogql: str
     ok: bool
     error_type: Optional[str]
-    # Safe-to-surface failure reason; set only for query-structure errors (see _safe_error_message), else None.
     human_readable_error: Optional[str] = None
     chart_dropped_reason: Optional[ChartFailureReason] = None
+    error_code: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -183,7 +188,7 @@ class PlanExecution:
     charts: list[ValidatedChart]
 
 
-@dataclass(frozen=True)
+@frozen
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
@@ -192,6 +197,9 @@ class AiReportResult:
     # Set only when the run planned from scratch; the caller freezes it onto the subscription.
     plan_to_persist: Optional[dict] = None
     charts: tuple[RenderedChart, ...] = ()
+    # Immutable account of the plan state for this delivery. The delivery activity persists this
+    # after confirming that a newly generated plan was actually saved on the subscription.
+    query_plan_status: AIQueryPlanStatus = AIQueryPlanStatus.NOT_FROZEN
 
 
 async def generate_ai_report(
@@ -205,6 +213,8 @@ async def generate_ai_report(
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
+
+    initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
     with slo_operation(
         spec=SloSpec(
@@ -221,7 +231,7 @@ async def generate_ai_report(
             if ai_query_plan is not None:
                 try:
                     spec = await _spec_from_frozen_plan(
-                        team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan
+                        team=team, user=user, prompt=prompt, window=window, ai_query_plan=ai_query_plan
                     )
                     freshly_planned = False
                 except StoredPlanInvalidError as exc:
@@ -313,12 +323,18 @@ async def generate_ai_report(
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
         )
+        query_plan_status = resolve_ai_query_plan_status(
+            initial_status=initial_query_plan_status,
+            freshly_planned=freshly_planned,
+            generated_plan_frozen=plan_to_persist is not None,
+        )
         return AiReportResult(
             markdown=report,
             diagnostics=tuple(diagnostics),
             window_end_utc=window.end.astimezone(UTC).isoformat(),
             plan_to_persist=plan_to_persist,
             charts=tuple(rendered_charts),
+            query_plan_status=query_plan_status,
         )
 
 
@@ -404,11 +420,12 @@ async def _plan(
 
 
 async def _spec_from_frozen_plan(
-    *, team: Team, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
+    *, team: Team, user: User, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_frozen_prompt, thread_sensitive=False)(
             team=team,
+            user=user,
             prompt=prompt,
             window=window,
             ai_query_plan=ai_query_plan,
@@ -568,11 +585,11 @@ async def _run_steps(
                     max_retries=_MAX_QUERY_FIX_RETRIES,
                     error_type=type(exc).__name__,
                 )
+                error_details = safe_query_error_details(exc)
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # Forward the safe message (exposed/resolution errors describe the field/property the
-                    # planner referenced, which is what the fixer needs); fall back to the type name.
-                    error_message=safe_error_message(exc) or type(exc).__name__,
+                    # Forward explicitly safe detail when available; fall back to the type name.
+                    error_message=(error_details["message"] if error_details else None) or type(exc).__name__,
                     step_description=safe_description,
                     # The planner's project schema (event/property names) — a schema-blind fixer just
                     # re-guesses the wrong name, so give it the same grounding the planner had.
@@ -585,9 +602,8 @@ async def _run_steps(
                     break
                 current_hogql = fixed
 
-        # type only — ClickHouse errors can echo team-scoped identifiers
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        undisclosed_type = undisclosed_query_error_type(last_exc) if last_exc is not None else None
+        error_details = safe_query_error_details(last_exc) if last_exc is not None else None
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,
@@ -597,15 +613,18 @@ async def _run_steps(
         )
         if last_exc is not None:
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
-        cause = "" if undisclosed_type is not None else f" ({type_name})"
+        # Safe query details belong in the owner-only diagnostics below. The rendered output is fed
+        # into synthesis and eventually delivered to recipients, who may not have query access.
+        cause = "" if error_details else f" ({type_name})"
         return StepOutcome(
             rendered=f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
             diagnostic=QueryStepDiagnostic(
                 description=safe_description,
                 hogql=window.render_window_filter(current_hogql),
                 ok=False,
-                error_type=undisclosed_type or type_name,
-                human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
+                error_type=type_name,
+                error_code=error_details["code"] if error_details else None,
+                human_readable_error=error_details["message"] if error_details else None,
             ),
         )
 
@@ -664,6 +683,7 @@ async def _arequest_hogql_fix(
     fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, HOGQL_FIX_PROMPT_NAME, HOGQL_FIX_PROMPT
     )
+    fix_prompt = prepend_hogql_query_writing_rules(fix_prompt)
     rendered = render_prompt(
         fix_prompt,
         {"description": step_description, "error": error_message, "original_hogql": original_hogql},

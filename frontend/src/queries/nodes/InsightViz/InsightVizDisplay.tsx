@@ -7,9 +7,6 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { Funnel } from 'scenes/funnels/Funnel'
-import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     BoxPlotMissingPropertyState,
     FunnelDataWarehouseStepIncompleteState,
@@ -35,10 +32,6 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
-import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
-import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
-import { FunnelTimeToConvertTable } from 'scenes/insights/views/Funnels/FunnelTimeToConvertTable'
-import { FunnelTrendsTable } from 'scenes/insights/views/Funnels/FunnelTrendsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
@@ -59,6 +52,13 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
+import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
+import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { FunnelStepsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelStepsTable/FunnelStepsTable'
+import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable'
+import { FunnelTrendsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTrendsTable/FunnelTrendsTable'
 import { Journeys } from 'products/product_analytics/frontend/insights/journeys/Journeys'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
@@ -94,7 +94,7 @@ function DashboardInsightRefreshHintOrLoading({
                 key={queryId}
                 insightProps={insightProps}
                 renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+                suppressSlowQuerySuggestions
             />
         )
     }
@@ -498,7 +498,15 @@ export function InsightVizDisplay({
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return null
+        return (
+            <InsightLoadingState
+                queryId={queryId}
+                key={queryId}
+                insightProps={insightProps}
+                renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+            />
+        )
     }
 
     return (
