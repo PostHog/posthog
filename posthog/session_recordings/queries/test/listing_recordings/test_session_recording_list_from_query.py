@@ -37,6 +37,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
+from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
@@ -123,6 +124,27 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team=team,
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
+        )
+
+    def test_filters_recommended_recordings_by_surfacing_score(self) -> None:
+        recommended_session_id = str(uuid7())
+        for session_id, surfacing_score in (
+            (recommended_session_id, 0.8),
+            (str(uuid7()), 0.36),
+            (str(uuid7()), 0.2),
+            (str(uuid7()), None),
+        ):
+            produce_replay_summary(
+                distinct_id="user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                surfacing_score=surfacing_score,
+            )
+
+        self._assert_query_matches_session_ids(
+            {"recommended_only": True},
+            [recommended_session_id],
         )
 
     @property
@@ -3735,6 +3757,47 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         self._assert_query_matches_session_ids(
             {"properties": two_page_filters, "operand": "OR"},
             [session_id_one, session_id_two],
+        )
+
+    def test_filter_for_recordings_by_visited_page_negative_operator(self):
+        user = "test_visited_page_negative_filter-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        pricing_only = "pricing only session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=pricing_only,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/pricing"],
+        )
+        pricing_and_billing = "pricing and billing session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=pricing_and_billing,
+            team_id=self.team.id,
+            all_urls=["https://example.com/pricing", "https://example.com/billing"],
+        )
+        no_urls = "no urls session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=no_urls,
+            team_id=self.team.id,
+            all_urls=[],
+        )
+
+        # A negative filter applies to the whole recording: one visit to a matching page excludes it,
+        # and a recording with no pages cannot have visited one
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "not_icontains", "type": "recording"}]'
+            },
+            [pricing_only, no_urls],
+        )
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "icontains", "type": "recording"}]'
+            },
+            [pricing_and_billing],
         )
 
     def test_duration_always_anded_with_visited_page_under_or(self):

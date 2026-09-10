@@ -11,6 +11,7 @@ definition + column set is stored on the saved query so an unchanged view never 
 """
 
 import json
+import time
 import asyncio
 import hashlib
 from typing import Any
@@ -26,9 +27,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import Product
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
+    ENRICHMENT_BATCH_BUDGET_SECONDS,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_COLUMNS_PER_TABLE,
+    MAX_ENRICHMENT_BATCHES,
     MAX_PROMPT_CHARS,
+    BoundedPrompt,
     bound_prompt_over_columns,
     collapse_untrusted,
     generate_json_completion,
@@ -281,8 +285,12 @@ def build_bounded_view_enrichment_prompt(
     known_descriptions: dict[str, str],
     columns_needing_description: list[str],
     business_context: str,
-) -> str:
-    """Build the view prompt, capping the unbounded free-text inputs and trimming columns to fit the window."""
+) -> BoundedPrompt:
+    """Build the view prompt, capping the unbounded free-text inputs and trimming columns to fit the window.
+
+    The result carries the columns it had to defer; this surface records enrichment per view rather
+    than per column, so the caller must not store the hash while any are outstanding.
+    """
     business_context = business_context[:MAX_BUSINESS_CONTEXT_CHARS]
     if len(query_definition) > MAX_VIEW_DEFINITION_CHARS:
         # Signal the cut so the model treats the SQL as partial, not the whole definition.
@@ -371,46 +379,92 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
     view_row = existing.get("")
     view_needs_description = not (view_row and view_row.is_user_edited)
 
+    # Columns past the per-pass cap are never asked about. The cap is deterministic, so a retry cannot
+    # reach them and withholding the hash would repeat the same pass forever; logged instead.
+    over_cap = [
+        column["name"]
+        for column in all_columns[MAX_COLUMNS_PER_TABLE:]
+        if not (existing.get(column["name"]) and existing[column["name"]].is_user_edited)
+    ]
+
     ai_count = 0
+    unfinished: list[str] = []
     if columns_needing_description or view_needs_description:
         business_context = get_team_business_context(team)
         lineage = _gather_lineage(team, saved_query, query_str)
         # Only sample a materialized view — running the raw view query for an unmaterialized one is unbounded.
         row_sample = _get_row_sample(saved_query) if _has_sampleable_rows(saved_query) else []
-        prompt = build_bounded_view_enrichment_prompt(
-            view_name=saved_query.name,
-            query_definition=query_str,
-            columns=columns,
-            lineage=lineage,
-            row_sample=row_sample,
-            known_descriptions=known_descriptions,
-            columns_needing_description=columns_needing_description,
-            business_context=business_context,
-        )
-        log.info("view_enrichment.llm_call_started", columns_requested=len(columns_needing_description))
-        try:
-            generated, usage = generate_json_completion(
-                product=GATEWAY_PRODUCT, team_id=team_id, prompt=prompt, model=DEFAULT_ENRICHMENT_MODEL
+
+        # Batched rather than dropping the tail: enrichment is recorded per view, so a dropped column is
+        # latched as done by the hash below. A later pass cannot recover it either, because only
+        # user-edited columns leave the ask list, so the same tail would drop again.
+        remaining = columns_needing_description
+        wants_view_description = view_needs_description
+        batch_deadline = time.monotonic() + ENRICHMENT_BATCH_BUDGET_SECONDS
+        batch_number = 0
+        # The view-level description still needs one call when every column is user-edited, so an
+        # empty ask list is not on its own a reason to skip the first batch.
+        while (remaining or wants_view_description) and batch_number < MAX_ENRICHMENT_BATCHES:
+            # The first call always runs, so batching cannot push this activity past a deadline one
+            # call would have met. Later batches yield to the clock and leave the rest for the retry.
+            if batch_number and time.monotonic() > batch_deadline:
+                log.info("view_enrichment.batch_budget_exhausted", columns_remaining=len(remaining))
+                break
+            batch_number += 1
+            bounded = build_bounded_view_enrichment_prompt(
+                view_name=saved_query.name,
+                query_definition=query_str,
+                columns=columns,
+                lineage=lineage,
+                row_sample=row_sample,
+                known_descriptions=known_descriptions,
+                columns_needing_description=remaining,
+                business_context=business_context,
             )
-        except Exception as e:
-            capture_exception(e)
-            log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)
-            # Don't store the hash — the next trigger retries.
-            return {"status": "partial", "ai_annotations": 0, "error": "llm_failed"}
+            if not bounded.requested and not wants_view_description:
+                # Nothing fit even after context was dropped first, so another identical call buys
+                # nothing. Backstop only; the loop condition covers the ordinary exit.
+                break
+            log.info(
+                "view_enrichment.llm_call_started",
+                columns_requested=len(bounded.requested),
+                columns_remaining=len(bounded.deferred),
+            )
+            try:
+                generated, usage = generate_json_completion(
+                    product=GATEWAY_PRODUCT,
+                    team_id=team_id,
+                    prompt=bounded.prompt,
+                    model=DEFAULT_ENRICHMENT_MODEL,
+                    max_output_tokens=bounded.max_output_tokens,
+                )
+            except Exception as e:
+                capture_exception(e)
+                log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)
+                # Don't store the hash, so the next trigger retries. Any earlier batch's annotations
+                # are already persisted and are simply re-drafted then.
+                return {"status": "partial", "ai_annotations": ai_count, "error": "llm_failed"}
 
-        log.info("view_enrichment.llm_call", columns_requested=len(columns_needing_description), **usage)
+            log.info("view_enrichment.llm_call", columns_requested=len(bounded.requested), **usage)
 
-        generated_columns = generated.get("columns") or {}
-        if isinstance(generated_columns, dict):
-            for column_name in columns_needing_description:
-                description = generated_columns.get(column_name)
-                if isinstance(description, str) and description.strip():
-                    _upsert(saved_query, team_id, column_name, description.strip())
-                    ai_count += 1
+            generated_columns = generated.get("columns") or {}
+            if isinstance(generated_columns, dict):
+                for column_name in bounded.requested:
+                    description = generated_columns.get(column_name)
+                    if isinstance(description, str) and description.strip():
+                        _upsert(saved_query, team_id, column_name, description.strip())
+                        ai_count += 1
 
-        view_description = generated.get("view_description")
-        if view_needs_description and isinstance(view_description, str) and view_description.strip():
-            _upsert(saved_query, team_id, "", view_description.strip())
+            if wants_view_description:
+                view_description = generated.get("view_description")
+                if isinstance(view_description, str) and view_description.strip():
+                    _upsert(saved_query, team_id, "", view_description.strip())
+                # Cleared whether or not the model answered: the next batch carries the same definition,
+                # so re-asking cannot produce what this reply withheld, and would burn the budget.
+                wants_view_description = False
+
+            remaining = bounded.deferred
+        unfinished = remaining
 
     # Drop non-user-edited annotations for columns that no longer exist; keep user edits and the view row.
     stale = [
@@ -424,13 +478,20 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         ).delete()
 
     # Store the hash via queryset update() — bypasses post_save so it never re-triggers the signal.
-    DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update(semantic_enrichment_hash=current_hash)
+    # Withheld only for columns still unasked when the budget ran out: the hash short-circuits the next
+    # run. `over_cap` is exempt, since a deterministic cap makes the retry repeat the same pass.
+    if not unfinished:
+        DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update(semantic_enrichment_hash=current_hash)
     log.info(
         "view_enrichment.done",
         ai=ai_count,
         stale_deleted=len(stale),
         llm_called=bool(columns_needing_description or view_needs_description),
+        unfinished=len(unfinished),
+        over_cap=len(over_cap),
     )
+    if unfinished:
+        return {"status": "partial", "ai_annotations": ai_count, "unfinished_columns": len(unfinished)}
     return {"status": "done", "ai_annotations": ai_count}
 
 

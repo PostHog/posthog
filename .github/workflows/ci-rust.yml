@@ -125,6 +125,7 @@ jobs:
                       "capture": 102,
                       "capture-load-gen": 38,
                       "capture-logs": 87,
+                      "capture-apm-metrics": 5,
                       "cohort-core": 22,
                       "cohort-event-shuffler": 25,
                       "cohort-seeder": 77,

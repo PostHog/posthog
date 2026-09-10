@@ -1,3 +1,4 @@
+import { getCustomCloud } from "./custom-cloud";
 import type { CloudRegion } from "./regions";
 
 export function getCloudUrlFromRegion(region: CloudRegion): string {
@@ -10,5 +11,7 @@ export function getCloudUrlFromRegion(region: CloudRegion): string {
       return "http://localhost:8010";
     case "dev-cloud":
       return "https://app.dev.posthog.dev";
+    case "custom":
+      return getCustomCloud()?.url ?? "";
   }
 }

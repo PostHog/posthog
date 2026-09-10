@@ -305,15 +305,23 @@ def test_dispatch_no_notification_without_team_channel_or_user_config(org_and_te
     assert slack_cls.call_count == 0
 
 
+@pytest.mark.parametrize(
+    ("target", "expected_conversation", "expects_mention"),
+    [
+        ("C123|#inbox", "C123", True),
+        # A member target is delivered as a direct message, which mentions nobody.
+        ("U0123ABC456|@reviewer", "U0123ABC456", False),
+    ],
+)
 @pytest.mark.django_db
-def test_dispatch_sends_to_configured_reviewer(org_and_team):
+def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_conversation, expects_mention):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer2@example.com", "another-bot")
     integration = _make_slack_integration(team, user)
     SignalUserAutonomyConfig.objects.create(
         user=user,
         slack_notification_integration=integration,
-        slack_notification_channel="C123|#inbox",
+        slack_notification_channel=target,
     )
     report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["another-bot"])
 
@@ -331,14 +339,41 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
-    assert call_kwargs["channel"] == "C123"
+    assert call_kwargs["channel"] == expected_conversation
     assert "Report (P1)" in call_kwargs["text"]
     blocks = call_kwargs["blocks"]
     assert blocks[0]["text"]["text"] == "Test report"
     assert blocks[1]["text"].startswith("**❗ P1 · Error tracking**")
-    assert "👤 Suggested reviewers: <@U_REVIEWER>" in blocks[2]["elements"][0]["text"]
+    context_text = blocks[2]["elements"][0]["text"]
+    if expects_mention:
+        assert "👤 Suggested reviewers: <@U_REVIEWER>" in context_text
+    else:
+        assert "Suggested reviewers" not in context_text
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_a_direct_message_to_an_ineligible_member(org_and_team):
+    # Report contents must not follow a member who left the workspace or became a guest.
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-dm@example.com", "dm-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="U0123ABC456|@reviewer",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["dm-bot"])
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        slack_cls.return_value.get_user_by_id.return_value = None
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
 
 
 @pytest.mark.django_db
@@ -487,8 +522,11 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
         return {"own@example.com": "U_OWN", "fallback@example.com": "U_FALLBACK"}.get(email.strip().lower())
 
     fake_client = MagicMock()
+    capture_context = MagicMock()
+    capture = capture_context.__enter__.return_value
     with (
         patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.ph_scoped_capture", return_value=capture_context),
         patch(
             "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
             side_effect=_slack_id,
@@ -501,6 +539,7 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
     assert fake_client.chat_postMessage.call_count == 1
     body = fake_client.chat_postMessage.call_args.kwargs["blocks"][2]["elements"][0]["text"]
     assert "<@U_OWN>" in body and "<@U_FALLBACK>" in body
+    assert capture.call_args.kwargs["properties"]["destination"] == "team"
 
 
 @pytest.mark.django_db
