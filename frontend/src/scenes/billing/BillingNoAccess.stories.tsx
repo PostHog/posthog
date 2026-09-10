@@ -18,4 +18,10 @@ type Story = StoryObj<typeof BillingNoAccess>
 
 export const Restricted: Story = {}
 
-export const CheckingAgain: Story = { args: { retryLoading: true } }
+export const CheckingAgain: Story = {
+    parameters: {
+        // The button spins for as long as the story renders, so the snapshot cannot wait it out.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    args: { retryLoading: true },
+}
