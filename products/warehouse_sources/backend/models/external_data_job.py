@@ -69,6 +69,15 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
             ),
+            # Serves the per-organization billing sum (`_rows_synced_in_billing_period`):
+            # equality on team/status with a finished_at range. `billable` trails the range
+            # column, so it filters index entries instead of narrowing the scan. Without it
+            # the team/pipeline index cannot skip past `pipeline`, so the read walks every
+            # job the organization's teams ever synced.
+            models.Index(
+                fields=["team", "status", "finished_at", "billable"],
+                name="idx_extdatajob_team_stat_fin",
+            ),
         ]
 
     def folder_path(self) -> str:
