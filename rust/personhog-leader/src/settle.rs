@@ -89,17 +89,76 @@ pub async fn drop_settled_death_documents(
         {
             continue;
         }
-        let mutex = locks.entry(key.clone()).or_default().value().clone();
-        let _guard = mutex.lock().await;
-        // Re-proved under the lock so a concurrent commit's newer entry
-        // is never dropped.
-        if cache
-            .peek(mark.partition, key)
-            .as_ref()
-            .is_some_and(settled)
         {
-            cache.remove(mark.partition, key);
-            counter!("personhog_leader_death_documents_settled_total").increment(1);
+            let mutex = locks.entry(key.clone()).or_default().value().clone();
+            let _guard = mutex.lock().await;
+            // Re-proved under the lock so a concurrent commit's newer entry
+            // is never dropped.
+            if cache
+                .peek(mark.partition, key)
+                .as_ref()
+                .is_some_and(settled)
+            {
+                cache.remove(mark.partition, key);
+                counter!("personhog_leader_death_documents_settled_total").increment(1);
+            }
         }
+        // Drop the just-minted lock so a delete storm cannot pile idle
+        // entries between sweeps; strong_count == 1 means the map alone holds it.
+        locks.remove_if(key, |_, m| Arc::strong_count(m) == 1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::approx_person_bytes;
+
+    fn death_person(version: i64) -> CachedPerson {
+        CachedPerson {
+            id: 1,
+            uuid: "dead-1".to_string(),
+            team_id: 7,
+            properties: Vec::new(),
+            created_at: 1_700_000_000,
+            version,
+            is_identified: true,
+            is_deleted: true,
+            last_seen_at: None,
+            approx_bytes: approx_person_bytes(0),
+        }
+    }
+
+    #[tokio::test]
+    async fn settling_a_death_document_leaves_no_lock_entry() {
+        let cache = PartitionedCache::new(16);
+        cache.create_partition(0);
+        let key = PersonCacheKey {
+            team_id: 7,
+            person_id: 1,
+        };
+        cache.put(0, key.clone(), death_person(5));
+
+        let locks: DashMap<PersonCacheKey, Arc<Mutex<()>>> = DashMap::new();
+        let pruned = vec![(
+            key.clone(),
+            DirtyMark {
+                version: 5,
+                offset: 0,
+                partition: 0,
+                is_deleted: true,
+            },
+        )];
+
+        drop_settled_death_documents(&cache, &locks, &pruned).await;
+
+        assert!(
+            cache.peek(0, &key).is_none(),
+            "settled death document should be dropped"
+        );
+        assert!(
+            locks.is_empty(),
+            "settle must not leave an idle lock entry in the map"
+        );
     }
 }
