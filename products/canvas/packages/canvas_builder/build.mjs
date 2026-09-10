@@ -51,7 +51,9 @@ export function CanvasFragment({ path, fallback = null, props }) {
         return () => {
             live = false
         }
-    }, [path, entry?.contentHash, entry?.file])
+    // Keyed on the content hash, not the URL: every build serves the chunk from
+    // its own base, so an unchanged fragment must keep its mounted component.
+    }, [path, entry?.contentHash])
     if (!Loaded) return fallback
     return <Loaded {...(props ?? {})} />
 }

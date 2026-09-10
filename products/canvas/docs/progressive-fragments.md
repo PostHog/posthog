@@ -43,7 +43,7 @@ The builder makes fragments reuse the layout's instances:
 The artifact runtime appends a fragments IIFE to `assets/canvas-runtime.js`, emitted per build with `manifest.fragments` inlined.
 It exposes `globalThis.__posthogCanvasFragments` with `base`, `fragments`, `subscribe`, `report`, and `error`.
 
-- Host to canvas: `{ channel: "posthog-canvas", type: "set-fragments", base, fragments, platformCss }`. The runtime resolves each `file` to an absolute URL against `base`, swaps the platform stylesheet when `platformCss` changed, then notifies every subscribed marker. Markers whose entry changed re-import and remount their component, so local component state is lost.
+- Host to canvas: `{ channel: "posthog-canvas", type: "set-fragments", base, fragments, platformCss }`. The runtime resolves each `file` to an absolute URL against `base`, swaps the platform stylesheet when `platformCss` changed, then notifies every subscribed marker. A marker re-imports and remounts its component only when the fragment's `contentHash` changed; the chunk URL differs on every build, so the hash is the identity. Unchanged fragments keep their mounted component and local state.
 - Canvas to host: `{ channel: "posthog-canvas", type: "fragment-rendered", path }` once a fragment's component is loaded.
 - Errors use the existing `error` message with `Fragment <path>: <message>`.
 
