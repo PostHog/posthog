@@ -14,6 +14,7 @@ import {
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { Button } from "@posthog/ui/primitives/Button";
+import { isMac } from "@posthog/ui/utils/platform";
 import { AlertDialog, Flex } from "@radix-ui/themes";
 import { useCallback, useState } from "react";
 
@@ -81,7 +82,8 @@ export function InboxBulkSelectionBar({
             {selectedCount} selected
           </span>
           <span className="text-[12px] text-gray-10">
-            Hold or {"\u2318"}-click a card · Shift-click a range · Esc to clear
+            Hold or {isMac ? "\u2318" : "Ctrl"}-click a card · Shift-click a
+            range · Esc to clear
           </span>
         </Flex>
 
