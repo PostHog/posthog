@@ -74,6 +74,18 @@ describe('RestrictedArea', () => {
         }).toDispatchActions(['loadCurrentOrganization'])
     })
 
+    it('leaves a read already in flight to cover a surface opened on top of it', async () => {
+        useMocks(pendingOrganizationRead)
+
+        await expectLogic(organizationLogic, () => {
+            renderHook(() => useRestrictedAreaCheck(adminOnly))
+        }).toDispatchActions(['loadCurrentOrganization'])
+
+        await expectLogic(organizationLogic, () => {
+            renderHook(() => useRestrictedAreaCheck(adminOnly))
+        }).toNotHaveDispatchedActions(['loadCurrentOrganization'])
+    })
+
     it('keeps reporting the pending organization as a reason for `useRestrictedArea` callers', () => {
         organizationLogic.actions.loadCurrentOrganizationSuccess(null)
 

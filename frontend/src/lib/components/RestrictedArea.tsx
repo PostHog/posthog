@@ -137,11 +137,16 @@ export function useRestrictedAreaCheck(props: UseRestrictedAreaProps): Restricte
     // because there is nothing to refresh and the retry covers a read that came back empty.
     const hasRevalidated = useRef(false)
     useEffect(() => {
-        if (!loadingReason && !hasRevalidated.current) {
-            hasRevalidated.current = true
+        if (loadingReason || hasRevalidated.current) {
+            return
+        }
+        hasRevalidated.current = true
+        // A read already on its way covers this surface too. Opening billing redirects into a second
+        // scene, so a fresh instance mounts on top of the read the first one just started.
+        if (!isScopeLoading) {
             revalidate()
         }
-    }, [loadingReason, revalidate])
+    }, [loadingReason, isScopeLoading, revalidate])
 
     return {
         restrictionReason: isUnavailable ? `We couldn't check your access to the current ${scope}.` : restrictionReason,
