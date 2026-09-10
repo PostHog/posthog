@@ -1,5 +1,4 @@
 import hashlib
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
@@ -69,7 +68,7 @@ ANALYTICS_ACCESS_MISSING = (
 )
 
 
-@dataclasses.dataclass
+@frozen
 class AnthropicResumeConfig:
     # Opaque pagination cursor: an `after_id` for CURSOR endpoints or a `next_page` token for PAGE
     # endpoints. None means "start at the first page".
