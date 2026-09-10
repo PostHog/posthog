@@ -1,7 +1,7 @@
 from typing import Literal
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from django.db import OperationalError
 
@@ -36,7 +36,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
 )
 
 
-@freeze_time("2026-08-06T12:01:30Z")
+@time_machine.travel("2026-08-06T12:01:30Z", tick=False)
 def test_record_boot_total_excludes_wizard_time_and_labels_runtime(mocker) -> None:
     record_metric = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_boot_total_ms"
