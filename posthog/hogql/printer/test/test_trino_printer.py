@@ -354,7 +354,6 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         ("arrayZip([1], [2], [3], [4], [5], [6])", "TRINO_ARRAY_ZIP_DYNAMIC_UNSUPPORTED"),
         ("extractAllGroups(user_id, user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
         ("extractAllGroups(user_id, '(a)(b)(c)(d)(e)(f)')", "TRINO_REGEX_GROUPS_UNSUPPORTED"),
-        ("replaceRegexpOne(user_id, '(?i)a', 'b')", "TRINO_REGEX_PATTERN_UNSUPPORTED"),
         ("replaceRegexpOne(user_id, 'a', user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
     ],
 )
@@ -375,6 +374,13 @@ def test_first_regex_replacement_preserves_capture_indices_and_literal_dollars()
     assert "$" in context.values.values()
     assert "coalesce(__hogql_match[4], '') || %(hogql_val_0)s || coalesce(__hogql_match[3], '')" in sql
     assert "__hogql_match[5]" in sql
+
+
+def test_first_regex_replacement_preserves_inline_flags() -> None:
+    context = _context_with_trino_table()
+    prepare_and_print_ast(parse_select("SELECT replaceRegexpOne(user_id, '(?i)a', 'b') FROM users"), context, "trino")
+
+    assert r"(?s)\A(.*?)((?i)a)(.*)\z" in context.values.values()
 
 
 @pytest.mark.parametrize(
@@ -1099,6 +1105,45 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("JSONExtractString(properties)", 'json_extract_scalar("users"."properties",'),
         ("created_at + 2", "date_add('second', CAST(2 AS BIGINT)"),
         ("['a'][3]", "element_at(ARRAY[%(hogql_val_0)s], 3)"),
+        ("divideDecimal(toDecimal(1, 10), toDecimal(100, 10))", "(CAST(1 AS DECIMAL(38, 10)) /"),
+        (
+            "divideDecimal(toDecimal(1, 10), toDecimal(100, 10), 4)",
+            "AS DECIMAL(38, 4))",
+        ),
+        ("arrayAll(x -> x > 0, [1, 2])", 'all_match(ARRAY[1, 2], "x" -> ("x" > 0))'),
+        (
+            "arrayIntersect([1, 2], [2, 3], [2, 4])",
+            "array_intersect(array_intersect(array_distinct(ARRAY[1, 2]), ARRAY[2, 3]), ARRAY[2, 4])",
+        ),
+        (
+            "positionCaseInsensitive(user_id, 'A', 2)",
+            'CASE WHEN strpos(lower(substr("users"."user_id", 2)), lower(%(hogql_val_0)s)) = 0 THEN 0',
+        ),
+        ("cutFragment(user_id)", "regexp_replace(\"users\".\"user_id\", '#.*$', '')"),
+        (
+            "cutQueryStringAndFragment(user_id)",
+            "regexp_replace(\"users\".\"user_id\", '[?#].*$', '')",
+        ),
+        ("cutQueryString(user_id)", "regexp_replace(\"users\".\"user_id\", '\\?.*$', '')"),
+        ("path(user_id)", 'url_extract_path("users"."user_id")'),
+        ("decodeURLComponent(user_id)", 'url_decode("users"."user_id")'),
+        ("trimLeft(user_id)", 'ltrim("users"."user_id")'),
+        ("trimRight(user_id)", 'rtrim("users"."user_id")'),
+        ("toFloatOrNull(user_id)", 'TRY_CAST("users"."user_id" AS DOUBLE)'),
+        ("_toInt16(12)", "CAST(12 AS SMALLINT)"),
+        ("to_date(created_at)", 'CAST("users"."created_at" AS DATE)'),
+        ("map('key', 1)", "map(ARRAY[%(hogql_val_0)s], ARRAY[1])"),
+        (
+            "transform(user_id, ['a'], ['A'], 'other')",
+            'CASE WHEN contains(ARRAY[%(hogql_val_0)s], "users"."user_id") '
+            "THEN element_at(ARRAY[%(hogql_val_1)s], array_position(",
+        ),
+        ("first_value(user_id)", 'arbitrary("users"."user_id")'),
+        (
+            "toStartOfDay(created_at, 'America/Toronto')",
+            "date_trunc('day', at_timezone(with_timezone(CAST(",
+        ),
+        ("like(user_id, '%example')", '("users"."user_id" LIKE %(hogql_val_0)s)'),
     ],
 )
 def test_prints_safe_pr_91053_function_mappings(expression: str, expected: str) -> None:
@@ -1214,6 +1259,36 @@ def test_unqualifies_order_by_when_output_alias_shadows_relation_name() -> None:
     assert "ORDER BY 1 DESC, 2 DESC" in sql
 
 
+def test_lowers_offset_in_frame_over_a_full_partition() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT leadInFrame(user_id, 1, '') OVER ("
+            "ORDER BY created_at ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING"
+            ") FROM users"
+        ),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert 'lead("users"."user_id", 1, %(hogql_val_0)s) OVER (ORDER BY "users"."created_at" ASC)' in sql
+    assert "ROWS BETWEEN" not in sql
+
+
+def test_lowers_lag_in_frame_when_the_offset_is_inside_the_frame() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT lagInFrame(created_at) OVER ("
+            "ORDER BY created_at ROWS BETWEEN 1 PRECEDING AND CURRENT ROW"
+            ") FROM users"
+        ),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert 'lag("users"."created_at") OVER (ORDER BY "users"."created_at" ASC)' in sql
+    assert "ROWS BETWEEN" not in sql
+
+
 @pytest.mark.parametrize(
     ("expression", "feature_code"),
     [
@@ -1222,7 +1297,7 @@ def test_unqualifies_order_by_when_output_alias_shadows_relation_name() -> None:
             "row_number() OVER (ORDER BY created_at ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)",
             "TRINO_WINDOW_FRAME_UNSUPPORTED",
         ),
-        ("lagInFrame(user_id) OVER (ORDER BY created_at)", "TRINO_LAG_IN_FRAME_UNSUPPORTED"),
+        ("lagInFrame(user_id) OVER (ORDER BY created_at)", "TRINO_OFFSET_IN_FRAME_UNSUPPORTED"),
     ],
 )
 def test_rejects_unsafe_trino_window_shapes(expression: str, feature_code: str) -> None:
@@ -1267,6 +1342,22 @@ def test_lowers_left_any_join_by_deduplicating_the_right_relation() -> None:
     assert 'row_number() OVER (PARTITION BY "__hogql_any_source_0"."user_id")' in sql
     assert 'WHERE ("__hogql_any_ranked_0"."__hogql_any_row_0" = 1)' in sql
     assert ') AS "other" ON ("users"."user_id" = "other"."user_id")' in sql
+
+
+def test_lowers_left_any_join_against_a_cte() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "WITH right_rows AS (SELECT user_id, created_at FROM users) "
+            "SELECT users.user_id, other.created_at FROM users "
+            "LEFT ANY JOIN right_rows AS other ON users.user_id = other.user_id"
+        ),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert "LEFT ANY JOIN" not in sql
+    assert 'row_number() OVER (PARTITION BY "__hogql_any_source_0"."user_id")' in sql
+    assert '"right_rows" AS "__hogql_any_source_0"' in sql
 
 
 @pytest.mark.parametrize(

@@ -29,6 +29,10 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "mapFromArrays": "map",
     "mapUpdate": "map_concat",
     "log": "ln",
+    "path": "url_extract_path",
+    "decodeURLComponent": "url_decode",
+    "trimLeft": "ltrim",
+    "trimRight": "rtrim",
 }
 
 
@@ -174,6 +178,11 @@ def _divide(args: list[str]) -> str:
     return f"(CAST({args[0]} AS DOUBLE) / CAST({args[1]} AS DOUBLE))"
 
 
+def _divide_decimal(args: list[str]) -> str:
+    _require_args("divideDecimal", args, 2)
+    return f"({args[0]} / {args[1]})"
+
+
 def _not(args: list[str]) -> str:
     _require_args("not", args, 1)
     return f"(NOT {args[0]})"
@@ -215,8 +224,14 @@ def _position(args: list[str]) -> str:
 
 
 def _position_case_insensitive(args: list[str]) -> str:
-    _require_args("positionCaseInsensitive", args, 2)
-    return f"strpos(lower({args[0]}), lower({args[1]}))"
+    if len(args) == 2:
+        return f"strpos(lower({args[0]}), lower({args[1]}))"
+    if len(args) == 3:
+        match = f"strpos(lower(substr({args[0]}, {args[2]})), lower({args[1]}))"
+        return f"CASE WHEN {match} = 0 THEN 0 ELSE {match} + {args[2]} - 1 END"
+    raise _invalid_arguments(
+        "positionCaseInsensitive", "positionCaseInsensitive expects two or three arguments in Trino mode."
+    )
 
 
 def _replace_one(args: list[str]) -> str:
@@ -245,6 +260,47 @@ def _array_slice(args: list[str]) -> str:
     clipped_start = f"greatest(1, {start})"
     length = f"IF({offset} = 0, 0, greatest(0, {end} - {clipped_start} + 1))"
     return f"slice({array}, {clipped_start}, {length})"
+
+
+def _array_intersect(args: list[str]) -> str:
+    if not args:
+        raise _invalid_arguments("arrayIntersect", "arrayIntersect expects at least one argument in Trino mode.")
+    result = f"array_distinct({args[0]})"
+    for arg in args[1:]:
+        result = f"array_intersect({result}, {arg})"
+    return result
+
+
+def _cut_fragment(args: list[str]) -> str:
+    _require_args("cutFragment", args, 1)
+    return f"regexp_replace({args[0]}, '#.*$', '')"
+
+
+def _cut_query_string(args: list[str]) -> str:
+    _require_args("cutQueryString", args, 1)
+    return f"regexp_replace({args[0]}, '\\?.*$', '')"
+
+
+def _cut_query_string_and_fragment(args: list[str]) -> str:
+    _require_args("cutQueryStringAndFragment", args, 1)
+    return f"regexp_replace({args[0]}, '[?#].*$', '')"
+
+
+def _map(args: list[str]) -> str:
+    if not args or len(args) % 2 != 0:
+        raise _invalid_arguments("map", "map expects one or more key/value pairs in Trino mode.")
+    return f"map(ARRAY[{', '.join(args[::2])}], ARRAY[{', '.join(args[1::2])}])"
+
+
+def _transform(args: list[str]) -> str:
+    if len(args) not in {3, 4}:
+        raise _invalid_arguments("transform", "transform expects three or four arguments in Trino mode.")
+    value, source, target = args[:3]
+    fallback = args[3] if len(args) == 4 else value
+    return (
+        f"CASE WHEN contains({source}, {value}) "
+        f"THEN element_at({target}, array_position({source}, {value})) ELSE {fallback} END"
+    )
 
 
 def _to_monday(args: list[str]) -> str:
@@ -303,6 +359,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toFloat": _cast("toFloat", "DOUBLE"),
     "toFloatOrZero": _cast_or_default("toFloatOrZero", "DOUBLE", "0e0"),
     "toFloatOrDefault": _cast_or_default("toFloatOrDefault", "DOUBLE", "0e0"),
+    "toFloatOrNull": _float_or_null,
     "toFloat64OrNull": _float_or_null,
     "toBool": _cast("toBool", "BOOLEAN"),
     "toUUID": _cast("toUUID", "UUID"),
@@ -372,6 +429,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "minus": _binary("minus", "-"),
     "multiply": _binary("multiply", "*"),
     "divide": _divide,
+    "divideDecimal": _divide_decimal,
     "modulo": _binary("modulo", "%"),
     "and": _logical("and", "AND"),
     "or": _logical("or", "OR"),
@@ -385,6 +443,17 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "positionCaseInsensitive": _position_case_insensitive,
     "replaceOne": _replace_one,
     "arraySlice": _array_slice,
+    "arrayIntersect": _array_intersect,
+    "cutFragment": _cut_fragment,
+    "cutQueryString": _cut_query_string,
+    "cutQueryStringAndFragment": _cut_query_string_and_fragment,
+    "_toInt8": _cast("_toInt8", "TINYINT"),
+    "_toInt16": _cast("_toInt16", "SMALLINT"),
+    "_toInt32": _cast("_toInt32", "INTEGER"),
+    "_toInt64": _cast("_toInt64", "BIGINT"),
+    "to_date": _cast("to_date", "DATE"),
+    "map": _map,
+    "transform": _transform,
     "toMonday": _to_monday,
     "toIntervalMonth": _to_interval_month,
     "e": _e,

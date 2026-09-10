@@ -32,22 +32,25 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             raise TrinoLoweringError("TRINO_ANY_JOIN_ON_REQUIRED", f"{join_type} without an ON constraint", lowered)
 
         table_type = lowered.type
-        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.CTETableAliasType)):
+            if isinstance(table_type, ast.CTETableAliasType):
+                table_type = table_type.cte_table_type
+                continue
             table_type = table_type.table_type
-        if not isinstance(table_type, ast.TableType) or not getattr(table_type.table, "has_complete_columns", False):
+        if isinstance(table_type, ast.CTETableType):
+            column_names = list(table_type.select_query_type.columns)
+        elif isinstance(table_type, ast.SelectQueryAliasType):
+            column_names = list(table_type.select_query_type.columns)
+        elif not isinstance(table_type, ast.TableType) or not getattr(table_type.table, "has_complete_columns", False):
             raise TrinoLoweringError(
                 "TRINO_ANY_JOIN_COMPLETE_TABLE_REQUIRED",
                 f"{join_type} against a relation without a complete physical column list",
                 lowered,
             )
-        if any(not isinstance(field, DatabaseField) for field in table_type.table.fields.values()):
-            raise TrinoLoweringError(
-                "TRINO_ANY_JOIN_PHYSICAL_COLUMNS_REQUIRED",
-                f"{join_type} against a relation with logical or nested fields",
-                lowered,
-            )
-
-        column_names = [field.name for field in table_type.table.fields.values() if isinstance(field, DatabaseField)]
+        else:
+            column_names = [
+                field.name for field in table_type.table.fields.values() if isinstance(field, DatabaseField)
+            ]
         if not column_names:
             raise TrinoLoweringError("TRINO_ANY_JOIN_EMPTY_TABLE_UNSUPPORTED", f"{join_type} without columns", lowered)
         key_names = self._right_key_names(lowered.constraint.expr, lowered.alias)
@@ -131,6 +134,10 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         while isinstance(table_type, ast.ColumnAliasedTableType):
             table_type = table_type.table_type
         if isinstance(table_type, ast.TableAliasType) and table_type.alias == alias:
+            return field_type.name
+        if isinstance(table_type, ast.CTETableAliasType) and table_type.alias == alias:
+            return field_type.name
+        if isinstance(table_type, ast.SelectQueryAliasType) and table_type.alias == alias:
             return field_type.name
         return None
 

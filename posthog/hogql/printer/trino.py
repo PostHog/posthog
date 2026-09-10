@@ -361,6 +361,10 @@ class TrinoPrinter(PostgresPrinter):
             "greaterorequals": ast.CompareOperationOp.GtEq,
             "less": ast.CompareOperationOp.Lt,
             "lessorequals": ast.CompareOperationOp.LtEq,
+            "like": ast.CompareOperationOp.Like,
+            "ilike": ast.CompareOperationOp.ILike,
+            "notlike": ast.CompareOperationOp.NotLike,
+            "notilike": ast.CompareOperationOp.NotILike,
         }
         if name in comparison_operators:
             if len(node.args) != 2:
@@ -438,8 +442,8 @@ class TrinoPrinter(PostgresPrinter):
         if name == "arrayenumerate":
             value = self._visit_unary_arg(node)
             return f"IF(cardinality({value}) = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), sequence(1, cardinality({value})))"
-        if name == "arrayexists":
-            return self._visit_lambda_array_call(node, "any_match")
+        if name in {"arrayexists", "arrayall"}:
+            return self._visit_lambda_array_call(node, "any_match" if name == "arrayexists" else "all_match")
         if name == "intdiv":
             binary_args = self._visit_binary_args(node)
             if not all(isinstance(self._resolve_type(arg), ast.IntegerType) for arg in node.args):
@@ -447,6 +451,10 @@ class TrinoPrinter(PostgresPrinter):
                     "TRINO_INT_DIV_TYPE_UNSUPPORTED", "intDiv requires integer operands in Trino mode.", node
                 )
             return f"(CAST({binary_args.left} AS BIGINT) / CAST({binary_args.right} AS BIGINT))"
+        if name in {"_toint8", "_toint16", "_toint32", "_toint64"}:
+            return self._visit_internal_integer_cast(node)
+        if name == "dividedecimal" and len(node.args) == 3:
+            return self._visit_divide_decimal_with_scale(node)
         if name == "roundbankers":
             return self._visit_round_bankers(node)
         if name == "extracturlparameter":
@@ -719,6 +727,10 @@ class TrinoPrinter(PostgresPrinter):
             return f"array_agg(DISTINCT {self.visit(node.args[0])}) FILTER (WHERE {self.visit(node.args[1])})"
         if name == "countdistinct":
             return self._visit_count_distinct(node)
+        if name == "first_value":
+            if len(node.args) != 1:
+                self._invalid_function_arguments(node, "first_value expects exactly 1 argument in Trino mode.")
+            return f"arbitrary({self.visit(node.args[0])})"
         if name == "todecimal":
             return self._visit_to_decimal(node)
         if name == "tuple":
@@ -755,6 +767,10 @@ class TrinoPrinter(PostgresPrinter):
             unit, value, timezone = (self.visit(arg) for arg in node.args)
             zoned_value = f"at_timezone(with_timezone(CAST({value} AS TIMESTAMP), 'UTC'), {timezone})"
             return f"date_trunc({unit}, {zoned_value})"
+        if name == "tostartofday" and len(node.args) == 2:
+            value, timezone = (self.visit(arg) for arg in node.args)
+            zoned_value = f"at_timezone(with_timezone(CAST({value} AS TIMESTAMP), 'UTC'), {timezone})"
+            return f"date_trunc('day', {zoned_value})"
         if name == "date_part":
             return self._visit_date_part(node)
         if name == "json_value":
@@ -1000,6 +1016,40 @@ class TrinoPrinter(PostgresPrinter):
 
     def _is_numeric(self, node: ast.Expr) -> bool:
         return isinstance(self._resolve_type(node), (ast.IntegerType, ast.FloatType, ast.DecimalType))
+
+    def _visit_internal_integer_cast(self, node: ast.Call) -> str:
+        if len(node.args) != 1:
+            self._invalid_function_arguments(node, f"{node.name} expects exactly 1 argument in Trino mode.")
+        casts = {
+            "_toint8": ("TINYINT", -(2**7), 2**7 - 1),
+            "_toint16": ("SMALLINT", -(2**15), 2**15 - 1),
+            "_toint32": ("INTEGER", -(2**31), 2**31 - 1),
+            "_toint64": ("BIGINT", -(2**63), 2**63 - 1),
+        }
+        target, minimum, maximum = casts[node.name.lower()]
+        value = node.args[0]
+        if isinstance(value, ast.Constant) and isinstance(value.value, int) and not minimum <= value.value <= maximum:
+            self._unsupported(
+                "TRINO_FUNCTION_UNSUPPORTED",
+                f"{node.name} constant is outside the Trino {target} range.",
+                node,
+            )
+        return f"CAST({self.visit(value)} AS {target})"
+
+    def _visit_divide_decimal_with_scale(self, node: ast.Call) -> str:
+        scale = node.args[2]
+        if (
+            not isinstance(scale, ast.Constant)
+            or isinstance(scale.value, bool)
+            or not isinstance(scale.value, int)
+            or not 0 <= scale.value <= 38
+        ):
+            self._unsupported(
+                "TRINO_DECIMAL_SCALE_UNSUPPORTED",
+                "divideDecimal requires a constant result scale between 0 and 38 in Trino mode.",
+                node,
+            )
+        return f"CAST(({self.visit(node.args[0])} / {self.visit(node.args[1])}) AS DECIMAL(38, {scale.value}))"
 
     def _visit_json_extract(self, node: ast.Call) -> str:
         name = node.name.lower()
@@ -1655,10 +1705,10 @@ class TrinoPrinter(PostgresPrinter):
             self._unsupported(
                 "TRINO_REGEX_CONSTANT_REQUIRED", "replaceRegexpOne requires a constant replacement.", node
             )
-        if "(?" in pattern.value or re.search(r"\\[1-9]", pattern.value):
+        if re.search(r"\\[1-9]", pattern.value):
             self._unsupported(
                 "TRINO_REGEX_PATTERN_UNSUPPORTED",
-                "replaceRegexpOne requires a pattern without lookarounds, inline flags, or backreferences.",
+                "replaceRegexpOne requires a pattern without backreferences.",
                 node,
             )
         parts = ["__hogql_match[1]"]
@@ -1814,6 +1864,8 @@ class TrinoPrinter(PostgresPrinter):
         name = node.name.lower()
         if name == "countdistinct":
             return self._visit_window_count_distinct(node)
+        if name in {"laginframe", "leadinframe"}:
+            return self._visit_offset_in_frame_function(node)
         if name in {"quantile", "quantileexact", "quantileif", "quantileexactif"}:
             filtered = name.endswith("if")
             expected_args = 2 if filtered else 1
@@ -1830,12 +1882,6 @@ class TrinoPrinter(PostgresPrinter):
             self._unsupported(
                 "TRINO_WINDOW_FUNCTION_PARAMETERS_UNSUPPORTED",
                 f"Parametric window function '{node.name}' is not supported in Trino mode.",
-                node,
-            )
-        elif name == "laginframe":
-            self._unsupported(
-                "TRINO_LAG_IN_FRAME_UNSUPPORTED",
-                "lagInFrame has no semantics-safe native Trino equivalent.",
                 node,
             )
         exprs = [self.visit(expr) for expr in node.exprs or []]
@@ -1896,6 +1942,85 @@ class TrinoPrinter(PostgresPrinter):
             value = self._print_identifier("__hogql_group_array_value")
             return f"filter({windowed_call}, {value} -> {value} IS NOT NULL)"
         return windowed_call
+
+    @staticmethod
+    def _window_frame_boundary_offset(boundary: ast.WindowFrameExpr) -> float | int | None:
+        if boundary.frame_type == "CURRENT ROW":
+            return 0
+        if boundary.frame_value is None:
+            if boundary.frame_type == "PRECEDING":
+                return float("-inf")
+            if boundary.frame_type == "FOLLOWING":
+                return float("inf")
+            return None
+        value = boundary.frame_value
+        if isinstance(value, ast.Constant):
+            value = value.value
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return None
+        if boundary.frame_type == "PRECEDING":
+            return -value
+        if boundary.frame_type == "FOLLOWING":
+            return value
+        return None
+
+    def _visit_offset_in_frame_function(self, node: ast.WindowFunction) -> str:
+        window_expr = self._window_expression(node)
+        exprs = node.exprs or []
+        offset_expr = exprs[1] if len(exprs) >= 2 else ast.Constant(value=1)
+        offset = offset_expr.value if isinstance(offset_expr, ast.Constant) else None
+        target_offset = -offset if node.name.lower() == "laginframe" and isinstance(offset, int) else offset
+        frame_start = (
+            self._window_frame_boundary_offset(window_expr.frame_start)
+            if window_expr is not None and window_expr.frame_start is not None
+            else None
+        )
+        frame_end = (
+            self._window_frame_boundary_offset(window_expr.frame_end)
+            if window_expr is not None and window_expr.frame_end is not None
+            else None
+        )
+        if (
+            window_expr is None
+            or window_expr.frame_method != "ROWS"
+            or isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or offset < 0
+            or frame_start is None
+            or frame_end is None
+            or target_offset is None
+            or not frame_start <= target_offset <= frame_end
+        ):
+            self._unsupported(
+                "TRINO_OFFSET_IN_FRAME_UNSUPPORTED",
+                f"{node.name} requires a constant offset included by its ROWS frame for Trino lowering.",
+                node,
+            )
+        if not window_expr.order_by:
+            self._unsupported(
+                "TRINO_WINDOW_ORDER_REQUIRED",
+                f"Window function '{node.name}' requires ORDER BY in Trino mode.",
+                node,
+            )
+        if node.args:
+            self._unsupported(
+                "TRINO_WINDOW_FUNCTION_PARAMETERS_UNSUPPORTED",
+                f"Parametric window function '{node.name}' is not supported in Trino mode.",
+                node,
+            )
+        rendered_exprs = [self.visit(expr) for expr in exprs]
+        if not 1 <= len(rendered_exprs) <= 3:
+            self._unsupported(
+                "TRINO_WINDOW_FUNCTION_ARGUMENTS_UNSUPPORTED",
+                f"Window function '{node.name}' expects one to three arguments in Trino mode.",
+                node,
+            )
+        target = "lag" if node.name.lower() == "laginframe" else "lead"
+        lowered_window = clone_expr(window_expr)
+        lowered_window.frame_method = None
+        lowered_window.frame_start = None
+        lowered_window.frame_end = None
+        return f"{target}({', '.join(rendered_exprs)}) OVER ({self.visit(lowered_window)})"
 
     def _window_expression(self, node: ast.WindowFunction) -> ast.WindowExpr | None:
         if node.over_expr is not None:
