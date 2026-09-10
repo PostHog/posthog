@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -109,6 +109,33 @@ describe('DiscussReportButton', () => {
         expect(discussReport).toHaveBeenCalledTimes(1)
     })
 
+    it('sends a typed question with Enter from the standard sidebar input', async () => {
+        const user = await openPanel(makeReport())
+
+        await user.type(screen.getByTestId('max-chat-input'), 'Who is affected?')
+        await user.keyboard('{Enter}')
+
+        expect(discussReport).toHaveBeenCalledTimes(1)
+        expect(discussReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'https://app/report-1',
+            'Who is affected?'
+        )
+    })
+
+    it('blocks another submission while the report task is starting', async () => {
+        jest.spyOn(inboxTaskKickoffLogic.selectors, 'isCreatingPr').mockReturnValue(true)
+        const user = userEvent.setup()
+        render(<ReportDiscussionComposer report={makeReport([SUGGESTION])} reportUrl="https://app/report-1" />)
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Who is affected?' } })
+
+        expect(screen.getByTestId('inbox-report-ask-ai-submit')).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+        await user.click(screen.getByText(SUGGESTION))
+
+        expect(discussReport).not.toHaveBeenCalled()
+    })
+
     it('carries the suggestion count so a typed question can be read in context', async () => {
         // A `typed` question on a report that offered nothing is not evidence against suggestions, so
         // the count is what makes the source readable.
@@ -140,6 +167,6 @@ describe('DiscussReportButton', () => {
         // saying "tell AI what to do next" would promise an action the run won't carry out.
         await openPanel({ ...makeReport(), status: SignalReportStatus.RESOLVED })
 
-        expect(screen.getByPlaceholderText('Ask a question about this report')).toBeInTheDocument()
+        expect(screen.getByText(/Ask a question/)).toBeInTheDocument()
     })
 })

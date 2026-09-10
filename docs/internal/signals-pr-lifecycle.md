@@ -3,11 +3,13 @@
 ## Report chat
 
 The report's **Implement** and **Ask AI** actions use the PostHog AI sidebar without leaving the report.
-The sidebar shows the report title and attaches its identifier as untrusted context.
+Report actions do not change the reader's PostHog AI view preference.
+The chat uses the existing sidebar welcome and question input, with the report context chip inside the composer instead of a separate report header.
+The chip shows the report title and attaches its identifier as untrusted context.
 That context stays with the chat when the reader selects a different report.
 **Ask AI** opens a composer without starting a task.
 Selecting a suggested question or action sends it immediately.
-Typed questions still require **Send** or Command/Ctrl + Enter.
+Typed questions use the sidebar's send button or Enter.
 Consent checks, report state checks, task limits, and task-to-report links also apply to sidebar runs.
 
 When a linked task is active, **View task** replaces **Implement** and opens that task's existing run in the sidebar.

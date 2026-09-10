@@ -13,6 +13,8 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
+import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+
 import {
     PENDING_MAX_CONTEXT_KEY,
     QUESTION_SUGGESTIONS_DATA,
@@ -76,21 +78,22 @@ describe('maxLogic', () => {
         expect(actionsRequestCount).toBe(0)
     })
 
-    it('sets the question when URL has hash param #panel=max:Foo', async () => {
-        // Set up sidePanelStateLogic with the options before mounting maxLogic
+    it.each([
+        ['Foo', 'Foo'],
+        [REPORT_AI_PANEL, ''],
+    ])('seeds the question from side panel option %s', async (options, question) => {
         sidePanelStateLogic.mount()
         await expectLogic(sidePanelStateLogic, () => {
-            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'Foo')
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, options)
         }).toDispatchActions(['openSidePanel'])
 
-        // Mount maxLogic after setting up the sidePanelStateLogic state
         logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
         logic.mount()
 
-        // Check that the question has been set to "Foo"
-        await expectLogic(logic).toMatchValues({
-            question: 'Foo',
-        })
+        await expectLogic(logic).toMatchValues({ question, autoRun: false })
+        logic.actions.setQuestion('Existing draft')
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
+        expect(logic.values.question).toBe('Existing draft')
     })
 
     it('sets autoRun and question when URL has hash param #panel=max:!Foo', async () => {

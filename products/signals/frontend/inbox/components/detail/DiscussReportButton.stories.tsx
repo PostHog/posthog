@@ -1,14 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useValues } from 'kea'
+import { Suspense } from 'react'
 
+import { Spinner } from '@posthog/lemon-ui'
+
+import { SidePanelMax } from '~/layout/navigation-3000/sidepanel/panels/max/SidePanelMax'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
-import { REPORT_AI_PANEL_ID } from '../../inboxTaskKickoffLogic'
 import { DiscussReportButton } from './DiscussReportButton'
-import { ReportAiPanel } from './ReportAiPanel'
 import { ReportDiscussionComposer } from './ReportDiscussionComposer'
 
 const report = makeReport({
@@ -28,7 +30,7 @@ const meta: Meta<typeof ReportDiscussionComposer> = {
         function ReportContext(Story, context): JSX.Element {
             useAttachedContext([{ type: 'signal_report', key: report.id, label: `Report: ${report.title}` }])
             return (
-                <div className={context.name === 'Sidebar' ? 'w-[960px] max-w-full' : 'w-96 max-w-full'}>
+                <div className={context.name === 'Sidebar' ? 'w-[960px] max-w-[calc(100vw-2rem)]' : 'w-96 max-w-full'}>
                     <Story />
                 </div>
             )
@@ -58,7 +60,9 @@ export const Sidebar: Story = {
                 </div>
                 {sidePanelOpen && (
                     <div className="flex flex-col w-96 min-w-0 border-l border-primary">
-                        <ReportAiPanel panelId={REPORT_AI_PANEL_ID} />
+                        <Suspense fallback={<Spinner />}>
+                            <SidePanelMax />
+                        </Suspense>
                     </div>
                 )}
             </div>
