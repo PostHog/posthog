@@ -1,4 +1,8 @@
-import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
+import { GitPullRequestIcon } from "@phosphor-icons/react";
+import {
+  GithubRefChip,
+  GithubRefChipLink,
+} from "@posthog/ui/features/editor/components/GithubRefChip";
 import {
   PrRefChip,
   type PrRefDetails,
@@ -23,6 +27,39 @@ export const WithoutLiveDetails: Story = {
       >
         example-org/example-repo#101
       </GithubRefChip>
+    </div>
+  ),
+};
+
+const NINE_DIGIT_PULL_REQUEST = "#123456789";
+
+export const PullRequestNumberWidth: Story = {
+  render: () => (
+    <div className="flex flex-col items-start gap-4 text-[13px]">
+      <div className="flex flex-col gap-1">
+        <span className="text-(--gray-11)">Before</span>
+        <div className="w-[6ch]">
+          <GithubRefChipLink
+            href="https://github.com/example-org/example-repo/pull/123456789"
+            icon={GitPullRequestIcon}
+            preservePrNumber={false}
+          >
+            {NINE_DIGIT_PULL_REQUEST}
+          </GithubRefChipLink>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-(--gray-11)">After</span>
+        <div className="w-[6ch]">
+          <GithubRefChipLink
+            href="https://github.com/example-org/example-repo/pull/123456789"
+            icon={GitPullRequestIcon}
+            preservePrNumber
+          >
+            {NINE_DIGIT_PULL_REQUEST}
+          </GithubRefChipLink>
+        </div>
+      </div>
     </div>
   ),
 };
