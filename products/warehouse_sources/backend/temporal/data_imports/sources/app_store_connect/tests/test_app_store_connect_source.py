@@ -42,12 +42,13 @@ def _resolve_friendly_error(error_message: str) -> str | None:
     return None
 
 
-def _config(vendor_number: str | None = "85234567") -> AppStoreConnectSourceConfig:
+def _config(vendor_number: str | None = "85234567", app_ids: str | None = None) -> AppStoreConnectSourceConfig:
     return AppStoreConnectSourceConfig(
         issuer_id="57246542-96fe-1a63-e053-0824d011072a",
         key_id="2X9R4HXF34",
         private_key="-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
         vendor_number=vendor_number,
+        app_ids=app_ids,
     )
 
 
@@ -75,6 +76,7 @@ class TestAppStoreConnectSource:
             ("key_id", SourceFieldInputConfigType.TEXT, True, False),
             ("private_key", SourceFieldInputConfigType.TEXTAREA, True, True),
             ("vendor_number", SourceFieldInputConfigType.TEXT, False, False),
+            ("app_ids", SourceFieldInputConfigType.TEXT, False, False),
         ]
     )
     def test_credential_fields(
@@ -182,6 +184,31 @@ class TestAppStoreConnectSource:
         assert (created, create_error) == (True, None)
         assert per_schema is False
         assert schema_error is not None
+
+    def test_an_unreadable_app_id_blocks_the_source_with_the_probe_message(self) -> None:
+        probe_message = "This API key cannot read these app IDs: 999. It can read: Acme (1234567890)."
+
+        with (
+            patch(f"{SOURCE_MODULE}.check_credentials", return_value=(200, None)),
+            patch(f"{SOURCE_MODULE}.check_app_ids", return_value=probe_message),
+        ):
+            valid, error = AppStoreConnectSource().validate_credentials(_config(app_ids="999"), team_id=1)
+
+        # Saved as-is the source would sync nothing, so the message reaches the user at save time.
+        assert (valid, error) == (False, probe_message)
+
+    def test_the_app_id_probe_is_skipped_for_a_per_schema_check(self) -> None:
+        with (
+            patch(f"{SOURCE_MODULE}.check_credentials", return_value=(200, None)),
+            patch(f"{SOURCE_MODULE}.check_app_ids") as probe,
+        ):
+            valid, _ = AppStoreConnectSource().validate_credentials(
+                _config(app_ids="999"), team_id=1, schema_name="builds"
+            )
+
+        # The picker calls this once per table, and each probe would list every app again.
+        assert valid is True
+        probe.assert_not_called()
 
     def test_report_schema_without_a_vendor_number_fails_before_probing(self) -> None:
         with patch(f"{SOURCE_MODULE}.check_credentials") as mocked:
