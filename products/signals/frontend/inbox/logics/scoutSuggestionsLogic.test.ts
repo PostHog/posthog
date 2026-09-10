@@ -355,6 +355,30 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.isRefreshing).toBe(true)
     })
 
+    // A list request already out when the press lands can bring back the finished batch before the
+    // 409 does. The scan it waits on would then be measured against its own result.
+    it('measures the scan against the batch as of the press, not one that landed during the request', async () => {
+        await mountWithBatch()
+        let refuse: (error: ApiError) => void = () => {}
+        mockRefresh.mockReturnValueOnce(
+            new Promise((_, reject) => {
+                refuse = reject
+            })
+        )
+
+        logic.actions.requestRefresh('strip')
+        mockList.mockResolvedValue(suggestionSet({ generated_at: '2026-09-03T00:00:00Z' }))
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+        refuse(new ApiError('A refresh is already running for this project.', 409))
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isRefreshing).toBe(false)
+    })
+
     it('does not wait for a scan the daily cap refused', async () => {
         await mountWithBatch()
         mockRefresh.mockRejectedValueOnce(new ApiError("You've reached today's limit.", 429))

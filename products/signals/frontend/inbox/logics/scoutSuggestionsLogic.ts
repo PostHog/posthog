@@ -642,16 +642,19 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 return
             }
             cache.refreshInFlight = true
+            // The baseline is the batch as of the press: a list response that lands during the
+            // request would otherwise become it, and a scan never settles against its own batch.
+            const scan = scanFromBatch(values.suggestionSet)
             try {
                 await signalsScoutSuggestionsRefresh(String(teamId))
                 captureScoutSuggestionsRefreshed({ outcome: 'accepted', source })
-                actions.startRefreshPolling(scanFromBatch(values.suggestionSet))
+                actions.startRefreshPolling(scan)
             } catch (error) {
                 const apiError = error instanceof ApiError ? error : null
                 if (apiError?.status === 409) {
                     // A scan is already running, so wait on it rather than reporting a failure.
                     captureScoutSuggestionsRefreshed({ outcome: 'running', source })
-                    actions.startRefreshPolling(scanFromBatch(values.suggestionSet))
+                    actions.startRefreshPolling(scan)
                     return
                 }
                 captureScoutSuggestionsRefreshed({
