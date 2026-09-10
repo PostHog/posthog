@@ -211,7 +211,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                 </div>
                 {/* Wraps rather than clips: the scope wording makes this row too wide for a narrow rail. */}
                 <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs">
-                    <Tooltip title="Every PR agents opened across your organization this billing period. This is the same total your billing page shows, so it can run past the limit before agents pause.">
+                    <Tooltip title="Every PR agents opened across your organization this billing period. It counts PRs the same way your billing page does. New PRs reach this count first, so it can be a day ahead of your billing page. It can also run past the limit before agents pause.">
                         {/* tabIndex so keyboard users can reach the tooltip */}
                         <span className="text-secondary tabular-nums" tabIndex={0}>
                             <span className="font-medium text-default">{usedPrs}</span>
