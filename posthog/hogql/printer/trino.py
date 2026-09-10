@@ -1015,13 +1015,16 @@ class TrinoPrinter(PostgresPrinter):
         if name == "jsonextract":
             return self._visit_typed_json_extract(node)
         if any(not isinstance(key, ast.Constant) for key in node.args[1:]):
-            extracted = self.visit(node.args[0])
-            for key in node.args[1:]:
-                if isinstance(key, ast.Constant) and isinstance(key.value, (str, int)):
-                    path = self._json_path([key.value])
-                else:
-                    path = self._dynamic_json_key_path(key)
-                extracted = f"json_extract({extracted}, {path})"
+            if any(self._is_json_array_index(key) for key in node.args[1:]):
+                extracted = self._visit_json_path(self.visit(node.args[0]), node.args[1:])
+            else:
+                extracted = self.visit(node.args[0])
+                for key in node.args[1:]:
+                    if isinstance(key, ast.Constant) and isinstance(key.value, (str, int)):
+                        path = self._json_path([key.value])
+                    else:
+                        path = self._dynamic_json_key_path(key)
+                    extracted = f"json_extract({extracted}, {path})"
             if name == "jsonextractraw":
                 return f"json_format({extracted})"
             scalar = f"json_extract_scalar({extracted}, '$')"
@@ -1042,15 +1045,20 @@ class TrinoPrinter(PostgresPrinter):
                     node,
                 )
             path_members.append(key.value)
-        path = self._json_path(path_members)
         source = self.visit(node.args[0])
-        extracted = f"json_extract({source}, {path})"
+        has_array_index = any(self._is_json_array_index(key) for key in node.args[1:])
+        path = None if has_array_index else self._json_path(path_members)
+        extracted = (
+            self._visit_json_path(source, node.args[1:]) if has_array_index else f"json_extract({source}, {path})"
+        )
         if name == "jsonextractarrayraw":
             value = self._print_identifier("__hogql_json_value")
             return f"transform(CAST({extracted} AS ARRAY(JSON)), {value} -> json_format({value}))"
         if name == "jsonextractraw":
             return f"json_format({extracted})"
-        scalar = f"json_extract_scalar({source}, {path})"
+        scalar = (
+            f"json_extract_scalar({extracted}, '$')" if has_array_index else f"json_extract_scalar({source}, {path})"
+        )
         casts = {
             "jsonextractint": "BIGINT",
             "jsonextractuint": "DECIMAL(20, 0)",
@@ -1079,7 +1087,9 @@ class TrinoPrinter(PostgresPrinter):
                 )
             path_members.append(key.value)
         source = self.visit(node.args[0])
-        path = self._json_path(path_members)
+        has_array_index = any(self._is_json_array_index(key) for key in node.args[1:-1])
+        path = None if has_array_index else self._json_path(path_members)
+        extracted = self._visit_json_path(source, node.args[1:-1]) if has_array_index else None
         if target.startswith("MAP(VARCHAR, "):
             value_type = target[len("MAP(VARCHAR, ") : -1]
             if value_type in {
@@ -1093,12 +1103,19 @@ class TrinoPrinter(PostgresPrinter):
                 "BIGINT",
                 "DECIMAL(20, 0)",
             }:
-                raw = f"CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON))"
+                raw = (
+                    f"CAST({extracted} AS MAP(VARCHAR, JSON))"
+                    if extracted
+                    else f"CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON))"
+                )
                 converted = self._convert_json_scalar("__hogql_json_value", value_type)
                 if "nullable(" not in type_arg.value.lower():
                     default = "''" if value_type == "VARCHAR" else "false" if value_type == "BOOLEAN" else "0"
                     converted = f"coalesce({converted}, CAST({default} AS {value_type}))"
                 return f"transform_values({raw}, (__hogql_json_key, __hogql_json_value) -> {converted})"
+        if extracted:
+            value = extracted if target.startswith(("ARRAY", "MAP")) else f"json_extract_scalar({extracted}, '$')"
+            return f"CAST({value} AS {target})"
         extractor = "json_extract" if target.startswith(("ARRAY", "MAP")) else "json_extract_scalar"
         return f"CAST({extractor}({source}, {path}) AS {target})"
 
@@ -1153,13 +1170,16 @@ class TrinoPrinter(PostgresPrinter):
         source = self.visit(node.args[0])
         path_args = node.args[1:]
         if name == "jsonhas" and any(not isinstance(key, ast.Constant) for key in path_args):
-            extracted = source
-            for key in path_args:
-                if isinstance(key, ast.Constant) and isinstance(key.value, (str, int)):
-                    path = self._json_path([key.value])
-                else:
-                    path = self._dynamic_json_key_path(key)
-                extracted = f"json_extract({extracted}, {path})"
+            if any(self._is_json_array_index(key) for key in path_args):
+                extracted = self._visit_json_path(source, path_args)
+            else:
+                extracted = source
+                for key in path_args:
+                    if isinstance(key, ast.Constant) and isinstance(key.value, (str, int)):
+                        path = self._json_path([key.value])
+                    else:
+                        path = self._dynamic_json_key_path(key)
+                    extracted = f"json_extract({extracted}, {path})"
             return f"({extracted} IS NOT NULL)"
         target_type: str | None = None
         if name == "jsonextractkeysandvalues":
@@ -1191,13 +1211,26 @@ class TrinoPrinter(PostgresPrinter):
                     node,
                 )
             path_members.append(key.value)
-        path = self._json_path(path_members)
+        extracted = (
+            self._visit_json_path(source, path_args)
+            if any(self._is_json_array_index(key) for key in path_args)
+            else None
+        )
+        path = None if extracted else self._json_path(path_members)
         if name == "jsonhas":
+            if extracted:
+                return f"({extracted} IS NOT NULL)"
             return f"(json_extract({source}, {path}) IS NOT NULL)"
         if name == "jsonlength":
+            if extracted:
+                return f"json_size({extracted}, '$')"
             return f"json_size({source}, {path})"
         if name == "jsonextractkeysandvalues":
-            raw = f"CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON))"
+            raw = (
+                f"CAST({extracted} AS MAP(VARCHAR, JSON))"
+                if extracted
+                else f"CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON))"
+            )
             value = "__hogql_json_value"
             assert target_type is not None
             converted = self._convert_json_scalar(value, target_type)
@@ -1205,7 +1238,12 @@ class TrinoPrinter(PostgresPrinter):
                 f"filter(map_entries(transform_values({raw}, (__hogql_json_key, {value}) -> {converted})), "
                 "__hogql_entry -> __hogql_entry[2] IS NOT NULL)"
             )
-        return f"map_keys(CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON)))"
+        raw = (
+            f"CAST({extracted} AS MAP(VARCHAR, JSON))"
+            if extracted
+            else f"CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON))"
+        )
+        return f"map_keys({raw})"
 
     def _convert_json_scalar(self, value: str, target_type: str) -> str:
         if target_type == "VARCHAR":
@@ -1345,6 +1383,26 @@ class TrinoPrinter(PostgresPrinter):
 
     def _dynamic_json_key_path(self, key: ast.Expr) -> str:
         return f"concat('$[', json_format(CAST(CAST({self.visit(key)} AS VARCHAR) AS JSON)), ']')"
+
+    def _is_json_array_index(self, key: ast.Expr) -> bool:
+        return (isinstance(key, ast.Constant) and isinstance(key.value, int) and not isinstance(key.value, bool)) or (
+            not isinstance(key, ast.Constant) and self._is_numeric(key)
+        )
+
+    def _visit_json_path(self, source: str, keys: Iterable[ast.Expr]) -> str:
+        extracted = source
+        for key in keys:
+            if self._is_json_array_index(key):
+                index = str(key.value) if isinstance(key, ast.Constant) else f"CAST({self.visit(key)} AS INTEGER)"
+                extracted = f"TRY(element_at(CAST(json_parse(CAST({extracted} AS VARCHAR)) AS ARRAY(JSON)), {index}))"
+            else:
+                path = (
+                    self._json_path([key.value])
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str)
+                    else self._dynamic_json_key_path(key)
+                )
+                extracted = f"json_extract({extracted}, {path})"
+        return extracted
 
     def _json_path(self, members: Iterable[str | int]) -> str:
         path = "$"

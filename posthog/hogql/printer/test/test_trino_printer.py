@@ -451,17 +451,26 @@ def test_uses_trino_array_cardinality_and_lax_json_paths() -> None:
     assert 'json_value("users"."properties", \'strict $.items\')' in sql
 
 
-def test_prints_json_paths_as_bound_values() -> None:
+def test_preserves_clickhouse_json_array_indexing() -> None:
     context = _context_with_trino_table()
 
     sql, _ = prepare_and_print_ast(
-        parse_select("SELECT JSONExtractString(user_id, 'key.with.dot', 2) FROM users"),
+        parse_select(
+            "SELECT JSONExtractString(user_id, 'key.with.dot', 2), "
+            "JSONExtractRaw(properties, length(user_id)), "
+            "JSONExtract(properties, 1, 'Map(String, String)'), "
+            "JSONHas(properties, 1), JSONLength(properties, 1), "
+            "JSONExtractKeys(properties, 1) FROM users"
+        ),
         context,
         "trino",
     )
 
-    assert 'json_extract_scalar("users"."user_id", %(hogql_val_0)s)' in sql
-    assert context.values == {"hogql_val_0": '$["key.with.dot"][2]'}
+    assert "element_at(CAST(json_parse(CAST(json_extract(" in sql
+    assert "AS ARRAY(JSON)), 2)" in sql
+    assert 'AS ARRAY(JSON)), CAST(length("users"."user_id") AS INTEGER))' in sql
+    assert sql.count("element_at(") == 6
+    assert context.values == {"hogql_val_0": '$["key.with.dot"]'}
 
 
 def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> None:
