@@ -81,4 +81,8 @@ class TemporalSchedulerClaim(models.Model):
                 fields=["scheduler", "region", "tenant_key", "status"],
                 name="tsc_tenant_status",
             ),
+            models.Index(
+                fields=["scheduler", "region", "status", "updated_at"],
+                name="tsc_inactive_cleanup",
+            ),
         ]

@@ -1,12 +1,12 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta
 from threading import Barrier
 
 from unittest.mock import MagicMock, patch
 
 from django.db import close_old_connections
-from django.test import TestCase, TransactionTestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
@@ -17,6 +17,7 @@ from posthog.temporal.scheduler.admission import (
     complete_scheduler_claim,
     confirm_scheduler_claim,
     list_expired_scheduler_claims,
+    prune_inactive_scheduler_claims,
     quarantine_scheduler_claim,
     release_scheduler_claim,
     renew_scheduler_claim,
@@ -173,12 +174,45 @@ class TestReserveSchedulerClaims(TestCase):
         )
         self.assertFalse(TemporalSchedulerPermitPool.objects.filter(tenant_key="team:1").exists())
 
+    @patch("posthog.temporal.scheduler.admission.TemporalSchedulerClaim.objects.bulk_update")
+    def test_reused_claim_write_failure_rolls_back_claim_and_permit_counters(self, bulk_update: MagicMock) -> None:
+        request = _request("team:1", "one")
+        first = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request],
+            limits=_limits(),
+        ).reservations[0]
+        self.assertTrue(release_scheduler_claim(first.claim_id, first.claim_token))
+        bulk_update.side_effect = RuntimeError("database write failed")
+
+        with self.assertRaisesRegex(RuntimeError, "database write failed"):
+            reserve_scheduler_claims(
+                scheduler=SCHEDULER,
+                region=REGION,
+                requests=[request],
+                limits=_limits(),
+            )
+
+        claim = TemporalSchedulerClaim.objects.get(id=first.claim_id)
+        self.assertEqual(claim.status, TemporalSchedulerClaim.Status.AVAILABLE)
+        self.assertEqual(claim.claim_token, first.claim_token)
+        self.assertEqual(claim.attempt_count, 1)
+        self.assertEqual(
+            TemporalSchedulerPermitPool.objects.get(scheduler=SCHEDULER, region=REGION, tenant_key="").in_flight,
+            0,
+        )
+
     def test_invalid_limits_and_identifiers_fail_before_writing(self) -> None:
         invalid_cases = [
             ("", REGION, [_request("team:1", "one")], _limits()),
             (SCHEDULER, "", [_request("team:1", "one")], _limits()),
             (SCHEDULER, REGION, [_request("", "one")], _limits()),
             (SCHEDULER, REGION, [_request("team:1", "")], _limits()),
+            ("   ", REGION, [_request("team:1", "one")], _limits()),
+            (SCHEDULER, "   ", [_request("team:1", "one")], _limits()),
+            (SCHEDULER, REGION, [_request("   ", "one")], _limits()),
+            (SCHEDULER, REGION, [_request("team:1", "   ")], _limits()),
             (SCHEDULER, REGION, [_request("team:1", "one")], _limits(global_limit=0)),
             (SCHEDULER, REGION, [_request("team:1", "one")], _limits(global_limit=1, tenant_limit=2)),
         ]
@@ -250,6 +284,23 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(claim.status, TemporalSchedulerClaim.Status.CONFIRMED)
         self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=15))
         self.assertEqual(self._global_in_flight(), 1)
+
+    def test_metric_lookup_failure_does_not_turn_successful_transition_into_failure(self) -> None:
+        with patch(
+            "posthog.temporal.scheduler.admission.TemporalSchedulerClaim.objects.only",
+            side_effect=RuntimeError("metrics read failed"),
+        ):
+            self.assertTrue(
+                confirm_scheduler_claim(
+                    self.reservation.claim_id,
+                    self.reservation.claim_token,
+                    lease_duration=timedelta(minutes=10),
+                    now=self.now,
+                )
+            )
+
+        claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
+        self.assertEqual(claim.status, TemporalSchedulerClaim.Status.CONFIRMED)
 
     def test_terminal_transition_releases_each_permit_exactly_once(self) -> None:
         self.assertTrue(complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now))
@@ -334,6 +385,67 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(second_attempt.already_claimed, 1)
         self.assertEqual(self._global_in_flight(), 1)
 
+    def test_prune_removes_only_old_inactive_claims(self) -> None:
+        self.assertTrue(complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now))
+        available = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[_request("team:1", "available")],
+            limits=_limits(),
+            now=self.now,
+        ).reservations[0]
+        self.assertTrue(release_scheduler_claim(available.claim_id, available.claim_token, now=self.now))
+        quarantined = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[_request("team:1", "quarantined")],
+            limits=_limits(),
+            now=self.now,
+        ).reservations[0]
+        self.assertTrue(
+            quarantine_scheduler_claim(quarantined.claim_id, quarantined.claim_token, error="poison", now=self.now)
+        )
+        recent = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[_request("team:1", "recent")],
+            limits=_limits(),
+            now=self.now,
+        ).reservations[0]
+        self.assertTrue(complete_scheduler_claim(recent.claim_id, recent.claim_token, now=self.now))
+        old = self.now - timedelta(days=30)
+        TemporalSchedulerClaim.objects.filter(
+            id__in=[self.reservation.claim_id, available.claim_id, quarantined.claim_id]
+        ).update(updated_at=old)
+
+        deleted = prune_inactive_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            completed_before=self.now - timedelta(days=7),
+            available_before=self.now - timedelta(days=7),
+            limit=10,
+        )
+
+        self.assertEqual(deleted, 2)
+        self.assertEqual(
+            set(TemporalSchedulerClaim.objects.values_list("id", flat=True)),
+            {quarantined.claim_id, recent.claim_id},
+        )
+
+
+class TestSchedulerAdmissionValidation(SimpleTestCase):
+    def test_rejects_naive_datetimes_before_accessing_the_database(self) -> None:
+        naive_now = datetime(2026, 9, 10, 12, 0)
+
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            reserve_scheduler_claims(
+                scheduler=SCHEDULER,
+                region=REGION,
+                requests=[_request("team:1", "one")],
+                limits=_limits(),
+                now=naive_now,
+            )
+
 
 class TestSchedulerAdmissionConcurrency(TransactionTestCase):
     reset_sequences = True
@@ -363,4 +475,38 @@ class TestSchedulerAdmissionConcurrency(TransactionTestCase):
         self.assertEqual(
             TemporalSchedulerPermitPool.objects.get(scheduler=SCHEDULER, region=REGION, tenant_key="").in_flight,
             1,
+        )
+
+    def test_racing_terminal_transitions_release_permits_once(self) -> None:
+        reservation = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[_request("team:1", "one")],
+            limits=_limits(global_limit=1, tenant_limit=1),
+        ).reservations[0]
+        barrier = Barrier(2)
+
+        def finish(transition: str) -> bool:
+            close_old_connections()
+            try:
+                barrier.wait(timeout=5)
+                if transition == "complete":
+                    return complete_scheduler_claim(reservation.claim_id, reservation.claim_token)
+                return release_scheduler_claim(reservation.claim_id, reservation.claim_token)
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(finish, ["complete", "release"]))
+
+        self.assertEqual(sorted(results), [False, True])
+        claim = TemporalSchedulerClaim.objects.get(id=reservation.claim_id)
+        self.assertIn(claim.status, [TemporalSchedulerClaim.Status.COMPLETED, TemporalSchedulerClaim.Status.AVAILABLE])
+        self.assertEqual(
+            TemporalSchedulerPermitPool.objects.get(scheduler=SCHEDULER, region=REGION, tenant_key="").in_flight,
+            0,
+        )
+        self.assertEqual(
+            TemporalSchedulerPermitPool.objects.get(scheduler=SCHEDULER, region=REGION, tenant_key="team:1").in_flight,
+            0,
         )

@@ -30,6 +30,14 @@ async def select_items_within_temporal_payload(
     payload_budget_bytes: int = MAX_SCHEDULER_PAYLOAD_BYTES,
     data_converter: DataConverter = DataConverter.default,
 ) -> PayloadSelection[ItemT]:
+    """Select an ordered prefix whose measured Temporal wire payload fits the hard budget.
+
+    The binary search relies on encoded prefix size normally being non-decreasing. Custom codecs
+    can violate that assumption, so callers must treat this as a safe bounded prefix rather than a
+    mathematical guarantee that no larger prefix could fit. The returned prefix is always measured
+    directly before it is returned.
+    """
+
     if max_items <= 0:
         raise ValueError("max_items must be greater than zero")
     if payload_budget_bytes <= 0:

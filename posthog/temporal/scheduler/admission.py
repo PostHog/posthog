@@ -4,8 +4,10 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Literal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
@@ -19,6 +21,9 @@ from posthog.temporal.scheduler.metrics import (
 MAX_CLAIM_REQUESTS_PER_CALL = 1_000
 MAX_CLAIM_ERROR_CHARS = 2_000
 MAX_OCCURRENCE_KEY_CHARS = 1_024
+MAX_PRUNE_CLAIMS_PER_CALL = 10_000
+
+TerminalClaimStatus = Literal["available", "completed", "quarantined"]
 
 
 class SchedulerOccurrenceHashCollision(RuntimeError):
@@ -70,9 +75,9 @@ def _occurrence_hash(occurrence_key: str) -> str:
 
 
 def _validate_scope(scheduler: str, region: str) -> None:
-    if not scheduler or len(scheduler) > 128:
+    if not scheduler.strip() or len(scheduler) > 128:
         raise ValueError("scheduler must contain between 1 and 128 characters")
-    if not region or len(region) > 32:
+    if not region.strip() or len(region) > 32:
         raise ValueError("region must contain between 1 and 32 characters")
 
 
@@ -88,12 +93,19 @@ def _validate_limits(limits: SchedulerAdmissionLimits) -> None:
 
 
 def _validate_request(request: SchedulerClaimRequest) -> None:
-    if not request.tenant_key or len(request.tenant_key) > 128:
+    if not request.tenant_key.strip() or len(request.tenant_key) > 128:
         raise ValueError("tenant_key must contain between 1 and 128 characters")
-    if not request.occurrence_key or len(request.occurrence_key) > MAX_OCCURRENCE_KEY_CHARS:
+    if not request.occurrence_key.strip() or len(request.occurrence_key) > MAX_OCCURRENCE_KEY_CHARS:
         raise ValueError(f"occurrence_key must contain between 1 and {MAX_OCCURRENCE_KEY_CHARS} characters")
-    if not request.workflow_id or len(request.workflow_id) > 512:
+    if not request.workflow_id.strip() or len(request.workflow_id) > 512:
         raise ValueError("workflow_id must contain between 1 and 512 characters")
+
+
+def _resolve_time(value: datetime | None) -> datetime:
+    resolved = value or timezone.now()
+    if timezone.is_naive(resolved):
+        raise ValueError("scheduler admission datetimes must be timezone-aware")
+    return resolved
 
 
 def _deduplicate_requests(requests: Sequence[SchedulerClaimRequest]) -> tuple[list[_HashedRequest], int]:
@@ -165,7 +177,7 @@ def reserve_scheduler_claims(
     if not hashed_requests:
         return SchedulerAdmissionResult(reservations=(), already_claimed=duplicate_count, deferred_for_capacity=0)
 
-    claim_time = now or timezone.now()
+    claim_time = _resolve_time(now)
     lease_expires_at = claim_time + limits.lease_duration
 
     with transaction.atomic():
@@ -316,7 +328,7 @@ def confirm_scheduler_claim(
     metrics: SchedulerMetrics = DEFAULT_SCHEDULER_METRICS,
 ) -> bool:
     _validate_lease_duration(lease_duration)
-    transition_time = now or timezone.now()
+    transition_time = _resolve_time(now)
     updated = (
         TemporalSchedulerClaim.objects.filter(
             id=claim_id,
@@ -330,10 +342,7 @@ def confirm_scheduler_claim(
         == 1
     )
     if updated:
-        claim = TemporalSchedulerClaim.objects.only("scheduler", "region").get(id=claim_id)
-        record_scheduler_metrics_safely(
-            lambda: metrics.record_claim_transition(claim.scheduler, claim.region, "confirmed")
-        )
+        record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "confirmed"))
     return updated
 
 
@@ -346,7 +355,7 @@ def renew_scheduler_claim(
     metrics: SchedulerMetrics = DEFAULT_SCHEDULER_METRICS,
 ) -> bool:
     _validate_lease_duration(lease_duration)
-    transition_time = now or timezone.now()
+    transition_time = _resolve_time(now)
     updated = (
         TemporalSchedulerClaim.objects.filter(
             id=claim_id,
@@ -359,11 +368,17 @@ def renew_scheduler_claim(
         == 1
     )
     if updated:
-        claim = TemporalSchedulerClaim.objects.only("scheduler", "region").get(id=claim_id)
-        record_scheduler_metrics_safely(
-            lambda: metrics.record_claim_transition(claim.scheduler, claim.region, "renewed")
-        )
+        record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "renewed"))
     return updated
+
+
+def _record_claim_transition_for_id(
+    claim_id: uuid.UUID,
+    metrics: SchedulerMetrics,
+    transition: ClaimTransition,
+) -> None:
+    claim = TemporalSchedulerClaim.objects.only("scheduler", "region").get(id=claim_id)
+    metrics.record_claim_transition(claim.scheduler, claim.region, transition)
 
 
 def _get_locked_existing_pool(scheduler: str, region: str, tenant_key: str) -> TemporalSchedulerPermitPool:
@@ -381,17 +396,17 @@ def _finish_scheduler_claim(
     claim_id: uuid.UUID,
     claim_token: uuid.UUID,
     *,
-    status: str,
+    status: TerminalClaimStatus,
     error: str,
     now: datetime | None,
     transition: ClaimTransition,
     metrics: SchedulerMetrics,
 ) -> bool:
+    transition_time = _resolve_time(now)
     snapshot = TemporalSchedulerClaim.objects.filter(id=claim_id).values("scheduler", "region", "tenant_key").first()
     if snapshot is None:
         return False
 
-    transition_time = now or timezone.now()
     with transaction.atomic():
         global_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], "")
         tenant_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], snapshot["tenant_key"])
@@ -486,7 +501,7 @@ def list_expired_scheduler_claims(
     _validate_scope(scheduler, region)
     if limit <= 0 or limit > MAX_CLAIM_REQUESTS_PER_CALL:
         raise ValueError(f"limit must contain between 1 and {MAX_CLAIM_REQUESTS_PER_CALL} items")
-    current_time = now or timezone.now()
+    current_time = _resolve_time(now)
     return list(
         TemporalSchedulerClaim.objects.filter(
             scheduler=scheduler,
@@ -495,3 +510,40 @@ def list_expired_scheduler_claims(
             lease_expires_at__lte=current_time,
         ).order_by("lease_expires_at", "id")[:limit]
     )
+
+
+def prune_inactive_scheduler_claims(
+    *,
+    scheduler: str,
+    region: str,
+    completed_before: datetime,
+    available_before: datetime,
+    limit: int,
+) -> int:
+    """Delete a bounded batch of old, inactive claims without touching active or quarantined work.
+
+    Callers choose explicit retention horizons. Completed claims retain durable deduplication until
+    ``completed_before``; available claims remain eligible for retry until ``available_before``.
+    """
+
+    _validate_scope(scheduler, region)
+    completed_cutoff = _resolve_time(completed_before)
+    available_cutoff = _resolve_time(available_before)
+    if limit <= 0 or limit > MAX_PRUNE_CLAIMS_PER_CALL:
+        raise ValueError(f"limit must contain between 1 and {MAX_PRUNE_CLAIMS_PER_CALL} items")
+
+    with transaction.atomic():
+        claim_ids = list(
+            TemporalSchedulerClaim.objects.select_for_update(skip_locked=True)
+            .filter(scheduler=scheduler, region=region)
+            .filter(
+                Q(status=TemporalSchedulerClaim.Status.COMPLETED, updated_at__lt=completed_cutoff)
+                | Q(status=TemporalSchedulerClaim.Status.AVAILABLE, updated_at__lt=available_cutoff)
+            )
+            .order_by("updated_at", "id")
+            .values_list("id", flat=True)[:limit]
+        )
+        if not claim_ids:
+            return 0
+        deleted, _ = TemporalSchedulerClaim.objects.filter(id__in=claim_ids).delete()
+    return deleted

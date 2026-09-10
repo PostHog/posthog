@@ -57,7 +57,7 @@ async def test_select_items_accepts_payload_that_exactly_fits_byte_budget() -> N
 
 
 @pytest.mark.asyncio
-async def test_select_items_uses_largest_prefix_within_byte_budget() -> None:
+async def test_select_items_uses_safe_prefix_within_byte_budget() -> None:
     items = ["a" * 500, "b" * 500, "c" * 500]
     two_item_size = await temporal_payload_size_bytes(_build_payload(items[:2]))
     assert await temporal_payload_size_bytes(_build_payload(items)) > two_item_size
