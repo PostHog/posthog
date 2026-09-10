@@ -1,9 +1,9 @@
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, Value, When, Window
+from django.db.models import Case, DateTimeField, F, IntegerField, Q, Value, When, Window
 from django.db.models.functions import RowNumber
 
 import structlog
@@ -69,6 +69,7 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
+_ALERT_SCHEDULER_AGING_THRESHOLD = timedelta(minutes=15)
 
 
 @temporalio.activity.defn
@@ -79,6 +80,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
     @database_sync_to_async(thread_sensitive=False)
     def get_alerts() -> list[AlertInfo]:
         now = datetime.now(UTC)
+        aging_cutoff = now - _ALERT_SCHEDULER_AGING_THRESHOLD
 
         calculation_interval_order = Case(
             *(
@@ -95,21 +97,41 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             )
             .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
             .filter(insight__deleted=False)
-            .annotate(_interval_order=calculation_interval_order)
+            .annotate(
+                _interval_order=calculation_interval_order,
+                _aging_order=Case(
+                    When(next_check_at__isnull=True, then=Value(0)),
+                    When(next_check_at__lte=aging_cutoff, then=Value(0)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                ),
+                _aged_next_check_at=Case(
+                    When(next_check_at__isnull=True, then=F("next_check_at")),
+                    When(next_check_at__lte=aging_cutoff, then=F("next_check_at")),
+                    default=Value(None),
+                    output_field=DateTimeField(),
+                ),
+            )
             .annotate(
                 _team_rank=Window(
                     expression=RowNumber(),
                     partition_by=[F("team_id")],
                     order_by=[
+                        F("_aging_order").asc(),
+                        F("_aged_next_check_at").asc(nulls_first=True),
                         F("_interval_order").asc(),
                         F("next_check_at").asc(nulls_first=True),
                         F("id").asc(),
                     ],
                 ),
             )
+            # Active children keep their old due time until completion, so they deliberately retain
+            # a team slot on later sweeps and bound concurrent work for that team.
             .filter(_team_rank__lte=inputs.max_alerts_per_team_per_run)
             .order_by(
                 "_team_rank",
+                "_aging_order",
+                F("_aged_next_check_at").asc(nulls_first=True),
                 "_interval_order",
                 F("next_check_at").asc(nulls_first=True),
                 "team_id",

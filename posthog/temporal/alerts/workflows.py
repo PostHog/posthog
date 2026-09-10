@@ -101,7 +101,6 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     id=f"check-alert-{alert.alert_id}",
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
-                    priority=temporalio.common.Priority(fairness_key=str(alert.team_id)),
                 )
             except WorkflowAlreadyStartedError:
                 temporalio.workflow.logger.info(

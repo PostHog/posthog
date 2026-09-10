@@ -76,7 +76,7 @@ async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() 
 
 
 @pytest.mark.asyncio
-async def test_schedule_due_alert_checks_uses_team_fairness_key() -> None:
+async def test_schedule_due_alert_checks_does_not_apply_priority_on_shared_queue() -> None:
     alert = AlertInfo(
         alert_id="alert-1",
         team_id=42,
@@ -97,7 +97,7 @@ async def test_schedule_due_alert_checks_uses_team_fairness_key() -> None:
         await ScheduleDueAlertChecksWorkflow().run()
 
     assert start_child.await_args is not None
-    assert start_child.await_args.kwargs["priority"].fairness_key == "42"
+    assert "priority" not in start_child.await_args.kwargs
 
 
 @pytest.mark.asyncio
