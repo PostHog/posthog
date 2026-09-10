@@ -288,7 +288,12 @@ def create_scout_report(
                         capture_suggested_reviewers_resolved,
                         team_id=team_id,
                         report_id=report_id,
-                        github_logins=[entry.github_login for entry in suggested_reviewers.root],
+                        github_logins=[entry.github_login for entry in suggested_reviewers.root if entry.github_login],
+                        user_uuids=[
+                            entry.user_uuid
+                            for entry in suggested_reviewers.root
+                            if entry.user_uuid and not entry.github_login
+                        ],
                         source="scout",
                     )
                 )
