@@ -23,7 +23,9 @@ import {
     ExperimentRecordingsBucketLoadedContext,
     ExperimentRecordingsFilterContext,
     ExperimentRecordingsListRenderedContext,
+    ExperimentRecordingsScopeChangedContext,
     ExperimentRecordingsTabContext,
+    ExperimentRecordingsTabViewFacets,
     ExperimentWatchCardContext,
     ExperimentWatchHighlightContext,
     ExperimentWatchShelfContext,
@@ -136,6 +138,9 @@ export type ExperimentReplayMetricFilterMode = 'fired_all' | 'fired_any' | 'no_m
  * that never touch the feature under test.
  */
 export type ExperimentReplayExposureScope = 'in_session' | 'all_exposed'
+
+/** Which surface moved the exposure scope, as reported to telemetry. */
+export type ExperimentExposureScopeChangeSource = 'control' | 'empty_state'
 
 /** What the tab asks the bucket endpoint for, and the spec a loaded response belongs to. */
 export interface ExperimentSessionBucketRequest {
@@ -330,7 +335,7 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
     sessionEventDeltasLoading: boolean
-    tabViewContext: ExperimentRecordingsTabContext
+    tabViewContext: ExperimentRecordingsTabViewFacets
     variantKeys: string[]
 }
 
@@ -390,6 +395,13 @@ export interface experimentReplayTabLogicActions {
         context: ExperimentRecordingsListRenderedContext
     ) => {
         context: ExperimentRecordingsListRenderedContext
+        experimentId: ExperimentIdType
+    } // eventUsageLogic
+    reportExperimentRecordingsScopeChanged: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsScopeChangedContext
+    ) => {
+        context: ExperimentRecordingsScopeChangedContext
         experimentId: ExperimentIdType
     } // eventUsageLogic
     reportExperimentRecordingsTabViewed: (
@@ -541,8 +553,12 @@ export interface experimentReplayTabLogicActions {
     selectWatchCard: (card: ExperimentWatchCardApi | null) => {
         card: ExperimentWatchCardApi | null
     }
-    setExposureScope: (scope: ExperimentReplayExposureScope) => {
+    setExposureScope: (
+        scope: ExperimentReplayExposureScope,
+        via?: ExperimentExposureScopeChangeSource
+    ) => {
         scope: ExperimentReplayExposureScope
+        via: ExperimentExposureScopeChangeSource
     }
     setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => {
         mode: ExperimentReplayMetricFilterMode
@@ -640,7 +656,7 @@ export interface experimentReplayTabLogicMeta {
             metricOptions: ExperimentReplayMetricOption[],
             effectiveExposureScope: ExperimentReplayExposureScope,
             inSessionExposure: ExperimentInSessionExposureApi | null
-        ) => ExperimentRecordingsTabContext
+        ) => ExperimentRecordingsTabViewFacets
         metricOptions: (
             linkabilityLoaded: boolean,
             unlinkableEventNames: Set<string>,
@@ -725,12 +741,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 'reportExperimentWatchHighlightOpened',
                 'reportExperimentWatchEmptyActionClicked',
                 'reportExperimentRecordingsEmptyActionClicked',
+                'reportExperimentRecordingsScopeChanged',
             ],
         ],
     })),
     actions({
         setSelectedVariantKey: (variantKey: string | null) => ({ variantKey }),
-        setExposureScope: (scope: ExperimentReplayExposureScope) => ({ scope }),
+        // `via` says where the change came from, because the empty state's way back calls this
+        // action directly and reads as a control move otherwise. The two mean different things:
+        // one is an opt-out from the default, the other is a recovery from an empty list.
+        setExposureScope: (
+            scope: ExperimentReplayExposureScope,
+            via: ExperimentExposureScopeChangeSource = 'control'
+        ) => ({ scope, via }),
         setMetricSelected: (metricUuid: string, selected: boolean) => ({ metricUuid, selected }),
         setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => ({ mode }),
         playlistFiltersChanged: (filters: RecordingUniversalFilters) => ({ filters }),
@@ -1267,8 +1290,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 watch_card_kind: selectedWatchCard?.kind ?? null,
             }),
         ],
-        // The `experiment recordings tab viewed` payload, in a selector so the settled-checks
-        // report and the beforeUnmount flush send the same shape.
+        // The facet half of the `experiment recordings tab viewed` payload, in a selector so the
+        // settled-checks report and the beforeUnmount flush send the same shape. Each send site
+        // adds the checks timing, which is the one thing the two disagree on.
         tabViewContext: [
             (s) => [s.variantKeys, s.metricOptions, s.effectiveExposureScope, s.inSessionExposure],
             (
@@ -1276,7 +1300,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 metricOptions: ExperimentReplayMetricOption[],
                 effectiveExposureScope: ExperimentReplayExposureScope,
                 inSessionExposure: ExperimentInSessionExposureApi | null
-            ): ExperimentRecordingsTabContext => ({
+            ): ExperimentRecordingsTabViewFacets => ({
                 variant_count: variantKeys.length,
                 metric_count: metricOptions.length,
                 linkable_metric_count: metricOptions.filter((option) => !option.unlinkable).length,
@@ -1542,7 +1566,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache, props }) => ({
+    listeners(({ values, actions, cache, props, selectors }) => ({
         // Every facet the bucket is keyed on re-asks for it. Listening to the actions rather than
         // subscribing to the spec keeps this off the redux subscription path.
         setMetricFilterMode: () => {
@@ -1561,10 +1585,27 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // A failed availability check leaves the in-session option enabled but inert, because the
         // scope holds at all sessions until a verdict confirms. Retry on the pick, so recovery
         // doesn't wait for a remount.
-        setExposureScope: ({ scope }) => {
+        setExposureScope: ({ scope, via }, _breakpoint, _action, previousState) => {
             if (scope === 'in_session' && values.inSessionExposure === null && !values.inSessionExposureLoading) {
                 actions.loadInSessionExposure()
             }
+            // The reducer has already run, so the scope the viewer moved away from only exists in
+            // the previous state. Setting the same scope again is not a choice, so it is not
+            // reported: an opt-out rate has to count viewers, not clicks.
+            const from = selectors.exposureScope(previousState)
+            if (from === scope) {
+                return
+            }
+            // The stored scope on both sides, not the effective one. A viewer picking a scope the
+            // availability verdict withholds still chose it, and that is the signal.
+            const resultCount = values.loadedRecordings.length
+            actions.reportExperimentRecordingsScopeChanged(props.experiment.id, {
+                from,
+                to: scope,
+                via,
+                list_result_count: resultCount,
+                list_empty_reason: resultCount === 0 ? values.listEmptyReason : null,
+            })
         },
         // The shared playlist renders its own "Showing N selected recordings · Show all" control
         // whenever session_ids are set. Clearing it there is the same intent as leaving the
@@ -1715,7 +1756,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 return
             }
             cache.reportedTabView = true
-            actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
+            actions.reportExperimentRecordingsTabViewed(props.experiment.id, {
+                ...values.tabViewContext,
+                checks_settled_ms: Math.round(performance.now() - cache.mountedAt),
+                playlist_held: cache.playlistHeldAtMount,
+            })
         },
         scannerCrossSellClicked: () => {
             void addProductIntentForCrossSell({
@@ -1751,12 +1796,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             }
         },
     })),
-    afterMount(({ values, actions }) => {
+    afterMount(({ values, actions, cache }) => {
         actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+        // The clock the tab-viewed report measures `checks_settled_ms` against, taken before the
+        // check below is dispatched so the whole wait is inside it.
+        cache.mountedAt = performance.now()
         // Resolve whether the in-session scope can answer before the viewer picks it, so the option
-        // is disabled (not left to fail as a query error) when it can't, and the caption knows
-        // whether evidence is the stamped-property fallback. A Postgres-only read on the backend.
+        // is disabled (not left to fail as a query error) when it can't. A Postgres-only read on
+        // the backend.
         actions.loadInSessionExposure()
+        // Read once the check is in flight, which is when the hold can be true. The hold only ever
+        // ends during a visit, so this is whether the checks cost the viewer a list they could
+        // otherwise already read.
+        cache.playlistHeldAtMount = values.playlistHeldForChecks
         // Only the vision entry point renders the watching-scanners card, so don't spend the lookup
         // for everyone else who opens this tab without the flag.
         if (values.featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]) {
@@ -1787,7 +1839,13 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // The dedup cache keeps an already-sent report from repeating.
         if (!cache.reportedTabView) {
             cache.reportedTabView = true
-            actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
+            actions.reportExperimentRecordingsTabViewed(props.experiment.id, {
+                ...values.tabViewContext,
+                // Null rather than the elapsed time: the checks never settled, so there is no
+                // settling to measure and a number here would read as one.
+                checks_settled_ms: null,
+                playlist_held: cache.playlistHeldAtMount,
+            })
         }
         // The sidebar singleton normally unmounts alongside this logic and resets itself; this
         // covers the case where another player keeps it mounted, so the experiment default

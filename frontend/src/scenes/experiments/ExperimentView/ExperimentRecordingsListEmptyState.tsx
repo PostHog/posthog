@@ -203,7 +203,7 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
         } else if (action === 'show_all_variants') {
             setSelectedVariantKey(null)
         } else if (action === 'all_sessions') {
-            setExposureScope('all_exposed')
+            setExposureScope('all_exposed', 'empty_state')
         } else if (action === 'clear_filters') {
             // The playlist's own reset would drop the tab's scoping too, so the tab's filters go
             // back in whole rather than the playlist defaults.

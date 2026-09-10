@@ -454,6 +454,38 @@ describe('experimentReplayTabLogic', () => {
         failed.unmount()
     })
 
+    it('reports a scope change once per actual change, with the surface it came from', async () => {
+        // The opt-out rate counts viewers who leave the default scope, so a repeated set of the
+        // same scope must not inflate it, and the empty state's way back must not read as an
+        // opt-out from the control.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const scopeChanges = (): any[] =>
+            captureSpy.mock.calls.filter(([event]) => event === 'experiment recordings exposure scope changed')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.recordingsLoaded([{ id: 'rec-1' } as SessionRecordingType], true)
+
+        logic.actions.setExposureScope('in_session')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(scopeChanges()).toHaveLength(1)
+        expect(scopeChanges()[0][1]).toMatchObject({
+            experiment_id: 42,
+            from: 'all_exposed',
+            to: 'in_session',
+            via: 'control',
+            list_result_count: 1,
+            list_empty_reason: null,
+        })
+
+        logic.actions.setExposureScope('in_session')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(scopeChanges()).toHaveLength(1)
+
+        logic.actions.setExposureScope('all_exposed', 'empty_state')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(scopeChanges()).toHaveLength(2)
+        expect(scopeChanges()[1][1]).toMatchObject({ from: 'in_session', to: 'all_exposed', via: 'empty_state' })
+    })
+
     it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.metricOptions.map((option) => option.uuid)).toEqual(['metric-purchase', 'metric-funnel'])
@@ -668,6 +700,9 @@ describe('experimentReplayTabLogic', () => {
             exposure_scope: 'all_exposed',
             in_session_available: true,
             in_session_unavailable_reason: null,
+            // The hold in front of the first list row, which is what the flip's cost is read from.
+            checks_settled_ms: expect.any(Number),
+            playlist_held: false,
         })
 
         // The check is shared with the metrics tab and reloads when the experiment's metrics change,
@@ -699,6 +734,8 @@ describe('experimentReplayTabLogic', () => {
             experiment_id: 55,
             in_session_available: null,
             in_session_unavailable_reason: null,
+            // Nothing settled, so there is no settling time to report.
+            checks_settled_ms: null,
         })
     })
 
