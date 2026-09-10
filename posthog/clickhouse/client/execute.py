@@ -577,6 +577,10 @@ def sync_execute(
             chargeable=str(tags.chargeable or "0"),
         ).inc()
         err = wrap_clickhouse_query_error(e)
+        # The wrapper returns the same object for anything that is not a ServerException. Raising
+        # that with `from e` makes the exception its own __cause__.
+        if err is e:
+            raise
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
