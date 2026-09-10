@@ -1478,6 +1478,53 @@ mod tests {
         assert_eq!(reasons, vec![None, Some(OverflowReason::ReplayLimited)]);
     }
 
+    #[tokio::test]
+    async fn a_session_filtered_drop_removes_only_its_own_run_from_a_mixed_request() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
+            events: events_captured.clone(),
+        }));
+
+        let service = EventRestrictionService::new(
+            vec![Pipeline::SessionRecordings],
+            Duration::from_secs(300),
+        );
+        let mut manager = RestrictionManager::new();
+        let mut filters = crate::event_restrictions::RestrictionFilters::default();
+        filters.session_ids.insert("b".to_string());
+        manager.insert_restrictions(
+            Pipeline::SessionRecordings,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::Filtered(filters),
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        let recordings = vec![
+            recording_for_session(Some("a"), 0),
+            recording_for_session(Some("b"), 1),
+        ];
+
+        process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            recordings,
+            &create_test_context(),
+        )
+        .await
+        .unwrap();
+
+        let captured = events_captured.lock().unwrap();
+        let (sessions, items) = published_sessions(&captured);
+        assert_eq!(sessions, vec![("a".to_string(), 1)]);
+        assert_eq!(items, vec![0]);
+    }
+
     // ============ replay overflow histogram tests ============
     // The pipeline records `capture_pipeline_replay_overflow_check_duration_seconds`
     // around the redis `is_limited` call. These tests pin the contract that it
