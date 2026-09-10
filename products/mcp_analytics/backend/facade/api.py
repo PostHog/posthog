@@ -103,6 +103,7 @@ def list_mcp_sessions(
     date_to: str | None = None,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPSessionsPage:
     return logic.list_mcp_sessions(
         team,
@@ -114,6 +115,7 @@ def list_mcp_sessions(
         date_to=date_to,
         properties=properties,
         filter_test_accounts=filter_test_accounts,
+        user=user,
     )
 
 
@@ -125,6 +127,7 @@ def list_mcp_tool_calls(
     date_from: datetime | None = None,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPToolCallsPage:
     return logic.list_mcp_tool_calls(
         team,
@@ -134,6 +137,7 @@ def list_mcp_tool_calls(
         date_from=date_from,
         properties=properties,
         filter_test_accounts=filter_test_accounts,
+        user=user,
     )
 
 
@@ -162,13 +166,16 @@ def get_activity_overview(
     team: Team,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.ActivityOverview:
     """Compute the activity view's aggregates and recent-call feed in one pass.
 
     Bounded to the last 30 days; always computed fresh (the view polls to watch
     data arrive). ``properties`` and ``filter_test_accounts`` are the tabs' shared filters.
     """
-    return logic.get_activity_overview(team, properties=properties, filter_test_accounts=filter_test_accounts)
+    return logic.get_activity_overview(
+        team, properties=properties, filter_test_accounts=filter_test_accounts, user=user
+    )
 
 
 def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:

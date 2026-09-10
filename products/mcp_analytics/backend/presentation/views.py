@@ -198,6 +198,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to=params.get("date_to") or None,
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
+            user=cast(User, request.user),
         )
         serializer = self.get_serializer(page.results, many=True)
         # Instantiate the concrete class (not self.pagination_class()) so the typed
@@ -221,6 +222,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_from=params.get("date_from"),
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
+            user=cast(User, request.user),
         )
         serializer = MCPToolCallSerializer(page.results, many=True)
         return MCPSessionPagination().get_paginated_response(serializer.data, has_next=page.has_next)
@@ -306,6 +308,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team,
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
+            user=cast(User, request.user),
         )
         return Response(MCPActivityOverviewSerializer(overview).data)
 
