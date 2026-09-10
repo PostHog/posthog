@@ -194,6 +194,71 @@ def _invoice_lines_resource(
     return next(r for r in resources if r.name == config.name)
 
 
+def _two_level_resource(
+    config: AivenEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str
+) -> Resource:
+    """Generic organization -> intermediate list -> child fan-out (see ``TwoLevelFanOut``).
+
+    The intermediate list is fetched per organization and carries its ``organization_id`` down; the
+    child endpoint is fetched per intermediate row, binding each ``child_params`` placeholder from
+    that row and stamping the resolved value onto every child row. ``organization_id`` is stamped
+    with ``setdefault`` (a row that already has a real org id keeps it); every other placeholder is
+    set unconditionally, matching the single-parent fan-out convention.
+    """
+    two = config.two_level
+    assert two is not None, f"{config.name} is fan_out=two_level but carries no two_level config"
+
+    child_fields = list(dict.fromkeys(two.child_params.values()))
+    stamps = [
+        _stamp_parent_field(two.intermediate_name, field_name, placeholder, overwrite=placeholder != "organization_id")
+        for placeholder, field_name in two.child_params.items()
+    ]
+
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resources": [
+            {
+                "name": "organizations",
+                "endpoint": {
+                    "path": _ORG_PARENT["path"],
+                    "data_selector": _ORG_PARENT["data_key"],
+                    "paginator": _SINGLE_PAGE(),
+                },
+            },
+            {
+                "name": two.intermediate_name,
+                "endpoint": {
+                    "path": two.intermediate_path,
+                    "params": {
+                        "organization_id": {"type": "resolve", "resource": "organizations", "field": "organization_id"}
+                    },
+                    "data_selector": two.intermediate_data_key,
+                    "paginator": _SINGLE_PAGE(),
+                },
+                "include_from_parent": ["organization_id"],
+                # Land the org id as a clean column so the child can resolve/inject it.
+                "data_map": _stamp_parent_field("organizations", "organization_id", "organization_id", overwrite=True),
+            },
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path_template,
+                    "params": {
+                        placeholder: {"type": "resolve", "resource": two.intermediate_name, "field": field_name}
+                        for placeholder, field_name in two.child_params.items()
+                    },
+                    "data_selector": config.data_key,
+                    "paginator": _SINGLE_PAGE(),
+                },
+                "include_from_parent": child_fields,
+                "data_map": _compose(*stamps),
+            },
+        ],
+    }
+    resources = rest_api_resources(rest_config, team_id, job_id, None)
+    return next(r for r in resources if r.name == config.name)
+
+
 def _compose(
     *maps: Callable[[dict[str, Any]], dict[str, Any]],
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -227,6 +292,8 @@ def _build_resource(config: AivenEndpointConfig, api_token: str, team_id: int, j
         )
     if config.fan_out == "invoice":
         return _invoice_lines_resource(config, client_config, team_id, job_id)
+    if config.fan_out == "two_level":
+        return _two_level_resource(config, client_config, team_id, job_id)
 
     raise ValueError(f"Unknown fan_out mode: {config.fan_out}")
 
