@@ -308,6 +308,14 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     report_id_groups = _group_count_triggered_report_rows(selection.items)
     report_ids = [report_id for report_id, _team_id in selection.items]
     limited_by = _effective_limit(selection.limited_by, candidates.items_lower_bound, len(report_ids))
+    record_scheduler_metrics_safely(
+        lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
+            _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER,
+            inputs.region,
+            "discovery",
+            selection.encoded_size_bytes,
+        )
+    )
     await logger.ainfo(
         "llma_eval_reports_coordinator_count_triggered_candidates_poll",
         total_checked=len(report_ids),
