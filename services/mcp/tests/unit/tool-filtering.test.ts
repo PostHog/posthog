@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { hasScope } from '@/lib/api'
 import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
-import { PULSE_ANALYSIS_INTERNAL_SCOPE, PULSE_ANALYSIS_TOOL_MANIFEST_V1 } from '@/lib/pulse-tool-manifest'
+import {
+    PULSE_ANALYSIS_INTERNAL_SCOPE,
+    PULSE_ANALYSIS_TOOL_MANIFEST_V1,
+    PULSE_RESEARCH_INTERNAL_SCOPE,
+} from '@/lib/pulse-tool-manifest'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {

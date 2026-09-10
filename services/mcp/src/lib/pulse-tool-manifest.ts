@@ -1,4 +1,5 @@
 export const PULSE_ANALYSIS_INTERNAL_SCOPE = 'pulse_analysis_internal:read'
+export const PULSE_RESEARCH_INTERNAL_SCOPE = 'pulse_research_internal:read'
 
 export const PULSE_ANALYSIS_TOOL_MANIFEST_V1 = new Set([
     'execute-sql',
