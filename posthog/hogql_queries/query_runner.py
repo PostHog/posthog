@@ -2291,15 +2291,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                             # The measurements belong to the run that wrote the entry, but the mode
                             # does not: an insight entry outlives a flag rollback by days, so re-read
-                            # the flag rather than serving the mode the entry was stamped with.
+                            # the flag instead of serving the stamped mode.
                             cached_query_scan = getattr(results, "query_scan", None)
                             if cached_query_scan is not None:
                                 current_scan_flag = get_query_scan_flag(self.team)
                                 if current_scan_flag is None:
-                                    # Not every response class declares the field.
+                                    # setattr because the response type does not declare the field.
                                     setattr(results, "query_scan", None)  # noqa: B010
-                                    # The flag is off now, so report no measurements, the same as a
-                                    # fresh run for this team does.
                                     cached_query_scan = None
                                 else:
                                     cached_query_scan.mode = QueryScanMode(current_scan_flag.mode)

@@ -1,10 +1,8 @@
 """Request-scoped totals for what ClickHouse read while serving one query response.
 
-One response can run several ClickHouse queries, so the totals are sums, and an inner scope yields
-the outer accumulator rather than starting its own. A thread begins with an empty context, so a
-runner that fans its queries out over raw threads hands the accumulator over with ``get_active``
-and ``use``. Without a scope ``record`` does nothing, which is how a team with the query scan flag
-off pays nothing.
+One response can run several ClickHouse queries, so an inner scope yields the outer accumulator and
+the totals sum. A thread begins with an empty context, so a runner that fans its queries out over
+raw threads hands the accumulator over with ``get_active`` and ``use``.
 """
 
 from __future__ import annotations

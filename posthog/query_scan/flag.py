@@ -97,8 +97,8 @@ def _evaluate(team: Team) -> QueryScanFlag | None:
 
 
 def _flag_from_payload(mode: QueryScanMode, payload: object) -> QueryScanFlag:
-    """Thresholds live in the payload so they can move without a deploy, which means the code has to
-    survive a payload somebody typed by hand: a missing or malformed value takes the default."""
+    """Thresholds live in the payload so they can move without a deploy, which means somebody types
+    them by hand: a missing or malformed value takes the default."""
     values = _payload_values(payload)
     return QueryScanFlag(
         mode=mode,

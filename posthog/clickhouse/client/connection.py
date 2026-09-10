@@ -191,7 +191,7 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
 
 @frozen
 class QuerySummary:
-    """What one execution read, in the shape the native and the HTTP client both report into."""
+    """What one execution read, in a shape both the native and the HTTP client can report."""
 
     rows: int = 0
     elapsed_ns: int = 0
