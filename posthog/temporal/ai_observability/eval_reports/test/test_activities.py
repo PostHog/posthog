@@ -769,14 +769,16 @@ class TestCountTriggeredReportChecks(BaseTest):
             frequency=EvaluationReport.Frequency.SCHEDULED,
             rrule="FREQ=HOURLY",
             starts_at=timezone.now() - dt.timedelta(hours=5),
-            next_delivery_date=timezone.now() - dt.timedelta(hours=2),
         )
         later = self._create_report(
             frequency=EvaluationReport.Frequency.SCHEDULED,
             rrule="FREQ=HOURLY",
             starts_at=timezone.now() - dt.timedelta(hours=5),
-            next_delivery_date=timezone.now() - dt.timedelta(hours=1),
         )
+        # save() recomputes next_delivery_date from the rrule and lands it in the future, so
+        # the overdue dates that make this a backlog have to go in through the queryset.
+        EvaluationReport.objects.filter(pk=poison.pk).update(next_delivery_date=timezone.now() - dt.timedelta(hours=2))
+        EvaluationReport.objects.filter(pk=later.pk).update(next_delivery_date=timezone.now() - dt.timedelta(hours=1))
         reports = EvaluationReport.objects.deliverable().filter(
             frequency=EvaluationReport.Frequency.SCHEDULED,
             next_delivery_date__lte=timezone.now(),
