@@ -111,15 +111,26 @@ export function defaultHorizonForInterval(interval: IntervalType | null | undefi
 
 /** The horizon a stored config evaluates at. The API accepts a breach config without one, and the
  * backend then resolves its own default, so fill in the same value here. Otherwise the editor
- * offers a look-ahead the forecast beside it never used. */
-export function resolveHorizon<T extends { horizon?: number | null }>(
+ * offers a look-ahead the forecast beside it never used. An explicit value is left as stored,
+ * because that is the value the server still reads when a save leaves the config out. */
+export function defaultedHorizon<T extends { horizon?: number | null }>(
     config: T,
     interval: IntervalType | null | undefined
 ): T {
     if (config.horizon == null) {
         return { ...config, horizon: defaultHorizonForInterval(interval) }
     }
-    return clampHorizon(config, interval)
+    return config
+}
+
+/** The horizon the editor offers for a stored config: the resolved default, then the current
+ * interval's limits. Regrouping the insight to a coarser interval can leave a saved horizon
+ * reaching past those limits, so the clamp has to cover a stored value too, not only typed input. */
+export function resolveHorizon<T extends { horizon?: number | null }>(
+    config: T,
+    interval: IntervalType | null | undefined
+): T {
+    return clampHorizon(defaultedHorizon(config, interval), interval)
 }
 
 export function clampHorizon<T extends { horizon?: number | null }>(

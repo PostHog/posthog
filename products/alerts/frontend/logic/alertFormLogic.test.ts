@@ -422,6 +422,36 @@ describe('alertFormLogic', () => {
         expect((logic.values.alertForm.forecast_config as any).horizon).toBe(3)
     })
 
+    // The editor clamps a stored horizon the insight's interval can no longer reach, so the save has
+    // to carry that value: without it the server validates the stored look-ahead and refuses the edit.
+    it('sends the clamped horizon when the insight interval no longer reaches the stored one', async () => {
+        const existingAlert = makeSavedAlert({
+            id: 'alert-existing-id',
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.FUTURE_BREACH,
+                horizon: 250,
+            },
+        } as any)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValue('name', 'Renamed')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(updateSpy.mock.calls[0][1]).toMatchObject({ forecast_config: { horizon: 92 } })
+    })
+
     it('sends the forecast config when it actually changed', async () => {
         const existingAlert = makeSavedAlert({ id: 'alert-existing-id', forecast_config: null } as any)
         const logic = alertFormLogic({

@@ -36,7 +36,11 @@ import {
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
-import { resolveForecastSimulationRange, resolveHorizon } from 'products/alerts/frontend/logic/forecastReach'
+import {
+    defaultedHorizon,
+    resolveForecastSimulationRange,
+    resolveHorizon,
+} from 'products/alerts/frontend/logic/forecastReach'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 
 import {
@@ -266,14 +270,28 @@ function forecastSimulationInputs(alert: AlertFormType, dateFrom: string): strin
 }
 
 /** A stored forecast config as the editor holds it. A breach config gets the horizon the backend
- * resolves for it, so the look-ahead on screen is the one the forecast beside it used. Opening the
- * editor must not read as an edit, so the unchanged test compares against this, not the raw value. */
+ * resolves for it, kept inside the current interval's limits, so the look-ahead on screen is one
+ * the forecast beside it can use. */
 function normalizedForecastConfig(
     alert: AlertType,
     insightInterval: IntervalType | null | undefined
 ): ForecastConfig | null {
     return alert.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
         ? resolveHorizon(alert.forecast_config, insightInterval)
+        : (alert.forecast_config ?? null)
+}
+
+/** The config the server reads when a save leaves `forecast_config` out: the stored one, with only
+ * the horizon it resolves for a config saved without one. Opening the editor must not read as an
+ * edit, which is why the default is filled in here too. A stored horizon the editor had to clamp
+ * stays raw, so the clamp counts as an edit and the save carries it. Otherwise the server keeps
+ * validating a look-ahead it refuses, and every unrelated edit of the alert fails. */
+function omittableForecastConfig(
+    alert: AlertType,
+    insightInterval: IntervalType | null | undefined
+): ForecastConfig | null {
+    return alert.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
+        ? defaultedHorizon(alert.forecast_config, insightInterval)
         : (alert.forecast_config ?? null)
 }
 
@@ -727,14 +745,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw new Error(entitlementCheck.message)
                 }
 
-                // Against the resolved config, not the raw stored one. The server refuses any request
-                // that carries `forecast_config` once the flag is off, apart from a plain disable, and
-                // a config stored without a horizon would otherwise always look edited.
+                // Against the config the server would fall back to, not the raw stored one. It
+                // refuses any request that carries `forecast_config` once the flag is off, apart
+                // from a plain disable, and a config stored without a horizon would otherwise
+                // always look edited.
                 const forecastConfigUnchanged =
                     !!props.alert &&
                     objectsEqual(
                         alert.forecast_config ?? null,
-                        normalizedForecastConfig(props.alert, props.insightInterval)
+                        omittableForecastConfig(props.alert, props.insightInterval)
                     )
 
                 // The server validates every threshold it receives, while a target alert hides the
