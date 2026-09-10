@@ -18,7 +18,6 @@ from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
-from freezegun.api import freeze_time
 from parameterized import parameterized
 from requests import Response
 from rest_framework import status
