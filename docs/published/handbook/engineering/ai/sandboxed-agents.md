@@ -55,6 +55,13 @@ The agent inside the sandbox gets:
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
 
+### Run system prompts
+
+The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
+or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
+to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
+only to the task-bound sandbox, so it can initialize the agent session.
+
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:

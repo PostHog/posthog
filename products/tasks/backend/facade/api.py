@@ -2221,6 +2221,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
+        "systemPrompt",
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
