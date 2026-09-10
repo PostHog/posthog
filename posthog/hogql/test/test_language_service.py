@@ -2,7 +2,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from posthog.hogql.language_service import CatalogMissing, LanguageServiceClient, is_language_service_enabled
+import requests
+
+from posthog.hogql.language_service import (
+    CatalogMissing,
+    LanguageServiceClient,
+    LanguageServiceError,
+    is_language_service_enabled,
+)
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 
@@ -28,6 +35,9 @@ class TestLanguageServiceClient(SimpleTestCase):
         assert call.args == ("POST", "http://language-service:8091/teams/12/users/34/validate")
         assert call.kwargs["json"] == {"query": "SELECT 1"}
         assert call.kwargs["timeout"] == (0.25, 1)
+        assert call.kwargs["headers"]["X-HogQL-Affinity-Key"] == (
+            "a5c8d54c25064f11498a937f38591eba85a3e67cccc102e6c4f76bbf5377cc37"
+        )
         token = call.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
         claims = decode_jwt(
             token,
@@ -50,6 +60,15 @@ class TestLanguageServiceClient(SimpleTestCase):
 
         with self.assertRaises(CatalogMissing):
             LanguageServiceClient().autocomplete(12, 34, "SELECT ", 7)
+
+    @patch("posthog.hogql.language_service.LANGUAGE_SERVICE_HTTP_DURATION_SECONDS")
+    @patch("posthog.hogql.language_service.requests.request", side_effect=requests.Timeout("timed out"))
+    def test_records_latency_for_failed_requests(self, _request: MagicMock, duration: MagicMock) -> None:
+        with self.assertRaises(LanguageServiceError):
+            LanguageServiceClient().validate(12, 34, "SELECT 1")
+
+        duration.labels.assert_called_once_with(operation="validate")
+        duration.labels.return_value.observe.assert_called_once()
 
 
 class TestLanguageServiceFeatureFlag(SimpleTestCase):

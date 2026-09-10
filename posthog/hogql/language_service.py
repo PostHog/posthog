@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from hashlib import sha256
 from time import perf_counter
 from typing import Any
 
@@ -25,6 +26,7 @@ from posthog.taxonomy.property_access import restricted_property_names
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 FEATURE_FLAG = "hogql-language-service"
+AFFINITY_HEADER = "X-HogQL-Affinity-Key"
 
 
 class LanguageServiceError(Exception):
@@ -141,18 +143,20 @@ class LanguageServiceClient:
             signing_key=self.signing_key,
         )
         started = perf_counter()
+        affinity_key = sha256(f"{team_id}:{user_id}".encode()).hexdigest()
         try:
             response = requests.request(
                 method,
                 f"{self.base_url}/teams/{team_id}/users/{user_id}/{endpoint}",
                 json=payload,
-                headers={"Authorization": f"Bearer {token}"},
+                headers={"Authorization": f"Bearer {token}", AFFINITY_HEADER: affinity_key},
                 timeout=(0.25, timeout_seconds),
             )
         except requests.RequestException as error:
             raise LanguageServiceError(str(error)) from error
-        duration = perf_counter() - started
-        LANGUAGE_SERVICE_HTTP_DURATION_SECONDS.labels(operation=operation).observe(duration)
+        finally:
+            duration = perf_counter() - started
+            LANGUAGE_SERVICE_HTTP_DURATION_SECONDS.labels(operation=operation).observe(duration)
         LANGUAGE_SERVICE_RESPONSE_SIZE_BYTES.labels(operation=operation).observe(len(response.content))
         if response.status_code == 404:
             raise CatalogMissing("catalog not found")

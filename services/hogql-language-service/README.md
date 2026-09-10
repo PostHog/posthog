@@ -110,6 +110,9 @@ proxy by default. Production requires the `hogql-language-service` feature flag 
 On a catalog miss, Django builds the schema visible to that exact team and user, adds their visible event, person,
 session, and group properties, publishes it, and retries once. Unsupported query options and service failures use
 the existing in-process implementation. Prometheus records Django-to-service latency and response size by operation.
+Django also sends `X-HogQL-Affinity-Key`, a stable SHA-256 digest of the team and user IDs. Load balancers may hash on
+this header to route a user's catalog and language requests to the same replica; authorization still comes only from
+the signed JWT and matching path parameters.
 
 ## Rate limiting
 
