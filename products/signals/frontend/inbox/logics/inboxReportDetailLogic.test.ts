@@ -107,6 +107,21 @@ describe('inboxReportDetailLogic', () => {
                 .map(([, properties]) => [properties.action_type, properties.section, properties.signal_count])
             expect(reported).toEqual([['show_more', 'evidence', 3]])
         })
+
+        // The logic is keyed on the report, which is the only thing keeping one reader's expanded
+        // list from following them into the next report they open.
+        it('holds the expanded state per report', () => {
+            const otherReport = { ...REPORT, id: 'report-9' } as SignalReport
+            const otherLogic = inboxReportDetailLogic({ reportId: otherReport.id, report: otherReport })
+            otherLogic.mount()
+
+            logic.actions.expandEvidence()
+
+            expect(logic.values.evidenceExpanded).toBe(true)
+            expect(otherLogic.values.evidenceExpanded).toBe(false)
+
+            otherLogic.unmount()
+        })
     })
 
     describe('feedback note submission', () => {
