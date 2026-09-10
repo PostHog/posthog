@@ -21,14 +21,14 @@ each is the auditing agent's reasoning and occasionally over-claims, so re-deriv
 
 ## Ably — **thin**
 
-Today (1): `Stats`
+Today (4): `ChannelMessages`, `Channels`, `Presence`, `Stats`
 
 Diffed against: <https://raw.githubusercontent.com/ably/open-specs/main/definitions/platform-v1.yaml>
 
 - [ ] `apps (Control API GET /accounts/{account_id}/apps)` — lookup table resolving the app IDs every Stats row is scoped to (high)
-- [ ] `channels (GET /channels)` — channel enumeration with per-channel occupancy/connection/publisher counts (high)
-- [ ] `channel messages history (GET /channels/{channel_id}/messages)` — the actual message event stream, not just aggregated stats (high)
-- [ ] `presence (GET /channels/{channel_id}/presence)` — current members per channel for concurrency analysis (medium)
+- [x] `channels (GET /channels)` — channel enumeration with per-channel occupancy/connection/publisher counts (high)
+- [x] `channel messages history (GET /channels/{channel_id}/messages)` — the actual message event stream, not just aggregated stats (high)
+- [x] `presence (GET /channels/{channel_id}/presence)` — current members per channel for concurrency analysis (medium)
 - [ ] `presence history (GET /channels/{channel_id}/presence/history)` — enter/leave transition history per channel (medium)
 - [ ] `push device registrations (GET /push/deviceRegistrations)` — device inventory backing push delivery stats (medium)
 - [ ] `push channel subscriptions (GET /push/channelSubscriptions)` — membership table linking devices to channels (medium)
