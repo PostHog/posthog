@@ -63,7 +63,7 @@ const MOCK_DIRECT_INSIGHT_QUERY: DataVisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
-        query: 'SELECT id, label FROM hedgebox.ui_smoke_test ORDER BY id',
+        query: 'SELECT id, label FROM direct_source.orders ORDER BY id',
         connectionId: MOCK_DIRECT_CONNECTION_ID,
         sendRawQuery: true,
     },
